@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: radial-gradient(ellipse at top, #1e293b 0%, #0f172a 60%, #020617 100%);
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+
+.card {
+  @apply bg-slate-900/70 backdrop-blur border border-slate-700 rounded-2xl p-6 shadow-xl;
+}
+
+.btn {
+  @apply px-4 py-2 rounded-lg font-semibold transition;
+}
+.btn-primary { @apply btn bg-voxlyn-crystal text-slate-900 hover:bg-cyan-300; }
+.btn-secondary { @apply btn bg-slate-700 hover:bg-slate-600 text-white; }
+.btn-danger { @apply btn bg-rose-600 hover:bg-rose-500 text-white; }

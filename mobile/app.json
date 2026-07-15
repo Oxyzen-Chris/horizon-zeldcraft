@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Horizon ZeldCraft",
+    "slug": "horizon-zeldcraft",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": { "backgroundColor": "#0f172a" },
+    "assetBundlePatterns": ["**/*"],
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.horizonzeldcraft.app" },
+    "android": { "package": "com.horizonzeldcraft.app" },
+    "web": { "bundler": "metro" }
+  }
+}
