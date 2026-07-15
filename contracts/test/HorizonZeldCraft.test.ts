@@ -55,6 +55,18 @@ describe("HorizonZeldCraft", () => {
     expect(v.level).to.be.greaterThan(1n);
   });
 
+  it("owner can adjust cooldown", async () => {
+    await contract.connect(player).mintVoxlyn("Draco");
+    const price = await contract.feedPrice(0);
+    await contract.connect(player).feed(1, 0, { value: price });
+    await expect(contract.connect(player).feed(1, 0, { value: price }))
+      .to.be.revertedWith("feed cooldown");
+    await contract.connect(owner).setFeedCooldown(0, 0);
+    await contract.connect(player).feed(1, 0, { value: price });
+    const v = await contract.voxlyns(1);
+    expect(v.xp).to.equal(20n);
+  });
+
   it("only owner can pause", async () => {
     await expect(contract.connect(player).pause())
       .to.be.revertedWithCustomError(contract, "OwnableUnauthorizedAccount");

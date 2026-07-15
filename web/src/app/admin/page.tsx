@@ -38,6 +38,8 @@ export default function AdminPage() {
 
   const [feedIdx, setFeedIdx] = useState(0);
   const [feedNewPrice, setFeedNewPrice] = useState('0.0001');
+  const [cooldownIdx, setCooldownIdx] = useState(0);
+  const [cooldownSec, setCooldownSec] = useState('0');
 
   return (
     <main className="min-h-screen p-6 max-w-4xl mx-auto">
@@ -98,6 +100,23 @@ export default function AdminPage() {
                 onClick={() => writeContract({
                   address: contract, abi: HORIZON_ABI, functionName: 'setFeedPrice',
                   args: [feedIdx, parseEther(feedNewPrice)],
+                })}
+              >Appliquer</button>
+            </div>
+          </section>
+
+          <section className="card">
+            <h2 className="text-xl font-semibold mb-3">⏱️ Cooldowns de nourrissage (secondes)</h2>
+            <p className="text-sm text-slate-400 mb-3">Astuce : mets <code>0</code> pour désactiver un cooldown (tests). Défauts prod : Daily=72000, Weekly=518400, Monthly=2419200, Yearly=30240000.</p>
+            <div className="grid md:grid-cols-3 gap-3 mb-3">
+              <select className="input" value={cooldownIdx} onChange={e => setCooldownIdx(Number(e.target.value))}>
+                {FEED_TYPES.map((f, i) => <option key={f} value={i}>{f}</option>)}
+              </select>
+              <input className="input" placeholder="Cooldown en secondes" value={cooldownSec} onChange={e => setCooldownSec(e.target.value)} />
+              <button className="btn-primary" disabled={isPending}
+                onClick={() => writeContract({
+                  address: contract, abi: HORIZON_ABI, functionName: 'setFeedCooldown',
+                  args: [cooldownIdx, BigInt(cooldownSec)],
                 })}
               >Appliquer</button>
             </div>

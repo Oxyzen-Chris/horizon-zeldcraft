@@ -280,6 +280,17 @@ contract HorizonZeldCraft is ERC721, Ownable2Step, ReentrancyGuard, Pausable {
         emit PriceChanged(feedType, priceWei);
     }
 
+    /// @notice Ajuste la durée du cooldown entre deux repas d'un type donné.
+    ///         Utile pour tests (mettre à 0) ou événements spéciaux.
+    function setFeedCooldown(FeedType feedType, uint64 cooldownSec) external onlyOwner {
+        feedCooldown[feedType] = cooldownSec;
+    }
+
+    /// @notice Ajuste la récompense XP par type de repas.
+    function setFeedXpReward(FeedType feedType, uint32 xpReward) external onlyOwner {
+        feedXpReward[feedType] = xpReward;
+    }
+
     function setTreasury(address payable newTreasury) external onlyOwner {
         require(newTreasury != address(0), "treasury=0");
         treasury = newTreasury;
