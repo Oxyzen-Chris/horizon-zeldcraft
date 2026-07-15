@@ -73,6 +73,8 @@ export const HORIZON_ABI = [
   { type: 'function', name: 'feedCooldown', stateMutability: 'view',
     inputs: [{ name: '', type: 'uint8' }],
     outputs: [{ type: 'uint64' }] },
+  { type: 'function', name: 'treasury', stateMutability: 'view',
+    inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', name: 'withdraw', stateMutability: 'nonpayable',
     inputs: [], outputs: [] },
   { type: 'function', name: 'pause', stateMutability: 'nonpayable',

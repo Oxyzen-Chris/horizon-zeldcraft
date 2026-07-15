@@ -9,6 +9,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, FEED_TYPES, STAGE_NAMES } from '@/lib/contract';
 import { VoxlynSkin } from '@/components/VoxlynSkin';
+import { Countdown } from '@/components/Countdown';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { useI18n } from '@/lib/i18n';
@@ -126,6 +127,15 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
   const { isLoading: isMining, isSuccess: isMined } = useWaitForTransactionReceipt({ hash: txHash });
 
+  // Récupère les cooldowns configurés on-chain pour chaque type de repas
+  const cooldowns = FEED_TYPES.map((_, idx) => {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    return useReadContract({
+      address: contract, abi: HORIZON_ABI, functionName: 'feedCooldown',
+      args: [idx], query: { enabled: !!contract },
+    }).data as bigint | undefined;
+  });
+
   useEffect(() => {
     if (isMined && txHash) {
       queryClient.invalidateQueries({ queryKey: voxlynKey });
@@ -135,7 +145,8 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMined, txHash]);
 
-  const [name, , , xp, hp, happiness, hunger, level, stage] = v;
+  const [name, , lastFedAt, xp, hp, happiness, hunger, level, stage] = v;
+  const lastFed = Number(lastFedAt);
 
   const feed = (feedType: number) => {
     const price = feedPrices[feedType];
@@ -167,19 +178,28 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <section className="card md:col-span-2">
         <h3 className="text-lg font-semibold mb-4">{t('game.feed.title')}</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {FEED_TYPES.map((f, idx) => (
-            <button
-              key={f}
-              className="btn-primary flex flex-col items-center py-3"
-              disabled={isPending || isMining || !feedPrices[idx]}
-              onClick={() => feed(idx)}
-            >
-              <span className="font-bold text-sm">{t(`game.feed.${f}`)}</span>
-              <span className="text-xs opacity-70 mt-1">
-                {feedPrices[idx] ? `${formatEther(feedPrices[idx]!)} ETH` : '—'}
-              </span>
-            </button>
-          ))}
+          {FEED_TYPES.map((f, idx) => {
+            const cooldown = cooldowns[idx];
+            const nextAvailable = cooldown !== undefined ? lastFed + Number(cooldown) : 0;
+            const now = Math.floor(Date.now() / 1000);
+            const isReady = nextAvailable <= now;
+            return (
+              <button
+                key={f}
+                className="btn-primary flex flex-col items-center py-3 disabled:opacity-50"
+                disabled={isPending || isMining || !feedPrices[idx] || !isReady}
+                onClick={() => feed(idx)}
+              >
+                <span className="font-bold text-sm">{t(`game.feed.${f}`)}</span>
+                <span className="text-xs opacity-70 mt-1">
+                  {feedPrices[idx] ? `${formatEther(feedPrices[idx]!)} ETH` : '—'}
+                </span>
+                <div className="mt-1">
+                  <Countdown targetTimestamp={nextAvailable} />
+                </div>
+              </button>
+            );
+          })}
         </div>
         {txHash && (
           <p className="text-sm text-slate-400 mt-3">

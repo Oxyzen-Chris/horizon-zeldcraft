@@ -1,7 +1,7 @@
 'use client';
 
-import { useAccount, useChainId, useReadContract, useWriteContract } from 'wagmi';
-import { keccak256, toBytes, parseEther } from 'viem';
+import { useAccount, useChainId, useReadContract, useWriteContract, useBalance } from 'wagmi';
+import { keccak256, toBytes, parseEther, formatEther } from 'viem';
 import { useState } from 'react';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -20,6 +20,21 @@ export default function AdminPage() {
   const { data: ownerAddr } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'owner',
     query: { enabled: !!contract },
+  });
+
+  const { data: treasuryAddr } = useReadContract({
+    address: contract, abi: HORIZON_ABI, functionName: 'treasury',
+    query: { enabled: !!contract },
+  });
+
+  const { data: treasuryBalance } = useBalance({
+    address: treasuryAddr as `0x${string}` | undefined,
+    query: { enabled: !!treasuryAddr, refetchInterval: 15000 },
+  });
+
+  const { data: contractBalance } = useBalance({
+    address: contract,
+    query: { enabled: !!contract, refetchInterval: 15000 },
   });
 
   const isOwner = isConnected && ownerAddr && address &&
@@ -58,6 +73,33 @@ export default function AdminPage() {
         <div className="card"><p>{t('admin.notOwner')}</p></div>
       ) : (
         <div className="space-y-6">
+          <section className="card">
+            <h2 className="text-xl font-semibold mb-3">💎 Revenus du contrat</h2>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="bg-slate-800/60 rounded-lg p-4">
+                <p className="text-xs text-slate-400 uppercase tracking-wide">Solde trésorerie</p>
+                <p className="text-2xl font-bold text-emerald-400 mt-1">
+                  {treasuryBalance ? `${Number(formatEther(treasuryBalance.value)).toFixed(6)} ${treasuryBalance.symbol}` : '—'}
+                </p>
+                <p className="text-xs text-slate-500 mt-2 break-all">
+                  {treasuryAddr as string}
+                </p>
+              </div>
+              <div className="bg-slate-800/60 rounded-lg p-4">
+                <p className="text-xs text-slate-400 uppercase tracking-wide">Solde du contrat</p>
+                <p className="text-2xl font-bold text-cyan-400 mt-1">
+                  {contractBalance ? `${Number(formatEther(contractBalance.value)).toFixed(6)} ${contractBalance.symbol}` : '—'}
+                </p>
+                <p className="text-xs text-slate-500 mt-2 break-all">
+                  {contract}
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mt-3">
+              💡 Les feeds sont transférés directement à la trésorerie. Le solde du contrat n'est utilisé que pour les fonds accidentels (bouton "Retirer les fonds" ci-dessous).
+            </p>
+          </section>
+
           <section className="card">
             <h2 className="text-xl font-semibold mb-3">🛒 {t('admin.addItem')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
