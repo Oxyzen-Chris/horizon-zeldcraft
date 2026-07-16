@@ -12,6 +12,13 @@ import { VoxlynSkin } from '@/components/VoxlynSkin';
 import { Countdown } from '@/components/Countdown';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
+import { WeatherWidget } from '@/components/WeatherWidget';
+import { Scoreboard } from '@/components/Scoreboard';
+import { QuestList } from '@/components/QuestList';
+import { NpcList } from '@/components/NpcList';
+import { TreasureList } from '@/components/TreasureList';
+import { WorldList } from '@/components/WorldList';
+import { TeamsPanel } from '@/components/TeamsPanel';
 import { useI18n } from '@/lib/i18n';
 
 export default function GamePage() {
@@ -73,7 +80,8 @@ export default function GamePage() {
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
       <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <Link href="/" className="text-2xl font-bold text-voxlyn-crystal">🐉 {t('app.title')}</Link>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3 items-center">
+          {contract && <WeatherWidget contract={contract} />}
           <LanguageSwitcher />
           <NetworkSwitcher />
           <ConnectButton />
@@ -110,7 +118,7 @@ export default function GamePage() {
         <VoxlynDashboard
           tokenId={tokenId as bigint}
           v={voxlyn as any}
-          contract={contract}
+          contract={contract as `0x${string}`}
           feedPrices={feedPrices}
           voxlynKey={voxlynKey}
         />
@@ -209,6 +217,30 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
           </p>
         )}
       </section>
+
+      <div className="md:col-span-2">
+        <Scoreboard contract={contract} tokenId={tokenId} level={Number(level)} xp={Number(xp)} />
+      </div>
+
+      <div className="md:col-span-2">
+        <QuestList contract={contract} tokenId={tokenId} playerXp={Number(xp)} />
+      </div>
+
+      <div className="md:col-span-2">
+        <NpcList contract={contract} tokenId={tokenId} />
+      </div>
+
+      <div className="md:col-span-2">
+        <TreasureList contract={contract} tokenId={tokenId} />
+      </div>
+
+      <div className="md:col-span-2">
+        <WorldList contract={contract} tokenId={tokenId} playerXp={Number(xp)} />
+      </div>
+
+      <div className="md:col-span-2">
+        <TeamsPanel contract={contract} />
+      </div>
     </div>
   );
 }
