@@ -27,20 +27,27 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=horizon-zeldcraft
 NEXT_PUBLIC_FIREBASE_APP_ID=1:1234567890:web:abcdef
 ```
 
-## 3. Règles de sécurité (production)
+## 3. Activer l'authentification anonyme (OBLIGATOIRE avec les règles ci-dessous)
 
-En mode test, la base est ouverte pendant 30 jours. Pour la production, remplace par des règles limitant l'accès par équipe :
+1. Console Firebase → **Build → Authentication**
+2. Onglet **Sign-in method** → clique **Anonyme** → **Activer** → **Enregistrer**
+
+Chaque visiteur se voit attribuer un `uid` unique dès l'ouverture du chat, stocké dans son navigateur (localStorage). Les règles Firebase vérifieront qu'aucun message n'est écrit sans authentification.
+
+## 4. Règles de sécurité durcies (production, à copier-coller)
+
+Menu **Build → Realtime Database → Règles** :
 
 ```json
 {
   "rules": {
     "chats": {
       "$roomKey": {
-        ".read": true,
-        ".write": true,
+        ".read":  "auth != null",
         ".indexOn": ["ts"],
         "$msgId": {
-          ".validate": "newData.hasChildren(['sender','message','ts']) && newData.child('message').isString() && newData.child('message').val().length <= 280"
+          ".write":    "auth != null && !data.exists()",
+          ".validate": "newData.hasChildren(['uid','sender','message','ts']) && newData.child('uid').val() === auth.uid && newData.child('sender').isString() && newData.child('sender').val().matches(/^0x[a-fA-F0-9]{40}$/) && newData.child('message').isString() && newData.child('message').val().length > 0 && newData.child('message').val().length <= 280"
         }
       }
     }
@@ -48,16 +55,31 @@ En mode test, la base est ouverte pendant 30 jours. Pour la production, remplace
 }
 ```
 
-Version durcie (recommandée) : ajoute Firebase Anonymous Auth + rate limiting côté client, ou passe par un Cloud Function qui vérifie la signature wallet avant écriture.
+Clique **Publier**.
 
-## 4. Architecture
+### Ce que ces règles verrouillent
+
+| Règle | Effet |
+|---|---|
+| `.read: auth != null` | Seuls les utilisateurs authentifiés (anonymes) peuvent lire — bloque les scrapers non-auth |
+| `.write: auth != null && !data.exists()` | Nouveaux messages OK, mais **impossible d'éditer ou supprimer** un message existant |
+| `newData.child('uid').val() === auth.uid` | **Anti-spoofing** : impossible de poster au nom d'un autre `uid` |
+| `sender.matches(/^0x[a-fA-F0-9]{40}$/)` | Le champ `sender` doit être une adresse Ethereum valide (empêche `sender="admin"`) |
+| `message.length > 0 && ≤ 280` | Pas de message vide, pas de flood 10 Mo |
+| Chemin `/chats/$roomKey/$msgId` uniquement | Aucune écriture possible hors `chats/*` |
+
+### Rate limiting côté client
+
+Déjà implémenté dans `TeamsPanel.tsx` : **1 message maximum toutes les 2 secondes** par utilisateur. Si l'utilisateur essaie plus vite, l'UI affiche `⏳ Attends Xs`.
+
+## 5. Architecture
 
 - Un « salon » = clé `chats/{contractAddress}_{teamId}`
 - Chaque message = `{ sender: 0x…, message: "…", ts: <server_timestamp> }`
 - Le composant `TeamsPanel` écoute via `onValue(query(…, orderByChild('ts'), limitToLast(50)))`
 - Latence typique : **< 500 ms** en Europe
 
-## 5. Coûts
+## 6. Coûts
 
 Le plan gratuit **Spark** de Firebase couvre :
 - 100 connexions simultanées
