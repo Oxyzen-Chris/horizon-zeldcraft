@@ -1,17 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
+import { useState, useEffect, useRef } from 'react';
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
 import { HORIZON_ABI } from '@/lib/contract';
-import { parseAbiItem } from 'viem';
+import { getFirebaseDb, isFirebaseConfigured } from '@/lib/firebase';
+import { ref, push, query, orderByChild, limitToLast, onValue, off, serverTimestamp } from 'firebase/database';
 
 type Msg = { sender: string; message: string; ts: number };
 
 export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
   const { address } = useAccount();
   const queryClient = useQueryClient();
-  const publicClient = usePublicClient();
 
   const { data: teamId, queryKey } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'teamOf',
@@ -33,45 +33,63 @@ export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
   const [joinId, setJoinId] = useState('');
   const [chatMsg, setChatMsg] = useState('');
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const fbReady = isFirebaseConfigured();
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
   const { isLoading: mining, isSuccess: mined } = useWaitForTransactionReceipt({ hash: txHash });
 
   useEffect(() => {
-    if (mined) {
-      queryClient.invalidateQueries({ queryKey });
-      setChatMsg('');
-      setTimeout(() => reset(), 1000);
-    }
+    if (mined) { queryClient.invalidateQueries({ queryKey }); setTimeout(() => reset(), 1000); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mined]);
 
-  // Charge les messages du chat (events des 10 000 derniers blocs)
+  // ─── Chat temps réel via Firebase RTDB ───
   useEffect(() => {
-    if (!inTeam || !publicClient) return;
-    let cancelled = false;
-    const load = async () => {
+    if (!inTeam || !fbReady) return;
+    const db = getFirebaseDb();
+    if (!db) return;
+    const roomKey = `${contract.toLowerCase()}_${currentTeamId}`;
+    const msgsRef = query(ref(db, `chats/${roomKey}`), orderByChild('ts'), limitToLast(50));
+    const handler = onValue(msgsRef, (snap) => {
+      const list: Msg[] = [];
+      snap.forEach((child) => {
+        const v = child.val() as any;
+        if (v && typeof v.message === 'string') {
+          list.push({ sender: v.sender ?? '?', message: v.message, ts: v.ts ?? 0 });
+        }
+      });
+      list.sort((a, b) => a.ts - b.ts);
+      setMessages(list);
+      requestAnimationFrame(() => {
+        if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      });
+    });
+    return () => off(msgsRef, 'value', handler);
+  }, [inTeam, currentTeamId, contract, fbReady]);
+
+  const sendChat = async () => {
+    if (!chatMsg.trim() || !address) return;
+    if (fbReady) {
+      const db = getFirebaseDb();
+      if (!db) return;
+      setSending(true);
       try {
-        const latest = await publicClient.getBlockNumber();
-        const fromBlock = latest > 10000n ? latest - 10000n : 0n;
-        const logs = await publicClient.getLogs({
-          address: contract,
-          event: parseAbiItem('event TeamMessage(uint256 indexed teamId, address indexed sender, string message, uint64 timestamp)'),
-          args: { teamId: BigInt(currentTeamId) },
-          fromBlock, toBlock: 'latest',
+        const roomKey = `${contract.toLowerCase()}_${currentTeamId}`;
+        await push(ref(db, `chats/${roomKey}`), {
+          sender: address, message: chatMsg.slice(0, 280), ts: serverTimestamp(),
         });
-        if (cancelled) return;
-        const msgs: Msg[] = logs.map((l: any) => ({
-          sender: l.args.sender, message: l.args.message, ts: Number(l.args.timestamp),
-        }));
-        msgs.sort((a, b) => a.ts - b.ts);
-        setMessages(msgs.slice(-50));
-      } catch { /* ignore */ }
-    };
-    load();
-    const id = setInterval(load, 8000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [inTeam, currentTeamId, contract, publicClient]);
+        setChatMsg('');
+      } catch (e) { console.error(e); }
+      setSending(false);
+    } else {
+      // Fallback on-chain (lent, cher, kept for compat)
+      writeContract({
+        address: contract, abi: HORIZON_ABI, functionName: 'sendTeamMessage', args: [chatMsg],
+      });
+    }
+  };
 
   return (
     <div className="card">
@@ -113,7 +131,10 @@ export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
           <div className="flex justify-between items-center">
             <div>
               <p className="font-semibold text-cyan-300">🛡️ {(team as any)?.[0]}</p>
-              <p className="text-xs text-slate-400">ID: {currentTeamId} · {members ? (members as any[]).length : 0} membre(s)</p>
+              <p className="text-xs text-slate-400">
+                ID: {currentTeamId} · {members ? (members as any[]).length : 0} membre(s)
+                {fbReady ? ' · 🟢 Chat temps réel' : ' · 🟡 Chat on-chain (fallback)'}
+              </p>
             </div>
             <button className="btn-danger text-xs"
               disabled={isPending || mining}
@@ -122,27 +143,47 @@ export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
               })}
             >Quitter</button>
           </div>
-          <div className="bg-slate-950/60 rounded p-3 max-h-48 overflow-y-auto space-y-1 text-sm">
-            {messages.length === 0 && <p className="text-xs text-slate-500 italic">Aucun message. Sois le premier !</p>}
-            {messages.map((m, i) => (
-              <p key={i}>
-                <span className="text-cyan-400 text-xs font-mono">{m.sender.slice(0, 6)}…</span>
-                {' '}<span className="text-slate-200">{m.message}</span>
+
+          <div ref={scrollRef} className="bg-slate-950/60 rounded p-3 h-64 overflow-y-auto space-y-1 text-sm">
+            {messages.length === 0 && (
+              <p className="text-xs text-slate-500 italic">
+                {fbReady ? 'Aucun message. Sois le premier !' : 'Configure Firebase pour activer le chat temps réel (voir docs).'}
               </p>
-            ))}
+            )}
+            {messages.map((m, i) => {
+              const mine = address && m.sender.toLowerCase() === address.toLowerCase();
+              return (
+                <div key={i} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[75%] rounded-lg px-3 py-1.5 ${mine ? 'bg-emerald-700/60' : 'bg-slate-800'}`}>
+                    <p className="text-[10px] font-mono text-cyan-300">{m.sender.slice(0, 6)}…{m.sender.slice(-4)}</p>
+                    <p className="text-slate-100 whitespace-pre-wrap break-words">{m.message}</p>
+                    <p className="text-[9px] text-slate-400 text-right">
+                      {m.ts ? new Date(m.ts).toLocaleTimeString() : '⏳'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
+
           <div className="flex gap-2">
             <input value={chatMsg} onChange={e => setChatMsg(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
               placeholder="Message d'équipe (max 280 car)…" maxLength={280}
               className="flex-1 bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm" />
             <button className="btn-primary text-sm px-4"
-              disabled={!chatMsg || isPending || mining}
-              onClick={() => writeContract({
-                address: contract, abi: HORIZON_ABI, functionName: 'sendTeamMessage', args: [chatMsg],
-              })}
-            >{mining ? '⏳' : 'Envoyer'}</button>
+              disabled={!chatMsg.trim() || sending || (isPending && !fbReady) || (mining && !fbReady)}
+              onClick={sendChat}
+            >{sending || (mining && !fbReady) ? '⏳' : 'Envoyer'}</button>
           </div>
-          <p className="text-xs text-slate-500">💡 Chat on-chain — chargé toutes les 8s.</p>
+          {fbReady ? (
+            <p className="text-xs text-emerald-500">⚡ Firebase Realtime DB · latence &lt; 500 ms</p>
+          ) : (
+            <p className="text-xs text-amber-400">
+              💡 Ajoute <code>NEXT_PUBLIC_FIREBASE_*</code> dans <code>.env.local</code> pour activer le chat temps réel.
+              Sinon fallback on-chain (transaction pour chaque message).
+            </p>
+          )}
         </div>
       )}
     </div>

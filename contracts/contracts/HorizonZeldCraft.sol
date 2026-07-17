@@ -70,7 +70,15 @@ contract HorizonZeldCraft is ERC721, Ownable2Step, ReentrancyGuard, Pausable {
     mapping(uint256 => uint256) public playerScore;
 
     uint8 public difficulty;              // 0-100
-    Weather public currentWeather;
+
+    // Météo : soit override admin, soit auto-rotation pseudo-aléatoire (3×/jour)
+    Weather public manualWeather;
+    bool    public weatherOverrideActive;
+    uint256 public constant WEATHER_PERIOD = 8 hours;
+
+    // PNJ tournants : nombre max de rencontres possibles par jour et par joueur
+    uint8 public npcMaxPerDay = 4;
+    uint8 public constant NPC_SKIN_VARIANTS = 4;
 
     uint256 public nextTeamId = 1;
     mapping(uint256 => Team) public teams;
@@ -88,6 +96,7 @@ contract HorizonZeldCraft is ERC721, Ownable2Step, ReentrancyGuard, Pausable {
     event WorldDiscovered(uint256 indexed tokenId, bytes32 indexed worldId);
     event WeatherChanged(Weather newWeather);
     event DifficultyChanged(uint8 newDifficulty);
+    event NpcMaxPerDayChanged(uint8 newMax);
     event CatalogItemAdded(bytes32 indexed itemId, string label, uint256 price);
     event QuestAdded(bytes32 indexed questId, string label, uint32 xpRequired, uint32 xpReward);
     event NpcAdded(bytes32 indexed npcId, string name);
@@ -118,7 +127,51 @@ contract HorizonZeldCraft is ERC721, Ownable2Step, ReentrancyGuard, Pausable {
         feedCooldown[FeedType.Monthly] = 28 days;
         feedCooldown[FeedType.Yearly] = 350 days;
         difficulty = 50;
-        currentWeather = Weather.Sunny;
+        // Pas d'override initial → météo suivra la rotation automatique
+    }
+
+    // ═══════════════════════════════════════════════ MÉTÉO DYNAMIQUE
+    /// @notice Météo courante : override admin sinon rotation pseudo-aléatoire toutes les 8h.
+    function currentWeather() public view returns (Weather) {
+        if (weatherOverrideActive) return manualWeather;
+        uint256 seed = uint256(keccak256(abi.encodePacked(
+            block.timestamp / WEATHER_PERIOD, block.chainid, "voxlyn.weather"
+        )));
+        return Weather(seed % 6);
+    }
+
+    // ═══════════════════════════════════════════════ PNJ TOURNANTS (view helpers)
+    function _today() internal view returns (uint256) { return block.timestamp / 1 days; }
+
+    /// @notice Un PNJ est-il rencontrable aujourd'hui par ce joueur ?
+    function isNpcAvailableToday(uint256 tokenId, bytes32 npcId) public view returns (bool) {
+        if (!npcs[npcId].active) return false;
+        uint256 total = npcIds.length;
+        if (total == 0) return false;
+        if (uint256(npcMaxPerDay) >= total) return true;
+        uint256 h = uint256(keccak256(abi.encodePacked(_today(), tokenId, npcId, "voxlyn.npc")));
+        return h % total < uint256(npcMaxPerDay);
+    }
+
+    /// @notice Liste des IDs de PNJ disponibles aujourd'hui pour ce Voxlyn.
+    function todaysNpcs(uint256 tokenId) external view returns (bytes32[] memory list) {
+        uint256 n = npcIds.length;
+        uint256 count;
+        for (uint256 i = 0; i < n; i++) {
+            if (isNpcAvailableToday(tokenId, npcIds[i])) count++;
+        }
+        list = new bytes32[](count);
+        uint256 j;
+        for (uint256 i = 0; i < n; i++) {
+            if (isNpcAvailableToday(tokenId, npcIds[i])) { list[j++] = npcIds[i]; }
+        }
+    }
+
+    /// @notice Variante de skin (0..3) affichée aujourd'hui pour ce couple joueur/PNJ.
+    function npcSkinFor(uint256 tokenId, bytes32 npcId) external view returns (uint8) {
+        return uint8(uint256(keccak256(abi.encodePacked(
+            _today(), tokenId, npcId, "voxlyn.skin"
+        ))) % uint256(NPC_SKIN_VARIANTS));
     }
 
     // ═══════════════════════════════════════════════ MINT / FEED
@@ -196,6 +249,7 @@ contract HorizonZeldCraft is ERC721, Ownable2Step, ReentrancyGuard, Pausable {
         NPC memory n = npcs[npcId];
         require(n.active, "npc inactive");
         require(!npcMet[tokenId][npcId], "already met");
+        require(isNpcAvailableToday(tokenId, npcId), "not today");
         npcMet[tokenId][npcId] = true;
         voxlyns[tokenId].xp += n.xpRewardOnMeet;
         _maybeLevelUp(tokenId);
@@ -318,9 +372,22 @@ contract HorizonZeldCraft is ERC721, Ownable2Step, ReentrancyGuard, Pausable {
         difficulty = d;
         emit DifficultyChanged(d);
     }
+    /// @notice Force la météo (désactive la rotation automatique jusqu'à clearWeatherOverride).
     function setWeather(Weather w) external onlyOwner {
-        currentWeather = w;
+        manualWeather = w;
+        weatherOverrideActive = true;
         emit WeatherChanged(w);
+    }
+    /// @notice Réactive la rotation automatique (3 changements/jour).
+    function clearWeatherOverride() external onlyOwner {
+        weatherOverrideActive = false;
+        emit WeatherChanged(currentWeather());
+    }
+    /// @notice Change le nombre max de PNJ rencontrables par jour (1..10).
+    function setNpcMaxPerDay(uint8 n) external onlyOwner {
+        require(n >= 1 && n <= 10, "1-10");
+        npcMaxPerDay = n;
+        emit NpcMaxPerDayChanged(n);
     }
 
     function setFeedPrice(FeedType f, uint256 p) external onlyOwner { feedPrice[f] = p; emit PriceChanged(f, p); }

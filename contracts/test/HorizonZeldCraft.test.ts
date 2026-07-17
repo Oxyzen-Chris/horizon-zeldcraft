@@ -71,8 +71,35 @@ describe("HorizonZeldCraft v2", () => {
   it("admin sets weather and difficulty", async () => {
     await contract.setWeather(3); // Stormy
     expect(await contract.currentWeather()).to.equal(3);
+    expect(await contract.weatherOverrideActive()).to.equal(true);
+    // Rotation auto reprend
+    await contract.clearWeatherOverride();
+    expect(await contract.weatherOverrideActive()).to.equal(false);
+    const auto = await contract.currentWeather();
+    expect(Number(auto)).to.be.greaterThanOrEqual(0);
+    expect(Number(auto)).to.be.lessThan(6);
     await contract.setDifficulty(75);
     expect(await contract.difficulty()).to.equal(75);
+  });
+
+  it("npc daily rotation: subset available + skin variant", async () => {
+    await contract.connect(player).mintVoxlyn("Draco");
+    // Seed 5 NPCs
+    for (let i = 0; i < 5; i++) {
+      await contract.addNpc(id("npc." + i), "Name" + i, "Hi", 10, ethers.ZeroHash);
+    }
+    await contract.setNpcMaxPerDay(3);
+    const list = await contract.todaysNpcs(1);
+    // Approximatif : ~3 sur 5 (probabiliste, tolérance 1..5)
+    expect(list.length).to.be.greaterThan(0);
+    expect(list.length).to.be.lessThanOrEqual(5);
+    // Skin variant dans [0..3]
+    const skin = await contract.npcSkinFor(1, id("npc.0"));
+    expect(Number(skin)).to.be.greaterThanOrEqual(0);
+    expect(Number(skin)).to.be.lessThan(4);
+    // Range guard
+    await expect(contract.setNpcMaxPerDay(0)).to.be.revertedWith("1-10");
+    await expect(contract.setNpcMaxPerDay(11)).to.be.revertedWith("1-10");
   });
 
   it("teams: create, join, leave, chat", async () => {

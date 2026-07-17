@@ -71,6 +71,7 @@ export default function AdminPage() {
 
   const [difficulty, setDifficulty] = useState('50');
   const [weather, setWeather] = useState('0');
+  const [npcMax, setNpcMax] = useState('4');
 
   const [feedIdx, setFeedIdx] = useState(0);
   const [feedNewPrice, setFeedNewPrice] = useState('0.0001');
@@ -234,7 +235,11 @@ export default function AdminPage() {
 
           <section className="card">
             <h2 className="text-xl font-semibold mb-3">🌤️ Conditions météo</h2>
-            <div className="flex gap-3 items-center">
+            <p className="text-xs text-slate-400 mb-3">
+              Par défaut la météo tourne automatiquement <b>3 fois par jour</b> (toutes les 8h) via une graine pseudo-aléatoire on-chain.
+              Force une météo pour l&apos;override, ou reviens en mode auto.
+            </p>
+            <div className="flex gap-3 items-center mb-2">
               <select className="input flex-1" value={weather} onChange={e => setWeather(e.target.value)}>
                 {WEATHER.map((w, i) => <option key={i} value={i}>{w.emoji} {w.label}</option>)}
               </select>
@@ -243,7 +248,31 @@ export default function AdminPage() {
                   address: contract, abi: HORIZON_ABI, functionName: 'setWeather',
                   args: [Number(weather)],
                 })}
-              >Changer la météo</button>
+              >Forcer</button>
+              <button className="btn-secondary" disabled={isPending}
+                onClick={() => writeContract({
+                  address: contract, abi: HORIZON_ABI, functionName: 'clearWeatherOverride', args: [],
+                })}
+              >🔄 Rotation auto</button>
+            </div>
+          </section>
+
+          <section className="card">
+            <h2 className="text-xl font-semibold mb-3">🧙 Fréquence des rencontres PNJ</h2>
+            <p className="text-xs text-slate-400 mb-3">
+              Nombre max de PNJ rencontrables par joueur et par jour (1 à 10).
+              La sélection est aléatoire mais déterministe : le joueur voit un sous-ensemble différent chaque jour, avec des skins et suffixes de noms variés.
+            </p>
+            <div className="flex gap-3 items-center">
+              <input type="range" min="1" max="10" value={npcMax}
+                onChange={e => setNpcMax(e.target.value)} className="flex-1" />
+              <span className="w-20 text-center font-bold text-cyan-400">{npcMax} / jour</span>
+              <button className="btn-primary" disabled={isPending}
+                onClick={() => writeContract({
+                  address: contract, abi: HORIZON_ABI, functionName: 'setNpcMaxPerDay',
+                  args: [Number(npcMax)],
+                })}
+              >Appliquer</button>
             </div>
           </section>
 

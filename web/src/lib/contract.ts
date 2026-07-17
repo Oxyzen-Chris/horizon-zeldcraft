@@ -99,6 +99,16 @@ export const HORIZON_ABI = [
     inputs: [{ type: 'bytes32' }, { type: 'string' }, { type: 'uint32' }], outputs: [] },
   { type: 'function', name: 'setDifficulty', stateMutability: 'nonpayable', inputs: [{ type: 'uint8' }], outputs: [] },
   { type: 'function', name: 'setWeather', stateMutability: 'nonpayable', inputs: [{ type: 'uint8' }], outputs: [] },
+  { type: 'function', name: 'clearWeatherOverride', stateMutability: 'nonpayable', inputs: [], outputs: [] },
+  { type: 'function', name: 'weatherOverrideActive', stateMutability: 'view', inputs: [], outputs: [{ type: 'bool' }] },
+  { type: 'function', name: 'setNpcMaxPerDay', stateMutability: 'nonpayable', inputs: [{ type: 'uint8' }], outputs: [] },
+  { type: 'function', name: 'npcMaxPerDay', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+  { type: 'function', name: 'todaysNpcs', stateMutability: 'view',
+    inputs: [{ type: 'uint256' }], outputs: [{ type: 'bytes32[]' }] },
+  { type: 'function', name: 'isNpcAvailableToday', stateMutability: 'view',
+    inputs: [{ type: 'uint256' }, { type: 'bytes32' }], outputs: [{ type: 'bool' }] },
+  { type: 'function', name: 'npcSkinFor', stateMutability: 'view',
+    inputs: [{ type: 'uint256' }, { type: 'bytes32' }], outputs: [{ type: 'uint8' }] },
   { type: 'function', name: 'setFeedPrice', stateMutability: 'nonpayable',
     inputs: [{ type: 'uint8' }, { type: 'uint256' }], outputs: [] },
   { type: 'function', name: 'setFeedCooldown', stateMutability: 'nonpayable',
@@ -121,3 +131,8 @@ export const WEATHER = [
   { emoji: '🌙', label: 'Nuit' },
   { emoji: '❄️', label: 'Neigeux' },
 ] as const;
+
+// Skins de PNJ (4 variantes = NPC_SKIN_VARIANTS côté contrat)
+export const NPC_SKINS = ['🧙', '🧝', '🧛', '🥷'] as const;
+// Suffixes ajoutés au nom pour varier l'identité visuelle
+export const NPC_NAME_SUFFIXES = ['le Sage', 'l\'Errant', 'de l\'Ombre', 'des Cimes'] as const;
