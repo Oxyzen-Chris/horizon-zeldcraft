@@ -15,3 +15,7 @@ coverage/
 .expo/
 .expo-shared/
 web-build/
+
+# Word/Office lock files
+~$*.docx
+~$*.xlsx
