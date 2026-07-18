@@ -3,13 +3,15 @@
 import { useReadContract } from 'wagmi';
 import { HORIZON_ABI } from '@/lib/contract';
 import { useIdsList } from './useIdsList';
+import { useI18n } from '@/lib/i18n';
 
 export function TreasureList({ contract, tokenId }: { contract: `0x${string}`; tokenId: bigint }) {
+  const { t } = useI18n();
   const ids = useIdsList(contract, 'treasuresLength', 'treasureIds', 20);
   return (
     <div className="card">
-      <h3 className="text-lg font-semibold mb-3">💎 Trésors trouvés</h3>
-      {ids.length === 0 && <p className="text-sm text-slate-400">Aucun trésor défini.</p>}
+      <h3 className="text-lg font-semibold mb-3">{t('game.treasures.section')}</h3>
+      {ids.length === 0 && <p className="text-sm text-slate-400">{t('game.treasures.empty')}</p>}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {ids.map((id) => <Chest key={id} contract={contract} treasureId={id} tokenId={tokenId} />)}
       </div>

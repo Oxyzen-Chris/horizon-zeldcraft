@@ -4,12 +4,10 @@ import { useEffect } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
 import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES } from '@/lib/contract';
+import { useI18n } from '@/lib/i18n';
 
-/**
- * Affiche uniquement les PNJ rencontrables aujourd'hui (subset aléatoire quotidien).
- * Le nombre max de rencontres est configuré par l'admin via setNpcMaxPerDay (1..10).
- */
 export function NpcList({ contract, tokenId }: { contract: `0x${string}`; tokenId: bigint }) {
+  const { t } = useI18n();
   const { data: ids, queryKey: idsKey } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'todaysNpcs',
     args: [tokenId], query: { enabled: !!contract, refetchInterval: 60000 },
@@ -23,16 +21,12 @@ export function NpcList({ contract, tokenId }: { contract: `0x${string}`; tokenI
   return (
     <div className="card">
       <div className="flex justify-between items-baseline mb-3">
-        <h3 className="text-lg font-semibold">🧙 Rencontres du jour</h3>
+        <h3 className="text-lg font-semibold">{t('game.npcs.section')}</h3>
         <span className="text-xs text-slate-400">
-          {list.length} / {Number(maxPerDay ?? 4)} PNJ aujourd&apos;hui — rotation quotidienne
+          {t('game.npcs.today', { n: list.length, max: Number(maxPerDay ?? 4) })}
         </span>
       </div>
-      {list.length === 0 && (
-        <p className="text-sm text-slate-400">
-          Aucun PNJ dans les parages… Reviens demain, ils se déplacent au fil des jours !
-        </p>
-      )}
+      {list.length === 0 && <p className="text-sm text-slate-400">{t('game.npcs.empty')}</p>}
       <div className="grid md:grid-cols-2 gap-3">
         {list.map((id) => (
           <NpcCard key={id} contract={contract} npcId={id} tokenId={tokenId} idsKey={idsKey} />
@@ -45,6 +39,7 @@ export function NpcList({ contract, tokenId }: { contract: `0x${string}`; tokenI
 function NpcCard({ contract, npcId, tokenId, idsKey }: {
   contract: `0x${string}`; npcId: `0x${string}`; tokenId: bigint; idsKey: any;
 }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: n } = useReadContract({ address: contract, abi: HORIZON_ABI, functionName: 'npcs', args: [npcId] });
   const { data: skinIdx } = useReadContract({
@@ -83,7 +78,7 @@ function NpcCard({ contract, npcId, tokenId, idsKey }: {
             {displayName} {isMet && '✅'}
           </p>
           <p className="text-xs italic text-slate-400 my-1">&ldquo;{dialog}&rdquo;</p>
-          <p className="text-xs text-slate-500 mb-2">+{Number(xp)} XP à la rencontre</p>
+          <p className="text-xs text-slate-500 mb-2">{t('game.npcs.xpReward', { v: Number(xp) })}</p>
           {!isMet && (
             <button
               className="btn-primary text-xs w-full"
@@ -91,7 +86,7 @@ function NpcCard({ contract, npcId, tokenId, idsKey }: {
               onClick={() => writeContract({
                 address: contract, abi: HORIZON_ABI, functionName: 'meetNpc', args: [tokenId, npcId],
               })}
-            >{mining ? '⏳' : 'Rencontrer'}</button>
+            >{mining ? '⏳' : t('game.npcs.meet')}</button>
           )}
         </div>
       </div>

@@ -5,14 +5,16 @@ import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 
 import { useQueryClient } from '@tanstack/react-query';
 import { HORIZON_ABI } from '@/lib/contract';
 import { useIdsList } from './useIdsList';
+import { useI18n } from '@/lib/i18n';
 
 export function WorldList({ contract, tokenId, playerXp }: {
   contract: `0x${string}`; tokenId: bigint; playerXp: number;
 }) {
+  const { t } = useI18n();
   const ids = useIdsList(contract, 'worldsLength', 'worldIds', 20);
   return (
     <div className="card">
-      <h3 className="text-lg font-semibold mb-3">🗺️ Mondes à découvrir</h3>
+      <h3 className="text-lg font-semibold mb-3">{t('game.worlds.section')}</h3>
       <div className="grid md:grid-cols-2 gap-3">
         {ids.map((id) => <WorldCard key={id} contract={contract} worldId={id} tokenId={tokenId} playerXp={playerXp} />)}
       </div>
@@ -23,6 +25,7 @@ export function WorldList({ contract, tokenId, playerXp }: {
 function WorldCard({ contract, worldId, tokenId, playerXp }: {
   contract: `0x${string}`; worldId: `0x${string}`; tokenId: bigint; playerXp: number;
 }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: w } = useReadContract({ address: contract, abi: HORIZON_ABI, functionName: 'worlds', args: [worldId] });
   const { data: unlocked, queryKey } = useReadContract({
@@ -45,7 +48,7 @@ function WorldCard({ contract, worldId, tokenId, playerXp }: {
   return (
     <div className={`bg-slate-800/60 rounded-lg p-3 border ${isUnlocked ? 'border-emerald-600' : 'border-slate-600'}`}>
       <p className="font-semibold">{isUnlocked ? '🌍' : '🔒'} {name}</p>
-      <p className="text-xs text-slate-400 mb-2">Requiert {Number(xpRequired)} XP</p>
+      <p className="text-xs text-slate-400 mb-2">{t('game.worlds.xpRequired', { v: Number(xpRequired) })}</p>
       {!isUnlocked && canUnlock && (
         <button
           className="btn-primary text-xs w-full"
@@ -53,9 +56,9 @@ function WorldCard({ contract, worldId, tokenId, playerXp }: {
           onClick={() => writeContract({
             address: contract, abi: HORIZON_ABI, functionName: 'discoverWorld', args: [tokenId, worldId],
           })}
-        >{mining ? '⏳' : 'Découvrir'}</button>
+        >{mining ? '⏳' : t('game.worlds.discover')}</button>
       )}
-      {isUnlocked && <p className="text-xs text-emerald-400">✅ Débloqué</p>}
+      {isUnlocked && <p className="text-xs text-emerald-400">{t('game.worlds.unlocked')}</p>}
     </div>
   );
 }

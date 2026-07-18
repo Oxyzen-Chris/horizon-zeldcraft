@@ -16,7 +16,11 @@ async function main() {
   console.log(`✅ Déployé à : ${address}`);
 
   const id = (s: string) => ethers.id(s);
-  const hash = (s: string) => ethers.keccak256(ethers.toUtf8Bytes(s.toLowerCase().trim()));
+  // Normalisation identique côté front (contract.ts::normalizeAnswer) :
+  // minuscules + trim + suppression des accents + espaces multiples → 1
+  const normalize = (s: string) => s
+    .toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+  const hash = (s: string) => ethers.keccak256(ethers.toUtf8Bytes(normalize(s)));
   const ZERO = ethers.ZeroHash;
 
   console.log("\n🌱 Seed catalogue (boutique)...");

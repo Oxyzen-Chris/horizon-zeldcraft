@@ -6,9 +6,11 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
-import { HORIZON_ABI, FEED_TYPES, WEATHER } from '@/lib/contract';
+import { HORIZON_ABI, FEED_TYPES, WEATHER, WEATHER_KEYS, normalizeAnswer } from '@/lib/contract';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
+import { PlayerStats } from '@/components/PlayerStats';
+import { ChatHistory } from '@/components/ChatHistory';
 import { useI18n } from '@/lib/i18n';
 
 export default function AdminPage() {
@@ -18,23 +20,17 @@ export default function AdminPage() {
   const { t } = useI18n();
 
   const { data: ownerAddr } = useReadContract({
-    address: contract, abi: HORIZON_ABI, functionName: 'owner',
-    query: { enabled: !!contract },
+    address: contract, abi: HORIZON_ABI, functionName: 'owner', query: { enabled: !!contract },
   });
-
   const { data: treasuryAddr } = useReadContract({
-    address: contract, abi: HORIZON_ABI, functionName: 'treasury',
-    query: { enabled: !!contract },
+    address: contract, abi: HORIZON_ABI, functionName: 'treasury', query: { enabled: !!contract },
   });
-
   const { data: treasuryBalance } = useBalance({
     address: treasuryAddr as `0x${string}` | undefined,
     query: { enabled: !!treasuryAddr, refetchInterval: 15000 },
   });
-
   const { data: contractBalance } = useBalance({
-    address: contract,
-    query: { enabled: !!contract, refetchInterval: 15000 },
+    address: contract, query: { enabled: !!contract, refetchInterval: 15000 },
   });
 
   const isOwner = isConnected && ownerAddr && address &&
@@ -82,7 +78,8 @@ export default function AdminPage() {
     <main className="min-h-screen p-6 max-w-4xl mx-auto">
       <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <Link href="/" className="text-2xl font-bold text-voxlyn-crystal">🐉 {t('app.title')}</Link>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3 items-center">
+          <Link href="/game" className="btn-secondary text-sm">{t('admin.backToGame')}</Link>
           <LanguageSwitcher />
           <NetworkSwitcher />
           <ConnectButton />
@@ -96,58 +93,55 @@ export default function AdminPage() {
       ) : (
         <div className="space-y-6">
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">💎 Revenus du contrat</h2>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.revenue.title')}</h2>
             <div className="grid md:grid-cols-2 gap-4">
               <div className="bg-slate-800/60 rounded-lg p-4">
-                <p className="text-xs text-slate-400 uppercase tracking-wide">Solde trésorerie</p>
+                <p className="text-xs text-slate-400 uppercase tracking-wide">{t('admin.revenue.treasury')}</p>
                 <p className="text-2xl font-bold text-emerald-400 mt-1">
                   {treasuryBalance ? `${Number(formatEther(treasuryBalance.value)).toFixed(6)} ${treasuryBalance.symbol}` : '—'}
                 </p>
-                <p className="text-xs text-slate-500 mt-2 break-all">
-                  {treasuryAddr as string}
-                </p>
+                <p className="text-xs text-slate-500 mt-2 break-all">{treasuryAddr as string}</p>
               </div>
               <div className="bg-slate-800/60 rounded-lg p-4">
-                <p className="text-xs text-slate-400 uppercase tracking-wide">Solde du contrat</p>
+                <p className="text-xs text-slate-400 uppercase tracking-wide">{t('admin.revenue.contract')}</p>
                 <p className="text-2xl font-bold text-cyan-400 mt-1">
                   {contractBalance ? `${Number(formatEther(contractBalance.value)).toFixed(6)} ${contractBalance.symbol}` : '—'}
                 </p>
-                <p className="text-xs text-slate-500 mt-2 break-all">
-                  {contract}
-                </p>
+                <p className="text-xs text-slate-500 mt-2 break-all">{contract}</p>
               </div>
             </div>
-            <p className="text-xs text-slate-500 mt-3">
-              💡 Les feeds sont transférés directement à la trésorerie. Le solde du contrat n'est utilisé que pour les fonds accidentels (bouton "Retirer les fonds" ci-dessous).
-            </p>
+            <p className="text-xs text-slate-500 mt-3">{t('admin.revenue.hint')}</p>
           </section>
 
+          {contract && <PlayerStats contract={contract} />}
+          {contract && <ChatHistory contract={contract} />}
+
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">🛒 {t('admin.addItem')}</h2>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.item.title')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
-              <input className="input" placeholder="ID (ex: potion.life)" value={itemKey} onChange={e => setItemKey(e.target.value)} />
-              <input className="input" placeholder="Label" value={itemLabel} onChange={e => setItemLabel(e.target.value)} />
-              <input className="input" placeholder="Prix ETH" value={itemPrice} onChange={e => setItemPrice(e.target.value)} />
+              <input className="input" placeholder={t('admin.item.id')}    value={itemKey}   onChange={e => setItemKey(e.target.value)} />
+              <input className="input" placeholder={t('admin.item.label')} value={itemLabel} onChange={e => setItemLabel(e.target.value)} />
+              <input className="input" placeholder={t('admin.item.price')} value={itemPrice} onChange={e => setItemPrice(e.target.value)} />
             </div>
             <button className="btn-primary" disabled={isPending || !itemKey || !itemLabel}
               onClick={() => writeContract({
                 address: contract, abi: HORIZON_ABI, functionName: 'addCatalogItem',
                 args: [keccak256(toBytes(itemKey)), itemLabel, parseEther(itemPrice)],
               })}
-            >Ajouter</button>
+            >{t('admin.actions.add')}</button>
           </section>
 
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">🗡️ Ajouter une quête à énigme</h2>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.quest.title')}</h2>
             <div className="grid md:grid-cols-4 gap-3 mb-3">
-              <input className="input" placeholder="ID (ex: riddle.ice)" value={questKey} onChange={e => setQuestKey(e.target.value)} />
-              <input className="input" placeholder="Énoncé / question" value={questLabel} onChange={e => setQuestLabel(e.target.value)} />
-              <input className="input" placeholder="Réponse (minuscules)" value={questAnswer} onChange={e => setQuestAnswer(e.target.value)} />
-              <input className="input" placeholder="ID trésor lié (option.)" value={questTreasure} onChange={e => setQuestTreasure(e.target.value)} />
-              <input className="input" placeholder="XP requis" value={questReq} onChange={e => setQuestReq(e.target.value)} />
-              <input className="input" placeholder="XP récompense" value={questRew} onChange={e => setQuestRew(e.target.value)} />
-              <input className="input" placeholder="Score récompense" value={questScore} onChange={e => setQuestScore(e.target.value)} />
-              <input className="input" placeholder="Difficulté min (0-100)" value={questMinDiff} onChange={e => setQuestMinDiff(e.target.value)} />
+              <input className="input" placeholder={t('admin.quest.id')}            value={questKey}      onChange={e => setQuestKey(e.target.value)} />
+              <input className="input" placeholder={t('admin.quest.label')}         value={questLabel}    onChange={e => setQuestLabel(e.target.value)} />
+              <input className="input" placeholder={t('admin.quest.answer')}        value={questAnswer}   onChange={e => setQuestAnswer(e.target.value)} />
+              <input className="input" placeholder={t('admin.quest.treasure')}      value={questTreasure} onChange={e => setQuestTreasure(e.target.value)} />
+              <input className="input" placeholder={t('admin.quest.xpRequired')}    value={questReq}      onChange={e => setQuestReq(e.target.value)} />
+              <input className="input" placeholder={t('admin.quest.xpReward')}      value={questRew}      onChange={e => setQuestRew(e.target.value)} />
+              <input className="input" placeholder={t('admin.quest.scoreReward')}   value={questScore}    onChange={e => setQuestScore(e.target.value)} />
+              <input className="input" placeholder={t('admin.quest.minDifficulty')} value={questMinDiff}  onChange={e => setQuestMinDiff(e.target.value)} />
             </div>
             <button className="btn-primary" disabled={isPending || !questKey || !questLabel || !questAnswer}
               onClick={() => writeContract({
@@ -158,23 +152,23 @@ export default function AdminPage() {
                   Number(questReq),
                   Number(questRew),
                   Number(questScore),
-                  keccak256(toBytes(questAnswer.toLowerCase().trim())),
+                  keccak256(toBytes(normalizeAnswer(questAnswer))),
                   questTreasure ? keccak256(toBytes(questTreasure)) : ('0x' + '00'.repeat(32)) as `0x${string}`,
                   Number(questMinDiff),
                 ],
               })}
-            >Ajouter la quête</button>
-            <p className="text-xs text-slate-500 mt-2">💡 La réponse est hashée côté client, seul le hash est stocké on-chain.</p>
+            >{t('admin.quest.submit')}</button>
+            <p className="text-xs text-slate-500 mt-2">{t('admin.quest.hint')}</p>
           </section>
 
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">🧙 Ajouter un PNJ</h2>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.npc.title')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
-              <input className="input" placeholder="ID (ex: npc.zora)" value={npcKey} onChange={e => setNpcKey(e.target.value)} />
-              <input className="input" placeholder="Nom" value={npcName} onChange={e => setNpcName(e.target.value)} />
-              <input className="input" placeholder="XP donné" value={npcXp} onChange={e => setNpcXp(e.target.value)} />
-              <input className="input md:col-span-2" placeholder="Dialogue" value={npcDialog} onChange={e => setNpcDialog(e.target.value)} />
-              <input className="input" placeholder="ID quête liée (optionnel)" value={npcQuest} onChange={e => setNpcQuest(e.target.value)} />
+              <input className="input" placeholder={t('admin.npc.id')}   value={npcKey}    onChange={e => setNpcKey(e.target.value)} />
+              <input className="input" placeholder={t('admin.npc.name')} value={npcName}   onChange={e => setNpcName(e.target.value)} />
+              <input className="input" placeholder={t('admin.npc.xp')}   value={npcXp}     onChange={e => setNpcXp(e.target.value)} />
+              <input className="input md:col-span-2" placeholder={t('admin.npc.dialog')} value={npcDialog} onChange={e => setNpcDialog(e.target.value)} />
+              <input className="input" placeholder={t('admin.npc.questId')} value={npcQuest} onChange={e => setNpcQuest(e.target.value)} />
             </div>
             <button className="btn-primary" disabled={isPending || !npcKey || !npcName}
               onClick={() => writeContract({
@@ -184,141 +178,135 @@ export default function AdminPage() {
                   npcQuest ? keccak256(toBytes(npcQuest)) : ('0x' + '00'.repeat(32)) as `0x${string}`,
                 ],
               })}
-            >Ajouter le PNJ</button>
+            >{t('admin.npc.submit')}</button>
           </section>
 
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">💎 Ajouter un trésor</h2>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.treasure.title')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
-              <input className="input" placeholder="ID (ex: chest.ruby)" value={trsKey} onChange={e => setTrsKey(e.target.value)} />
-              <input className="input" placeholder="Nom" value={trsName} onChange={e => setTrsName(e.target.value)} />
-              <input className="input" placeholder="XP bonus" value={trsXp} onChange={e => setTrsXp(e.target.value)} />
+              <input className="input" placeholder={t('admin.treasure.id')}   value={trsKey}  onChange={e => setTrsKey(e.target.value)} />
+              <input className="input" placeholder={t('admin.treasure.name')} value={trsName} onChange={e => setTrsName(e.target.value)} />
+              <input className="input" placeholder={t('admin.treasure.xp')}   value={trsXp}   onChange={e => setTrsXp(e.target.value)} />
             </div>
             <button className="btn-primary" disabled={isPending || !trsKey || !trsName}
               onClick={() => writeContract({
                 address: contract, abi: HORIZON_ABI, functionName: 'addTreasure',
                 args: [keccak256(toBytes(trsKey)), trsName, Number(trsXp)],
               })}
-            >Ajouter</button>
+            >{t('admin.actions.add')}</button>
           </section>
 
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">🗺️ Ajouter un monde</h2>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.world.title')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
-              <input className="input" placeholder="ID (ex: world.stargate)" value={wldKey} onChange={e => setWldKey(e.target.value)} />
-              <input className="input" placeholder="Nom" value={wldName} onChange={e => setWldName(e.target.value)} />
-              <input className="input" placeholder="XP requis" value={wldXp} onChange={e => setWldXp(e.target.value)} />
+              <input className="input" placeholder={t('admin.world.id')}         value={wldKey}  onChange={e => setWldKey(e.target.value)} />
+              <input className="input" placeholder={t('admin.world.name')}       value={wldName} onChange={e => setWldName(e.target.value)} />
+              <input className="input" placeholder={t('admin.world.xpRequired')} value={wldXp}   onChange={e => setWldXp(e.target.value)} />
             </div>
             <button className="btn-primary" disabled={isPending || !wldKey || !wldName}
               onClick={() => writeContract({
                 address: contract, abi: HORIZON_ABI, functionName: 'addWorld',
                 args: [keccak256(toBytes(wldKey)), wldName, Number(wldXp)],
               })}
-            >Ajouter</button>
+            >{t('admin.actions.add')}</button>
           </section>
 
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">⚔️ Difficulté globale du jeu</h2>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.difficulty.title')}</h2>
             <div className="flex gap-3 items-center mb-3">
               <input type="range" min="0" max="100" value={difficulty}
                 onChange={e => setDifficulty(e.target.value)} className="flex-1" />
               <span className="w-16 text-center font-bold text-amber-400">{difficulty}/100</span>
               <button className="btn-primary" disabled={isPending}
                 onClick={() => writeContract({
-                  address: contract, abi: HORIZON_ABI, functionName: 'setDifficulty',
-                  args: [Number(difficulty)],
+                  address: contract, abi: HORIZON_ABI, functionName: 'setDifficulty', args: [Number(difficulty)],
                 })}
-              >Appliquer</button>
+              >{t('admin.actions.apply')}</button>
             </div>
-            <p className="text-xs text-slate-500">Les quêtes avec <code>minDifficulty</code> supérieur seront bloquées.</p>
+            <p className="text-xs text-slate-500">{t('admin.difficulty.hint')}</p>
           </section>
 
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">🌤️ Conditions météo</h2>
-            <p className="text-xs text-slate-400 mb-3">
-              Par défaut la météo tourne automatiquement <b>3 fois par jour</b> (toutes les 8h) via une graine pseudo-aléatoire on-chain.
-              Force une météo pour l&apos;override, ou reviens en mode auto.
-            </p>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.weather.title')}</h2>
+            <p className="text-xs text-slate-400 mb-3">{t('admin.weather.hint')}</p>
             <div className="flex gap-3 items-center mb-2">
               <select className="input flex-1" value={weather} onChange={e => setWeather(e.target.value)}>
-                {WEATHER.map((w, i) => <option key={i} value={i}>{w.emoji} {w.label}</option>)}
+                {WEATHER.map((w, i) => <option key={i} value={i}>{w.emoji} {t(`weather.${WEATHER_KEYS[i]}`)}</option>)}
               </select>
               <button className="btn-primary" disabled={isPending}
                 onClick={() => writeContract({
-                  address: contract, abi: HORIZON_ABI, functionName: 'setWeather',
-                  args: [Number(weather)],
+                  address: contract, abi: HORIZON_ABI, functionName: 'setWeather', args: [Number(weather)],
                 })}
-              >Forcer</button>
+              >{t('admin.weather.force')}</button>
               <button className="btn-secondary" disabled={isPending}
                 onClick={() => writeContract({
                   address: contract, abi: HORIZON_ABI, functionName: 'clearWeatherOverride', args: [],
                 })}
-              >🔄 Rotation auto</button>
+              >{t('admin.weather.auto')}</button>
             </div>
           </section>
 
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">🧙 Fréquence des rencontres PNJ</h2>
-            <p className="text-xs text-slate-400 mb-3">
-              Nombre max de PNJ rencontrables par joueur et par jour (1 à 10).
-              La sélection est aléatoire mais déterministe : le joueur voit un sous-ensemble différent chaque jour, avec des skins et suffixes de noms variés.
-            </p>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.npcFreq.title')}</h2>
+            <p className="text-xs text-slate-400 mb-3">{t('admin.npcFreq.hint')}</p>
             <div className="flex gap-3 items-center">
               <input type="range" min="1" max="10" value={npcMax}
                 onChange={e => setNpcMax(e.target.value)} className="flex-1" />
-              <span className="w-20 text-center font-bold text-cyan-400">{npcMax} / jour</span>
+              <span className="w-20 text-center font-bold text-cyan-400">
+                {t('admin.npcFreq.perDay', { v: npcMax })}
+              </span>
               <button className="btn-primary" disabled={isPending}
                 onClick={() => writeContract({
-                  address: contract, abi: HORIZON_ABI, functionName: 'setNpcMaxPerDay',
-                  args: [Number(npcMax)],
+                  address: contract, abi: HORIZON_ABI, functionName: 'setNpcMaxPerDay', args: [Number(npcMax)],
                 })}
-              >Appliquer</button>
+              >{t('admin.actions.apply')}</button>
             </div>
           </section>
 
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">💰 {t('admin.setPrice')}</h2>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.price.title')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
               <select className="input" value={feedIdx} onChange={e => setFeedIdx(Number(e.target.value))}>
-                {FEED_TYPES.map((f, i) => <option key={f} value={i}>{f}</option>)}
+                {FEED_TYPES.map((f, i) => <option key={f} value={i}>{t(`game.feed.${f}`)}</option>)}
               </select>
-              <input className="input" placeholder="Nouveau prix ETH" value={feedNewPrice} onChange={e => setFeedNewPrice(e.target.value)} />
+              <input className="input" placeholder={t('admin.price.value')} value={feedNewPrice} onChange={e => setFeedNewPrice(e.target.value)} />
               <button className="btn-primary" disabled={isPending}
                 onClick={() => writeContract({
                   address: contract, abi: HORIZON_ABI, functionName: 'setFeedPrice',
                   args: [feedIdx, parseEther(feedNewPrice)],
                 })}
-              >Appliquer</button>
+              >{t('admin.actions.apply')}</button>
             </div>
           </section>
 
           <section className="card">
-            <h2 className="text-xl font-semibold mb-3">⏱️ Cooldowns de nourrissage (secondes)</h2>
-            <p className="text-sm text-slate-400 mb-3">Astuce : mets <code>0</code> pour désactiver un cooldown (tests). Défauts prod : Daily=72000, Weekly=518400, Monthly=2419200, Yearly=30240000.</p>
+            <h2 className="text-xl font-semibold mb-3">{t('admin.cooldowns.title')}</h2>
+            <p className="text-sm text-slate-400 mb-3">{t('admin.cooldowns.hint')}</p>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
               <select className="input" value={cooldownIdx} onChange={e => setCooldownIdx(Number(e.target.value))}>
-                {FEED_TYPES.map((f, i) => <option key={f} value={i}>{f}</option>)}
+                {FEED_TYPES.map((f, i) => <option key={f} value={i}>{t(`game.feed.${f}`)}</option>)}
               </select>
-              <input className="input" placeholder="Cooldown en secondes" value={cooldownSec} onChange={e => setCooldownSec(e.target.value)} />
+              <input className="input" placeholder={t('admin.cooldowns.value')} value={cooldownSec} onChange={e => setCooldownSec(e.target.value)} />
               <button className="btn-primary" disabled={isPending}
                 onClick={() => writeContract({
                   address: contract, abi: HORIZON_ABI, functionName: 'setFeedCooldown',
                   args: [cooldownIdx, BigInt(cooldownSec)],
                 })}
-              >Appliquer</button>
+              >{t('admin.actions.apply')}</button>
             </div>
           </section>
 
           <section className="card flex flex-wrap gap-3">
+            <Link href="/game" className="btn-primary">{t('admin.backToGame')}</Link>
             <button className="btn-secondary" onClick={() => writeContract({
               address: contract, abi: HORIZON_ABI, functionName: 'withdraw', args: [],
-            })}>💸 {t('admin.withdraw')}</button>
+            })}>{t('admin.actions.withdraw')}</button>
             <button className="btn-danger" onClick={() => writeContract({
               address: contract, abi: HORIZON_ABI, functionName: 'pause', args: [],
-            })}>⏸ {t('admin.pause')}</button>
+            })}>{t('admin.actions.pause')}</button>
             <button className="btn-secondary" onClick={() => writeContract({
               address: contract, abi: HORIZON_ABI, functionName: 'unpause', args: [],
-            })}>▶ {t('admin.unpause')}</button>
+            })}>{t('admin.actions.unpause')}</button>
           </section>
         </div>
       )}

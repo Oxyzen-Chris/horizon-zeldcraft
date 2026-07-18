@@ -2,21 +2,23 @@
 
 import { useReadContract } from 'wagmi';
 import { HORIZON_ABI } from '@/lib/contract';
+import { useI18n } from '@/lib/i18n';
 
 export function Scoreboard({ contract, tokenId, level, xp }: {
   contract: `0x${string}`; tokenId: bigint; level: number; xp: number;
 }) {
+  const { t } = useI18n();
   const { data: score } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'playerScore',
     args: [tokenId], query: { enabled: !!contract, refetchInterval: 10000 },
   });
   return (
     <div className="card">
-      <h3 className="text-lg font-semibold mb-3">🏆 Tableau des scores</h3>
+      <h3 className="text-lg font-semibold mb-3">{t('game.scoreboard.title')}</h3>
       <div className="grid grid-cols-3 gap-3">
-        <Stat label="Score total" value={Number(score ?? 0)} color="text-yellow-400" />
-        <Stat label="Niveau"      value={level}              color="text-emerald-400" />
-        <Stat label="XP totale"   value={xp}                 color="text-purple-400" />
+        <Stat label={t('game.scoreboard.score')} value={Number(score ?? 0)} color="text-yellow-400" />
+        <Stat label={t('game.scoreboard.level')} value={level}              color="text-emerald-400" />
+        <Stat label={t('game.scoreboard.xp')}    value={xp}                 color="text-purple-400" />
       </div>
     </div>
   );

@@ -132,7 +132,43 @@ export const WEATHER = [
   { emoji: '❄️', label: 'Neigeux' },
 ] as const;
 
+// Clés i18n correspondantes (utiliser t(`weather.${WEATHER_KEYS[idx]}`))
+export const WEATHER_KEYS = ['sunny', 'cloudy', 'rainy', 'stormy', 'night', 'snowy'] as const;
+
 // Skins de PNJ (4 variantes = NPC_SKIN_VARIANTS côté contrat)
 export const NPC_SKINS = ['🧙', '🧝', '🧛', '🥷'] as const;
 // Suffixes ajoutés au nom pour varier l'identité visuelle
 export const NPC_NAME_SUFFIXES = ['le Sage', 'l\'Errant', 'de l\'Ombre', 'des Cimes'] as const;
+
+/**
+ * Normalise une réponse d'énigme : minuscules, trim, suppression des accents.
+ * Utilisé côté client ET côté script de déploiement pour garantir l'égalité des hash.
+ * Exemple : "Glacé" → "glace", "MASTER SWORD " → "master sword"
+ */
+export function normalizeAnswer(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')  // supprime les accents combinants
+    .replace(/\s+/g, ' ');             // espaces multiples → 1
+}
+
+/**
+ * Extrait un message d'erreur lisible depuis une erreur wagmi/viem.
+ * Gère les revert reasons Solidity ("wrong answer") et les custom errors.
+ */
+export function decodeContractError(err: any): string {
+  if (!err) return 'Erreur inconnue';
+  const msg = err?.shortMessage || err?.details || err?.message || String(err);
+  // Cherche un motif "reverted with the following reason:\n\nXXX" (viem)
+  const revertMatch = msg.match(/reverted with the following reason:\s*\n*\s*(.+?)(?:\n|$)/i);
+  if (revertMatch) return revertMatch[1].trim();
+  // Cherche un motif "Error: XXX"
+  const errMatch = msg.match(/reason string ['"](.+?)['"]/);
+  if (errMatch) return errMatch[1];
+  // Custom error name
+  const customMatch = msg.match(/reverted with custom error '([^(]+)/);
+  if (customMatch) return customMatch[1];
+  return msg.split('\n')[0].slice(0, 140);
+}
