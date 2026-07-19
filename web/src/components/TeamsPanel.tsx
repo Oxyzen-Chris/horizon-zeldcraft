@@ -22,7 +22,7 @@ type Msg = {
   replyToPreview?: string;
 };
 
-export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
+export function TeamsPanel({ contract, defaultName }: { contract: `0x${string}`; defaultName?: string }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const queryClient = useQueryClient();
@@ -62,8 +62,9 @@ export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('zc.displayName');
       if (saved) setDisplayName(saved);
+      else if (defaultName) setDisplayName(defaultName); // pré-remplit avec le nom du Voxlyn
     }
-  }, []);
+  }, [defaultName]);
   const saveDisplayName = () => {
     if (typeof window !== 'undefined') localStorage.setItem('zc.displayName', displayName.slice(0, 24));
     setEditingName(false);
@@ -120,6 +121,13 @@ export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
 
   const sendChat = async () => {
     if (!chatMsg.trim() || !address || !roomKey) return;
+    // Gate obligatoire : pseudo requis avant tout message
+    if (!displayName.trim()) {
+      setRateLimitMsg(t('chat.needName'));
+      setEditingName(true);
+      setTimeout(() => setRateLimitMsg(null), 3000);
+      return;
+    }
     const now = Date.now();
     if (now - lastSendAt.current < 2000 && !editing) {
       const remain = Math.ceil((2000 - (now - lastSendAt.current)) / 1000);
@@ -245,21 +253,23 @@ export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
             >{t('game.teams.leave')}</button>
           </div>
 
-          {/* Pseudo */}
-          <div className="flex gap-2 items-center text-xs">
+          {/* Pseudo (obligatoire avant de discuter) */}
+          <div className={`flex gap-2 items-center text-xs ${!displayName ? 'bg-amber-900/40 rounded p-2 border border-amber-600' : ''}`}>
             <span className="text-slate-400">👤</span>
-            {editingName ? (
+            {!displayName && <span className="text-amber-300 font-semibold">{t('chat.needName')}</span>}
+            {editingName || !displayName ? (
               <>
                 <input value={displayName} onChange={e => setDisplayName(e.target.value)}
                   maxLength={24} placeholder={t('chat.namePrompt')}
+                  autoFocus={!displayName}
                   className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs" />
-                <button className="btn-secondary text-[10px] px-2 py-1" onClick={saveDisplayName}>
+                <button className="btn-primary text-[10px] px-2 py-1" disabled={!displayName.trim()} onClick={saveDisplayName}>
                   {t('chat.saveName')}
                 </button>
               </>
             ) : (
               <button className="text-cyan-300 underline text-xs" onClick={() => setEditingName(true)}>
-                {displayName || t('chat.namePrompt')}
+                {displayName}
               </button>
             )}
           </div>

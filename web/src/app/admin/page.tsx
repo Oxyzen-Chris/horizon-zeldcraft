@@ -2,7 +2,7 @@
 
 import { useAccount, useChainId, useReadContract, useWriteContract, useBalance } from 'wagmi';
 import { keccak256, toBytes, parseEther, formatEther } from 'viem';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
@@ -73,6 +73,28 @@ export default function AdminPage() {
   const [feedNewPrice, setFeedNewPrice] = useState('0.0001');
   const [cooldownIdx, setCooldownIdx] = useState(0);
   const [cooldownSec, setCooldownSec] = useState('0');
+
+  // Récupère la valeur actuelle du prix/cooldown pour l'index sélectionné (refresh à chaque changement)
+  const { data: curFeedPrice } = useReadContract({
+    address: contract, abi: HORIZON_ABI, functionName: 'feedPrice',
+    args: [feedIdx], query: { enabled: !!contract },
+  });
+  const { data: curCooldown } = useReadContract({
+    address: contract, abi: HORIZON_ABI, functionName: 'feedCooldown',
+    args: [cooldownIdx], query: { enabled: !!contract },
+  });
+
+  // Met à jour l'input quand la valeur on-chain arrive ou quand on change de sélection
+  useEffect(() => {
+    if (curFeedPrice !== undefined) {
+      setFeedNewPrice(formatEther(curFeedPrice as bigint));
+    }
+  }, [curFeedPrice, feedIdx]);
+  useEffect(() => {
+    if (curCooldown !== undefined) {
+      setCooldownSec(String(curCooldown as bigint));
+    }
+  }, [curCooldown, cooldownIdx]);
 
   return (
     <main className="min-h-screen p-6 max-w-4xl mx-auto">

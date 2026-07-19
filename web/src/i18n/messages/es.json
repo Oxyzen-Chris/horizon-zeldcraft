@@ -5,7 +5,6 @@
   "nav.admin": "Administración",
   "nav.docs": "Documentación",
   "nav.backToGame": "← Volver al juego",
-
   "connect.title": "Bienvenido, Domador",
   "connect.description": "Conecta tu cartera para encontrar a tu Voxlyn.",
   "connect.language": "Idioma",
@@ -13,11 +12,9 @@
   "connect.button": "Conectar cartera",
   "network.sepolia": "Sepolia (test — gratis)",
   "network.mainnet": "Ethereum Mainnet (real)",
-
   "game.mint.title": "Rompe tu huevo de Voxlyn",
   "game.mint.name": "Nombre del Voxlyn",
   "game.mint.button": "Eclosionar",
-
   "game.stats.title": "Estadísticas",
   "game.stats.level": "Nivel",
   "game.stats.stage": "Etapa",
@@ -25,18 +22,15 @@
   "game.stats.hp": "Vida",
   "game.stats.hunger": "Hambre",
   "game.stats.happiness": "Felicidad",
-
   "game.feed.title": "Alimentar al Voxlyn",
   "game.feed.daily": "Comida diaria",
   "game.feed.weekly": "Festín semanal",
   "game.feed.monthly": "Banquete mensual",
   "game.feed.yearly": "Ritual anual",
-
   "game.scoreboard.title": "🏆 Tabla de puntuaciones",
   "game.scoreboard.score": "Puntuación total",
   "game.scoreboard.level": "Nivel",
   "game.scoreboard.xp": "XP total",
-
   "game.quests.section": "📜 Misiones con acertijos",
   "game.quests.empty": "Ninguna misión disponible por ahora.",
   "game.quests.placeholder": "Tu respuesta (sin acentos)…",
@@ -48,21 +42,17 @@
   "game.quests.correct": "✅ ¡Correcto! Recompensa recibida.",
   "game.quests.wrong": "❌ Respuesta incorrecta, ¡inténtalo de nuevo!",
   "game.quests.error": "❌ No se puede enviar: {msg}",
-
   "game.npcs.section": "🧙 Encuentros del día",
   "game.npcs.today": "{n} / {max} PNJ hoy — rotación diaria",
   "game.npcs.empty": "Ningún PNJ en las cercanías… ¡Vuelve mañana!",
   "game.npcs.meet": "Encontrar",
   "game.npcs.xpReward": "+{v} XP al encontrarlo",
-
   "game.treasures.section": "💎 Tesoros encontrados",
   "game.treasures.empty": "Ningún tesoro definido.",
-
   "game.worlds.section": "🗺️ Mundos por descubrir",
   "game.worlds.discover": "Descubrir",
   "game.worlds.unlocked": "✅ Desbloqueado",
   "game.worlds.xpRequired": "Requiere {v} XP",
-
   "game.teams.section": "👥 Equipo multijugador",
   "game.teams.createLabel": "Crea tu propio equipo:",
   "game.teams.namePlaceholder": "Nombre del equipo",
@@ -74,7 +64,6 @@
   "game.teams.membersCount": "{n} miembro(s)",
   "game.teams.realtime": "🟢 Chat en tiempo real",
   "game.teams.fallback": "🟡 Chat on-chain (respaldo)",
-
   "chat.empty": "Sin mensajes. ¡Sé el primero!",
   "chat.emptyNoFirebase": "Configura Firebase para activar el chat en tiempo real (ver docs).",
   "chat.placeholder": "Mensaje del equipo (máx 280 car)…",
@@ -95,7 +84,6 @@
   "chat.edited": "(editado)",
   "chat.confirmDelete": "¿Eliminar este mensaje?",
   "chat.replyPreview": "↩ {name}: {msg}",
-
   "weather.sunny": "Soleado",
   "weather.cloudy": "Nublado",
   "weather.rainy": "Lluvioso",
@@ -103,27 +91,22 @@
   "weather.night": "Noche",
   "weather.snowy": "Nevado",
   "weather.difficulty": "Dificultad: {v}/100",
-
   "stage.egg": "Huevo",
   "stage.hatched": "Eclosionado",
   "stage.juvenile": "Juvenil",
   "stage.adult": "Adulto",
   "stage.ancient": "Ancestral",
-
   "admin.title": "Panel de administración",
   "admin.notOwner": "Reservado al propietario del contrato.",
   "admin.backToGame": "🎮 Volver al juego",
-
   "admin.revenue.title": "💎 Ingresos del contrato",
   "admin.revenue.treasury": "Saldo tesorería",
   "admin.revenue.contract": "Saldo del contrato",
   "admin.revenue.hint": "💡 Las comidas se envían directamente a la tesorería.",
-
   "admin.item.title": "🛒 Añadir un artículo",
   "admin.item.id": "ID (ej: potion.life)",
   "admin.item.label": "Etiqueta",
   "admin.item.price": "Precio ETH",
-
   "admin.quest.title": "🗡️ Añadir una misión-acertijo",
   "admin.quest.id": "ID (ej: riddle.ice)",
   "admin.quest.label": "Enunciado / pregunta",
@@ -135,7 +118,6 @@
   "admin.quest.minDifficulty": "Dificultad mín (0-100)",
   "admin.quest.submit": "Añadir misión",
   "admin.quest.hint": "💡 La respuesta se hashea en el cliente; solo el hash se guarda on-chain.",
-
   "admin.npc.title": "🧙 Añadir un PNJ",
   "admin.npc.id": "ID (ej: npc.zora)",
   "admin.npc.name": "Nombre",
@@ -143,37 +125,29 @@
   "admin.npc.xp": "XP otorgado",
   "admin.npc.questId": "ID misión vinculada (opc.)",
   "admin.npc.submit": "Añadir PNJ",
-
   "admin.treasure.title": "💎 Añadir un tesoro",
   "admin.treasure.id": "ID (ej: chest.ruby)",
   "admin.treasure.name": "Nombre",
   "admin.treasure.xp": "XP bonus",
-
   "admin.world.title": "🗺️ Añadir un mundo",
   "admin.world.id": "ID (ej: world.stargate)",
   "admin.world.name": "Nombre",
   "admin.world.xpRequired": "XP requerido",
-
   "admin.difficulty.title": "⚔️ Dificultad global del juego",
   "admin.difficulty.hint": "Las misiones con minDifficulty superior estarán bloqueadas.",
-
   "admin.weather.title": "🌤️ Condiciones meteorológicas",
   "admin.weather.hint": "Por defecto la meteo rota automáticamente 3 veces al día (cada 8h) mediante una semilla pseudo-aleatoria on-chain.",
   "admin.weather.force": "Forzar",
   "admin.weather.auto": "🔄 Rotación auto",
-
   "admin.npcFreq.title": "🧙 Frecuencia de encuentros PNJ",
   "admin.npcFreq.hint": "Máx PNJ que un jugador puede encontrar al día (1 a 10). Selección aleatoria pero determinística.",
   "admin.npcFreq.perDay": "{v} / día",
-
   "admin.cooldowns.title": "⏱️ Cooldowns de alimentación (segundos)",
   "admin.cooldowns.hint": "Poner 0 para desactivar un cooldown (tests).",
   "admin.cooldowns.select": "Tipo de comida",
   "admin.cooldowns.value": "Cooldown en segundos",
-
   "admin.price.title": "💰 Modificar precio de alimentación",
   "admin.price.value": "Nuevo precio ETH",
-
   "admin.stats.title": "📊 Estadísticas por jugador",
   "admin.stats.description": "Pega la dirección de un jugador para ver su progresión.",
   "admin.stats.address": "Dirección del jugador (0x…)",
@@ -192,7 +166,6 @@
   "admin.stats.worlds": "Mundos descubiertos",
   "admin.stats.chatMessages": "Mensajes enviados",
   "admin.stats.lastFed": "Última comida",
-
   "admin.chatHistory.title": "💬 Historial de chats",
   "admin.chatHistory.description": "Consulta los mensajes enviados por un jugador en todos los equipos.",
   "admin.chatHistory.filter": "Filtrar por dirección (opcional)",
@@ -200,13 +173,11 @@
   "admin.chatHistory.empty": "No se encontraron mensajes.",
   "admin.chatHistory.room": "Sala",
   "admin.chatHistory.needsFirebase": "Firebase no configurado: historial no disponible.",
-
   "admin.actions.withdraw": "💸 Retirar fondos",
   "admin.actions.pause": "⏸ Pausar",
   "admin.actions.unpause": "▶ Reanudar",
   "admin.actions.apply": "Aplicar",
   "admin.actions.add": "Añadir",
-
   "common.loading": "Cargando…",
   "common.error": "Error",
   "common.success": "Éxito",

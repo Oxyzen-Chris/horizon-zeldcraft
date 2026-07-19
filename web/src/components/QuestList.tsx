@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient, useAccount } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
 import { HORIZON_ABI, normalizeAnswer, decodeContractError } from '@/lib/contract';
+import { markQuestSolved, getSolvedQuest, applyEffect } from '@/lib/gameState';
 import { useIdsList } from './useIdsList';
 import { useI18n } from '@/lib/i18n';
 
@@ -30,6 +31,7 @@ function QuestCard({ contract, questId, tokenId, playerXp }: {
   const [answer, setAnswer] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [solvedAnswer, setSolvedAnswer] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const publicClient = usePublicClient();
   const { address } = useAccount();
@@ -43,9 +45,21 @@ function QuestCard({ contract, questId, tokenId, playerXp }: {
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
   const { isSuccess: mined } = useWaitForTransactionReceipt({ hash: txHash });
 
+  // Charge la réponse depuis Firebase si la quête est déjà résolue (persiste au redéploiement)
   useEffect(() => {
-    if (mined) {
+    if (done && address) {
+      getSolvedQuest(address, questId).then((r) => r && setSolvedAnswer(r.answer));
+    }
+  }, [done, address, questId]);
+
+  useEffect(() => {
+    if (mined && address) {
       setFeedback(t('game.quests.correct'));
+      // Enregistre en DB la réponse pour révélation + bonus XP+force+spells
+      const normalized = normalizeAnswer(answer);
+      markQuestSolved(address, questId, normalized).catch(() => {});
+      applyEffect(address, { happiness: 5, spells: 2, wallet: 20 }).catch(() => {});
+      setSolvedAnswer(normalized);
       queryClient.invalidateQueries({ queryKey: doneKey });
       queryClient.invalidateQueries({ queryKey });
       setTimeout(() => { reset(); setFeedback(null); }, 3000);
@@ -93,6 +107,11 @@ function QuestCard({ contract, questId, tokenId, playerXp }: {
         <p className="font-semibold flex-1">{label}</p>
         {completed && <span className="text-emerald-400 text-sm ml-2">✅</span>}
       </div>
+      {completed && solvedAnswer && (
+        <p className="text-xs text-emerald-300 bg-emerald-900/20 rounded px-2 py-1 mb-2">
+          💡 {t('game.quests.answerWas')} : <b>{solvedAnswer}</b>
+        </p>
+      )}
       <p className="text-xs text-slate-400 mb-3">
         {t('game.quests.xpRequired', { v: Number(xpRequired) })} · {t('game.quests.reward', { xp: Number(xpReward), score: Number(scoreReward) })}
       </p>

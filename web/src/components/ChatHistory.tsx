@@ -23,12 +23,34 @@ type HistoryEntry = {
 export function ChatHistory({ contract }: { contract: `0x${string}` }) {
   const { t } = useI18n();
   const [filter, setFilter] = useState('');
+  const [room, setRoom] = useState('');
+  const [rooms, setRooms] = useState<{ key: string; count: number }[]>([]);
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const fbReady = isFirebaseConfigured();
 
   useEffect(() => { if (fbReady) ensureAnonSignIn(); }, [fbReady]);
+
+  // Charge la liste des salons du contrat au montage (pour peupler la dropdown)
+  useEffect(() => {
+    if (!fbReady) return;
+    (async () => {
+      await ensureAnonSignIn();
+      const db = getFirebaseDb();
+      if (!db) return;
+      const snap = await get(ref(db, 'chats'));
+      const list: { key: string; count: number }[] = [];
+      const prefix = contract.toLowerCase() + '_';
+      snap.forEach((rs) => {
+        const k = rs.key || '';
+        if (!k.startsWith(prefix)) return;
+        let c = 0; rs.forEach(() => { c++; });
+        list.push({ key: k, count: c });
+      });
+      setRooms(list.sort((a, b) => b.count - a.count));
+    })();
+  }, [fbReady, contract]);
 
   const load = async () => {
     if (!fbReady) return;
@@ -38,31 +60,45 @@ export function ChatHistory({ contract }: { contract: `0x${string}` }) {
       await ensureAnonSignIn();
       const db = getFirebaseDb();
       if (!db) { setLoading(false); return; }
-      // Récupère tous les salons du contrat courant (préfixe = contract.toLowerCase())
-      const snap = await get(ref(db, 'chats'));
       const all: HistoryEntry[] = [];
       const prefix = contract.toLowerCase() + '_';
       const filterLower = filter.trim().toLowerCase();
-      snap.forEach((roomSnap) => {
-        const roomKey = roomSnap.key || '';
-        if (!roomKey.startsWith(prefix)) return;
-        roomSnap.forEach((msgSnap) => {
+
+      // Si un salon précis est sélectionné, on lit uniquement celui-là
+      if (room) {
+        const rSnap = await get(ref(db, `chats/${room}`));
+        rSnap.forEach((msgSnap) => {
           const v = msgSnap.val() as any;
           if (!v || typeof v.message !== 'string') return;
           const sender = (v.sender ?? '').toLowerCase();
           if (filterLower && sender !== filterLower) return;
           all.push({
-            roomKey,
-            msgKey: msgSnap.key!,
-            sender: v.sender ?? '?',
-            displayName: v.displayName,
-            message: v.message,
+            roomKey: room, msgKey: msgSnap.key!, sender: v.sender ?? '?',
+            displayName: v.displayName, message: v.message,
             ts: typeof v.ts === 'number' ? v.ts : 0,
-            edited: !!v.edited,
-            deleted: !!v.deleted,
+            edited: !!v.edited, deleted: !!v.deleted,
           });
         });
-      });
+      } else {
+        const snap = await get(ref(db, 'chats'));
+        snap.forEach((roomSnap) => {
+          const roomKey = roomSnap.key || '';
+          if (!roomKey.startsWith(prefix)) return;
+          roomSnap.forEach((msgSnap) => {
+            const v = msgSnap.val() as any;
+            if (!v || typeof v.message !== 'string') return;
+            const sender = (v.sender ?? '').toLowerCase();
+            if (filterLower && sender !== filterLower) return;
+            all.push({
+              roomKey, msgKey: msgSnap.key!, sender: v.sender ?? '?',
+              displayName: v.displayName, message: v.message,
+              ts: typeof v.ts === 'number' ? v.ts : 0,
+              edited: !!v.edited, deleted: !!v.deleted,
+            });
+          });
+        });
+      }
+
       all.sort((a, b) => b.ts - a.ts);
       setEntries(all.slice(0, 500));
       setLoaded(true);
@@ -81,8 +117,12 @@ export function ChatHistory({ contract }: { contract: `0x${string}` }) {
         <p className="text-amber-400 text-sm">{t('admin.chatHistory.needsFirebase')}</p>
       ) : (
         <>
-          <div className="flex gap-2 mb-4">
-            <input className="input flex-1" placeholder={t('admin.chatHistory.filter')}
+          <div className="grid md:grid-cols-3 gap-2 mb-4">
+            <select className="input" value={room} onChange={e => setRoom(e.target.value)}>
+              <option value="">{t('admin.chatHistory.allRooms')} ({rooms.length})</option>
+              {rooms.map(r => <option key={r.key} value={r.key}>{r.key.slice(-16)} · {r.count} msg</option>)}
+            </select>
+            <input className="input" placeholder={t('admin.chatHistory.filter')}
               value={filter} onChange={e => setFilter(e.target.value)} />
             <button className="btn-primary" disabled={loading} onClick={load}>
               {loading ? '⏳' : t('admin.chatHistory.load')}

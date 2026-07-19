@@ -5,7 +5,6 @@
   "nav.admin": "Administration",
   "nav.docs": "Documentation",
   "nav.backToGame": "← Back to game",
-
   "connect.title": "Welcome, Tamer",
   "connect.description": "Connect your wallet to meet your Voxlyn.",
   "connect.language": "Language",
@@ -13,11 +12,9 @@
   "connect.button": "Connect wallet",
   "network.sepolia": "Sepolia (test — free)",
   "network.mainnet": "Ethereum Mainnet (real)",
-
   "game.mint.title": "Hatch your Voxlyn egg",
   "game.mint.name": "Voxlyn name",
   "game.mint.button": "Hatch",
-
   "game.stats.title": "Statistics",
   "game.stats.level": "Level",
   "game.stats.stage": "Stage",
@@ -25,18 +22,15 @@
   "game.stats.hp": "Health",
   "game.stats.hunger": "Hunger",
   "game.stats.happiness": "Happiness",
-
   "game.feed.title": "Feed your Voxlyn",
   "game.feed.daily": "Daily meal",
   "game.feed.weekly": "Weekly feast",
   "game.feed.monthly": "Monthly banquet",
   "game.feed.yearly": "Yearly ritual",
-
   "game.scoreboard.title": "🏆 Scoreboard",
   "game.scoreboard.score": "Total score",
   "game.scoreboard.level": "Level",
   "game.scoreboard.xp": "Total XP",
-
   "game.quests.section": "📜 Riddle quests",
   "game.quests.empty": "No quest available right now.",
   "game.quests.placeholder": "Your answer (accents ignored)…",
@@ -48,21 +42,17 @@
   "game.quests.correct": "✅ Correct! Reward received.",
   "game.quests.wrong": "❌ Wrong answer, try again!",
   "game.quests.error": "❌ Cannot submit: {msg}",
-
   "game.npcs.section": "🧙 Today's encounters",
   "game.npcs.today": "{n} / {max} NPCs today — daily rotation",
   "game.npcs.empty": "No NPCs around… Come back tomorrow, they move around!",
   "game.npcs.meet": "Meet",
   "game.npcs.xpReward": "+{v} XP on meeting",
-
   "game.treasures.section": "💎 Treasures found",
   "game.treasures.empty": "No treasure defined.",
-
   "game.worlds.section": "🗺️ Worlds to discover",
   "game.worlds.discover": "Discover",
   "game.worlds.unlocked": "✅ Unlocked",
   "game.worlds.xpRequired": "Requires {v} XP",
-
   "game.teams.section": "👥 Multiplayer team",
   "game.teams.createLabel": "Create your own team:",
   "game.teams.namePlaceholder": "Team name",
@@ -74,7 +64,6 @@
   "game.teams.membersCount": "{n} member(s)",
   "game.teams.realtime": "🟢 Real-time chat",
   "game.teams.fallback": "🟡 On-chain chat (fallback)",
-
   "chat.empty": "No messages yet. Be the first!",
   "chat.emptyNoFirebase": "Configure Firebase to enable real-time chat (see docs).",
   "chat.placeholder": "Team message (max 280 chars)…",
@@ -95,7 +84,6 @@
   "chat.edited": "(edited)",
   "chat.confirmDelete": "Delete this message?",
   "chat.replyPreview": "↩ {name}: {msg}",
-
   "weather.sunny": "Sunny",
   "weather.cloudy": "Cloudy",
   "weather.rainy": "Rainy",
@@ -103,27 +91,22 @@
   "weather.night": "Night",
   "weather.snowy": "Snowy",
   "weather.difficulty": "Difficulty: {v}/100",
-
   "stage.egg": "Egg",
   "stage.hatched": "Hatched",
   "stage.juvenile": "Juvenile",
   "stage.adult": "Adult",
   "stage.ancient": "Ancient",
-
   "admin.title": "Admin panel",
   "admin.notOwner": "Reserved to the contract owner.",
   "admin.backToGame": "🎮 Back to game",
-
   "admin.revenue.title": "💎 Contract revenue",
   "admin.revenue.treasury": "Treasury balance",
   "admin.revenue.contract": "Contract balance",
   "admin.revenue.hint": "💡 Feeds are sent directly to the treasury. The contract balance is only for accidental funds.",
-
   "admin.item.title": "🛒 Add a catalog item",
   "admin.item.id": "ID (e.g. potion.life)",
   "admin.item.label": "Label",
   "admin.item.price": "Price ETH",
-
   "admin.quest.title": "🗡️ Add a riddle quest",
   "admin.quest.id": "ID (e.g. riddle.ice)",
   "admin.quest.label": "Question / prompt",
@@ -135,7 +118,6 @@
   "admin.quest.minDifficulty": "Min difficulty (0-100)",
   "admin.quest.submit": "Add quest",
   "admin.quest.hint": "💡 The answer is hashed client-side; only the hash is stored on-chain.",
-
   "admin.npc.title": "🧙 Add an NPC",
   "admin.npc.id": "ID (e.g. npc.zora)",
   "admin.npc.name": "Name",
@@ -143,37 +125,29 @@
   "admin.npc.xp": "XP granted",
   "admin.npc.questId": "Linked quest ID (opt.)",
   "admin.npc.submit": "Add NPC",
-
   "admin.treasure.title": "💎 Add a treasure",
   "admin.treasure.id": "ID (e.g. chest.ruby)",
   "admin.treasure.name": "Name",
   "admin.treasure.xp": "XP bonus",
-
   "admin.world.title": "🗺️ Add a world",
   "admin.world.id": "ID (e.g. world.stargate)",
   "admin.world.name": "Name",
   "admin.world.xpRequired": "XP required",
-
   "admin.difficulty.title": "⚔️ Global game difficulty",
   "admin.difficulty.hint": "Quests with higher minDifficulty will be blocked.",
-
   "admin.weather.title": "🌤️ Weather conditions",
   "admin.weather.hint": "By default, weather auto-rotates 3 times per day (every 8h) via an on-chain pseudo-random seed.",
   "admin.weather.force": "Force",
   "admin.weather.auto": "🔄 Auto rotation",
-
   "admin.npcFreq.title": "🧙 NPC encounter frequency",
   "admin.npcFreq.hint": "Max NPCs a player can meet per day (1 to 10). Selection is random but deterministic.",
   "admin.npcFreq.perDay": "{v} / day",
-
   "admin.cooldowns.title": "⏱️ Feeding cooldowns (seconds)",
   "admin.cooldowns.hint": "Set 0 to disable a cooldown (testing). Prod defaults: Daily=72000, Weekly=518400, Monthly=2419200, Yearly=30240000.",
   "admin.cooldowns.select": "Feed type",
   "admin.cooldowns.value": "Cooldown in seconds",
-
   "admin.price.title": "💰 Change feeding price",
   "admin.price.value": "New price ETH",
-
   "admin.stats.title": "📊 Per-player statistics",
   "admin.stats.description": "Paste a player address to see their progression (score, solved quests, NPCs met, treasures, worlds).",
   "admin.stats.address": "Player address (0x…)",
@@ -192,7 +166,6 @@
   "admin.stats.worlds": "Worlds discovered",
   "admin.stats.chatMessages": "Messages posted",
   "admin.stats.lastFed": "Last fed",
-
   "admin.chatHistory.title": "💬 Chat history",
   "admin.chatHistory.description": "Browse messages sent by a player across all teams.",
   "admin.chatHistory.filter": "Filter by address (optional)",
@@ -200,13 +173,11 @@
   "admin.chatHistory.empty": "No messages found.",
   "admin.chatHistory.room": "Room",
   "admin.chatHistory.needsFirebase": "Firebase not configured: history unavailable.",
-
   "admin.actions.withdraw": "💸 Withdraw funds",
   "admin.actions.pause": "⏸ Pause",
   "admin.actions.unpause": "▶ Resume",
   "admin.actions.apply": "Apply",
   "admin.actions.add": "Add",
-
   "common.loading": "Loading…",
   "common.error": "Error",
   "common.success": "Success",

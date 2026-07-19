@@ -19,7 +19,11 @@ import { NpcList } from '@/components/NpcList';
 import { TreasureList } from '@/components/TreasureList';
 import { WorldList } from '@/components/WorldList';
 import { TeamsPanel } from '@/components/TeamsPanel';
+import { NpcEncounterPopup } from '@/components/NpcEncounterPopup';
+import { ShopPanel } from '@/components/ShopPanel';
+import { InventoryPanel } from '@/components/InventoryPanel';
 import { useI18n } from '@/lib/i18n';
+import { getOrCreatePlayer, subscribePlayer, logTx, applyEffect, type PlayerState } from '@/lib/gameState';
 
 export default function GamePage() {
   const { address, isConnected } = useAccount();
@@ -28,6 +32,14 @@ export default function GamePage() {
   const { t } = useI18n();
   const [name, setName] = useState('');
   const queryClient = useQueryClient();
+
+  // Détection propriétaire du contrat (pour afficher le bouton admin)
+  const { data: ownerAddr } = useReadContract({
+    address: contract, abi: HORIZON_ABI, functionName: 'owner',
+    query: { enabled: !!contract },
+  });
+  const isOwner = !!(isConnected && ownerAddr && address &&
+    (ownerAddr as string).toLowerCase() === address.toLowerCase());
 
   const { data: tokenId, queryKey: tokenIdKey } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'voxlynOf',
@@ -51,6 +63,14 @@ export default function GamePage() {
     if (isMined && txHash) {
       queryClient.invalidateQueries({ queryKey: tokenIdKey });
       queryClient.invalidateQueries({ queryKey: voxlynKey });
+      // Log en base pour facturation + création du player si mint
+      if (address) {
+        logTx(address, {
+          hash: txHash, type: 'mint', label: 'Mint Voxlyn ' + name,
+          valueEth: '0.005', timestamp: Date.now(), chainId, status: 'confirmed',
+        });
+        getOrCreatePlayer(address, name).catch(() => {});
+      }
       const timer = setTimeout(() => reset(), 1500);
       return () => clearTimeout(timer);
     }
@@ -84,6 +104,7 @@ export default function GamePage() {
           {contract && <WeatherWidget contract={contract} />}
           <LanguageSwitcher />
           <NetworkSwitcher />
+          {isOwner && <Link href="/admin" className="btn-secondary text-sm">⚙️ {t('admin.title')}</Link>}
           <ConnectButton />
         </div>
       </header>
@@ -131,9 +152,20 @@ export default function GamePage() {
 
 function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const { t } = useI18n();
+  const { address } = useAccount();
+  const chainId = useChainId();
   const queryClient = useQueryClient();
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
   const { isLoading: isMining, isSuccess: isMined } = useWaitForTransactionReceipt({ hash: txHash });
+  const [player, setPlayer] = useState<PlayerState | null>(null);
+
+  // Initialisation + abonnement temps réel au PlayerState (Firebase)
+  useEffect(() => {
+    if (!address) return;
+    getOrCreatePlayer(address, v?.[0]).catch(console.error);
+    const unsub = subscribePlayer(address, (p) => setPlayer(p));
+    return unsub;
+  }, [address, v]);
 
   // Récupère les cooldowns configurés on-chain pour chaque type de repas
   const cooldowns = FEED_TYPES.map((_, idx) => {
@@ -147,6 +179,8 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   useEffect(() => {
     if (isMined && txHash) {
       queryClient.invalidateQueries({ queryKey: voxlynKey });
+      // Recharge faim/bonheur en DB après un repas
+      if (address) applyEffect(address, { hunger: 25, happiness: 10 }).catch(() => {});
       const timer = setTimeout(() => reset(), 1500);
       return () => clearTimeout(timer);
     }
@@ -156,12 +190,25 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const [name, , lastFedAt, xp, hp, happiness, hunger, level, stage] = v;
   const lastFed = Number(lastFedAt);
 
+  // Priorité aux valeurs DB (temps réel) si dispo, sinon fallback on-chain
+  const dispHp        = player?.hp        ?? Number(hp);
+  const dispHunger    = player?.hunger    ?? Number(hunger);
+  const dispHappiness = player?.happiness ?? Number(happiness);
+
   const feed = (feedType: number) => {
     const price = feedPrices[feedType];
     if (!price) return;
     writeContract({
       address: contract, abi: HORIZON_ABI, functionName: 'feed',
       args: [tokenId, feedType], value: price,
+    }, {
+      onSuccess: (hash) => {
+        if (address) logTx(address, {
+          hash, type: 'feed', label: `Feed ${FEED_TYPES[feedType]}`,
+          valueEth: (Number(price) / 1e18).toFixed(6),
+          timestamp: Date.now(), chainId, status: 'pending',
+        }).catch(() => {});
+      }
     });
   };
 
@@ -177,10 +224,16 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       <section className="card">
         <h3 className="text-lg font-semibold mb-3">{t('game.stats.title')}</h3>
-        <Stat label={t('game.stats.xp')}        value={Number(xp)} max={10000} color="bg-purple-500" />
-        <Stat label={t('game.stats.hp')}        value={Number(hp)} max={100}   color="bg-rose-500" />
-        <Stat label={t('game.stats.hunger')}    value={Number(hunger)} max={100} color="bg-orange-500" />
-        <Stat label={t('game.stats.happiness')} value={Number(happiness)} max={100} color="bg-yellow-400" />
+        <Stat label={t('game.stats.xp')}        value={Number(xp)}      max={10000} color="bg-purple-500" />
+        <Stat label={t('game.stats.hp')}        value={dispHp}          max={100}   color="bg-rose-500" />
+        <Stat label={t('game.stats.hunger')}    value={dispHunger}      max={100}   color="bg-orange-500" />
+        <Stat label={t('game.stats.happiness')} value={dispHappiness}   max={100}   color="bg-yellow-400" />
+        <Stat label={t('game.stats.force')}     value={player?.force  ?? 10} max={100} color="bg-red-500" />
+        <Stat label={t('game.stats.spells')}    value={player?.spells ?? 5}  max={100} color="bg-indigo-500" />
+        <div className="flex justify-between text-sm mt-3 pt-3 border-t border-slate-700">
+          <span>💰 {t('game.stats.wallet')} : <b className="text-amber-400">{player?.wallet ?? 0}</b></span>
+          <span>⭐ {t('game.stats.reputation')} : <b className={((player?.reputation ?? 0) >= 0) ? 'text-emerald-400' : 'text-rose-400'}>{player?.reputation ?? 0}</b></span>
+        </div>
       </section>
 
       <section className="card md:col-span-2">
@@ -239,8 +292,19 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       </div>
 
       <div className="md:col-span-2">
-        <TeamsPanel contract={contract} />
+        <TeamsPanel contract={contract} defaultName={name} />
       </div>
+
+      <div className="md:col-span-2">
+        <InventoryPanel />
+      </div>
+
+      <div className="md:col-span-2">
+        <ShopPanel />
+      </div>
+
+      {/* Popup de rencontres PNJ aléatoires (3-5×/jour, réglable) */}
+      <NpcEncounterPopup contract={contract} tokenId={tokenId} />
     </div>
   );
 }
