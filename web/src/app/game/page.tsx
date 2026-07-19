@@ -226,7 +226,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       <section className="card">
         <h3 className="text-lg font-semibold mb-3">{t('game.stats.title')}</h3>
-        <Stat label={t('game.stats.xp')}        value={Number(xp)}          max={10000}                     color="bg-purple-500" />
+        <Stat label={t('game.stats.xp')}        value={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))}          max={10000}                     color="bg-purple-500" />
         <Stat label={t('game.stats.hp')}        value={dispHp}              max={player?.hpMax        ?? 100} color="bg-rose-500" />
         <Stat label={t('game.stats.hunger')}    value={dispHunger}          max={player?.hungerMax    ?? 100} color="bg-orange-500" />
         <Stat label={t('game.stats.happiness')} value={dispHappiness}       max={player?.happinessMax ?? 100} color="bg-yellow-400" />
@@ -274,11 +274,11 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       </section>
 
       <div className="md:col-span-2">
-        <Scoreboard contract={contract} tokenId={tokenId} level={Number(level)} xp={Number(xp)} />
+        <Scoreboard contract={contract} tokenId={tokenId} level={Number(level)} xp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       </div>
 
       <div className="md:col-span-2">
-        <QuestList contract={contract} tokenId={tokenId} playerXp={Number(xp)} />
+        <QuestList contract={contract} tokenId={tokenId} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       </div>
 
       <div className="md:col-span-2">
@@ -294,7 +294,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       </div>
 
       <div className="md:col-span-2">
-        <WorldList contract={contract} tokenId={tokenId} playerXp={Number(xp)} />
+        <WorldList contract={contract} tokenId={tokenId} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       </div>
 
       <div className="md:col-span-2">

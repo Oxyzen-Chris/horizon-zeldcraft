@@ -103,12 +103,14 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
     let forceDelta = 0;
     let spellsDelta = 0;
     let walletDelta = 0;
+    let xpBonusDelta = 0;   // Variation XP off-chain (négatif = coût du troc, positif = récompense)
     let itemName: string | undefined;
 
     if (npc.offer === 'fight') {
       const win = Math.random() > 0.4;
       outcome = win ? 'won' : 'lost';
       xpDelta = win ? npc.xp : Math.floor(npc.xp / 3);
+      xpBonusDelta = xpDelta;  // XP gagné en combat (positif)
       hpDelta = win ? -8 : -30;
       forceDelta = win ? 3 : 0;
       repDelta = win
@@ -127,6 +129,10 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           { itemId: 'spell_fire',name: '🔥 Sort de feu',   category: 'spell'  as const, effect: { spells: 25 } },
         ];
         const gift = items[Math.floor(Math.random() * items.length)];
+        // Coût du troc : entre 10 et 25 XP (dialogue "troc contre points d'expérience")
+        const cost = 10 + Math.floor(Math.random() * 16);
+        xpBonusDelta = -cost;
+        xpDelta = -cost;  // reflété dans le journal
         await addToInventory(address, { ...gift, qty: 1 });
         itemName = gift.name;
         walletDelta = 5;
@@ -134,9 +140,11 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
       }
     } else if (npc.offer === 'quest') {
       spellsDelta = 3;
+      xpBonusDelta = xpDelta;
       repDelta = r.questAccepted;
     } else {
       xpDelta = Math.floor(npc.xp / 2);
+      xpBonusDelta = xpDelta;
       repDelta = npc.alignment === 'friendly' ? r.chatFriendly
               : npc.alignment === 'hostile'   ? r.chatHostile
               : r.chatNeutral;
@@ -145,6 +153,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
     await applyEffect(address, {
       hp: hpDelta, force: forceDelta, spells: spellsDelta,
       reputation: repDelta, wallet: walletDelta, happiness: 5,
+      xpBonus: xpBonusDelta,
     });
     await logEncounter(address, {
       npcId: npc.key, npcName: npc.name, npcSkin: npc.skin,

@@ -38,6 +38,7 @@ export interface PlayerState {
   spellsMax: number;
   reputation: number;      // positif = notoriété (rencontres bienveillantes), négatif = mauvaise réputation (combats perdus, vol)
   wallet: number;
+  xpBonus?: number;        // XP off-chain accumulé (peut être négatif après un troc coûteux)
   sleeping?: boolean;      // vrai pendant le sommeil forcé (HP ≤ 20)
   lastTick?: number;
   createdAt?: number;
@@ -185,6 +186,7 @@ export async function applyEffect(address: string, delta: Partial<PlayerState> &
     spellsMax,
     reputation: (cur.reputation ?? 0) + (delta.reputation ?? 0),
     wallet:     Math.max(0, (cur.wallet ?? 100) + (delta.wallet ?? 0)),
+    xpBonus:    (cur.xpBonus ?? 0) + (delta.xpBonus ?? 0),
     lastTick:   Date.now(),
     updatedAt:  Date.now(),
   };
