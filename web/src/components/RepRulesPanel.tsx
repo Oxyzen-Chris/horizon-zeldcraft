@@ -53,6 +53,8 @@ export function RepRulesPanel() {
     { key: 'chatNeutral',        labelKey: 'admin.repRules.chatNeutral' },
     { key: 'chatHostile',        labelKey: 'admin.repRules.chatHostile' },
     { key: 'theftMaxWallet',     labelKey: 'admin.repRules.theftMaxWallet' },
+    { key: 'theftMaxPct',        labelKey: 'admin.repRules.theftMaxPct' },
+    { key: 'theftMaxItems',      labelKey: 'admin.repRules.theftMaxItems' },
   ];
 
   return (

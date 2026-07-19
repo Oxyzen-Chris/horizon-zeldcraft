@@ -228,5 +228,14 @@
   "scoreboard.level": "Nivel",
   "scoreboard.score": "Puntuación",
   "scoreboard.player": "Jugador",
-  "game.scoreboard.viewRanking": "Ver clasificación"
+  "game.scoreboard.viewRanking": "Ver clasificación",
+  "game.wallet.title": "Cartera",
+  "game.wallet.topUp": "Recargar",
+  "admin.repRules.theftMaxItems": "Robo mochila — cantidad máx de objetos",
+  "admin.repRules.theftMaxPct": "Robo cartera — % máx del saldo (por defecto 5)",
+  "game.wallet.topUpHint": "Compra moneda del juego pagando en ETH. Presets preconfigurados.",
+  "game.wallet.confirming": "Confirmando on-chain…",
+  "game.wallet.balance": "Saldo moneda del juego",
+  "game.shop.resellAt": "Revender a",
+  "game.wallet.signing": "Firmando en Metamask…"
 }

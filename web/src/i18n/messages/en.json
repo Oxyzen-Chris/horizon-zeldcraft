@@ -228,5 +228,14 @@
   "scoreboard.level": "Level",
   "scoreboard.score": "Score",
   "scoreboard.player": "Player",
-  "game.scoreboard.viewRanking": "View ranking"
+  "game.scoreboard.viewRanking": "View ranking",
+  "game.wallet.title": "Wallet",
+  "game.wallet.topUp": "Top up",
+  "admin.repRules.theftMaxItems": "Bag theft — max item quantity",
+  "admin.repRules.theftMaxPct": "Wallet theft — max % of balance (default 5)",
+  "game.wallet.topUpHint": "Buy game currency by paying in ETH. Pre-configured presets.",
+  "game.wallet.confirming": "Confirming on-chain…",
+  "game.wallet.balance": "Game currency balance",
+  "game.shop.resellAt": "Resell at",
+  "game.wallet.signing": "Signing in Metamask…"
 }

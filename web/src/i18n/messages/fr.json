@@ -264,5 +264,14 @@
   "scoreboard.level": "Niveau",
   "scoreboard.score": "Score",
   "scoreboard.player": "Joueur",
-  "game.scoreboard.viewRanking": "Voir le classement"
+  "game.scoreboard.viewRanking": "Voir le classement",
+  "game.wallet.title": "Portefeuille",
+  "game.wallet.topUp": "Recharger",
+  "admin.repRules.theftMaxItems": "Vol besace — quantité max d'objets",
+  "admin.repRules.theftMaxPct": "Vol wallet — % max du solde (défaut 5)",
+  "game.wallet.topUpHint": "Achète de la monnaie du jeu en payant en ETH. Presets pré-configurés.",
+  "game.wallet.confirming": "Confirmation on-chain en cours…",
+  "game.wallet.balance": "Solde monnaie du jeu",
+  "game.shop.resellAt": "Revente à",
+  "game.wallet.signing": "Signature dans Metamask…"
 }

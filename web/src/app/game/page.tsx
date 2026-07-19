@@ -23,6 +23,7 @@ import { NpcEncounterPopup } from '@/components/NpcEncounterPopup';
 import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
+import { WalletPanel } from '@/components/WalletPanel';
 import { SleepModal } from '@/components/SleepModal';
 import { useI18n } from '@/lib/i18n';
 import { getOrCreatePlayer, subscribePlayer, logTx, applyEffect, type PlayerState } from '@/lib/gameState';
@@ -299,6 +300,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       <div className="md:col-span-2">
         <TeamsPanel contract={contract} defaultName={name} />
+      </div>
+
+      <div className="md:col-span-2">
+        <WalletPanel contract={contract} wallet={player?.wallet ?? 0} />
       </div>
 
       <div className="md:col-span-2">

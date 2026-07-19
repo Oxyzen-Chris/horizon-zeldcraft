@@ -375,8 +375,10 @@ export interface RepRules {
   chatFriendly: number;      // Discussion PNJ amical
   chatNeutral: number;       // Discussion PNJ neutre
   chatHostile: number;       // Discussion PNJ hostile (négatif)
-  // Vol maxi lors d'un faux troc (borne haute du tirage 20..N)
-  theftMaxWallet: number;
+  // Vol lors d'un faux troc
+  theftMaxWallet: number;    // Plafond absolu (borne dure) en monnaie du jeu
+  theftMaxPct: number;       // Pourcentage max du solde pouvant être volé (défaut 5%)
+  theftMaxItems: number;     // Quantité max d'objets pouvant être volés d'un coup (défaut 1)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -392,6 +394,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   chatNeutral: 1,
   chatHostile: -2,
   theftMaxWallet: 50,
+  theftMaxPct: 5,
+  theftMaxItems: 1,
 };
 
 export async function getRepRules(): Promise<RepRules> {

@@ -120,8 +120,9 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         : r.fightLoss;
     } else if (npc.offer === 'trade') {
       if (npc.alignment === 'hostile') {
-        // Vol hostile : soit une fraction du wallet (30-60%) plafonnée par r.theftMaxWallet,
-        // soit un objet aléatoire de la besace (jamais l'intégralité de l'un ou de l'autre).
+        // Vol hostile paramétrable via admin :
+        //   - Wallet : min(theftMaxWallet, wallet × theftMaxPct/100)
+        //   - Besace : jusqu'à theftMaxItems retirés
         const stealFromBag = Math.random() < 0.5;
         let stolenItemName: string | undefined;
         if (stealFromBag) {
@@ -132,16 +133,17 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
             const stealable = inv ? Object.entries(inv).filter(([, it]) => it.qty > 0) : [];
             if (stealable.length > 0) {
               const [itemId, it] = stealable[Math.floor(Math.random() * stealable.length)];
-              await removeFromInventory(address, itemId, 1);
-              stolenItemName = it.name;
+              const maxQty = Math.max(1, r.theftMaxItems ?? 1);
+              const qtyStolen = Math.min(it.qty, maxQty);
+              await removeFromInventory(address, itemId, qtyStolen);
+              stolenItemName = qtyStolen > 1 ? `${it.name} ×${qtyStolen}` : it.name;
             }
           }
         }
         if (!stolenItemName) {
-          // Fallback wallet si besace vide (ou tirage wallet) — vol de 30 à 60% du solde
           const cur = await getOrCreatePlayer(address);
-          const pct = 0.3 + Math.random() * 0.3;
-          const stolen = Math.min(r.theftMaxWallet, Math.max(5, Math.floor(cur.wallet * pct)));
+          const pct = Math.max(0, r.theftMaxPct ?? 5) / 100;
+          const stolen = Math.min(r.theftMaxWallet, Math.max(1, Math.floor(cur.wallet * pct)));
           walletDelta = -stolen;
         } else {
           itemName = `-${stolenItemName}`;
