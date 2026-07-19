@@ -7,7 +7,7 @@ import jsPDF from 'jspdf';
 import { HORIZON_ABI, STAGE_NAMES } from '@/lib/contract';
 import { useI18n } from '@/lib/i18n';
 import { useIdsList } from './useIdsList';
-import { listPlayers, getPlayer, getTxs, type PlayerState, type TxRecord } from '@/lib/gameState';
+import { listPlayers, getPlayer, getTxs, getNpcsMetCount, type PlayerState, type TxRecord } from '@/lib/gameState';
 
 const ETHERSCAN_TX: Record<number, string> = {
   1: 'https://etherscan.io/tx/',
@@ -89,6 +89,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const [dbPlayer, setDbPlayer] = useState<PlayerState | null>(null);
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [loadingTxs, setLoadingTxs] = useState(false);
+  const [npcsMetFb, setNpcsMetFb] = useState(0);
 
   useEffect(() => {
     listPlayers().then(setPlayers).catch(() => {});
@@ -141,12 +142,14 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     setTarget(val as `0x${string}`);
     setLoadingTxs(true);
     // Charge parallèlement DB player, Firebase txs et Etherscan history
-    const [p, dbTxs, chainTxs] = await Promise.all([
+    const [p, dbTxs, chainTxs, npcCount] = await Promise.all([
       getPlayer(val),
       getTxs(val),
       fetchEtherscanTxs(chainId, val, contract),
+      getNpcsMetCount(val),
     ]);
     setDbPlayer(p);
+    setNpcsMetFb(npcCount);
     // Merge dédupliqué par hash (préférence DB pour le label riche)
     const map = new Map<string, TxRecord>();
     chainTxs.forEach(t => map.set(t.hash.toLowerCase(), t));
@@ -252,7 +255,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
           <StatRow label={t('admin.stats.xp')} value={String(Number((voxlyn as any)[3]))} color="text-purple-400" />
           <StatRow label={t('admin.stats.stage')} value={t(`stage.${STAGE_NAMES[Number((voxlyn as any)[8])]}`)} />
           <StatRow label={t('admin.stats.questsSolved')} value={`${count(qRes)} / ${questIds.length}`} color="text-cyan-400" />
-          <StatRow label={t('admin.stats.npcsMet')} value={`${count(nRes)} / ${npcIdsAll.length}`} color="text-cyan-400" />
+          <StatRow label={t('admin.stats.npcsMet')} value={`${Math.max(count(nRes), npcsMetFb)} / ${npcIdsAll.length}`} color="text-cyan-400" />
           <StatRow label={t('admin.stats.treasures')} value={`${count(tRes)} / ${treasureIds.length}`} color="text-cyan-400" />
           <StatRow label={t('admin.stats.worlds')} value={`${count(wRes)} / ${worldIds.length}`} color="text-cyan-400" />
           <StatRow label={t('admin.stats.lastFed')}

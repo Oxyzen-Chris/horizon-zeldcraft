@@ -92,120 +92,136 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, maxPerDay, current, chainId]);
 
-  const close = () => setCurrent(null);
+  const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const close = () => { setCurrent(null); setErrorMsg(null); };
 
   const accept = async () => {
-    if (!current || !address) return;
+    if (!current || !address || busy) return;
+    setBusy(true);
+    setErrorMsg(null);
     const npc = current;
-    const r = rules ?? (await getRepRules());
-    let outcome: EncounterRecord['outcome'] = 'accepted';
-    let xpDelta = npc.xp;
-    let repDelta = 0;
-    let hpDelta = 0;
-    let forceDelta = 0;
-    let spellsDelta = 0;
-    let walletDelta = 0;
-    let xpBonusDelta = 0;   // Variation XP off-chain (négatif = coût du troc, positif = récompense)
-    let itemName: string | undefined;
+    try {
+      const r = rules ?? (await getRepRules());
+      let outcome: EncounterRecord['outcome'] = 'accepted';
+      let xpDelta = npc.xp;
+      let repDelta = 0;
+      let hpDelta = 0;
+      let forceDelta = 0;
+      let spellsDelta = 0;
+      let walletDelta = 0;
+      let xpBonusDelta = 0;
+      let itemName: string | undefined;
 
-    if (npc.offer === 'fight') {
-      const win = Math.random() > 0.4;
-      outcome = win ? 'won' : 'lost';
-      xpDelta = win ? npc.xp : Math.floor(npc.xp / 3);
-      xpBonusDelta = xpDelta;  // XP gagné en combat (positif)
-      hpDelta = win ? -8 : -30;
-      forceDelta = win ? 3 : 0;
-      repDelta = win
-        ? (npc.alignment === 'hostile' ? r.fightWinHostile : r.fightWinNormal)
-        : r.fightLoss;
-    } else if (npc.offer === 'trade') {
-      if (npc.alignment === 'hostile') {
-        // Vol hostile paramétrable via admin :
-        //   - Wallet : min(theftMaxWallet, wallet × theftMaxPct/100)
-        //   - Besace : jusqu'à theftMaxItems retirés
-        const stealFromBag = Math.random() < 0.5;
-        let stolenItemName: string | undefined;
-        if (stealFromBag) {
-          const db = getFirebaseDb();
-          if (db) {
-            const invSnap = await get(ref(db, `players/${address.toLowerCase()}/inventory`));
-            const inv = invSnap.val() as Record<string, { name: string; qty: number }> | null;
-            const stealable = inv ? Object.entries(inv).filter(([, it]) => it.qty > 0) : [];
-            if (stealable.length > 0) {
-              const [itemId, it] = stealable[Math.floor(Math.random() * stealable.length)];
-              const maxQty = Math.max(1, r.theftMaxItems ?? 1);
-              const qtyStolen = Math.min(it.qty, maxQty);
-              await removeFromInventory(address, itemId, qtyStolen);
-              stolenItemName = qtyStolen > 1 ? `${it.name} ×${qtyStolen}` : it.name;
+      if (npc.offer === 'fight') {
+        const win = Math.random() > 0.4;
+        outcome = win ? 'won' : 'lost';
+        xpDelta = win ? npc.xp : Math.floor(npc.xp / 3);
+        xpBonusDelta = xpDelta;
+        hpDelta = win ? -8 : -30;
+        forceDelta = win ? 3 : 0;
+        repDelta = win
+          ? (npc.alignment === 'hostile' ? r.fightWinHostile : r.fightWinNormal)
+          : r.fightLoss;
+      } else if (npc.offer === 'trade') {
+        if (npc.alignment === 'hostile') {
+          const stealFromBag = Math.random() < 0.5;
+          let stolenItemName: string | undefined;
+          if (stealFromBag) {
+            const db = getFirebaseDb();
+            if (db) {
+              const invSnap = await get(ref(db, `players/${address.toLowerCase()}/inventory`));
+              const inv = invSnap.val() as Record<string, { name: string; qty: number }> | null;
+              const stealable = inv ? Object.entries(inv).filter(([, it]) => it.qty > 0) : [];
+              if (stealable.length > 0) {
+                const [itemId, it] = stealable[Math.floor(Math.random() * stealable.length)];
+                const maxQty = Math.max(1, r.theftMaxItems ?? 1);
+                const qtyStolen = Math.min(it.qty, maxQty);
+                await removeFromInventory(address, itemId, qtyStolen);
+                stolenItemName = qtyStolen > 1 ? `${it.name} ×${qtyStolen}` : it.name;
+              }
             }
           }
-        }
-        if (!stolenItemName) {
-          const cur = await getOrCreatePlayer(address);
-          const pct = Math.max(0, r.theftMaxPct ?? 5) / 100;
-          const stolen = Math.min(r.theftMaxWallet, Math.max(1, Math.floor(cur.wallet * pct)));
-          walletDelta = -stolen;
+          if (!stolenItemName) {
+            const cur = await getOrCreatePlayer(address);
+            const pct = Math.max(0, r.theftMaxPct ?? 5) / 100;
+            const stolen = Math.min(r.theftMaxWallet, Math.max(1, Math.floor(cur.wallet * pct)));
+            walletDelta = -stolen;
+          } else {
+            itemName = `-${stolenItemName}`;
+          }
+          repDelta = r.tradeHostileTheft;
+          outcome = 'lost';
         } else {
-          itemName = `-${stolenItemName}`;
+          const items = [
+            { itemId: 'potion_hp', name: '🧪 Potion de vie', category: 'potion' as const, effect: { hp: 40 } },
+            { itemId: 'apple',     name: '🍎 Pomme',         category: 'food'   as const, effect: { hunger: 10 } },
+            { itemId: 'spell_fire',name: '🔥 Sort de feu',   category: 'spell'  as const, effect: { spells: 25 } },
+          ];
+          const gift = items[Math.floor(Math.random() * items.length)];
+          const cost = 10 + Math.floor(Math.random() * 16);
+          xpBonusDelta = -cost;
+          xpDelta = -cost;
+          await addToInventory(address, { ...gift, qty: 1 });
+          itemName = gift.name;
+          walletDelta = 5;
+          repDelta = npc.alignment === 'friendly' ? r.tradeFriendly : r.tradeNeutral;
         }
-        repDelta = r.tradeHostileTheft;
-        outcome = 'lost';
+      } else if (npc.offer === 'quest') {
+        spellsDelta = 3;
+        xpBonusDelta = xpDelta;
+        repDelta = r.questAccepted;
       } else {
-        const items = [
-          { itemId: 'potion_hp', name: '🧪 Potion de vie', category: 'potion' as const, effect: { hp: 40 } },
-          { itemId: 'apple',     name: '🍎 Pomme',         category: 'food'   as const, effect: { hunger: 10 } },
-          { itemId: 'spell_fire',name: '🔥 Sort de feu',   category: 'spell'  as const, effect: { spells: 25 } },
-        ];
-        const gift = items[Math.floor(Math.random() * items.length)];
-        // Coût du troc : entre 10 et 25 XP (dialogue "troc contre points d'expérience")
-        const cost = 10 + Math.floor(Math.random() * 16);
-        xpBonusDelta = -cost;
-        xpDelta = -cost;  // reflété dans le journal
-        await addToInventory(address, { ...gift, qty: 1 });
-        itemName = gift.name;
-        walletDelta = 5;
-        repDelta = npc.alignment === 'friendly' ? r.tradeFriendly : r.tradeNeutral;
+        xpDelta = Math.floor(npc.xp / 2);
+        xpBonusDelta = xpDelta;
+        repDelta = npc.alignment === 'friendly' ? r.chatFriendly
+                : npc.alignment === 'hostile'   ? r.chatHostile
+                : r.chatNeutral;
       }
-    } else if (npc.offer === 'quest') {
-      spellsDelta = 3;
-      xpBonusDelta = xpDelta;
-      repDelta = r.questAccepted;
-    } else {
-      xpDelta = Math.floor(npc.xp / 2);
-      xpBonusDelta = xpDelta;
-      repDelta = npc.alignment === 'friendly' ? r.chatFriendly
-              : npc.alignment === 'hostile'   ? r.chatHostile
-              : r.chatNeutral;
-    }
 
-    await applyEffect(address, {
-      hp: hpDelta, force: forceDelta, spells: spellsDelta,
-      reputation: repDelta, wallet: walletDelta, happiness: 5,
-      xpBonus: xpBonusDelta,
-    });
-    await logEncounter(address, {
-      npcId: npc.key, npcName: npc.name, npcSkin: npc.skin,
-      alignment: npc.alignment, offer: npc.offer,
-      timestamp: Date.now(), outcome, xpGained: xpDelta,
-      itemName, walletDelta, hpDelta, repDelta,
-    });
-    close();
+      await applyEffect(address, {
+        hp: hpDelta, force: forceDelta, spells: spellsDelta,
+        reputation: repDelta, wallet: walletDelta, happiness: 5,
+        xpBonus: xpBonusDelta,
+      });
+      await logEncounter(address, {
+        npcId: npc.key, npcName: npc.name, npcSkin: npc.skin,
+        alignment: npc.alignment, offer: npc.offer,
+        timestamp: Date.now(), outcome, xpGained: xpDelta,
+        itemName, walletDelta, hpDelta, repDelta,
+      });
+      close();
+    } catch (e: any) {
+      console.error('[NpcEncounter] accept failed:', e);
+      setErrorMsg('❌ ' + (e?.message?.slice(0, 120) ?? 'Erreur inconnue'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const refuse = async () => {
-    if (!current || !address) return;
-    await logEncounter(address, {
-      npcId: current.key, npcName: current.name, npcSkin: current.skin,
-      alignment: current.alignment, offer: current.offer,
-      timestamp: Date.now(), outcome: 'refused', xpGained: 0,
-    });
-    close();
+    if (!current || !address || busy) return;
+    setBusy(true);
+    setErrorMsg(null);
+    try {
+      await logEncounter(address, {
+        npcId: current.key, npcName: current.name, npcSkin: current.skin,
+        alignment: current.alignment, offer: current.offer,
+        timestamp: Date.now(), outcome: 'refused', xpGained: 0,
+      });
+      close();
+    } catch (e: any) {
+      console.error('[NpcEncounter] refuse failed:', e);
+      setErrorMsg('❌ ' + (e?.message?.slice(0, 120) ?? 'Erreur inconnue'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   if (!current) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={close}>
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => !busy && close()}>
       <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
         <div className="text-center">
           <div className="text-6xl mb-3">{NPC_SKINS[current.skin]}</div>
@@ -219,9 +235,14 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           </div>
         </div>
         <p className="text-sm text-slate-300 mt-4 text-center">{t(`npc.dialogue.${OFFER_KEYS[current.offer]}`, { name: current.name })}</p>
+        {errorMsg && <p className="text-xs text-rose-400 mt-3 text-center">{errorMsg}</p>}
         <div className="flex gap-3 mt-5">
-          <button className="btn-primary flex-1" onClick={accept}>{t('npc.accept')}</button>
-          <button className="btn-secondary flex-1" onClick={refuse}>{t('npc.refuse')}</button>
+          <button className="btn-primary flex-1 disabled:opacity-50" disabled={busy} onClick={accept}>
+            {busy ? '⏳' : t('npc.accept')}
+          </button>
+          <button className="btn-secondary flex-1 disabled:opacity-50" disabled={busy} onClick={refuse}>
+            {t('npc.refuse')}
+          </button>
         </div>
       </div>
     </div>

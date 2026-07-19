@@ -274,6 +274,20 @@ export async function getEncounters(address: string, limit = 50): Promise<Encoun
   return Object.values(v).sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
 }
 
+/** Nombre de PNJ uniques rencontrés (encounters non refusées). Source unique de vérité pour game + admin. */
+export async function getNpcsMetCount(address: string): Promise<number> {
+  const db = getFirebaseDb();
+  if (!db) return 0;
+  const snap = await get(ref(db, `players/${KEY(address)}/encounters`));
+  const v = snap.val() as Record<string, EncounterRecord> | null;
+  if (!v) return 0;
+  const uniq = new Set<string>();
+  for (const e of Object.values(v)) {
+    if (e.outcome !== 'refused') uniq.add(e.npcId);
+  }
+  return uniq.size;
+}
+
 // ────────────────────────────────────── Quests solved ──────────────────────────────────────
 
 /** Enregistre la réponse d'une quête résolue (pour l'afficher au joueur). */
