@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAccount, useReadContract, useChainId } from 'wagmi';
 import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES } from '@/lib/contract';
-import { applyEffect, logEncounter, addToInventory, type EncounterRecord } from '@/lib/gameState';
+import { applyEffect, logEncounter, addToInventory, getRepRules, type EncounterRecord, type RepRules } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 
 /**
@@ -57,7 +57,13 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const { address } = useAccount();
   const chainId = useChainId();
   const [current, setCurrent] = useState<PopupNpc | null>(null);
+  const [rules, setRules] = useState<RepRules | null>(null);
   const timerRef = useRef<any>(null);
+
+  // Charge les règles de reconnaissance paramétrables (admin)
+  useEffect(() => {
+    getRepRules().then(setRules).catch(() => {});
+  }, []);
 
   const { data: maxPerDay } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'npcMaxPerDay',
@@ -89,6 +95,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const accept = async () => {
     if (!current || !address) return;
     const npc = current;
+    const r = rules ?? (await getRepRules());
     let outcome: EncounterRecord['outcome'] = 'accepted';
     let xpDelta = npc.xp;
     let repDelta = 0;
@@ -98,23 +105,21 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
     let walletDelta = 0;
 
     if (npc.offer === 'fight') {
-      // Résolution de combat : win = +rep +force, loss = -rep -hp
       const win = Math.random() > 0.4;
       outcome = win ? 'won' : 'lost';
       xpDelta = win ? npc.xp : Math.floor(npc.xp / 3);
       hpDelta = win ? -8 : -30;
       forceDelta = win ? 3 : 0;
-      // Rép : rép si le PNJ était hostile (voleur/combattant) → chargée émotionnellement
-      repDelta = win ? (npc.alignment === 'hostile' ? 8 : 4) : -6;
+      repDelta = win
+        ? (npc.alignment === 'hostile' ? r.fightWinHostile : r.fightWinNormal)
+        : r.fightLoss;
     } else if (npc.offer === 'trade') {
       if (npc.alignment === 'hostile') {
-        // Voleur déguisé en marchand : perte de wallet + rép fortement négative
-        const stolen = Math.min(50, 20 + Math.floor(Math.random() * 30));
+        const stolen = Math.min(r.theftMaxWallet, 20 + Math.floor(Math.random() * Math.max(1, r.theftMaxWallet - 20)));
         walletDelta = -stolen;
-        repDelta = -5;
+        repDelta = r.tradeHostileTheft;
         outcome = 'lost';
       } else {
-        // Vrai marchand : cadeau + rép positive
         const items = [
           { itemId: 'potion_hp', name: '🧪 Potion de vie', category: 'potion' as const, effect: { hp: 40 } },
           { itemId: 'apple',     name: '🍎 Pomme',         category: 'food'   as const, effect: { hunger: 10 } },
@@ -123,15 +128,16 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         const gift = items[Math.floor(Math.random() * items.length)];
         await addToInventory(address, { ...gift, qty: 1 });
         walletDelta = 5;
-        repDelta = npc.alignment === 'friendly' ? 4 : 2;
+        repDelta = npc.alignment === 'friendly' ? r.tradeFriendly : r.tradeNeutral;
       }
     } else if (npc.offer === 'quest') {
       spellsDelta = 3;
-      repDelta = 5; // bonne rencontre : promesse d'aventure
+      repDelta = r.questAccepted;
     } else {
-      // chat : bonheur + rép selon alignement
       xpDelta = Math.floor(npc.xp / 2);
-      repDelta = npc.alignment === 'friendly' ? 3 : npc.alignment === 'hostile' ? -2 : 1;
+      repDelta = npc.alignment === 'friendly' ? r.chatFriendly
+              : npc.alignment === 'hostile'   ? r.chatHostile
+              : r.chatNeutral;
     }
 
     await applyEffect(address, {

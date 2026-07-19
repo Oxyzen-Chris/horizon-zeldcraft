@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient, useAccount } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
 import { HORIZON_ABI, normalizeAnswer, decodeContractError } from '@/lib/contract';
-import { markQuestSolved, getSolvedQuest, applyEffect } from '@/lib/gameState';
+import { markQuestSolved, getSolvedQuest, applyEffect, getRepRules } from '@/lib/gameState';
 import { useIdsList } from './useIdsList';
 import { useI18n } from '@/lib/i18n';
 
@@ -58,9 +58,9 @@ function QuestCard({ contract, questId, tokenId, playerXp }: {
       // Enregistre en DB la réponse pour révélation + bonus étendu (bonheur, force, sorts, faim, wallet)
       const normalized = normalizeAnswer(answer);
       markQuestSolved(address, questId, normalized).catch(() => {});
-      applyEffect(address, {
-        happiness: 8, force: 2, spells: 3, hunger: 5, wallet: 25, reputation: 2,
-      }).catch(() => {});
+      getRepRules().then(r => applyEffect(address, {
+        happiness: 8, force: 2, spells: 3, hunger: 5, wallet: 25, reputation: r.questSolved,
+      })).catch(() => {});
       setSolvedAnswer(normalized);
       queryClient.invalidateQueries({ queryKey: doneKey });
       queryClient.invalidateQueries({ queryKey });

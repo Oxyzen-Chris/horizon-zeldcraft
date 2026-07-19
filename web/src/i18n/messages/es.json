@@ -185,5 +185,21 @@
   "common.cancel": "Cancelar",
   "sleep.hint": "Sin acciones durante el descanso. Compra super-frascos para evitarlo.",
   "sleep.title": "Tu Voxlyn está agotado...",
-  "sleep.description": "Vida bajo 20/100. El descanso forzado restaura 75 puntos de vida."
+  "sleep.description": "Vida bajo 20/100. El descanso forzado restaura 75 puntos de vida.",
+  "admin.repRules.reset": "Valores por defecto restaurados",
+  "admin.repRules.chatHostile": "Charla con PNJ hostil",
+  "admin.repRules.description": "Ajusta cuántos puntos de reputación se ganan o pierden en encuentros aleatorios con PNJ. Valores negativos permitidos. Guardado en Firebase (catalog/repRules).",
+  "admin.repRules.tradeNeutral": "Trueque con mercader neutral",
+  "admin.repRules.chatFriendly": "Charla con PNJ amistoso",
+  "admin.repRules.resetBtn": "Restaurar valores por defecto",
+  "admin.repRules.chatNeutral": "Charla con PNJ neutral",
+  "admin.repRules.fightWinHostile": "Victoria vs ladrón/hostil",
+  "admin.repRules.title": "Reglas de reputación (encuentros)",
+  "admin.repRules.fightWinNormal": "Victoria en combate normal",
+  "admin.repRules.fightLoss": "Derrota en combate",
+  "admin.repRules.tradeHostileTheft": "Robo por falso mercader",
+  "admin.repRules.theftMaxWallet": "Robo máximo (cartera)",
+  "admin.repRules.questAccepted": "Misión PNJ aceptada",
+  "admin.repRules.questSolved": "Enigma resuelto",
+  "admin.repRules.tradeFriendly": "Trueque con mercader amigo"
 }

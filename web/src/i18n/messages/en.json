@@ -185,5 +185,21 @@
   "common.cancel": "Cancel",
   "sleep.hint": "No actions during sleep. Buy super-potions to avoid this next time.",
   "sleep.title": "Your Voxlyn is exhausted...",
-  "sleep.description": "HP dropped below 20/100. Forced rest restores 75 HP."
+  "sleep.description": "HP dropped below 20/100. Forced rest restores 75 HP.",
+  "admin.repRules.reset": "Defaults restored",
+  "admin.repRules.chatHostile": "Chat w/ hostile NPC",
+  "admin.repRules.description": "Adjust how many reputation points are gained or lost during random NPC encounters. Negative values allowed. Stored in Firebase (catalog/repRules), read on every popup.",
+  "admin.repRules.tradeNeutral": "Trade w/ neutral merchant",
+  "admin.repRules.chatFriendly": "Chat w/ friendly NPC",
+  "admin.repRules.resetBtn": "Restore defaults",
+  "admin.repRules.chatNeutral": "Chat w/ neutral NPC",
+  "admin.repRules.fightWinHostile": "Win vs thief/hostile",
+  "admin.repRules.title": "Reputation rules (encounters)",
+  "admin.repRules.fightWinNormal": "Win normal fight",
+  "admin.repRules.fightLoss": "Fight loss",
+  "admin.repRules.tradeHostileTheft": "Theft by fake merchant",
+  "admin.repRules.theftMaxWallet": "Max theft (wallet)",
+  "admin.repRules.questAccepted": "NPC quest accepted",
+  "admin.repRules.questSolved": "Riddle solved",
+  "admin.repRules.tradeFriendly": "Trade w/ friendly merchant"
 }

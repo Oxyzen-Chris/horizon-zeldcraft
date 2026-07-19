@@ -334,7 +334,6 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'fish',      name: '🐟 Poisson',            category: 'food',    priceGame: 12, effect: { hunger: 25 },              active: true },
   { itemId: 'potion_hp', name: '🧪 Potion de vie',      category: 'potion',  priceGame: 30, effect: { hp: 40 },                  active: true },
   { itemId: 'potion_sp', name: '💫 Potion de mana',     category: 'potion',  priceGame: 40, effect: { spells: 15 },              active: true },
-  // ─── Super-fioles (augmentent DÉFINITIVEMENT le plafond max de la stat)
   { itemId: 'super_hp',      name: '🩸 Super-fiole de Vie (+100 max)',    category: 'super_potion', priceGame: 400, effect: { maxHp: 100, hp: 100 },        active: true },
   { itemId: 'super_force',   name: '💪 Super-fiole de Force (+100 max)',   category: 'super_potion', priceGame: 500, effect: { maxForce: 100, force: 50 },  active: true },
   { itemId: 'super_spells',  name: '🔮 Super-fiole de Sortilèges (+100 max)', category: 'super_potion', priceGame: 500, effect: { maxSpells: 100, spells: 50 }, active: true },
@@ -348,3 +347,56 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'montgolf',  name: '🎈 Montgolfière',       category: 'vehicle', priceGame: 800, effect: {},                          active: true },
   { itemId: 'mototaupe', name: '⛏️ Moto-taupe',         category: 'vehicle', priceGame: 700, effect: {},                          active: true },
 ];
+
+// ─────────────────────────────────────── Rep rules ───────────────────────────────────────
+
+/**
+ * Barème de reconnaissance appliqué à chaque type de rencontre PNJ.
+ * Chargé au démarrage du popup, paramétrable via le menu admin.
+ * Clé RTDB : catalog/repRules
+ */
+export interface RepRules {
+  fightWinHostile: number;   // Victoire contre voleur/combattant hostile
+  fightWinNormal: number;    // Victoire combat normal
+  fightLoss: number;         // Défaite combat (négatif)
+  tradeFriendly: number;     // Marchand ami (troc)
+  tradeNeutral: number;      // Marchand neutre
+  tradeHostileTheft: number; // Faux marchand = voleur qui te pique (négatif)
+  questAccepted: number;     // Quête PNJ acceptée
+  questSolved: number;       // Énigme résolue (bonus front QuestList)
+  chatFriendly: number;      // Discussion PNJ amical
+  chatNeutral: number;       // Discussion PNJ neutre
+  chatHostile: number;       // Discussion PNJ hostile (négatif)
+  // Vol maxi lors d'un faux troc (borne haute du tirage 20..N)
+  theftMaxWallet: number;
+}
+
+export const DEFAULT_REP_RULES: RepRules = {
+  fightWinHostile: 8,
+  fightWinNormal: 4,
+  fightLoss: -6,
+  tradeFriendly: 4,
+  tradeNeutral: 2,
+  tradeHostileTheft: -5,
+  questAccepted: 5,
+  questSolved: 2,
+  chatFriendly: 3,
+  chatNeutral: 1,
+  chatHostile: -2,
+  theftMaxWallet: 50,
+};
+
+export async function getRepRules(): Promise<RepRules> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_REP_RULES;
+  const snap = await get(ref(db, 'catalog/repRules'));
+  const v = snap.val() as Partial<RepRules> | null;
+  return { ...DEFAULT_REP_RULES, ...(v || {}) };
+}
+
+export async function setRepRules(rules: RepRules): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/repRules'), rules);
+}

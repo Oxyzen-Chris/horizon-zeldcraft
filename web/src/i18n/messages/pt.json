@@ -185,5 +185,21 @@
   "common.cancel": "Cancelar",
   "sleep.hint": "Sem ações durante o sono. Compre super-frascos para evitar isso.",
   "sleep.title": "Seu Voxlyn está exausto...",
-  "sleep.description": "Vida abaixo de 20/100. O descanso forçado restaura 75 HP."
+  "sleep.description": "Vida abaixo de 20/100. O descanso forçado restaura 75 HP.",
+  "admin.repRules.reset": "Padrões restaurados",
+  "admin.repRules.chatHostile": "Conversa com PNJ hostil",
+  "admin.repRules.description": "Ajuste quantos pontos de reputação são ganhos ou perdidos em encontros aleatórios com PNJs. Valores negativos permitidos. Salvo no Firebase (catalog/repRules).",
+  "admin.repRules.tradeNeutral": "Troca com mercador neutro",
+  "admin.repRules.chatFriendly": "Conversa com PNJ amistoso",
+  "admin.repRules.resetBtn": "Restaurar padrões",
+  "admin.repRules.chatNeutral": "Conversa com PNJ neutro",
+  "admin.repRules.fightWinHostile": "Vitória vs ladrão/hostil",
+  "admin.repRules.title": "Regras de reputação (encontros)",
+  "admin.repRules.fightWinNormal": "Vitória em combate normal",
+  "admin.repRules.fightLoss": "Derrota em combate",
+  "admin.repRules.tradeHostileTheft": "Roubo por falso mercador",
+  "admin.repRules.theftMaxWallet": "Roubo máximo (carteira)",
+  "admin.repRules.questAccepted": "Missão PNJ aceita",
+  "admin.repRules.questSolved": "Enigma resolvido",
+  "admin.repRules.tradeFriendly": "Troca com mercador amigo"
 }

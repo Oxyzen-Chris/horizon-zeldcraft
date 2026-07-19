@@ -88,11 +88,25 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 📊 **Statistiques par joueur** : dropdown de tous les joueurs enregistrés, stats on-chain (quêtes/PNJ/trésors/mondes) + stats off-chain (force/spells/rep/wallet)
 - 📄 **Génération de factures PDF** par joueur (jsPDF) — en-tête = contrat + wallet joueur + réseau, tableau des transactions on-chain avec liens Etherscan
 - 💬 **Historique chat** avec dropdown de tous les salons
+- ⭐ **Barème de reconnaissance paramétrable** : ajuste tous les gains/pertes de rep par type de rencontre (victoire hostile, victoire normale, défaite, troc ami/neutre, vol par faux marchand, quête, chat…) + montant max de vol
 - 🎮 Modifier prix + cooldowns de nourrissage (bug de rafraîchissement corrigé)
 - ⚔️ Difficulté globale + météo forcée + fréquence PNJ (1–10/jour)
 - 🧙 Ajouter/gérer quêtes énigmes, PNJ, trésors, mondes, items catalogue
 - ⏸️ Pause/Unpause + retrait de fonds
 - ↩️ Bouton « Retour au jeu »
+
+### Système de progression (v2.3)
+- **Plafonds dynamiques** par joueur : HP/Force/Sorts démarrent à 100/100 et peuvent monter jusqu'à 300/300 via super-fioles (`super_hp` +100 max, `super_force` +100 max, `super_spells` +100 max, `legend_hp` +200 max)
+- **Sleep automatique** : si HP ≤ 20, popup bloquant plein écran avec compte à rebours 50 s → restaure HP à 75
+- **Rencontres → reconnaissance** :
+  - 🏆 Victoire vs hostile : configurable (défaut +8)
+  - ⚔️ Victoire combat normal : configurable (défaut +4)
+  - 💀 Défaite : configurable (défaut −6)
+  - 🥷 Vol par faux marchand : configurable (défaut −5, jusqu'à 50 💰 volés)
+  - 🛒 Marchand ami / neutre : +4 / +2
+  - 📜 Quête acceptée / résolue : +5 / +2
+  - 💬 Chat ami / neutre / hostile : +3 / +1 / −2
+  - Toutes ces valeurs sont **modifiables en direct** via `/admin` → Barème de reconnaissance
 
 ## 🐛 Bugs corrigés (historique)
 
