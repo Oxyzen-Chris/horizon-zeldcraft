@@ -219,5 +219,14 @@
   "encounters.emptyHistory": "No encounter recorded yet.",
   "encounters.noneToday": "No encounter yet today — wait, an NPC will appear soon!",
   "encounters.history": "Full history",
-  "encounters.today": "Today's encounters"
+  "encounters.today": "Today's encounters",
+  "scoreboard.backToGame": "Back to game",
+  "scoreboard.title": "World players ranking",
+  "scoreboard.description": "Ranked by total XP (on-chain + off-chain bonus). Live updates.",
+  "scoreboard.empty": "No player registered yet.",
+  "scoreboard.xp": "Total XP",
+  "scoreboard.level": "Level",
+  "scoreboard.score": "Score",
+  "scoreboard.player": "Player",
+  "game.scoreboard.viewRanking": "View ranking"
 }

@@ -116,7 +116,7 @@ export function EncountersLog() {
               <option value="">{t('encounters.pick')}</option>
               {all.slice(0, 100).map(e => (
                 <option key={e.timestamp} value={String(e.timestamp)}>
-                  {new Date(e.timestamp).toLocaleString()} — {e.npcName} ({t(`npc.offer.${e.offer}`)})
+                  {new Date(e.timestamp).toLocaleString()} — {e.npcName} ({t(`npc.offer.${e.offer}`)}){e.itemName ? ` · ${e.itemName}` : ''}
                 </option>
               ))}
             </select>

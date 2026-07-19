@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAccount, useReadContract, useChainId } from 'wagmi';
+import { ref, get } from 'firebase/database';
 import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES } from '@/lib/contract';
-import { applyEffect, logEncounter, addToInventory, getRepRules, type EncounterRecord, type RepRules } from '@/lib/gameState';
+import { applyEffect, logEncounter, addToInventory, removeFromInventory, getRepRules, getOrCreatePlayer, type EncounterRecord, type RepRules } from '@/lib/gameState';
+import { getFirebaseDb } from '@/lib/firebase';
 import { useI18n } from '@/lib/i18n';
 
 /**
@@ -118,8 +120,32 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         : r.fightLoss;
     } else if (npc.offer === 'trade') {
       if (npc.alignment === 'hostile') {
-        const stolen = Math.min(r.theftMaxWallet, 20 + Math.floor(Math.random() * Math.max(1, r.theftMaxWallet - 20)));
-        walletDelta = -stolen;
+        // Vol hostile : soit une fraction du wallet (30-60%) plafonnée par r.theftMaxWallet,
+        // soit un objet aléatoire de la besace (jamais l'intégralité de l'un ou de l'autre).
+        const stealFromBag = Math.random() < 0.5;
+        let stolenItemName: string | undefined;
+        if (stealFromBag) {
+          const db = getFirebaseDb();
+          if (db) {
+            const invSnap = await get(ref(db, `players/${address.toLowerCase()}/inventory`));
+            const inv = invSnap.val() as Record<string, { name: string; qty: number }> | null;
+            const stealable = inv ? Object.entries(inv).filter(([, it]) => it.qty > 0) : [];
+            if (stealable.length > 0) {
+              const [itemId, it] = stealable[Math.floor(Math.random() * stealable.length)];
+              await removeFromInventory(address, itemId, 1);
+              stolenItemName = it.name;
+            }
+          }
+        }
+        if (!stolenItemName) {
+          // Fallback wallet si besace vide (ou tirage wallet) — vol de 30 à 60% du solde
+          const cur = await getOrCreatePlayer(address);
+          const pct = 0.3 + Math.random() * 0.3;
+          const stolen = Math.min(r.theftMaxWallet, Math.max(5, Math.floor(cur.wallet * pct)));
+          walletDelta = -stolen;
+        } else {
+          itemName = `-${stolenItemName}`;
+        }
         repDelta = r.tradeHostileTheft;
         outcome = 'lost';
       } else {

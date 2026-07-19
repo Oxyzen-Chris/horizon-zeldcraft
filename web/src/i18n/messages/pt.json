@@ -219,5 +219,14 @@
   "encounters.emptyHistory": "Nenhum encontro registrado ainda.",
   "encounters.noneToday": "Nenhum encontro hoje — aguarda, um PNJ aparecerá em breve!",
   "encounters.history": "Histórico completo",
-  "encounters.today": "Encontros de hoje"
+  "encounters.today": "Encontros de hoje",
+  "scoreboard.backToGame": "Voltar ao jogo",
+  "scoreboard.title": "Classificação mundial de jogadores",
+  "scoreboard.description": "Classificado por XP total (on-chain + bônus off-chain). Atualização ao vivo.",
+  "scoreboard.empty": "Nenhum jogador registrado ainda.",
+  "scoreboard.xp": "XP total",
+  "scoreboard.level": "Nível",
+  "scoreboard.score": "Pontuação",
+  "scoreboard.player": "Jogador",
+  "game.scoreboard.viewRanking": "Ver classificação"
 }

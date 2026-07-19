@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useReadContract } from 'wagmi';
 import { HORIZON_ABI } from '@/lib/contract';
 import { useI18n } from '@/lib/i18n';
@@ -14,7 +15,12 @@ export function Scoreboard({ contract, tokenId, level, xp }: {
   });
   return (
     <div className="card">
-      <h3 className="text-lg font-semibold mb-3">{t('game.scoreboard.title')}</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-lg font-semibold">{t('game.scoreboard.title')}</h3>
+        <Link href="/scoreboard" className="btn-secondary text-xs">
+          🏆 {t('game.scoreboard.viewRanking')}
+        </Link>
+      </div>
       <div className="grid grid-cols-3 gap-3">
         <Stat label={t('game.scoreboard.score')} value={Number(score ?? 0)} color="text-yellow-400" />
         <Stat label={t('game.scoreboard.level')} value={level}              color="text-emerald-400" />
