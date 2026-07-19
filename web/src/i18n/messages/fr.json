@@ -236,6 +236,11 @@
   "admin.stats.pick": "— Choisir un joueur —",
   "admin.stats.txHistory": "Transactions on-chain",
   "admin.stats.invoiceBtn": "Générer la facture PDF",
+  "admin.stats.viewEtherscan": "Voir",
+  "admin.stats.viewWalletEtherscan": "Voir toutes les transactions de ce wallet sur Etherscan",
+  "admin.stats.noTxs": "Aucune transaction trouvée pour ce joueur sur ce contrat.",
+  "admin.stats.noTxsHint": "L'historique on-chain est chargé via Etherscan V2 API (nécessite NEXT_PUBLIC_ETHERSCAN_KEY dans les variables Vercel).",
+  "admin.stats.etherscanKeyMissing": "NEXT_PUBLIC_ETHERSCAN_KEY manquante — seules les transactions loggées depuis v2.2 sont visibles. Ajoute la clé dans Vercel pour voir l'historique complet.",
 
   "admin.chatHistory.allRooms": "Tous les salons",
 

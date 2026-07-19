@@ -201,5 +201,10 @@
   "admin.repRules.theftMaxWallet": "Roubo máximo (carteira)",
   "admin.repRules.questAccepted": "Missão PNJ aceita",
   "admin.repRules.questSolved": "Enigma resolvido",
-  "admin.repRules.tradeFriendly": "Troca com mercador amigo"
+  "admin.repRules.tradeFriendly": "Troca com mercador amigo",
+  "admin.stats.viewEtherscan": "Ver",
+  "admin.stats.noTxsHint": "O histórico on-chain é carregado via Etherscan V2 API (requer NEXT_PUBLIC_ETHERSCAN_KEY no Vercel).",
+  "admin.stats.noTxs": "Nenhuma transação encontrada para este jogador neste contrato.",
+  "admin.stats.etherscanKeyMissing": "NEXT_PUBLIC_ETHERSCAN_KEY ausente — apenas transações registradas desde v2.2 são visíveis.",
+  "admin.stats.viewWalletEtherscan": "Ver todas as transações desta carteira no Etherscan"
 }
