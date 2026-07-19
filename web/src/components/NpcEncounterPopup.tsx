@@ -103,6 +103,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
     let forceDelta = 0;
     let spellsDelta = 0;
     let walletDelta = 0;
+    let itemName: string | undefined;
 
     if (npc.offer === 'fight') {
       const win = Math.random() > 0.4;
@@ -127,6 +128,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         ];
         const gift = items[Math.floor(Math.random() * items.length)];
         await addToInventory(address, { ...gift, qty: 1 });
+        itemName = gift.name;
         walletDelta = 5;
         repDelta = npc.alignment === 'friendly' ? r.tradeFriendly : r.tradeNeutral;
       }
@@ -148,6 +150,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
       npcId: npc.key, npcName: npc.name, npcSkin: npc.skin,
       alignment: npc.alignment, offer: npc.offer,
       timestamp: Date.now(), outcome, xpGained: xpDelta,
+      itemName, walletDelta, hpDelta, repDelta,
     });
     close();
   };

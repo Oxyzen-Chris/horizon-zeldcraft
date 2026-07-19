@@ -20,6 +20,7 @@ import { TreasureList } from '@/components/TreasureList';
 import { WorldList } from '@/components/WorldList';
 import { TeamsPanel } from '@/components/TeamsPanel';
 import { NpcEncounterPopup } from '@/components/NpcEncounterPopup';
+import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
 import { SleepModal } from '@/components/SleepModal';
@@ -282,6 +283,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       <div className="md:col-span-2">
         <NpcList contract={contract} tokenId={tokenId} />
+      </div>
+
+      <div className="md:col-span-2">
+        <EncountersLog />
       </div>
 
       <div className="md:col-span-2">

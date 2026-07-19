@@ -77,6 +77,11 @@ export interface EncounterRecord {
   timestamp: number;
   outcome?: 'accepted' | 'refused' | 'won' | 'lost';
   xpGained?: number;
+  // Détails enrichis (affichés dans "Rencontres du jour")
+  itemName?: string;      // objet donné/échangé lors d'un trade
+  walletDelta?: number;   // pièces gagnées/perdues (négatif = vol)
+  hpDelta?: number;       // dégâts subis dans un combat
+  repDelta?: number;      // variation reconnaissance
 }
 
 export interface ShopItem {

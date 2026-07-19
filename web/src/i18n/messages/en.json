@@ -208,5 +208,16 @@
   "admin.stats.etherscanKeyMissing": "NEXT_PUBLIC_ETHERSCAN_KEY missing — only transactions logged since v2.2 are visible. Add the key in Vercel to see full history.",
   "admin.stats.viewWalletEtherscan": "See all this wallet's transactions on Etherscan",
   "admin.stats.gas": "Gas fee",
-  "admin.chatHistory.errorPerm": "Firebase permission denied on /chats. Add rule chats/.read: true OR verify chatIndex is populated."
+  "admin.chatHistory.errorPerm": "Firebase permission denied on /chats. Add rule chats/.read: true OR verify chatIndex is populated.",
+  "encounter.outcome.won": "Victory",
+  "encounters.title": "Encounters",
+  "encounter.outcome.accepted": "Accepted",
+  "encounters.description": "Log of NPCs met during your explorations",
+  "encounters.pick": "Select an encounter to see the details",
+  "encounter.outcome.refused": "Refused",
+  "encounter.outcome.lost": "Defeat",
+  "encounters.emptyHistory": "No encounter recorded yet.",
+  "encounters.noneToday": "No encounter yet today — wait, an NPC will appear soon!",
+  "encounters.history": "Full history",
+  "encounters.today": "Today's encounters"
 }

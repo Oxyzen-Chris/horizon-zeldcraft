@@ -208,5 +208,16 @@
   "admin.stats.etherscanKeyMissing": "Falta NEXT_PUBLIC_ETHERSCAN_KEY — solo transacciones registradas desde v2.2 son visibles.",
   "admin.stats.viewWalletEtherscan": "Ver todas las transacciones de esta cartera en Etherscan",
   "admin.stats.gas": "Gas",
-  "admin.chatHistory.errorPerm": "Permiso Firebase denegado en /chats. Añade la regla chats/.read: true O verifica que chatIndex esté poblado."
+  "admin.chatHistory.errorPerm": "Permiso Firebase denegado en /chats. Añade la regla chats/.read: true O verifica que chatIndex esté poblado.",
+  "encounter.outcome.won": "Victoria",
+  "encounters.title": "Encuentros",
+  "encounter.outcome.accepted": "Aceptado",
+  "encounters.description": "Diario de los PNJ encontrados durante tus exploraciones",
+  "encounters.pick": "Selecciona un encuentro para ver los detalles",
+  "encounter.outcome.refused": "Rechazado",
+  "encounter.outcome.lost": "Derrota",
+  "encounters.emptyHistory": "Ningún encuentro registrado todavía.",
+  "encounters.noneToday": "Ningún encuentro hoy — espera, un PNJ aparecerá pronto!",
+  "encounters.history": "Historial completo",
+  "encounters.today": "Encuentros de hoy"
 }
