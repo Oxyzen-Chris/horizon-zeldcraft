@@ -44,11 +44,26 @@ Menu **Build → Realtime Database → Règles** :
     "chats": {
       "$roomKey": {
         ".read":  "auth != null",
+        ".write": "auth != null",
         ".indexOn": ["ts"],
         "$msgId": {
-          ".write":    "auth != null && !data.exists()",
-          ".validate": "newData.hasChildren(['uid','sender','message','ts']) && newData.child('uid').val() === auth.uid && newData.child('sender').isString() && newData.child('sender').val().matches(/^0x[a-fA-F0-9]{40}$/) && newData.child('message').isString() && newData.child('message').val().length > 0 && newData.child('message').val().length <= 280"
+          ".validate": "newData.hasChildren(['uid','sender','message','ts']) && newData.child('uid').val() === auth.uid && newData.child('sender').isString() && newData.child('sender').val().matches(/^0x[a-fA-F0-9]{40}$/) && newData.child('message').isString() && newData.child('message').val().length > 0 && newData.child('message').val().length <= 500"
         }
+      }
+    },
+    "chatIndex": {
+      "$contract": {
+        ".read":  "auth != null",
+        "$roomKey": {
+          ".write": "auth != null",
+          ".validate": "newData.hasChildren(['lastTs'])"
+        }
+      }
+    },
+    "players": {
+      "$addr": {
+        ".read":  true,
+        ".write": "auth != null"
       }
     }
   }
@@ -56,6 +71,8 @@ Menu **Build → Realtime Database → Règles** :
 ```
 
 Clique **Publier**.
+
+> ⚠️ **Important** : le noeud `chatIndex` est **indispensable** pour que le menu Admin → « Historique des chats » puisse lister les salons. Sans lui, la dropdown reste vide car Firebase RTDB n'autorise pas la lecture d'un parent (`/chats`) quand seuls les enfants ont `.read`.
 
 ### Ce que ces règles verrouillent
 

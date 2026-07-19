@@ -44,10 +44,17 @@ async function fetchEtherscanTxs(chainId: number, wallet: string, contract: stri
           label.startsWith('feed') ? 'feed' :
           label.startsWith('buy')  ? 'buy'  :
           label.includes('Quest')  ? 'quest' : 'other';
+        // Frais réseau = gasUsed * gasPrice (tous deux en wei stringifié)
+        let gasEth = '0';
+        try {
+          const gasWei = BigInt(t.gasUsed || '0') * BigInt(t.gasPrice || '0');
+          gasEth = (Number(gasWei) / 1e18).toFixed(8);
+        } catch {}
         return {
           hash: t.hash,
           type, label,
           valueEth: (parseInt(t.value, 10) / 1e18).toFixed(6),
+          gasEth,
           timestamp: parseInt(t.timeStamp, 10) * 1000,
           chainId,
           status: t.txreceipt_status === '1' ? 'confirmed' : 'failed',
@@ -165,26 +172,47 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     doc.setFontSize(9);
     let y = 68;
     let total = 0;
+    let totalGas = 0;
     if (txs.length === 0) {
       doc.text('Aucune transaction on-chain enregistrée.', 14, y);
       y += 10;
     } else {
+      // En-tête colonnes
+      doc.setFont('helvetica', 'bold');
+      doc.text('#', 14, y);
+      doc.text('Date / Action', 20, y);
+      doc.text('Valeur', 130, y);
+      doc.text('Frais gas', 160, y);
+      doc.setFont('helvetica', 'normal');
+      y += 5;
+      doc.line(14, y, 196, y);
+      y += 4;
       txs.forEach((tx, i) => {
-        if (y > 275) { doc.addPage(); y = 20; }
+        if (y > 270) { doc.addPage(); y = 20; }
         const val = parseFloat(tx.valueEth || '0');
+        const gas = parseFloat(tx.gasEth || '0');
         total += val;
-        doc.text(`${i + 1}. ${new Date(tx.timestamp).toLocaleString()}  [${tx.type}]`, 14, y);
-        doc.text(`${tx.label.slice(0, 45)}`, 14, y + 4);
-        doc.text(`${val.toFixed(6)} ETH`, 150, y);
-        doc.text(tx.hash, 14, y + 8);
+        totalGas += gas;
+        doc.text(`${i + 1}`, 14, y);
+        doc.text(`${new Date(tx.timestamp).toLocaleString()}  [${tx.type}]`, 20, y);
+        doc.text(`${tx.label.slice(0, 45)}`, 20, y + 4);
+        doc.text(`${val.toFixed(6)} ETH`, 130, y);
+        doc.text(`${gas.toFixed(8)} ETH`, 160, y);
+        doc.setFontSize(7);
+        doc.text(tx.hash, 20, y + 8);
+        doc.setFontSize(9);
         y += 14;
       });
     }
     doc.line(14, y, 196, y);
     doc.setFontSize(11);
-    doc.text(`Total : ${total.toFixed(6)} ETH`, 140, y + 8);
+    doc.text(`Total valeur : ${total.toFixed(6)} ETH`, 110, y + 8);
+    doc.text(`Total frais gas : ${totalGas.toFixed(8)} ETH`, 110, y + 14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Total général : ${(total + totalGas).toFixed(8)} ETH`, 110, y + 22);
+    doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.text('Cette facture atteste des transactions on-chain payées par le joueur. Vérifiable via etherscan.', 14, y + 20);
+    doc.text('Cette facture atteste des transactions on-chain payées par le joueur. Vérifiable via etherscan.', 14, y + 32);
     doc.save(`invoice_${target.slice(0, 8)}_${Date.now()}.pdf`);
   };
 
@@ -293,6 +321,12 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
                             📅 {new Date(tx.timestamp).toLocaleString()}
                             <span className="mx-2">•</span>
                             💰 <b className="text-amber-300">{tx.valueEth} ETH</b>
+                            {tx.gasEth && parseFloat(tx.gasEth) > 0 && (
+                              <>
+                                <span className="mx-2">•</span>
+                                ⛽ <b className="text-slate-300">{tx.gasEth} ETH</b>
+                              </>
+                            )}
                           </p>
                           <p className="text-[10px] text-slate-500 mt-1 font-mono truncate">
                             {tx.hash}

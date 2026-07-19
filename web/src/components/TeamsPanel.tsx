@@ -164,6 +164,16 @@ export function TeamsPanel({ contract, defaultName }: { contract: `0x${string}`;
             payload.replyToPreview = replyTo.message.slice(0, 80);
           }
           await push(ref(db, `chats/${roomKey}`), payload);
+          // Écrit un index public pour l'admin (contourne le fait que .read est au niveau roomKey).
+          // Voir ChatHistory.tsx pour la lecture.
+          try {
+            await update(ref(db, `chatIndex/${contract.toLowerCase()}/${roomKey}`), {
+              lastTs: serverTimestamp(),
+              teamId: currentTeamId,
+            });
+          } catch (idxErr) {
+            console.warn('[chatIndex] update failed (add .write rule):', idxErr);
+          }
           setReplyTo(null);
           lastSendAt.current = now;
         }

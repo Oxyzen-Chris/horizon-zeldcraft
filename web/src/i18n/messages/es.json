@@ -206,5 +206,7 @@
   "admin.stats.noTxsHint": "El historial on-chain se carga vía Etherscan V2 API (requiere NEXT_PUBLIC_ETHERSCAN_KEY en Vercel).",
   "admin.stats.noTxs": "No se encontraron transacciones para este jugador en este contrato.",
   "admin.stats.etherscanKeyMissing": "Falta NEXT_PUBLIC_ETHERSCAN_KEY — solo transacciones registradas desde v2.2 son visibles.",
-  "admin.stats.viewWalletEtherscan": "Ver todas las transacciones de esta cartera en Etherscan"
+  "admin.stats.viewWalletEtherscan": "Ver todas las transacciones de esta cartera en Etherscan",
+  "admin.stats.gas": "Gas",
+  "admin.chatHistory.errorPerm": "Permiso Firebase denegado en /chats. Añade la regla chats/.read: true O verifica que chatIndex esté poblado."
 }

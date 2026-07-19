@@ -62,6 +62,7 @@ export interface TxRecord {
   type: 'mint' | 'feed' | 'buy' | 'sell' | 'quest' | 'other';
   label: string;
   valueEth: string;    // en ETH lisible (ex "0.0001")
+  gasEth?: string;     // frais réseau (gasUsed * gasPrice) en ETH
   timestamp: number;
   chainId: number;
   status?: 'pending' | 'confirmed' | 'failed';

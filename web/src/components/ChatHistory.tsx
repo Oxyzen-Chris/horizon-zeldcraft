@@ -28,6 +28,7 @@ export function ChatHistory({ contract }: { contract: `0x${string}` }) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fbReady = isFirebaseConfigured();
 
   useEffect(() => { if (fbReady) ensureAnonSignIn(); }, [fbReady]);
@@ -36,74 +37,94 @@ export function ChatHistory({ contract }: { contract: `0x${string}` }) {
   useEffect(() => {
     if (!fbReady) return;
     (async () => {
+      setError(null);
       await ensureAnonSignIn();
       const db = getFirebaseDb();
       if (!db) return;
-      const snap = await get(ref(db, 'chats'));
-      const list: { key: string; count: number }[] = [];
       const prefix = contract.toLowerCase() + '_';
-      snap.forEach((rs) => {
-        const k = rs.key || '';
-        if (!k.startsWith(prefix)) return;
-        let c = 0; rs.forEach(() => { c++; });
-        list.push({ key: k, count: c });
-      });
+      const list: { key: string; count: number }[] = [];
+
+      // 1) Tentative via chatIndex (chemin recommandé, ne nécessite pas .read sur /chats)
+      try {
+        const idxSnap = await get(ref(db, `chatIndex/${contract.toLowerCase()}`));
+        idxSnap.forEach((rs) => {
+          const k = rs.key || '';
+          if (k) list.push({ key: k, count: 0 });
+        });
+      } catch (e) {
+        console.warn('[ChatHistory] chatIndex read failed:', e);
+      }
+
+      // 2) Fallback : lecture directe de /chats (nécessite chats/.read: true dans les règles)
+      if (list.length === 0) {
+        try {
+          const snap = await get(ref(db, 'chats'));
+          snap.forEach((rs) => {
+            const k = rs.key || '';
+            if (!k.startsWith(prefix)) return;
+            let c = 0; rs.forEach(() => { c++; });
+            list.push({ key: k, count: c });
+          });
+        } catch (e: any) {
+          setError(t('admin.chatHistory.errorPerm') + ' ' + (e?.message ?? ''));
+        }
+      }
+
+      // 3) Enrichit chaque entrée par un comptage individuel (lisible via chats/$roomKey)
+      for (const item of list) {
+        if (item.count > 0) continue;
+        try {
+          const s = await get(ref(db, `chats/${item.key}`));
+          let c = 0; s.forEach(() => { c++; });
+          item.count = c;
+        } catch {}
+      }
+
       setRooms(list.sort((a, b) => b.count - a.count));
     })();
-  }, [fbReady, contract]);
+  }, [fbReady, contract, t]);
 
   const load = async () => {
     if (!fbReady) return;
     setLoading(true);
     setLoaded(false);
+    setError(null);
     try {
       await ensureAnonSignIn();
       const db = getFirebaseDb();
       if (!db) { setLoading(false); return; }
       const all: HistoryEntry[] = [];
-      const prefix = contract.toLowerCase() + '_';
       const filterLower = filter.trim().toLowerCase();
 
-      // Si un salon précis est sélectionné, on lit uniquement celui-là
-      if (room) {
-        const rSnap = await get(ref(db, `chats/${room}`));
-        rSnap.forEach((msgSnap) => {
-          const v = msgSnap.val() as any;
-          if (!v || typeof v.message !== 'string') return;
-          const sender = (v.sender ?? '').toLowerCase();
-          if (filterLower && sender !== filterLower) return;
-          all.push({
-            roomKey: room, msgKey: msgSnap.key!, sender: v.sender ?? '?',
-            displayName: v.displayName, message: v.message,
-            ts: typeof v.ts === 'number' ? v.ts : 0,
-            edited: !!v.edited, deleted: !!v.deleted,
-          });
-        });
-      } else {
-        const snap = await get(ref(db, 'chats'));
-        snap.forEach((roomSnap) => {
-          const roomKey = roomSnap.key || '';
-          if (!roomKey.startsWith(prefix)) return;
-          roomSnap.forEach((msgSnap) => {
+      // Liste des salons à parcourir : soit le sélectionné, soit tous ceux connus (dropdown)
+      const roomKeys: string[] = room ? [room] : rooms.map(r => r.key);
+
+      for (const rk of roomKeys) {
+        try {
+          const rSnap = await get(ref(db, `chats/${rk}`));
+          rSnap.forEach((msgSnap) => {
             const v = msgSnap.val() as any;
             if (!v || typeof v.message !== 'string') return;
             const sender = (v.sender ?? '').toLowerCase();
             if (filterLower && sender !== filterLower) return;
             all.push({
-              roomKey, msgKey: msgSnap.key!, sender: v.sender ?? '?',
+              roomKey: rk, msgKey: msgSnap.key!, sender: v.sender ?? '?',
               displayName: v.displayName, message: v.message,
               ts: typeof v.ts === 'number' ? v.ts : 0,
               edited: !!v.edited, deleted: !!v.deleted,
             });
           });
-        });
+        } catch (e) {
+          console.warn(`[ChatHistory] room ${rk} unreadable:`, e);
+        }
       }
 
       all.sort((a, b) => b.ts - a.ts);
       setEntries(all.slice(0, 500));
       setLoaded(true);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setError(e?.message ?? String(e));
     }
     setLoading(false);
   };
@@ -128,6 +149,10 @@ export function ChatHistory({ contract }: { contract: `0x${string}` }) {
               {loading ? '⏳' : t('admin.chatHistory.load')}
             </button>
           </div>
+
+          {error && (
+            <p className="text-xs text-rose-400 mb-3">⚠ {error}</p>
+          )}
 
           {loaded && entries.length === 0 && (
             <p className="text-sm text-slate-400">{t('admin.chatHistory.empty')}</p>
