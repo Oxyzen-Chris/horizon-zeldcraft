@@ -122,7 +122,8 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 ## 📚 Documentation
 
 - [Architecture](./docs/ARCHITECTURE.md)
-- [Déploiement](./docs/DEPLOYMENT.md)
+- [Déploiement + variables d'environnement Vercel/contrats](./docs/DEPLOYMENT.md)
+- [Firebase (chat + off-chain) + **règles de sécurité RTDB à jour**](./docs/FIREBASE_CHAT.md) ← **à republier à chaque merge touchant les chemins RTDB**
 - [Lore & univers Voxlyn](./docs/LORE.md)
 - [Roadmap Phases 2/3/4](./docs/ROADMAP.md)
 
