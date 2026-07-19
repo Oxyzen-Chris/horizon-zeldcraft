@@ -98,32 +98,40 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
     let walletDelta = 0;
 
     if (npc.offer === 'fight') {
-      // Résolution de combat simple : d20 + force joueur vs force ennemi
-      // On lira la force côté joueur via applyEffect ; on approx ici avec un roll.
+      // Résolution de combat : win = +rep +force, loss = -rep -hp
       const win = Math.random() > 0.4;
       outcome = win ? 'won' : 'lost';
       xpDelta = win ? npc.xp : Math.floor(npc.xp / 3);
-      hpDelta = win ? -5 : -20;
-      forceDelta = win ? 2 : 0;
-      repDelta = win ? 3 : -1;
+      hpDelta = win ? -8 : -30;
+      forceDelta = win ? 3 : 0;
+      // Rép : rép si le PNJ était hostile (voleur/combattant) → chargée émotionnellement
+      repDelta = win ? (npc.alignment === 'hostile' ? 8 : 4) : -6;
     } else if (npc.offer === 'trade') {
-      // Cadeau/troc : petit item aléatoire + wallet + rep
-      const items = [
-        { itemId: 'potion_hp', name: '🧪 Potion de vie', category: 'potion' as const, effect: { hp: 40 } },
-        { itemId: 'apple',     name: '🍎 Pomme',         category: 'food'   as const, effect: { hunger: 10 } },
-        { itemId: 'spell_fire',name: '🔥 Sort de feu',   category: 'spell'  as const, effect: { spells: 25 } },
-      ];
-      const gift = items[Math.floor(Math.random() * items.length)];
-      await addToInventory(address, { ...gift, qty: 1 });
-      walletDelta = 5;
-      repDelta = 1;
+      if (npc.alignment === 'hostile') {
+        // Voleur déguisé en marchand : perte de wallet + rép fortement négative
+        const stolen = Math.min(50, 20 + Math.floor(Math.random() * 30));
+        walletDelta = -stolen;
+        repDelta = -5;
+        outcome = 'lost';
+      } else {
+        // Vrai marchand : cadeau + rép positive
+        const items = [
+          { itemId: 'potion_hp', name: '🧪 Potion de vie', category: 'potion' as const, effect: { hp: 40 } },
+          { itemId: 'apple',     name: '🍎 Pomme',         category: 'food'   as const, effect: { hunger: 10 } },
+          { itemId: 'spell_fire',name: '🔥 Sort de feu',   category: 'spell'  as const, effect: { spells: 25 } },
+        ];
+        const gift = items[Math.floor(Math.random() * items.length)];
+        await addToInventory(address, { ...gift, qty: 1 });
+        walletDelta = 5;
+        repDelta = npc.alignment === 'friendly' ? 4 : 2;
+      }
     } else if (npc.offer === 'quest') {
       spellsDelta = 3;
-      repDelta = 2;
+      repDelta = 5; // bonne rencontre : promesse d'aventure
     } else {
-      // chat : bonheur + petit rep
+      // chat : bonheur + rép selon alignement
       xpDelta = Math.floor(npc.xp / 2);
-      repDelta = 1;
+      repDelta = npc.alignment === 'friendly' ? 3 : npc.alignment === 'hostile' ? -2 : 1;
     }
 
     await applyEffect(address, {

@@ -22,6 +22,7 @@ import { TeamsPanel } from '@/components/TeamsPanel';
 import { NpcEncounterPopup } from '@/components/NpcEncounterPopup';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
+import { SleepModal } from '@/components/SleepModal';
 import { useI18n } from '@/lib/i18n';
 import { getOrCreatePlayer, subscribePlayer, logTx, applyEffect, type PlayerState } from '@/lib/gameState';
 
@@ -224,12 +225,12 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       <section className="card">
         <h3 className="text-lg font-semibold mb-3">{t('game.stats.title')}</h3>
-        <Stat label={t('game.stats.xp')}        value={Number(xp)}      max={10000} color="bg-purple-500" />
-        <Stat label={t('game.stats.hp')}        value={dispHp}          max={100}   color="bg-rose-500" />
-        <Stat label={t('game.stats.hunger')}    value={dispHunger}      max={100}   color="bg-orange-500" />
-        <Stat label={t('game.stats.happiness')} value={dispHappiness}   max={100}   color="bg-yellow-400" />
-        <Stat label={t('game.stats.force')}     value={player?.force  ?? 10} max={100} color="bg-red-500" />
-        <Stat label={t('game.stats.spells')}    value={player?.spells ?? 5}  max={100} color="bg-indigo-500" />
+        <Stat label={t('game.stats.xp')}        value={Number(xp)}          max={10000}                     color="bg-purple-500" />
+        <Stat label={t('game.stats.hp')}        value={dispHp}              max={player?.hpMax        ?? 100} color="bg-rose-500" />
+        <Stat label={t('game.stats.hunger')}    value={dispHunger}          max={player?.hungerMax    ?? 100} color="bg-orange-500" />
+        <Stat label={t('game.stats.happiness')} value={dispHappiness}       max={player?.happinessMax ?? 100} color="bg-yellow-400" />
+        <Stat label={t('game.stats.force')}     value={player?.force  ?? 10} max={player?.forceMax    ?? 100} color="bg-red-500" />
+        <Stat label={t('game.stats.spells')}    value={player?.spells ?? 5}  max={player?.spellsMax   ?? 100} color="bg-indigo-500" />
         <div className="flex justify-between text-sm mt-3 pt-3 border-t border-slate-700">
           <span>💰 {t('game.stats.wallet')} : <b className="text-amber-400">{player?.wallet ?? 0}</b></span>
           <span>⭐ {t('game.stats.reputation')} : <b className={((player?.reputation ?? 0) >= 0) ? 'text-emerald-400' : 'text-rose-400'}>{player?.reputation ?? 0}</b></span>
@@ -305,6 +306,8 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       {/* Popup de rencontres PNJ aléatoires (3-5×/jour, réglable) */}
       <NpcEncounterPopup contract={contract} tokenId={tokenId} />
+      {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}
+      <SleepModal player={player} />
     </div>
   );
 }

@@ -55,6 +55,10 @@
   "game.stats.reputation": "Reconnaissance",
   "game.stats.wallet": "Portefeuille",
 
+  "sleep.title": "Ton Voxlyn est épuisé…",
+  "sleep.description": "Sa vie est tombée sous 20/100. Un repos forcé restaure 75 points de vie.",
+  "sleep.hint": "Impossible d'agir pendant le sommeil. Achète des super-fioles pour éviter cela à l'avenir.",
+
   "game.inventory.title": "Sac / Besace",
   "game.inventory.empty": "Ton sac est vide. Achète, chasse ou attends une rencontre !",
   "game.inventory.use": "Utiliser",

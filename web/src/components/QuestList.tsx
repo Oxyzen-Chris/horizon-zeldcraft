@@ -55,10 +55,12 @@ function QuestCard({ contract, questId, tokenId, playerXp }: {
   useEffect(() => {
     if (mined && address) {
       setFeedback(t('game.quests.correct'));
-      // Enregistre en DB la réponse pour révélation + bonus XP+force+spells
+      // Enregistre en DB la réponse pour révélation + bonus étendu (bonheur, force, sorts, faim, wallet)
       const normalized = normalizeAnswer(answer);
       markQuestSolved(address, questId, normalized).catch(() => {});
-      applyEffect(address, { happiness: 5, spells: 2, wallet: 20 }).catch(() => {});
+      applyEffect(address, {
+        happiness: 8, force: 2, spells: 3, hunger: 5, wallet: 25, reputation: 2,
+      }).catch(() => {});
       setSolvedAnswer(normalized);
       queryClient.invalidateQueries({ queryKey: doneKey });
       queryClient.invalidateQueries({ queryKey });

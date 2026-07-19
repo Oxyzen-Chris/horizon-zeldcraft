@@ -182,5 +182,8 @@
   "common.error": "Error",
   "common.success": "Success",
   "common.close": "Close",
-  "common.cancel": "Cancel"
+  "common.cancel": "Cancel",
+  "sleep.hint": "No actions during sleep. Buy super-potions to avoid this next time.",
+  "sleep.title": "Your Voxlyn is exhausted...",
+  "sleep.description": "HP dropped below 20/100. Forced rest restores 75 HP."
 }

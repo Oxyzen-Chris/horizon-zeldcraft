@@ -182,5 +182,8 @@
   "common.error": "Erro",
   "common.success": "Sucesso",
   "common.close": "Fechar",
-  "common.cancel": "Cancelar"
+  "common.cancel": "Cancelar",
+  "sleep.hint": "Sem ações durante o sono. Compre super-frascos para evitar isso.",
+  "sleep.title": "Seu Voxlyn está exausto...",
+  "sleep.description": "Vida abaixo de 20/100. O descanso forçado restaura 75 HP."
 }

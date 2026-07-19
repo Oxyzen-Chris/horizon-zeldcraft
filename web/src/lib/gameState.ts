@@ -26,14 +26,20 @@ import { getFirebaseDb, ensureAnonSignIn } from './firebase';
 export interface PlayerState {
   address: string;
   displayName?: string;
-  hp: number;              // 0–100, décroit avec le temps + combats
-  hunger: number;          // 0–100, décroit chaque jour
+  hp: number;              // valeur courante
+  hpMax: number;           // plafond (100 par défaut, boostable via super-fioles jusqu'à 300)
+  hunger: number;
+  hungerMax: number;
   happiness: number;
-  force: number;           // 0–100, augmente en combattant
-  spells: number;          // 0–100, sortilèges/incantations connus
-  reputation: number;      // points de notoriété (positif si généreux, négatif si voleur)
-  wallet: number;          // solde de jeu (en unités de reconnaissance × 1000)
-  lastTick?: number;       // dernier update pour calcul dégradation
+  happinessMax: number;
+  force: number;
+  forceMax: number;        // 100 → 200 → 300 selon super-fioles
+  spells: number;
+  spellsMax: number;
+  reputation: number;      // positif = notoriété (rencontres bienveillantes), négatif = mauvaise réputation (combats perdus, vol)
+  wallet: number;
+  sleeping?: boolean;      // vrai pendant le sommeil forcé (HP ≤ 20)
+  lastTick?: number;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -41,9 +47,13 @@ export interface PlayerState {
 export interface InventoryItem {
   itemId: string;
   name: string;
-  category: 'food' | 'weapon' | 'armor' | 'spell' | 'vehicle' | 'potion' | 'treasure';
+  category: 'food' | 'weapon' | 'armor' | 'spell' | 'vehicle' | 'potion' | 'treasure' | 'super_potion';
   qty: number;
-  effect?: { hp?: number; hunger?: number; force?: number; spells?: number };
+  effect?: {
+    hp?: number; hunger?: number; happiness?: number; force?: number; spells?: number;
+    // Boost permanent du plafond (super-fioles) — appliqué en +100 au max concerné
+    maxHp?: number; maxForce?: number; maxSpells?: number;
+  };
   addedAt: number;
 }
 
@@ -95,8 +105,12 @@ export async function getOrCreatePlayer(address: string, displayName?: string): 
   const now = Date.now();
   const initial: PlayerState = {
     address: k, displayName,
-    hp: 100, hunger: 80, happiness: 60,
-    force: 10, spells: 5, reputation: 0, wallet: 100,
+    hp: 100, hpMax: 100,
+    hunger: 80, hungerMax: 100,
+    happiness: 60, happinessMax: 100,
+    force: 10, forceMax: 100,
+    spells: 5, spellsMax: 100,
+    reputation: 0, wallet: 100,
     lastTick: now, createdAt: now, updatedAt: now,
   };
   await set(ref(db, `players/${k}`), initial);
@@ -136,22 +150,35 @@ export async function updatePlayer(address: string, patch: Partial<PlayerState>)
   await update(ref(db, `players/${KEY(address)}`), { ...patch, updatedAt: Date.now() });
 }
 
-/** Applique un effet (potion, combat, quête réussie…) et clamp les stats. */
-export async function applyEffect(address: string, delta: Partial<PlayerState>): Promise<PlayerState> {
+/** Applique un effet (potion, combat, quête réussie…) et clamp les stats en tenant compte des plafonds dynamiques. */
+export async function applyEffect(address: string, delta: Partial<PlayerState> & {
+  maxHp?: number; maxForce?: number; maxSpells?: number;
+}): Promise<PlayerState> {
   const db = getFirebaseDb();
   if (!db) throw new Error('Firebase non configuré');
   const k = KEY(address);
   const snap = await get(ref(db, `players/${k}`));
   const cur = (snap.val() as PlayerState) || await getOrCreatePlayer(address);
+  // Migration douce : ancien joueur sans les *Max
+  const hpMax        = (cur.hpMax        ?? 100) + (delta.maxHp     ?? 0);
+  const forceMax     = (cur.forceMax     ?? 100) + (delta.maxForce  ?? 0);
+  const spellsMax    = (cur.spellsMax    ?? 100) + (delta.maxSpells ?? 0);
+  const hungerMax    = cur.hungerMax    ?? 100;
+  const happinessMax = cur.happinessMax ?? 100;
   const clamped: PlayerState = {
     ...cur,
-    hp:         clamp(cur.hp        + (delta.hp        ?? 0), 0, 100),
-    hunger:     clamp(cur.hunger    + (delta.hunger    ?? 0), 0, 100),
-    happiness:  clamp(cur.happiness + (delta.happiness ?? 0), 0, 100),
-    force:      clamp(cur.force     + (delta.force     ?? 0), 0, 999),
-    spells:     clamp(cur.spells    + (delta.spells    ?? 0), 0, 999),
-    reputation: cur.reputation + (delta.reputation ?? 0),
-    wallet:     Math.max(0, cur.wallet + (delta.wallet ?? 0)),
+    hp:         clamp((cur.hp        ?? 100) + (delta.hp        ?? 0), 0, hpMax),
+    hpMax,
+    hunger:     clamp((cur.hunger    ?? 80)  + (delta.hunger    ?? 0), 0, hungerMax),
+    hungerMax,
+    happiness:  clamp((cur.happiness ?? 60)  + (delta.happiness ?? 0), 0, happinessMax),
+    happinessMax,
+    force:      clamp((cur.force     ?? 10)  + (delta.force     ?? 0), 0, forceMax),
+    forceMax,
+    spells:     clamp((cur.spells    ?? 5)   + (delta.spells    ?? 0), 0, spellsMax),
+    spellsMax,
+    reputation: (cur.reputation ?? 0) + (delta.reputation ?? 0),
+    wallet:     Math.max(0, (cur.wallet ?? 100) + (delta.wallet ?? 0)),
     lastTick:   Date.now(),
     updatedAt:  Date.now(),
   };
@@ -307,6 +334,11 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'fish',      name: '🐟 Poisson',            category: 'food',    priceGame: 12, effect: { hunger: 25 },              active: true },
   { itemId: 'potion_hp', name: '🧪 Potion de vie',      category: 'potion',  priceGame: 30, effect: { hp: 40 },                  active: true },
   { itemId: 'potion_sp', name: '💫 Potion de mana',     category: 'potion',  priceGame: 40, effect: { spells: 15 },              active: true },
+  // ─── Super-fioles (augmentent DÉFINITIVEMENT le plafond max de la stat)
+  { itemId: 'super_hp',      name: '🩸 Super-fiole de Vie (+100 max)',    category: 'super_potion', priceGame: 400, effect: { maxHp: 100, hp: 100 },        active: true },
+  { itemId: 'super_force',   name: '💪 Super-fiole de Force (+100 max)',   category: 'super_potion', priceGame: 500, effect: { maxForce: 100, force: 50 },  active: true },
+  { itemId: 'super_spells',  name: '🔮 Super-fiole de Sortilèges (+100 max)', category: 'super_potion', priceGame: 500, effect: { maxSpells: 100, spells: 50 }, active: true },
+  { itemId: 'legend_hp',     name: '❤️‍🔥 Fiole légendaire de Vie (+200 max)',    category: 'super_potion', priceGame: 900, effect: { maxHp: 200, hp: 200 },       active: true },
   { itemId: 'sword_ep',  name: '⚔️ Épée épique',        category: 'weapon',  priceGame: 200, effect: { force: 20 },              active: true },
   { itemId: 'shield_lg', name: '🛡️ Bouclier légendaire', category: 'armor',  priceGame: 250, effect: { force: 15, hp: 20 },      active: true },
   { itemId: 'spell_fire',name: '🔥 Sort de feu',        category: 'spell',   priceGame: 150, effect: { spells: 25 },             active: true },

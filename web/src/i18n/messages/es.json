@@ -182,5 +182,8 @@
   "common.error": "Error",
   "common.success": "Éxito",
   "common.close": "Cerrar",
-  "common.cancel": "Cancelar"
+  "common.cancel": "Cancelar",
+  "sleep.hint": "Sin acciones durante el descanso. Compra super-frascos para evitarlo.",
+  "sleep.title": "Tu Voxlyn está agotado...",
+  "sleep.description": "Vida bajo 20/100. El descanso forzado restaura 75 puntos de vida."
 }
