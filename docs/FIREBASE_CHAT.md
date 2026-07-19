@@ -61,10 +61,19 @@ Menu **Build → Realtime Database → Règles** :
       }
     },
     "players": {
+      ".read":  true,
       "$addr": {
         ".read":  true,
         ".write": "auth != null"
       }
+    },
+    "playerIndex": {
+      ".read":  true,
+      ".write": "auth != null"
+    },
+    "catalog": {
+      ".read":  true,
+      ".write": "auth != null"
     }
   }
 }

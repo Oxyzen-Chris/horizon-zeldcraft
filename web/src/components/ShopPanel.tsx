@@ -36,10 +36,15 @@ export function ShopPanel() {
       setTimeout(() => setFeedback(null), 2500);
       return;
     }
-    await applyEffect(address, { wallet: -item.priceGame });
-    await addToInventory(address, { itemId: item.itemId, name: item.name, category: item.category, qty: 1, effect: item.effect });
-    setFeedback(t('game.shop.bought', { name: item.name }));
-    setTimeout(() => setFeedback(null), 2500);
+    try {
+      await applyEffect(address, { wallet: -item.priceGame });
+      await addToInventory(address, { itemId: item.itemId, name: item.name, category: item.category, qty: 1, effect: item.effect });
+      setFeedback(t('game.shop.bought', { name: item.name }));
+    } catch (e: any) {
+      console.error('[shop] buy failed:', e);
+      setFeedback('❌ ' + (e?.message?.slice(0, 60) ?? 'error'));
+    }
+    setTimeout(() => setFeedback(null), 3000);
   };
 
   const sell = async (it: InventoryItem) => {

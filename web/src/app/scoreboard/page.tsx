@@ -27,14 +27,22 @@ export default function ScoreboardPage() {
   const [addresses, setAddresses] = useState<string[]>([]);
   const [dbData, setDbData] = useState<Record<string, PlayerState>>({});
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
     listPlayers().then(async (addrs) => {
       setAddresses(addrs);
+      if (addrs.length === 0) {
+        setLoadError('playerIndex vide — vérifie que les règles Firebase autorisent la lecture de /playerIndex (voir docs/FIREBASE_CHAT.md).');
+        return;
+      }
       const entries = await Promise.all(addrs.map(async a => [a, await getPlayer(a)] as const));
       const map: Record<string, PlayerState> = {};
       entries.forEach(([a, p]) => { if (p) map[a] = p; });
       setDbData(map);
-    }).catch(() => {});
+    }).catch((e) => {
+      setLoadError('Firebase read error: ' + (e?.message ?? String(e)));
+    });
   }, []);
 
   const { data: tokenIds } = useReadContracts({
@@ -90,6 +98,12 @@ export default function ScoreboardPage() {
 
       <h1 className="text-3xl font-bold mb-2">🏆 {t('scoreboard.title')}</h1>
       <p className="text-sm text-slate-400 mb-6">{t('scoreboard.description')}</p>
+
+      {loadError && (
+        <div className="card mb-4 border border-rose-500/40">
+          <p className="text-sm text-rose-300">⚠ {loadError}</p>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <p className="text-slate-400 italic">{t('scoreboard.empty')}</p>

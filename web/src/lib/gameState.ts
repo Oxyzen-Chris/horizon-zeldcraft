@@ -299,6 +299,7 @@ export async function getSolvedQuest(address: string, questId: string): Promise<
 export async function listPlayers(): Promise<string[]> {
   const db = getFirebaseDb();
   if (!db) return [];
+  await ensureAnonSignIn();
   const snap = await get(ref(db, 'playerIndex'));
   const v = snap.val() as Record<string, boolean> | null;
   return v ? Object.keys(v) : [];
@@ -317,9 +318,14 @@ export async function getPlayer(address: string): Promise<PlayerState | null> {
 export async function getShopCatalog(): Promise<ShopItem[]> {
   const db = getFirebaseDb();
   if (!db) return DEFAULT_SHOP;
-  const snap = await get(ref(db, 'catalog/shop'));
-  const v = snap.val() as Record<string, ShopItem> | null;
-  return v && Object.keys(v).length ? Object.values(v).filter(i => i.active) : DEFAULT_SHOP;
+  try {
+    const snap = await get(ref(db, 'catalog/shop'));
+    const v = snap.val() as Record<string, ShopItem> | null;
+    return v && Object.keys(v).length ? Object.values(v).filter(i => i.active) : DEFAULT_SHOP;
+  } catch (e) {
+    console.warn('[shop] catalog read failed, using DEFAULT_SHOP:', e);
+    return DEFAULT_SHOP;
+  }
 }
 
 export async function setShopItem(item: ShopItem): Promise<void> {
@@ -411,4 +417,38 @@ export async function setRepRules(rules: RepRules): Promise<void> {
   if (!db) return;
   await ensureAnonSignIn();
   await set(ref(db, 'catalog/repRules'), rules);
+}
+
+// ─────────────────────────────────────── Top-up presets ───────────────────────────────────────
+
+/**
+ * Presets de recharge portefeuille (fiat → ETH → coins de jeu).
+ * Paramétrable via l'admin (catalog/topupPresets).
+ */
+export interface TopupPreset {
+  fiat: number;       // montant en devise (10, 20, 50, 100)
+  eth: string;        // équivalent ETH string (parseEther-compatible)
+  coins: number;      // crédit monnaie du jeu
+}
+
+export const DEFAULT_TOPUP_PRESETS: TopupPreset[] = [
+  { fiat: 10,  eth: '0.004', coins: 1000  },
+  { fiat: 20,  eth: '0.008', coins: 2000  },
+  { fiat: 50,  eth: '0.020', coins: 5000  },
+  { fiat: 100, eth: '0.040', coins: 10000 },
+];
+
+export async function getTopupPresets(): Promise<TopupPreset[]> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_TOPUP_PRESETS;
+  const snap = await get(ref(db, 'catalog/topupPresets'));
+  const v = snap.val() as TopupPreset[] | null;
+  return Array.isArray(v) && v.length > 0 ? v : DEFAULT_TOPUP_PRESETS;
+}
+
+export async function setTopupPresets(presets: TopupPreset[]): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/topupPresets'), presets);
 }

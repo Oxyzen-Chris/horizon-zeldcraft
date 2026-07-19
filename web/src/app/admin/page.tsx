@@ -12,6 +12,7 @@ import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { PlayerStats } from '@/components/PlayerStats';
 import { ChatHistory } from '@/components/ChatHistory';
 import { RepRulesPanel } from '@/components/RepRulesPanel';
+import { TopupPresetsPanel } from '@/components/TopupPresetsPanel';
 import { useI18n } from '@/lib/i18n';
 
 export default function AdminPage() {
@@ -139,6 +140,7 @@ export default function AdminPage() {
           {contract && <PlayerStats contract={contract} />}
           {contract && <ChatHistory contract={contract} />}
           <RepRulesPanel />
+          <TopupPresetsPanel />
 
           <section className="card">
             <h2 className="text-xl font-semibold mb-3">{t('admin.item.title')}</h2>

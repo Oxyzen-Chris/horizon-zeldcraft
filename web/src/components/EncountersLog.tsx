@@ -95,6 +95,14 @@ export function EncountersLog() {
                     {t(`npc.offer.${e.offer}`)}
                   </span>
                 </div>
+                {/* Article échangé/volé/reçu — mis en valeur */}
+                {e.itemName && (
+                  <p className={`text-xs mt-1 font-semibold ${e.itemName.startsWith('-') ? 'text-rose-300' : 'text-emerald-300'}`}>
+                    {e.itemName.startsWith('-')
+                      ? `🚫 ${t('encounters.itemStolen')} : ${e.itemName.slice(1)}`
+                      : `🎁 ${t('encounters.itemReceived')} : ${e.itemName}`}
+                  </p>
+                )}
                 <p className="text-slate-300 mt-0.5">{describe(e)}</p>
                 <p className="text-[10px] text-slate-500">
                   {new Date(e.timestamp).toLocaleString()}

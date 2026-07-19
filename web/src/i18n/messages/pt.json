@@ -237,5 +237,11 @@
   "game.wallet.confirming": "Confirmando on-chain…",
   "game.wallet.balance": "Saldo moeda do jogo",
   "game.shop.resellAt": "Revender a",
-  "game.wallet.signing": "Assinando no Metamask…"
+  "game.wallet.signing": "Assinando no Metamask…",
+  "encounters.itemReceived": "Artigo recebido",
+  "admin.topup.fiat": "Montante",
+  "admin.topup.description": "Configura os montantes disponíveis no popup Recarregar",
+  "admin.topup.add": "Adicionar preset",
+  "encounters.itemStolen": "Artigo roubado",
+  "admin.topup.title": "Presets de recarga da carteira"
 }

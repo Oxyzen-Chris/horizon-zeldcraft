@@ -237,5 +237,11 @@
   "game.wallet.confirming": "Confirming on-chain…",
   "game.wallet.balance": "Game currency balance",
   "game.shop.resellAt": "Resell at",
-  "game.wallet.signing": "Signing in Metamask…"
+  "game.wallet.signing": "Signing in Metamask…",
+  "encounters.itemReceived": "Item received",
+  "admin.topup.fiat": "Amount",
+  "admin.topup.description": "Configure the amounts available in the Top-up popup (fiat → ETH → game coins)",
+  "admin.topup.add": "Add a preset",
+  "encounters.itemStolen": "Item stolen",
+  "admin.topup.title": "Wallet top-up presets"
 }

@@ -9,11 +9,18 @@ import pt from '@/i18n/messages/pt.json';
 const dicts = { fr, en, es, pt } as const;
 export type Locale = keyof typeof dicts;
 
+// Devise associée à chaque langue
+export const CURRENCY_BY_LOCALE: Record<Locale, string> = {
+  fr: '€', es: '€', pt: '€',
+  en: '$',   // English (US) — utilise le dollar
+};
+
 const I18nContext = createContext<{
   locale: Locale;
   setLocale: (l: Locale) => void;
   t: (key: string, vars?: Record<string, string | number>) => string;
-}>({ locale: 'fr', setLocale: () => {}, t: (k) => k });
+  currency: string;
+}>({ locale: 'fr', setLocale: () => {}, t: (k) => k, currency: '€' });
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>('fr');
@@ -39,7 +46,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return str;
   };
 
-  return <I18nContext.Provider value={{ locale, setLocale, t }}>{children}</I18nContext.Provider>;
+  return <I18nContext.Provider value={{ locale, setLocale, t, currency: CURRENCY_BY_LOCALE[locale] }}>{children}</I18nContext.Provider>;
 }
 
 export const useI18n = () => useContext(I18nContext);
