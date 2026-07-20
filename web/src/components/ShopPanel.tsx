@@ -5,6 +5,7 @@ import { useAccount } from 'wagmi';
 import { getShopCatalog, addToInventory, applyEffect, subscribePlayer, subscribeInventory,
   removeFromInventory, type ShopItem, type PlayerState, type InventoryItem } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
+import { ConfirmDialog } from './ConfirmDialog';
 
 /**
  * Boutique — achat/vente d'objets. Utilise la monnaie de jeu (wallet) pour éviter
@@ -19,6 +20,11 @@ export function ShopPanel() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [tab, setTab] = useState<'buy' | 'sell'>('buy');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<
+    | { kind: 'buy'; item: ShopItem }
+    | { kind: 'sell'; item: InventoryItem; price: number }
+    | null
+  >(null);
 
   useEffect(() => { getShopCatalog().then(setCatalog); }, []);
   useEffect(() => {
@@ -47,16 +53,31 @@ export function ShopPanel() {
     setTimeout(() => setFeedback(null), 3000);
   };
 
-  const sell = async (it: InventoryItem) => {
+  const sell = async (it: InventoryItem, salePrice: number) => {
     if (!address) return;
-    const cat = catalog.find(c => c.itemId === it.itemId);
-    const salePrice = cat?.priceGame ? Math.floor(cat.priceGame / 2) : 5;
     const ok = await removeFromInventory(address, it.itemId, 1);
     if (!ok) return;
     // Vente : +wallet, +reputation (générosité envers le commerçant)
     await applyEffect(address, { wallet: salePrice, reputation: 1 });
     setFeedback(t('game.shop.sold', { name: it.name, v: salePrice }));
     setTimeout(() => setFeedback(null), 2500);
+  };
+
+  const askBuy = (item: ShopItem) => {
+    if (!item.priceGame) return;
+    setConfirm({ kind: 'buy', item });
+  };
+  const askSell = (it: InventoryItem) => {
+    const cat = catalog.find(c => c.itemId === it.itemId);
+    const salePrice = cat?.priceGame ? Math.floor(cat.priceGame / 2) : 5;
+    setConfirm({ kind: 'sell', item: it, price: salePrice });
+  };
+  const runConfirm = async () => {
+    if (!confirm) return;
+    const c = confirm;
+    setConfirm(null);
+    if (c.kind === 'buy')  await buy(c.item);
+    if (c.kind === 'sell') await sell(c.item, c.price);
   };
 
   return (
@@ -81,7 +102,7 @@ export function ShopPanel() {
                 <p className="text-[10px] text-emerald-400 mb-2">
                   ↩ {t('game.shop.resellAt')} {resell} 💰
                 </p>
-                <button className="btn-primary text-xs w-full" disabled={!c.priceGame} onClick={() => buy(c)}>
+                <button className="btn-primary text-xs w-full" disabled={!c.priceGame} onClick={() => askBuy(c)}>
                   {t('game.shop.buy')}
                 </button>
               </div>
@@ -99,7 +120,7 @@ export function ShopPanel() {
                 <p className="text-sm font-semibold truncate">{it.name}</p>
                 <p className="text-xs text-slate-400">×{it.qty}</p>
                 <p className="text-[10px] text-emerald-400 mb-2">↩ {salePrice} 💰</p>
-                <button className="btn-secondary text-xs w-full" onClick={() => sell(it)}>
+                <button className="btn-secondary text-xs w-full" onClick={() => askSell(it)}>
                   {t('game.shop.sellOne')}
                 </button>
               </div>
@@ -110,6 +131,20 @@ export function ShopPanel() {
 
       {feedback && <p className="text-sm mt-3 text-cyan-400">{feedback}</p>}
       <p className="text-xs text-slate-500 mt-3">{t('game.shop.hint')}</p>
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.kind === 'buy'
+          ? t('game.shop.confirmBuyTitle')
+          : t('game.shop.confirmSellTitle')}
+        message={confirm?.kind === 'buy'
+          ? t('game.shop.confirmBuyMsg', { name: confirm.item.name, price: confirm.item.priceGame ?? 0 })
+          : confirm?.kind === 'sell'
+            ? t('game.shop.confirmSellMsg', { name: confirm.item.name, price: confirm.price })
+            : ''}
+        onConfirm={runConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

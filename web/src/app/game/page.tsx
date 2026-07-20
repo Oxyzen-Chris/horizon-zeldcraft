@@ -220,8 +220,15 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <section className="card text-center">
         <VoxlynSkin stage={Number(stage)} size={220} />
         <h2 className="text-2xl font-bold mt-3">{name}</h2>
-        <p className="text-sm text-slate-400">
-          {t(`stage.${STAGE_NAMES[Number(stage)]}`)} · {t('game.stats.level')} {Number(level)}
+        <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-cyan-600/40 to-purple-600/40 border border-cyan-400/40">
+          <span className="text-xs uppercase tracking-wider text-cyan-300">{t('game.stats.stage')}</span>
+          <span className="text-sm font-bold text-white">{t(`stage.${STAGE_NAMES[Number(stage)]}`)}</span>
+          <span className="text-xs text-slate-300">· {t('game.stats.level')} {Number(level)}</span>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-1">
+          {Number(stage) < STAGE_NAMES.length - 1
+            ? `→ ${t(`stage.${STAGE_NAMES[Number(stage) + 1]}`)}`
+            : '✨ ' + t(`stage.${STAGE_NAMES[STAGE_NAMES.length - 1]}`)}
         </p>
       </section>
 

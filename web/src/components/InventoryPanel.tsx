@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { subscribeInventory, applyEffect, removeFromInventory, type InventoryItem } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
+import { ConfirmDialog } from './ConfirmDialog';
 
 /** Sac du joueur — inventaire off-chain (Firebase), pas de gas pour manipuler. */
 export function InventoryPanel() {
   const { t } = useI18n();
   const { address } = useAccount();
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [confirm, setConfirm] = useState<InventoryItem | null>(null);
 
   useEffect(() => {
     if (!address) return;
@@ -20,6 +22,11 @@ export function InventoryPanel() {
     if (!address) return;
     if (it.effect) await applyEffect(address, it.effect);
     await removeFromInventory(address, it.itemId, 1);
+  };
+  const runConfirm = async () => {
+    const it = confirm;
+    setConfirm(null);
+    if (it) await use(it);
   };
 
   const renderEffect = (e: InventoryItem['effect']) => {
@@ -49,7 +56,7 @@ export function InventoryPanel() {
               <p className="text-xs text-slate-400 mb-1">×{it.qty}</p>
               {renderEffect(it.effect)}
               {it.effect && (
-                <button className="btn-secondary text-xs w-full" onClick={() => use(it)}>
+                <button className="btn-secondary text-xs w-full" onClick={() => setConfirm(it)}>
                   {t('game.inventory.use')}
                 </button>
               )}
@@ -58,6 +65,14 @@ export function InventoryPanel() {
         </div>
       )}
       <p className="text-xs text-slate-500 mt-2">{t('game.inventory.hint')}</p>
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={t('game.inventory.confirmUseTitle')}
+        message={confirm ? t('game.inventory.confirmUseMsg', { name: confirm.name }) : ''}
+        onConfirm={runConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }
