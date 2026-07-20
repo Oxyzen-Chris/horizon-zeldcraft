@@ -58,6 +58,13 @@ export function RepRulesPanel() {
     { key: 'fightLootPct',       labelKey: 'admin.repRules.fightLootPct' },
     { key: 'fightLootMaxWallet', labelKey: 'admin.repRules.fightLootMaxWallet' },
     { key: 'fightLootMaxItems',  labelKey: 'admin.repRules.fightLootMaxItems' },
+    { key: 'fightLootChancePct',labelKey: 'admin.repRules.fightLootChancePct' },
+    { key: 'fightForceWeight',   labelKey: 'admin.repRules.fightForceWeight' },
+    { key: 'fightHpWeight',      labelKey: 'admin.repRules.fightHpWeight' },
+    { key: 'fightHungerWeight',  labelKey: 'admin.repRules.fightHungerWeight' },
+    { key: 'fightSpellsWeight',  labelKey: 'admin.repRules.fightSpellsWeight' },
+    { key: 'fightNpcBonusMax',   labelKey: 'admin.repRules.fightNpcBonusMax' },
+    { key: 'fightNpcForceRef',   labelKey: 'admin.repRules.fightNpcForceRef' },
   ];
 
   return (

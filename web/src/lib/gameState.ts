@@ -406,6 +406,14 @@ export interface RepRules {
   fightLootPct: number;      // % de la bourse du perdant pris par le vainqueur (défaut 20%)
   fightLootMaxWallet: number;// Plafond absolu du butin en monnaie du jeu
   fightLootMaxItems: number; // Nb d'objets pouvant être gagnés/volés après un combat (0 = désactivé)
+  fightLootChancePct: number;// % de chance de gagner/perdre un objet après un combat (défaut 35%)
+  // Pondération du tirage 1d20 façon jeu de rôle (bonus joueur = somme des 4 poids ci-dessous)
+  fightForceWeight: number;  // Poids de la Force dans le bonus joueur (défaut 6)
+  fightHpWeight: number;     // Poids de la Vie dans le bonus joueur (défaut 4)
+  fightHungerWeight: number; // Poids de la Faim dans le bonus joueur (défaut 3)
+  fightSpellsWeight: number; // Poids des Sortilèges dans le bonus joueur (défaut 3)
+  fightNpcBonusMax: number;  // Bonus max du PNJ, dérivé de sa Force (défaut 12)
+  fightNpcForceRef: number;  // Force de référence du PNJ pour atteindre le bonus max (défaut 45)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -426,6 +434,13 @@ export const DEFAULT_REP_RULES: RepRules = {
   fightLootPct: 20,
   fightLootMaxWallet: 100,
   fightLootMaxItems: 1,
+  fightLootChancePct: 35,
+  fightForceWeight: 6,
+  fightHpWeight: 4,
+  fightHungerWeight: 3,
+  fightSpellsWeight: 3,
+  fightNpcBonusMax: 12,
+  fightNpcForceRef: 45,
 };
 
 export async function getRepRules(): Promise<RepRules> {

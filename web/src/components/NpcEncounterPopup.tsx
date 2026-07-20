@@ -79,17 +79,28 @@ interface FightRoll {
  * Tirage 1d20 pondéré par les indices de Force, Vie, Faim et Sortilèges du joueur
  * (façon jeu de rôle papier). Le PNJ tire aussi 1d20 + bonus dérivé de sa Force.
  * Égalité = défaite du joueur (avantage au défenseur).
+ * Tous les poids et plafonds sont paramétrables via le menu Administration (RepRules).
  */
-function resolveFight(player: { hp: number; hpMax: number; hunger: number; hungerMax: number; force: number; forceMax: number; spells: number; spellsMax: number }, npc: PopupNpc): FightRoll {
+function resolveFight(
+  player: { hp: number; hpMax: number; hunger: number; hungerMax: number; force: number; forceMax: number; spells: number; spellsMax: number },
+  npc: PopupNpc,
+  rules: RepRules,
+): FightRoll {
   const hpPct     = clamp01(player.hp     / (player.hpMax     || 100));
   const hungerPct = clamp01(player.hunger / (player.hungerMax || 100));
   const forcePct  = clamp01(player.force  / (player.forceMax  || 100));
   const spellsPct = clamp01(player.spells / (player.spellsMax || 100));
 
-  // Bonus max théorique : force×6 + vie×4 + faim×3 + sortilèges×3 = 16
-  const playerBonus = Math.round(forcePct * 6 + hpPct * 4 + hungerPct * 3 + spellsPct * 3);
-  // PNJ : bonus max 12, dérivé de sa seule Force (5-45)
-  const npcBonus = Math.round(clamp01(npc.force / 45) * 12);
+  // Bonus joueur = somme pondérée des 4 stats (poids paramétrables, ex. défaut 6+4+3+3=16)
+  const playerBonus = Math.round(
+    forcePct  * (rules.fightForceWeight  ?? 6) +
+    hpPct     * (rules.fightHpWeight     ?? 4) +
+    hungerPct * (rules.fightHungerWeight ?? 3) +
+    spellsPct * (rules.fightSpellsWeight ?? 3),
+  );
+  // Bonus PNJ, dérivé de sa seule Force, plafonné à fightNpcBonusMax (défaut 12)
+  const npcForceRef = Math.max(1, rules.fightNpcForceRef ?? 45);
+  const npcBonus = Math.round(clamp01(npc.force / npcForceRef) * (rules.fightNpcBonusMax ?? 12));
 
   const playerRoll = rollD20();
   const npcRoll = rollD20();
@@ -163,7 +174,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
 
       if (npc.offer === 'fight') {
         const p = await getOrCreatePlayer(address);
-        const roll = resolveFight(p, npc);
+        const roll = resolveFight(p, npc, r);
         const win = roll.win;
         outcome = win ? 'won' : 'lost';
         xpDelta = win ? npc.xp : Math.floor(npc.xp / 3);
@@ -178,12 +189,13 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         const lootPct = Math.max(0, r.fightLootPct ?? 20) / 100;
         const lootCap = r.fightLootMaxWallet ?? 100;
         const maxLootItems = Math.max(0, r.fightLootMaxItems ?? 1);
+        const lootChance = clamp01((r.fightLootChancePct ?? 35) / 100);
         let lootItemName: string | undefined;
         let stolenItemName: string | undefined;
 
         if (win) {
           walletDelta = Math.min(lootCap, Math.max(1, Math.floor(roll.npcPurse * lootPct)));
-          if (maxLootItems > 0 && Math.random() < 0.35) {
+          if (maxLootItems > 0 && Math.random() < lootChance) {
             const drop = pick(FIGHT_LOOT_TABLE);
             await addToInventory(address, { ...drop, qty: 1 });
             lootItemName = drop.name;
@@ -192,7 +204,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         } else {
           const lost = Math.min(lootCap, Math.max(1, Math.floor(p.wallet * lootPct)));
           walletDelta = -lost;
-          if (maxLootItems > 0 && Math.random() < 0.35) {
+          if (maxLootItems > 0 && Math.random() < lootChance) {
             const db = getFirebaseDb();
             if (db) {
               const invSnap = await get(ref(db, `players/${address.toLowerCase()}/inventory`));
