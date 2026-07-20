@@ -33,6 +33,7 @@ export function ConfirmDialog({
   }, [open, onCancel, onConfirm]);
 
   if (!open || typeof document === 'undefined') return null;
+  console.log('[ConfirmDialog] render: open=true title=', title);
 
   const confirmClass = variant === 'danger'
     ? 'bg-rose-600 hover:bg-rose-500'

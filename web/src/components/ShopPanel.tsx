@@ -64,10 +64,12 @@ export function ShopPanel() {
   };
 
   const askBuy = (item: ShopItem) => {
+    console.log('[Shop] askBuy →', item.itemId, 'priceGame=', item.priceGame);
     if (!item.priceGame) return;
     setConfirm({ kind: 'buy', item });
   };
   const askSell = (it: InventoryItem) => {
+    console.log('[Shop] askSell →', it.itemId);
     const cat = catalog.find(c => c.itemId === it.itemId);
     const salePrice = cat?.priceGame ? Math.floor(cat.priceGame / 2) : 5;
     setConfirm({ kind: 'sell', item: it, price: salePrice });
