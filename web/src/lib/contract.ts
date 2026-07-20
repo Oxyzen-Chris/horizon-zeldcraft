@@ -157,32 +157,14 @@ export function normalizeAnswer(s: string): string {
 }
 
 /**
- * Réponses des énigmes seedées au déploiement (`contracts/scripts/deploy.ts`), utilisées comme
- * filet de sécurité pour afficher la réponse d'une quête déjà résolue AVANT que le mécanisme
- * `markQuestSolved` (Firebase) n'existe, ou si l'écriture Firebase a échoué silencieusement.
- * Clé : id texte de la quête tel que déployé (ex. "quest.riddle_first").
- */
-export const SEED_RIDDLE_ANSWERS: Record<string, string> = {
-  'quest.riddle_first':  'glace',
-  'quest.riddle_zelda':  'master sword',
-  'quest.riddle_mc':     'diamant',
-  'quest.riddle_wow':    'thunderfury',
-  'quest.riddle_dragon': 'cristal',
-};
-
-/**
  * Recalcule le questId `bytes32` (keccak256(utf8(s))) d'un identifiant texte, comme
- * `ethers.id(s)` côté script de déploiement. Permet de retrouver la réponse seedée sans
- * dépendre d'un stockage Firebase (voir `SEED_RIDDLE_ANSWERS`).
+ * `ethers.id(s)` côté script de déploiement. Utile pour retrouver/écrire une réponse
+ * d'énigme en base de données à partir de son id texte (voir `gameState.ts` : 
+ * `getSeedQuestAnswer` / `seedQuestAnswer`).
  */
 export function questIdOf(s: string): `0x${string}` {
   return keccak256(toBytes(s));
 }
-
-/** Table `questId (bytes32) → réponse` pré-calculée une seule fois pour les quêtes seedées. */
-export const SEED_RIDDLE_ANSWERS_BY_ID: Record<string, string> = Object.fromEntries(
-  Object.entries(SEED_RIDDLE_ANSWERS).map(([k, v]) => [questIdOf(k), v]),
-);
 
 /**
  * Extrait un message d'erreur lisible depuis une erreur wagmi/viem.

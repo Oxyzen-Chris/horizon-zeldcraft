@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, FEED_TYPES, WEATHER, WEATHER_KEYS, normalizeAnswer } from '@/lib/contract';
+import { seedQuestAnswer } from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { PlayerStats } from '@/components/PlayerStats';
@@ -170,19 +171,24 @@ export default function AdminPage() {
               <input className="input" placeholder={t('admin.quest.minDifficulty')} value={questMinDiff}  onChange={e => setQuestMinDiff(e.target.value)} />
             </div>
             <button className="btn-primary" disabled={isPending || !questKey || !questLabel || !questAnswer}
-              onClick={() => writeContract({
-                address: contract, abi: HORIZON_ABI, functionName: 'addQuest',
-                args: [
-                  keccak256(toBytes(questKey)),
-                  questLabel,
-                  Number(questReq),
-                  Number(questRew),
-                  Number(questScore),
-                  keccak256(toBytes(normalizeAnswer(questAnswer))),
-                  questTreasure ? keccak256(toBytes(questTreasure)) : ('0x' + '00'.repeat(32)) as `0x${string}`,
-                  Number(questMinDiff),
-                ],
-              })}
+              onClick={() => {
+                const questIdHash = keccak256(toBytes(questKey));
+                // Réponse stockée en base (jamais dans le bundle JS) — la chaîne ne garde que le hash.
+                seedQuestAnswer(questIdHash, normalizeAnswer(questAnswer)).catch(() => {});
+                writeContract({
+                  address: contract, abi: HORIZON_ABI, functionName: 'addQuest',
+                  args: [
+                    questIdHash,
+                    questLabel,
+                    Number(questReq),
+                    Number(questRew),
+                    Number(questScore),
+                    keccak256(toBytes(normalizeAnswer(questAnswer))),
+                    questTreasure ? keccak256(toBytes(questTreasure)) : ('0x' + '00'.repeat(32)) as `0x${string}`,
+                    Number(questMinDiff),
+                  ],
+                });
+              }}
             >{t('admin.quest.submit')}</button>
             <p className="text-xs text-slate-500 mt-2">{t('admin.quest.hint')}</p>
           </section>

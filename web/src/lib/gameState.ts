@@ -310,6 +310,29 @@ export async function getSolvedQuest(address: string, questId: string): Promise<
   return snap.val();
 }
 
+/**
+ * Réponse "officielle" d'une énigme, stockée en base (Firebase) plutôt que dans le bundle JS
+ * client afin de ne pas exposer publiquement les réponses des quêtes non résolues (les réponses
+ * ne sont sur la blockchain que sous forme de hash keccak256, jamais en clair).
+ * Utilisée comme filet de sécurité par `QuestList` quand une quête est déjà complétée on-chain
+ * mais qu'aucun enregistrement `players/{addr}/quests/{questId}` n'existe encore (ex. quête
+ * résolue avant l'ajout de `markQuestSolved`, ou quêtes seedées au déploiement du contrat).
+ */
+export async function getSeedQuestAnswer(questId: string): Promise<string | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+  const snap = await get(ref(db, `catalog/riddleAnswers/${questId.toLowerCase()}`));
+  return snap.val() ?? null;
+}
+
+/** Enregistre la réponse officielle d'une énigme (admin, à la création d'une quête). */
+export async function seedQuestAnswer(questId: string, answer: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/riddleAnswers/${questId.toLowerCase()}`), answer);
+}
+
 // ─────────────────────────────────────── Player index ───────────────────────────────────────
 
 /** Liste tous les joueurs enregistrés (pour dropdown admin). */

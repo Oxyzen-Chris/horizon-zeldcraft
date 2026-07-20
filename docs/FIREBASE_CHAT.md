@@ -31,6 +31,7 @@ Chemins RTDB utilisés par l'application (à jour au 2026-07) :
 | `catalog/repRules`                      | admin `ReputationRulesPanel`                  | popup NPC (calcul reputation)           |
 | `catalog/topupPresets`                  | admin `TopupPresetsPanel`                     | `WalletTopupPopup` (choix montants)     |
 | `catalog/shopItems` *(WIP)*             | admin `ShopPanel`                             | `Shop` (achats)                         |
+| `catalog/riddleAnswers/{questId}`       | admin (ajout quête), `web/scripts/seedRiddleAnswers.mjs` | `QuestList` (filet de sécu réponse) |
 
 ## 1. Créer le projet Firebase (gratuit)
 

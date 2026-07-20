@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient, useAccount } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
-import { HORIZON_ABI, normalizeAnswer, decodeContractError, SEED_RIDDLE_ANSWERS_BY_ID } from '@/lib/contract';
-import { markQuestSolved, getSolvedQuest, applyEffect, getRepRules } from '@/lib/gameState';
+import { HORIZON_ABI, normalizeAnswer, decodeContractError } from '@/lib/contract';
+import { markQuestSolved, getSolvedQuest, getSeedQuestAnswer, applyEffect, getRepRules } from '@/lib/gameState';
 import { useIdsList } from './useIdsList';
 import { useI18n } from '@/lib/i18n';
 
@@ -46,13 +46,14 @@ function QuestCard({ contract, questId, tokenId, playerXp }: {
   const { isSuccess: mined } = useWaitForTransactionReceipt({ hash: txHash });
 
   // Charge la réponse depuis Firebase si la quête est déjà résolue (persiste au redéploiement).
-  // Filet de sécurité : pour les quêtes seedées au déploiement, si aucun enregistrement Firebase
-  // n'existe encore (résolue avant l'ajout de ce mécanisme), on retombe sur la réponse connue.
+  // Filet de sécurité : si aucun enregistrement joueur n'existe encore (quête résolue avant
+  // l'ajout de ce mécanisme), on retombe sur la réponse « officielle » stockée en base
+  // (catalog/riddleAnswers) — jamais embarquée en clair dans le bundle JS client.
   useEffect(() => {
     if (done && address) {
-      getSolvedQuest(address, questId).then((r) => {
+      getSolvedQuest(address, questId).then(async (r) => {
         if (r) { setSolvedAnswer(r.answer); return; }
-        const seeded = SEED_RIDDLE_ANSWERS_BY_ID[questId.toLowerCase()];
+        const seeded = await getSeedQuestAnswer(questId).catch(() => null);
         if (seeded) setSolvedAnswer(seeded);
       });
     }
