@@ -262,7 +262,10 @@ export async function logEncounter(address: string, e: EncounterRecord): Promise
   if (!db) return;
   await ensureAnonSignIn();
   const listRef = ref(db, `players/${KEY(address)}/encounters`);
-  await push(listRef, e);
+  // Firebase RTDB refuse undefined ; on strip les champs optionnels non fournis.
+  const clean: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(e)) if (v !== undefined) clean[k] = v;
+  await push(listRef, clean);
 }
 
 export async function getEncounters(address: string, limit = 50): Promise<EncounterRecord[]> {
