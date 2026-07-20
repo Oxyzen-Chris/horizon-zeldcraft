@@ -55,6 +55,9 @@ export function RepRulesPanel() {
     { key: 'theftMaxWallet',     labelKey: 'admin.repRules.theftMaxWallet' },
     { key: 'theftMaxPct',        labelKey: 'admin.repRules.theftMaxPct' },
     { key: 'theftMaxItems',      labelKey: 'admin.repRules.theftMaxItems' },
+    { key: 'fightLootPct',       labelKey: 'admin.repRules.fightLootPct' },
+    { key: 'fightLootMaxWallet', labelKey: 'admin.repRules.fightLootMaxWallet' },
+    { key: 'fightLootMaxItems',  labelKey: 'admin.repRules.fightLootMaxItems' },
   ];
 
   return (

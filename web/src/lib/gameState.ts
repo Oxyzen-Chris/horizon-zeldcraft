@@ -402,6 +402,10 @@ export interface RepRules {
   theftMaxWallet: number;    // Plafond absolu (borne dure) en monnaie du jeu
   theftMaxPct: number;       // Pourcentage max du solde pouvant être volé (défaut 5%)
   theftMaxItems: number;     // Quantité max d'objets pouvant être volés d'un coup (défaut 1)
+  // Butin de combat (tirage de dés) — symétrique gagnant/perdant
+  fightLootPct: number;      // % de la bourse du perdant pris par le vainqueur (défaut 20%)
+  fightLootMaxWallet: number;// Plafond absolu du butin en monnaie du jeu
+  fightLootMaxItems: number; // Nb d'objets pouvant être gagnés/volés après un combat (0 = désactivé)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -419,6 +423,9 @@ export const DEFAULT_REP_RULES: RepRules = {
   theftMaxWallet: 50,
   theftMaxPct: 5,
   theftMaxItems: 1,
+  fightLootPct: 20,
+  fightLootMaxWallet: 100,
+  fightLootMaxItems: 1,
 };
 
 export async function getRepRules(): Promise<RepRules> {

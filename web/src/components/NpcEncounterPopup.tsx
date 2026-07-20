@@ -7,6 +7,7 @@ import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES } from '@/lib/contract';
 import { applyEffect, logEncounter, addToInventory, removeFromInventory, getRepRules, getOrCreatePlayer, type EncounterRecord, type RepRules } from '@/lib/gameState';
 import { getFirebaseDb } from '@/lib/firebase';
 import { useI18n } from '@/lib/i18n';
+import { FightResultModal, type FightResultData } from './FightResultModal';
 
 /**
  * Popup de rencontres PNJ aléatoires — 3 à 5×/jour selon le réglage admin
@@ -54,6 +55,52 @@ function rollNpc(): PopupNpc {
   };
 }
 
+// ─────────────────────────── Combat façon jet de dés (D&D-like) ───────────────────────────
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const rollD20 = () => 1 + Math.floor(Math.random() * 20);
+
+/** Butin possible lors d'une victoire (récupéré sur le PNJ vaincu). */
+const FIGHT_LOOT_TABLE = [
+  { itemId: 'dague_rouillee', name: '🗡️ Dague rouillée',         category: 'weapon' as const, effect: { force: 5 } },
+  { itemId: 'bourse_pnj',     name: '💰 Bourse trouvée',          category: 'treasure' as const, effect: {} },
+  { itemId: 'amulette_prot',  name: '📿 Amulette de protection',  category: 'armor' as const, effect: { hp: 10 } },
+];
+
+interface FightRoll {
+  playerRoll: number; npcRoll: number;
+  playerBonus: number; npcBonus: number;
+  playerTotal: number; npcTotal: number;
+  win: boolean;
+  npcPurse: number;
+}
+
+/**
+ * Tirage 1d20 pondéré par les indices de Force, Vie, Faim et Sortilèges du joueur
+ * (façon jeu de rôle papier). Le PNJ tire aussi 1d20 + bonus dérivé de sa Force.
+ * Égalité = défaite du joueur (avantage au défenseur).
+ */
+function resolveFight(player: { hp: number; hpMax: number; hunger: number; hungerMax: number; force: number; forceMax: number; spells: number; spellsMax: number }, npc: PopupNpc): FightRoll {
+  const hpPct     = clamp01(player.hp     / (player.hpMax     || 100));
+  const hungerPct = clamp01(player.hunger / (player.hungerMax || 100));
+  const forcePct  = clamp01(player.force  / (player.forceMax  || 100));
+  const spellsPct = clamp01(player.spells / (player.spellsMax || 100));
+
+  // Bonus max théorique : force×6 + vie×4 + faim×3 + sortilèges×3 = 16
+  const playerBonus = Math.round(forcePct * 6 + hpPct * 4 + hungerPct * 3 + spellsPct * 3);
+  // PNJ : bonus max 12, dérivé de sa seule Force (5-45)
+  const npcBonus = Math.round(clamp01(npc.force / 45) * 12);
+
+  const playerRoll = rollD20();
+  const npcRoll = rollD20();
+  const playerTotal = playerRoll + playerBonus;
+  const npcTotal = npcRoll + npcBonus;
+  const win = playerTotal > npcTotal;
+  const npcPurse = 20 + npc.force * 3;
+
+  return { playerRoll, npcRoll, playerBonus, npcBonus, playerTotal, npcTotal, win, npcPurse };
+}
+
 export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string}`; tokenId: bigint }) {
   const { t } = useI18n();
   const { address } = useAccount();
@@ -94,6 +141,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
 
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [fightResult, setFightResult] = useState<FightResultData | null>(null);
   const close = () => { setCurrent(null); setErrorMsg(null); };
 
   const accept = async () => {
@@ -114,7 +162,9 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
       let itemName: string | undefined;
 
       if (npc.offer === 'fight') {
-        const win = Math.random() > 0.4;
+        const p = await getOrCreatePlayer(address);
+        const roll = resolveFight(p, npc);
+        const win = roll.win;
         outcome = win ? 'won' : 'lost';
         xpDelta = win ? npc.xp : Math.floor(npc.xp / 3);
         xpBonusDelta = xpDelta;
@@ -123,6 +173,48 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         repDelta = win
           ? (npc.alignment === 'hostile' ? r.fightWinHostile : r.fightWinNormal)
           : r.fightLoss;
+
+        // Butin symétrique : le vainqueur prend une part de la bourse du perdant.
+        const lootPct = Math.max(0, r.fightLootPct ?? 20) / 100;
+        const lootCap = r.fightLootMaxWallet ?? 100;
+        const maxLootItems = Math.max(0, r.fightLootMaxItems ?? 1);
+        let lootItemName: string | undefined;
+        let stolenItemName: string | undefined;
+
+        if (win) {
+          walletDelta = Math.min(lootCap, Math.max(1, Math.floor(roll.npcPurse * lootPct)));
+          if (maxLootItems > 0 && Math.random() < 0.35) {
+            const drop = pick(FIGHT_LOOT_TABLE);
+            await addToInventory(address, { ...drop, qty: 1 });
+            lootItemName = drop.name;
+            itemName = `+${drop.name}`;
+          }
+        } else {
+          const lost = Math.min(lootCap, Math.max(1, Math.floor(p.wallet * lootPct)));
+          walletDelta = -lost;
+          if (maxLootItems > 0 && Math.random() < 0.35) {
+            const db = getFirebaseDb();
+            if (db) {
+              const invSnap = await get(ref(db, `players/${address.toLowerCase()}/inventory`));
+              const inv = invSnap.val() as Record<string, { name: string; qty: number }> | null;
+              const stealable = inv ? Object.entries(inv).filter(([, it]) => it.qty > 0) : [];
+              if (stealable.length > 0) {
+                const [itemId, it] = stealable[Math.floor(Math.random() * stealable.length)];
+                await removeFromInventory(address, itemId, 1);
+                stolenItemName = it.name;
+                itemName = `-${it.name}`;
+              }
+            }
+          }
+        }
+
+        setFightResult({
+          win, playerRoll: roll.playerRoll, npcRoll: roll.npcRoll,
+          playerBonus: roll.playerBonus, npcBonus: roll.npcBonus,
+          playerTotal: roll.playerTotal, npcTotal: roll.npcTotal,
+          npcName: npc.name, xpDelta, hpDelta, coinsDelta: walletDelta,
+          lootItemName, stolenItemName,
+        });
       } else if (npc.offer === 'trade') {
         if (npc.alignment === 'hostile') {
           const stealFromBag = Math.random() < 0.5;
@@ -218,33 +310,40 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
     }
   };
 
-  if (!current) return null;
+  if (!current && !fightResult) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => !busy && close()}>
-      <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
-        <div className="text-center">
-          <div className="text-6xl mb-3">{NPC_SKINS[current.skin]}</div>
-          <h3 className="text-xl font-bold text-cyan-300">{current.name}</h3>
-          <p className="text-sm text-slate-400 mt-1">
-            {ALIGN_ICONS[current.alignment]} {t(`npc.align.${current.alignment}`)} · {OFFER_ICONS[current.offer]} {t(`npc.offer.${OFFER_KEYS[current.offer]}`)}
-          </p>
-          <div className="flex justify-around bg-slate-800/60 rounded p-2 mt-3 text-sm">
-            <span>⚔️ {current.force}</span>
-            <span>✨ {current.xp} XP</span>
+    <>
+      {current && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => !busy && close()}>
+          <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <div className="text-center">
+              <div className="text-6xl mb-3">{NPC_SKINS[current.skin]}</div>
+              <h3 className="text-xl font-bold text-cyan-300">{current.name}</h3>
+              <p className="text-sm text-slate-400 mt-1">
+                {ALIGN_ICONS[current.alignment]} {t(`npc.align.${current.alignment}`)} · {OFFER_ICONS[current.offer]} {t(`npc.offer.${OFFER_KEYS[current.offer]}`)}
+              </p>
+              <div className="flex justify-around bg-slate-800/60 rounded p-2 mt-3 text-sm">
+                <span>⚔️ {current.force}</span>
+                <span>✨ {current.xp} XP</span>
+              </div>
+            </div>
+            <p className="text-sm text-slate-300 mt-4 text-center">{t(`npc.dialogue.${OFFER_KEYS[current.offer]}`, { name: current.name })}</p>
+            {errorMsg && <p className="text-xs text-rose-400 mt-3 text-center">{errorMsg}</p>}
+            <div className="flex gap-3 mt-5">
+              <button className="btn-primary flex-1 disabled:opacity-50" disabled={busy} onClick={accept}>
+                {busy ? '⏳' : t('npc.accept')}
+              </button>
+              <button className="btn-secondary flex-1 disabled:opacity-50" disabled={busy} onClick={refuse}>
+                {t('npc.refuse')}
+              </button>
+            </div>
           </div>
         </div>
-        <p className="text-sm text-slate-300 mt-4 text-center">{t(`npc.dialogue.${OFFER_KEYS[current.offer]}`, { name: current.name })}</p>
-        {errorMsg && <p className="text-xs text-rose-400 mt-3 text-center">{errorMsg}</p>}
-        <div className="flex gap-3 mt-5">
-          <button className="btn-primary flex-1 disabled:opacity-50" disabled={busy} onClick={accept}>
-            {busy ? '⏳' : t('npc.accept')}
-          </button>
-          <button className="btn-secondary flex-1 disabled:opacity-50" disabled={busy} onClick={refuse}>
-            {t('npc.refuse')}
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+      {fightResult && (
+        <FightResultModal data={fightResult} onClose={() => setFightResult(null)} />
+      )}
+    </>
   );
 }
