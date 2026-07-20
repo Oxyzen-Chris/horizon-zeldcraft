@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { getShopCatalog, addToInventory, applyEffect, subscribePlayer, subscribeInventory,
   removeFromInventory, type ShopItem, type PlayerState, type InventoryItem } from '@/lib/gameState';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, itemLabel } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 
 /**
@@ -37,6 +37,7 @@ export function ShopPanel() {
   const buy = async (item: ShopItem) => {
     if (!address || !item.priceGame) return;
     const cur = player?.wallet ?? 0;
+    const name = itemLabel(t, item.itemId, item.name);
     if (cur < item.priceGame) {
       setFeedback(t('game.shop.notEnough'));
       setTimeout(() => setFeedback(null), 2500);
@@ -45,7 +46,7 @@ export function ShopPanel() {
     try {
       await applyEffect(address, { wallet: -item.priceGame });
       await addToInventory(address, { itemId: item.itemId, name: item.name, category: item.category, qty: 1, effect: item.effect });
-      setFeedback(t('game.shop.bought', { name: item.name }));
+      setFeedback(t('game.shop.bought', { name }));
     } catch (e: any) {
       console.error('[shop] buy failed:', e);
       setFeedback('❌ ' + (e?.message?.slice(0, 60) ?? 'error'));
@@ -59,7 +60,7 @@ export function ShopPanel() {
     if (!ok) return;
     // Vente : +wallet, +reputation (générosité envers le commerçant)
     await applyEffect(address, { wallet: salePrice, reputation: 1 });
-    setFeedback(t('game.shop.sold', { name: it.name, v: salePrice }));
+    setFeedback(t('game.shop.sold', { name: itemLabel(t, it.itemId, it.name), v: salePrice }));
     setTimeout(() => setFeedback(null), 2500);
   };
 
@@ -99,7 +100,7 @@ export function ShopPanel() {
             const resell = c.priceGame ? Math.floor(c.priceGame / 2) : 5;
             return (
               <div key={c.itemId} className="bg-slate-800/60 rounded p-2">
-                <p className="text-sm font-semibold truncate">{c.name}</p>
+                <p className="text-sm font-semibold truncate">{itemLabel(t, c.itemId, c.name)}</p>
                 <p className="text-xs text-slate-400">{c.priceGame ?? '—'} 💰</p>
                 <p className="text-[10px] text-emerald-400 mb-2">
                   ↩ {t('game.shop.resellAt')} {resell} 💰
@@ -119,7 +120,7 @@ export function ShopPanel() {
             const salePrice = cat?.priceGame ? Math.floor(cat.priceGame / 2) : 5;
             return (
               <div key={it.itemId} className="bg-slate-800/60 rounded p-2">
-                <p className="text-sm font-semibold truncate">{it.name}</p>
+                <p className="text-sm font-semibold truncate">{itemLabel(t, it.itemId, it.name)}</p>
                 <p className="text-xs text-slate-400">×{it.qty}</p>
                 <p className="text-[10px] text-emerald-400 mb-2">↩ {salePrice} 💰</p>
                 <button className="btn-secondary text-xs w-full" onClick={() => askSell(it)}>
@@ -140,9 +141,9 @@ export function ShopPanel() {
           ? t('game.shop.confirmBuyTitle')
           : t('game.shop.confirmSellTitle')}
         message={confirm?.kind === 'buy'
-          ? t('game.shop.confirmBuyMsg', { name: confirm.item.name, price: confirm.item.priceGame ?? 0 })
+          ? t('game.shop.confirmBuyMsg', { name: itemLabel(t, confirm.item.itemId, confirm.item.name), price: confirm.item.priceGame ?? 0 })
           : confirm?.kind === 'sell'
-            ? t('game.shop.confirmSellMsg', { name: confirm.item.name, price: confirm.price })
+            ? t('game.shop.confirmSellMsg', { name: itemLabel(t, confirm.item.itemId, confirm.item.name), price: confirm.price })
             : ''}
         onConfirm={runConfirm}
         onCancel={() => setConfirm(null)}

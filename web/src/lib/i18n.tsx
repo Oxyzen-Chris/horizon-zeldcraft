@@ -50,3 +50,29 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 }
 
 export const useI18n = () => useContext(I18nContext);
+
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+/**
+ * Résout le libellé localisé d'un item de besace/boutique (`item.<itemId>`), avec repli sur le
+ * `fallback` (texte brut FR stocké en base) si l'itemId n'a pas d'entrée i18n — cas des objets
+ * ajoutés librement par l'admin, forcément mono-langue. `t()` renvoie la clé elle-même si absente
+ * du dictionnaire (voir plus haut), d'où la comparaison `translated === key`.
+ */
+export function itemLabel(t: Translate, itemId: string | undefined, fallback: string): string {
+  if (!itemId) return fallback;
+  const key = `item.${itemId}`;
+  const translated = t(key);
+  return translated === key ? fallback : translated;
+}
+
+/**
+ * Résout un libellé localisé générique (quête, familier…) à partir d'une clé i18n stable
+ * (`QuestDef.i18nKey`, `FamiliarDef.i18nKey`…), avec repli sur `fallback` (texte brut stocké en
+ * base) si la clé est absente ou non fournie (contenu créé librement par l'admin).
+ */
+export function localizeName(t: Translate, key: string | undefined, fallback: string): string {
+  if (!key) return fallback;
+  const translated = t(key);
+  return translated === key ? fallback : translated;
+}

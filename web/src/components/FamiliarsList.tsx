@@ -6,7 +6,7 @@ import {
   getFamiliarDefs, subscribeFamiliars, tameFamiliar, getShopCatalog,
   subscribeInventory, familiarKeyOf, type FamiliarDef, type InventoryItem,
 } from '@/lib/gameState';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 
 /**
@@ -56,7 +56,7 @@ export function FamiliarsList({ playerXp }: { playerXp: number }) {
             playerXp={playerXp}
             owned={!!owned[familiarKeyOf(f.id)]}
             hasItem={!f.requiredItemId || inventory.some((it) => it.itemId === f.requiredItemId && it.qty > 0)}
-            itemName={f.requiredItemId ? (itemNames[f.requiredItemId] ?? f.requiredItemId) : undefined}
+            itemName={f.requiredItemId ? itemLabel(t, f.requiredItemId, itemNames[f.requiredItemId] ?? f.requiredItemId) : undefined}
           />
         ))}
       </div>
@@ -81,6 +81,7 @@ function FamiliarCard({
   const xpLocked = playerXp < familiar.xpRequired;
   const itemLocked = !!familiar.requiredItemId && !hasItem;
   const locked = xpLocked || itemLocked;
+  const label = localizeName(t, familiar.i18nKey, familiar.label);
 
   const runTame = async () => {
     if (!address) return;
@@ -90,7 +91,7 @@ function FamiliarCard({
       const result = await tameFamiliar(address, familiar, playerXp);
       if (result === 'ok') {
         setIsOwned(true);
-        setFeedback(t('game.familiars.tamed', { name: familiar.label }));
+        setFeedback(t('game.familiars.tamed', { name: label }));
       } else if (result === 'already') {
         setIsOwned(true);
       } else if (result === 'needXp') {
@@ -108,7 +109,7 @@ function FamiliarCard({
   return (
     <div className={`bg-slate-800/60 rounded-lg p-4 border ${isOwned ? 'border-emerald-600' : locked ? 'border-slate-700 opacity-60' : 'border-slate-600'}`}>
       <div className="flex justify-between items-start mb-2">
-        <p className="font-semibold flex-1">{familiar.label}</p>
+        <p className="font-semibold flex-1">{label}</p>
         {isOwned && <span className="text-emerald-400 text-sm ml-2">{t('game.familiars.owned')}</span>}
       </div>
       <p className="text-xs text-slate-400 mb-3">
@@ -130,7 +131,7 @@ function FamiliarCard({
         open={confirmOpen}
         title={t('game.familiars.confirmTameTitle')}
         message={t('game.familiars.confirmTameMsg', {
-          name: familiar.label,
+          name: label,
           itemNote: familiar.requiredItemId ? t('game.familiars.confirmTameItemNote') : '',
         })}
         onConfirm={runTame}

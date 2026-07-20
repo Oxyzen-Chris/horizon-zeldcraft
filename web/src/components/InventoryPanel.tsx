@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { subscribeInventory, applyEffect, removeFromInventory, type InventoryItem } from '@/lib/gameState';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, itemLabel } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 
 /** Sac du joueur — inventaire off-chain (Firebase), pas de gas pour manipuler. */
@@ -52,7 +52,7 @@ export function InventoryPanel() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           {items.map((it) => (
             <div key={it.itemId} className="bg-slate-800/60 rounded p-2 text-center">
-              <p className="text-sm font-semibold truncate">{it.name}</p>
+              <p className="text-sm font-semibold truncate">{itemLabel(t, it.itemId, it.name)}</p>
               <p className="text-xs text-slate-400 mb-1">×{it.qty}</p>
               {renderEffect(it.effect)}
               {it.effect && (
@@ -69,7 +69,7 @@ export function InventoryPanel() {
       <ConfirmDialog
         open={!!confirm}
         title={t('game.inventory.confirmUseTitle')}
-        message={confirm ? t('game.inventory.confirmUseMsg', { name: confirm.name }) : ''}
+        message={confirm ? t('game.inventory.confirmUseMsg', { name: itemLabel(t, confirm.itemId, confirm.name) }) : ''}
         onConfirm={runConfirm}
         onCancel={() => setConfirm(null)}
       />

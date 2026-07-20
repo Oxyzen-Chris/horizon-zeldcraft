@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAccount, useReadContract, useChainId } from 'wagmi';
 import { ref, get } from 'firebase/database';
-import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES } from '@/lib/contract';
+import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES, NPC_SUFFIX_KEYS } from '@/lib/contract';
 import { applyEffect, logEncounter, addToInventory, removeFromInventory, getRepRules, getOrCreatePlayer, type EncounterRecord, type RepRules } from '@/lib/gameState';
 import { getFirebaseDb } from '@/lib/firebase';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { FightResultModal, type FightResultData } from './FightResultModal';
 
 /**
@@ -16,7 +16,10 @@ import { FightResultModal, type FightResultData } from './FightResultModal';
  */
 type PopupNpc = {
   key: string;         // id local du tirage (pas on-chain)
-  name: string;
+  baseKey: string;      // clé archétype stable — voir t(`npc.archetype.${baseKey}`)
+  baseName: string;     // nom FR brut de repli
+  suffixIdx: number;    // index dans NPC_NAME_SUFFIXES / NPC_SUFFIX_KEYS
+  name: string;         // nom FR composé (repli/legacy — historique des rencontres)
   skin: number;        // index dans NPC_SKINS
   alignment: 'friendly' | 'neutral' | 'hostile' | 'unknown';
   offer: 'trade' | 'quest' | 'fight' | 'chat';
@@ -28,25 +31,30 @@ const ALIGN_ICONS = { friendly: '😇', neutral: '🙂', hostile: '👿', unknow
 const OFFER_ICONS = { trade: '💰', quest: '📜', fight: '⚔️', chat: '💬' };
 const OFFER_KEYS  = { trade: 'trade', quest: 'quest', fight: 'fight', chat: 'chat' };
 
-// Archétypes de PNJ (nom base ; skin choisi aléatoirement)
+// Archétypes de PNJ (nom base ; skin choisi aléatoirement). `key` = clé i18n stable
+// (voir t(`npc.archetype.${key}`)), `base` = texte FR brut de repli.
 const ARCHETYPES = [
-  { base: 'Marchand', align: 'friendly', offer: 'trade' },
-  { base: 'Chevalier', align: 'neutral', offer: 'quest' },
-  { base: 'Combattant', align: 'hostile', offer: 'fight' },
-  { base: 'Sorcier', align: 'unknown', offer: 'trade' },
-  { base: 'Villageois', align: 'friendly', offer: 'chat' },
-  { base: 'Voleur', align: 'hostile', offer: 'fight' },
-  { base: 'Templier', align: 'neutral', offer: 'quest' },
-  { base: 'Hobbit', align: 'friendly', offer: 'chat' },
+  { key: 'marchand',   base: 'Marchand',   align: 'friendly', offer: 'trade' },
+  { key: 'chevalier',  base: 'Chevalier',  align: 'neutral',  offer: 'quest' },
+  { key: 'combattant', base: 'Combattant', align: 'hostile',  offer: 'fight' },
+  { key: 'sorcier',    base: 'Sorcier',    align: 'unknown',  offer: 'trade' },
+  { key: 'villageois', base: 'Villageois', align: 'friendly', offer: 'chat' },
+  { key: 'voleur',     base: 'Voleur',     align: 'hostile',  offer: 'fight' },
+  { key: 'templier',   base: 'Templier',   align: 'neutral',  offer: 'quest' },
+  { key: 'hobbit',     base: 'Hobbit',     align: 'friendly', offer: 'chat' },
 ] as const;
 
 function pick<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
 function rollNpc(): PopupNpc {
   const a = pick(ARCHETYPES);
+  const suffixIdx = Math.floor(Math.random() * NPC_NAME_SUFFIXES.length);
   return {
     key: Math.random().toString(36).slice(2, 10),
-    name: `${a.base} ${pick(NPC_NAME_SUFFIXES)}`,
+    baseKey: a.key,
+    baseName: a.base,
+    suffixIdx,
+    name: `${a.base} ${NPC_NAME_SUFFIXES[suffixIdx]}`,
     skin: Math.floor(Math.random() * NPC_SKINS.length),
     alignment: a.align as PopupNpc['alignment'],
     offer: a.offer as PopupNpc['offer'],
@@ -160,6 +168,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
     setBusy(true);
     setErrorMsg(null);
     const npc = current;
+    const npcDisplayName = `${localizeName(t, `npc.archetype.${npc.baseKey}`, npc.baseName)} ${localizeName(t, `npc.suffix.${NPC_SUFFIX_KEYS[npc.suffixIdx]}`, NPC_NAME_SUFFIXES[npc.suffixIdx])}`;
     try {
       const r = rules ?? (await getRepRules());
       let outcome: EncounterRecord['outcome'] = 'accepted';
@@ -171,6 +180,9 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
       let walletDelta = 0;
       let xpBonusDelta = 0;
       let itemName: string | undefined;
+      let itemId: string | undefined;
+      let itemQty: number | undefined;
+      let itemDirection: EncounterRecord['itemDirection'];
 
       if (npc.offer === 'fight') {
         const p = await getOrCreatePlayer(address);
@@ -198,8 +210,9 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           if (maxLootItems > 0 && Math.random() < lootChance) {
             const drop = pick(FIGHT_LOOT_TABLE);
             await addToInventory(address, { ...drop, qty: 1 });
-            lootItemName = drop.name;
+            lootItemName = itemLabel(t, drop.itemId, drop.name);
             itemName = `+${drop.name}`;
+            itemId = drop.itemId; itemQty = 1; itemDirection = 'gain';
           }
         } else {
           const lost = Math.min(lootCap, Math.max(1, Math.floor(p.wallet * lootPct)));
@@ -211,10 +224,11 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
               const inv = invSnap.val() as Record<string, { name: string; qty: number }> | null;
               const stealable = inv ? Object.entries(inv).filter(([, it]) => it.qty > 0) : [];
               if (stealable.length > 0) {
-                const [itemId, it] = stealable[Math.floor(Math.random() * stealable.length)];
-                await removeFromInventory(address, itemId, 1);
-                stolenItemName = it.name;
+                const [stolenId, it] = stealable[Math.floor(Math.random() * stealable.length)];
+                await removeFromInventory(address, stolenId, 1);
+                stolenItemName = itemLabel(t, stolenId, it.name);
                 itemName = `-${it.name}`;
+                itemId = stolenId; itemQty = 1; itemDirection = 'loss';
               }
             }
           }
@@ -224,7 +238,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           win, playerRoll: roll.playerRoll, npcRoll: roll.npcRoll,
           playerBonus: roll.playerBonus, npcBonus: roll.npcBonus,
           playerTotal: roll.playerTotal, npcTotal: roll.npcTotal,
-          npcName: npc.name, xpDelta, hpDelta, coinsDelta: walletDelta,
+          npcName: npcDisplayName, xpDelta, hpDelta, coinsDelta: walletDelta,
           lootItemName, stolenItemName,
         });
       } else if (npc.offer === 'trade') {
@@ -238,11 +252,13 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
               const inv = invSnap.val() as Record<string, { name: string; qty: number }> | null;
               const stealable = inv ? Object.entries(inv).filter(([, it]) => it.qty > 0) : [];
               if (stealable.length > 0) {
-                const [itemId, it] = stealable[Math.floor(Math.random() * stealable.length)];
+                const [stolenId, it] = stealable[Math.floor(Math.random() * stealable.length)];
                 const maxQty = Math.max(1, r.theftMaxItems ?? 1);
                 const qtyStolen = Math.min(it.qty, maxQty);
-                await removeFromInventory(address, itemId, qtyStolen);
-                stolenItemName = qtyStolen > 1 ? `${it.name} ×${qtyStolen}` : it.name;
+                await removeFromInventory(address, stolenId, qtyStolen);
+                const localizedItName = itemLabel(t, stolenId, it.name);
+                stolenItemName = qtyStolen > 1 ? `${localizedItName} ×${qtyStolen}` : localizedItName;
+                itemId = stolenId; itemQty = qtyStolen; itemDirection = 'loss';
               }
             }
           }
@@ -268,6 +284,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           xpDelta = -cost;
           await addToInventory(address, { ...gift, qty: 1 });
           itemName = gift.name;
+          itemId = gift.itemId; itemQty = 1; itemDirection = 'gain';
           walletDelta = 5;
           repDelta = npc.alignment === 'friendly' ? r.tradeFriendly : r.tradeNeutral;
         }
@@ -290,9 +307,10 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
       });
       await logEncounter(address, {
         npcId: npc.key, npcName: npc.name, npcSkin: npc.skin,
+        npcBaseKey: npc.baseKey, npcSuffixKey: NPC_SUFFIX_KEYS[npc.suffixIdx],
         alignment: npc.alignment, offer: npc.offer,
         timestamp: Date.now(), outcome, xpGained: xpDelta,
-        itemName, walletDelta, hpDelta, repDelta,
+        itemName, itemId, itemQty, itemDirection, walletDelta, hpDelta, repDelta,
       });
       close();
     } catch (e: any) {
@@ -310,6 +328,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
     try {
       await logEncounter(address, {
         npcId: current.key, npcName: current.name, npcSkin: current.skin,
+        npcBaseKey: current.baseKey, npcSuffixKey: NPC_SUFFIX_KEYS[current.suffixIdx],
         alignment: current.alignment, offer: current.offer,
         timestamp: Date.now(), outcome: 'refused', xpGained: 0,
       });
@@ -323,6 +342,9 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   };
 
   if (!current && !fightResult) return null;
+  const currentDisplayName = current
+    ? `${localizeName(t, `npc.archetype.${current.baseKey}`, current.baseName)} ${localizeName(t, `npc.suffix.${NPC_SUFFIX_KEYS[current.suffixIdx]}`, NPC_NAME_SUFFIXES[current.suffixIdx])}`
+    : '';
 
   return (
     <>
@@ -331,7 +353,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
             <div className="text-center">
               <div className="text-6xl mb-3">{NPC_SKINS[current.skin]}</div>
-              <h3 className="text-xl font-bold text-cyan-300">{current.name}</h3>
+              <h3 className="text-xl font-bold text-cyan-300">{currentDisplayName}</h3>
               <p className="text-sm text-slate-400 mt-1">
                 {ALIGN_ICONS[current.alignment]} {t(`npc.align.${current.alignment}`)} · {OFFER_ICONS[current.offer]} {t(`npc.offer.${OFFER_KEYS[current.offer]}`)}
               </p>
@@ -340,7 +362,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
                 <span>✨ {current.xp} XP</span>
               </div>
             </div>
-            <p className="text-sm text-slate-300 mt-4 text-center">{t(`npc.dialogue.${OFFER_KEYS[current.offer]}`, { name: current.name })}</p>
+            <p className="text-sm text-slate-300 mt-4 text-center">{t(`npc.dialogue.${OFFER_KEYS[current.offer]}`, { name: currentDisplayName })}</p>
             {errorMsg && <p className="text-xs text-rose-400 mt-3 text-center">{errorMsg}</p>}
             <div className="flex gap-3 mt-5">
               <button className="btn-primary flex-1 disabled:opacity-50" disabled={busy} onClick={accept}>

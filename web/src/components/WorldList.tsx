@@ -3,9 +3,9 @@
 import { useEffect } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
-import { HORIZON_ABI } from '@/lib/contract';
+import { HORIZON_ABI, WORLD_ID_TO_KEY } from '@/lib/contract';
 import { useIdsList } from './useIdsList';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, localizeName } from '@/lib/i18n';
 
 export function WorldList({ contract, tokenId, playerXp }: {
   contract: `0x${string}`; tokenId: bigint; playerXp: number;
@@ -44,10 +44,12 @@ function WorldCard({ contract, worldId, tokenId, playerXp }: {
   if (!active) return null;
   const isUnlocked = !!unlocked;
   const canUnlock = playerXp >= Number(xpRequired);
+  const worldKey = WORLD_ID_TO_KEY[worldId.toLowerCase()];
+  const label = localizeName(t, worldKey ? `world.${worldKey}` : undefined, name);
 
   return (
     <div className={`bg-slate-800/60 rounded-lg p-3 border ${isUnlocked ? 'border-emerald-600' : 'border-slate-600'}`}>
-      <p className="font-semibold">{isUnlocked ? '🌍' : '🔒'} {name}</p>
+      <p className="font-semibold">{isUnlocked ? '🌍' : '🔒'} {label}</p>
       <p className="text-xs text-slate-400 mb-2">{t('game.worlds.xpRequired', { v: Number(xpRequired) })}</p>
       {!isUnlocked && canUnlock && (
         <button

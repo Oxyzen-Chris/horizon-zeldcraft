@@ -137,8 +137,10 @@ export const WEATHER_KEYS = ['sunny', 'cloudy', 'rainy', 'stormy', 'night', 'sno
 
 // Skins de PNJ (4 variantes = NPC_SKIN_VARIANTS côté contrat)
 export const NPC_SKINS = ['🧙', '🧝', '🧛', '🥷'] as const;
-// Suffixes ajoutés au nom pour varier l'identité visuelle
+// Suffixes ajoutés au nom pour varier l'identité visuelle (texte FR de repli — voir NPC_SUFFIX_KEYS)
 export const NPC_NAME_SUFFIXES = ['le Sage', 'l\'Errant', 'de l\'Ombre', 'des Cimes'] as const;
+// Clés i18n correspondantes (utiliser t(`npc.suffix.${NPC_SUFFIX_KEYS[idx]}`)) — même principe que WEATHER_KEYS
+export const NPC_SUFFIX_KEYS = ['sage', 'errant', 'ombre', 'cimes'] as const;
 
 /**
  * Normalise une réponse d'énigme : minuscules, trim, suppression des accents.
@@ -172,3 +174,39 @@ export function decodeContractError(err: any): string {
   if (customMatch) return customMatch[1];
   return msg.split('\n')[0].slice(0, 140);
 }
+
+// ─────────────────────────────────────── i18n des noms on-chain ───────────────────────────────────────
+//
+// Les mondes/trésors/PNJ "officiels" sont seedés on-chain (voir `contracts/scripts/deploy.ts`) avec
+// un id stable `bytes32 = keccak256(utf8("world.zephyria"))` mais un unique libellé français (`name`)
+// stocké dans le contrat. Pour les afficher traduits sans redéploiement, on reconstruit ici la même
+// table de hash → clé texte : les composants peuvent alors préférer `t('world.'+WORLD_ID_TO_KEY[id])`
+// au `name` brut renvoyé par le contrat (repli sur `name` si l'id est inconnu, ex. contenu ajouté
+// après coup par l'admin, forcément mono-langue).
+import { keccak256, toBytes } from 'viem';
+
+function slugMap(slugs: readonly string[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const full of slugs) {
+    const key = full.split('.').slice(1).join('.'); // "world.zephyria" -> "zephyria"
+    map[keccak256(toBytes(full)).toLowerCase()] = key;
+  }
+  return map;
+}
+
+const WORLD_SLUGS = ['world.zephyria', 'world.nether_cristal', 'world.azerothyl', 'world.nexus'] as const;
+const TREASURE_SLUGS = [
+  'treasure.master_sword', 'treasure.diamond_pickaxe', 'treasure.thunderfury',
+  'treasure.rupees', 'treasure.dragon_egg',
+] as const;
+const NPC_OFFICIAL_SLUGS = [
+  'npc.zelda_princess', 'npc.steve', 'npc.thrall', 'npc.merchant', 'npc.ancient_dragon',
+] as const;
+
+/** bytes32 (lowercase) → clé i18n `world.<key>`, voir `contracts/scripts/deploy.ts` § Seed mondes. */
+export const WORLD_ID_TO_KEY = slugMap(WORLD_SLUGS);
+/** bytes32 (lowercase) → clé i18n `treasure.<key>`, voir `contracts/scripts/deploy.ts` § Seed trésors. */
+export const TREASURE_ID_TO_KEY = slugMap(TREASURE_SLUGS);
+/** bytes32 (lowercase) → clé i18n `npc.official.<key>`, voir `contracts/scripts/deploy.ts` § Seed PNJ. */
+export const NPC_ID_TO_KEY = slugMap(NPC_OFFICIAL_SLUGS);
+

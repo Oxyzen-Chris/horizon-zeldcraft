@@ -84,10 +84,17 @@ export interface EncounterRecord {
   outcome?: 'accepted' | 'refused' | 'won' | 'lost';
   xpGained?: number;
   // Détails enrichis (affichés dans "Rencontres du jour")
-  itemName?: string;      // objet donné/échangé lors d'un trade
+  itemName?: string;      // objet donné/échangé lors d'un trade (texte final déjà formaté, ex. "-Pomme ×2")
   walletDelta?: number;   // pièces gagnées/perdues (négatif = vol)
   hpDelta?: number;       // dégâts subis dans un combat
   repDelta?: number;      // variation reconnaissance
+  // Clés stables pour un affichage 100% localisé (repli sur npcName/itemName si absentes —
+  // ex. anciennes rencontres enregistrées avant l'ajout de ces champs).
+  npcBaseKey?: string;    // clé archétype PNJ, ex. "marchand" — voir t(`npc.archetype.${npcBaseKey}`)
+  npcSuffixKey?: string;  // clé suffixe, ex. "sage" — voir t(`npc.suffix.${npcSuffixKey}`)
+  itemId?: string;        // id stable de l'objet échangé/volé/reçu — voir t(`item.${itemId}`)
+  itemQty?: number;       // quantité (défaut 1)
+  itemDirection?: 'gain' | 'loss'; // signe à afficher (+/-)
 }
 
 export interface ShopItem {
@@ -301,6 +308,48 @@ export async function getNpcsMetCount(address: string): Promise<number> {
   return uniq.size;
 }
 
+export interface PlayerActivityStats {
+  questsSolved: number;
+  encounters: number;    // rencontres PNJ non refusées (hors-chaîne, procédurales)
+  fightsWon: number;
+  familiarsOwned: number;
+}
+
+/**
+ * Statistiques agrégées hors-chaîne d'un joueur (quêtes résolues, rencontres, combats gagnés,
+ * familiers apprivoisés) — utilisées par le classement mondial (`/scoreboard`) et le panneau
+ * admin. Une seule lecture par chemin, sans surcoût N+1.
+ */
+export async function getPlayerActivityStats(address: string): Promise<PlayerActivityStats> {
+  const db = getFirebaseDb();
+  if (!db) return { questsSolved: 0, encounters: 0, fightsWon: 0, familiarsOwned: 0 };
+  const k = KEY(address);
+  const [questsSnap, encSnap, famSnap] = await Promise.all([
+    get(ref(db, `players/${k}/quests`)),
+    get(ref(db, `players/${k}/encounters`)),
+    get(ref(db, `players/${k}/familiars`)),
+  ]);
+  const questsVal = questsSnap.val() as Record<string, unknown> | null;
+  const famVal = famSnap.val() as Record<string, unknown> | null;
+  const encVal = encSnap.val() as Record<string, EncounterRecord> | null;
+  let encounters = 0;
+  let fightsWon = 0;
+  if (encVal) {
+    for (const e of Object.values(encVal)) {
+      if (e.outcome === 'refused') continue;
+      encounters++;
+      if (e.offer === 'fight' && e.outcome === 'won') fightsWon++;
+    }
+  }
+  return {
+    questsSolved: questsVal ? Object.keys(questsVal).length : 0,
+    encounters,
+    fightsWon,
+    familiarsOwned: famVal ? Object.keys(famVal).length : 0,
+  };
+}
+
+
 // ────────────────────────────────────── Quêtes à énigmes (100% hors-chaîne) ──────────────────────────────────────
 // Catalogue ET vérification des réponses entièrement en Firebase : plus aucune transaction on-chain
 // n'est nécessaire pour créer une quête (admin) ou la résoudre (joueur) → zéro gas. Seul le HASH
@@ -316,6 +365,7 @@ export interface QuestDef {
   active: boolean;
   createdAt: number;
   order?: number;        // ordre d'affichage explicite (0, 1, 2…) — voir getQuestDefs()
+  i18nKey?: string;      // clé i18n (ex. "quest.riddle_first") pour un libellé traduit — voir localizeName()
 }
 
 /** Recalcule un id stable `bytes32`-like à partir d'un identifiant texte (ex. "riddle.ice"). */
@@ -583,6 +633,7 @@ export interface FamiliarDef {
   active: boolean;
   createdAt: number;
   order?: number;          // ordre d'affichage explicite — même logique que QuestDef.order
+  i18nKey?: string;        // clé i18n (ex. "familiar.dragon_gold") pour un libellé traduit — voir localizeName()
 }
 
 /** Sanitise un id lisible (ex. "dragon.gold") en clé RTDB valide (Firebase interdit ".#$[]"). */

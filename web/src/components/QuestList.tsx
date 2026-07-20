@@ -6,7 +6,7 @@ import {
   getQuestDefs, getSolvedQuest, submitQuestAnswerOffchain,
   getRepRules, type QuestDef,
 } from '@/lib/gameState';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, localizeName } from '@/lib/i18n';
 
 /**
  * Quêtes à énigmes — 100% hors-chaîne (Firebase) : catalogue, réponse (hash) et récompense
@@ -84,7 +84,7 @@ function QuestCard({ quest, playerXp }: { quest: QuestDef; playerXp: number }) {
   return (
     <div className={`bg-slate-800/60 rounded-lg p-4 border ${completed ? 'border-emerald-600' : locked ? 'border-slate-700 opacity-60' : 'border-slate-600'}`}>
       <div className="flex justify-between items-start mb-2">
-        <p className="font-semibold flex-1">{quest.label}</p>
+        <p className="font-semibold flex-1">{localizeName(t, quest.i18nKey, quest.label)}</p>
         {completed && <span className="text-emerald-400 text-sm ml-2">✅</span>}
       </div>
       {completed && solvedAnswer && (

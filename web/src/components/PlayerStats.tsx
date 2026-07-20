@@ -135,6 +135,19 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
 
   const count = (arr?: readonly any[]) => (arr ?? []).filter((r) => r?.result === true).length;
 
+  /**
+   * Les rencontres PNJ sont procédurales (tirage aléatoire à chaque popup, voir
+   * `NpcEncounterPopup.tsx::rollNpc` — clé locale unique, sans rapport avec le catalogue on-chain
+   * des 5 PNJ "quêtes" `npcIds`). Le nombre de PNJ uniques rencontrés peut donc largement dépasser
+   * la taille de ce catalogue on-chain : on affiche un plafond arrondi (100/1000/10000…) plutôt
+   * que `npcIds.length`, qui produirait des ratios absurdes comme "6 / 5".
+   */
+  const npcMetCap = (n: number) => {
+    let cap = 100;
+    while (n > cap) cap *= 10;
+    return cap;
+  };
+
   const load = async (a?: string) => {
     const val = (a ?? addr).trim();
     if (!isAddress(val)) { alert('Adresse invalide'); return; }
@@ -255,7 +268,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
           <StatRow label={t('admin.stats.xp')} value={String(Number((voxlyn as any)[3]))} color="text-purple-400" />
           <StatRow label={t('admin.stats.stage')} value={t(`stage.${STAGE_NAMES[Number((voxlyn as any)[8])]}`)} />
           <StatRow label={t('admin.stats.questsSolved')} value={`${count(qRes)} / ${questIds.length}`} color="text-cyan-400" />
-          <StatRow label={t('admin.stats.npcsMet')} value={`${Math.max(count(nRes), npcsMetFb)} / ${npcIdsAll.length}`} color="text-cyan-400" />
+          <StatRow label={t('admin.stats.npcsMet')} value={`${Math.max(count(nRes), npcsMetFb)} / ${npcMetCap(Math.max(count(nRes), npcsMetFb))}`} color="text-cyan-400" />
           <StatRow label={t('admin.stats.treasures')} value={`${count(tRes)} / ${treasureIds.length}`} color="text-cyan-400" />
           <StatRow label={t('admin.stats.worlds')} value={`${count(wRes)} / ${worldIds.length}`} color="text-cyan-400" />
           <StatRow label={t('admin.stats.lastFed')}

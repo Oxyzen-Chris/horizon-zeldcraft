@@ -3,8 +3,8 @@
 import { useEffect } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
-import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES } from '@/lib/contract';
-import { useI18n } from '@/lib/i18n';
+import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES, NPC_SUFFIX_KEYS, NPC_ID_TO_KEY } from '@/lib/contract';
+import { useI18n, localizeName } from '@/lib/i18n';
 
 export function NpcList({ contract, tokenId }: { contract: `0x${string}`; tokenId: bigint }) {
   const { t } = useI18n();
@@ -66,8 +66,10 @@ function NpcCard({ contract, npcId, tokenId, idsKey }: {
   const isMet = !!met;
   const skinI = Math.min(3, Number(skinIdx ?? 0));
   const emoji = NPC_SKINS[skinI];
-  const suffix = NPC_NAME_SUFFIXES[skinI];
-  const displayName = `${baseName} ${suffix}`;
+  const npcKey = NPC_ID_TO_KEY[npcId.toLowerCase()];
+  const localizedBase = localizeName(t, npcKey ? `npc.official.${npcKey}` : undefined, baseName);
+  const suffix = localizeName(t, `npc.suffix.${NPC_SUFFIX_KEYS[skinI]}`, NPC_NAME_SUFFIXES[skinI]);
+  const displayName = `${localizedBase} ${suffix}`;
 
   return (
     <div className={`bg-slate-800/60 rounded-lg p-3 border ${isMet ? 'border-emerald-600' : 'border-slate-600'}`}>

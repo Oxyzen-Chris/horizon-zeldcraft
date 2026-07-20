@@ -1,9 +1,9 @@
 'use client';
 
 import { useReadContract } from 'wagmi';
-import { HORIZON_ABI } from '@/lib/contract';
+import { HORIZON_ABI, TREASURE_ID_TO_KEY } from '@/lib/contract';
 import { useIdsList } from './useIdsList';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, localizeName } from '@/lib/i18n';
 
 export function TreasureList({ contract, tokenId }: { contract: `0x${string}`; tokenId: bigint }) {
   const { t } = useI18n();
@@ -20,19 +20,22 @@ export function TreasureList({ contract, tokenId }: { contract: `0x${string}`; t
 }
 
 function Chest({ contract, treasureId, tokenId }: { contract: `0x${string}`; treasureId: `0x${string}`; tokenId: bigint }) {
-  const { data: t } = useReadContract({ address: contract, abi: HORIZON_ABI, functionName: 'treasures', args: [treasureId] });
+  const { t } = useI18n();
+  const { data: chest } = useReadContract({ address: contract, abi: HORIZON_ABI, functionName: 'treasures', args: [treasureId] });
   const { data: found } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'treasureFound', args: [tokenId, treasureId],
     query: { refetchInterval: 10000 },
   });
-  if (!t) return null;
-  const [name, , active] = t as any;
+  if (!chest) return null;
+  const [name, , active] = chest as any;
   if (!active) return null;
   const owned = !!found;
+  const treasureKey = TREASURE_ID_TO_KEY[treasureId.toLowerCase()];
+  const label = localizeName(t, treasureKey ? `treasure.${treasureKey}` : undefined, name);
   return (
     <div className={`rounded p-2 text-center text-xs ${owned ? 'bg-yellow-900/40 border border-yellow-600' : 'bg-slate-800/40 border border-slate-700 opacity-50'}`}>
       <div className="text-2xl">{owned ? '💎' : '❔'}</div>
-      <p className="mt-1 font-semibold truncate">{owned ? name : '???'}</p>
+      <p className="mt-1 font-semibold truncate">{owned ? label : '???'}</p>
     </div>
   );
 }

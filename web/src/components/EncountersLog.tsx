@@ -5,7 +5,7 @@ import { useAccount } from 'wagmi';
 import { ref, onValue, off } from 'firebase/database';
 import { getFirebaseDb, isFirebaseConfigured, ensureAnonSignIn } from '@/lib/firebase';
 import { NPC_SKINS } from '@/lib/contract';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import type { EncounterRecord } from '@/lib/gameState';
 
 const ALIGN_ICONS = { friendly: '😇', neutral: '🙂', hostile: '👿', unknown: '❓' };
@@ -49,10 +49,31 @@ export function EncountersLog() {
   startOfDay.setHours(0, 0, 0, 0);
   const today = all.filter(e => e.timestamp >= startOfDay.getTime()).slice(0, 5);
 
+  const npcDisplay = (e: EncounterRecord): string => {
+    if (e.npcBaseKey) {
+      const base = localizeName(t, `npc.archetype.${e.npcBaseKey}`, e.npcName);
+      const suffix = e.npcSuffixKey ? localizeName(t, `npc.suffix.${e.npcSuffixKey}`, '') : '';
+      return suffix ? `${base} ${suffix}` : base;
+    }
+    return e.npcName;
+  };
+
+  /** Article échangé/volé/reçu, localisé si `itemId` est disponible (repli sur `itemName` brut FR). */
+  const itemDisplay = (e: EncounterRecord): { text: string; direction: 'gain' | 'loss' } | null => {
+    if (e.itemId) {
+      const label = itemLabel(t, e.itemId, e.itemName?.replace(/^[+-]/, '') ?? e.itemId);
+      const qty = e.itemQty && e.itemQty > 1 ? ` ×${e.itemQty}` : '';
+      return { text: `${label}${qty}`, direction: e.itemDirection ?? (e.itemName?.startsWith('-') ? 'loss' : 'gain') };
+    }
+    if (e.itemName) {
+      return { text: e.itemName.replace(/^[+-]/, ''), direction: e.itemName.startsWith('-') ? 'loss' : 'gain' };
+    }
+    return null;
+  };
+
   const describe = (e: EncounterRecord): string => {
     const outc = e.outcome ? t(`encounter.outcome.${e.outcome}`) : '';
     const parts: string[] = [outc];
-    if (e.itemName) parts.push(`+ ${e.itemName}`);
     if (typeof e.walletDelta === 'number' && e.walletDelta !== 0) {
       parts.push(`${e.walletDelta > 0 ? '+' : ''}${e.walletDelta} 💰`);
     }
@@ -83,33 +104,36 @@ export function EncountersLog() {
         <p className="text-xs text-slate-500 italic mb-4">{t('encounters.noneToday')}</p>
       ) : (
         <ul className="space-y-2 mb-4">
-          {today.map((e) => (
-            <li key={e.timestamp} className="bg-slate-800/60 rounded p-2 text-xs flex gap-3 items-start">
-              <span className="text-2xl leading-none">{NPC_SKINS[e.npcSkin] ?? '🧑'}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-slate-100 truncate">{e.npcName}</span>
-                  <span className="text-[10px]">{ALIGN_ICONS[e.alignment]}</span>
-                  <span className="text-[10px]">{OFFER_ICONS[e.offer]}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 uppercase">
-                    {t(`npc.offer.${e.offer}`)}
-                  </span>
-                </div>
-                {/* Article échangé/volé/reçu — mis en valeur */}
-                {e.itemName && (
-                  <p className={`text-xs mt-1 font-semibold ${e.itemName.startsWith('-') ? 'text-rose-300' : 'text-emerald-300'}`}>
-                    {e.itemName.startsWith('-')
-                      ? `🚫 ${t('encounters.itemStolen')} : ${e.itemName.slice(1)}`
-                      : `🎁 ${t('encounters.itemReceived')} : ${e.itemName}`}
+          {today.map((e) => {
+            const item = itemDisplay(e);
+            return (
+              <li key={e.timestamp} className="bg-slate-800/60 rounded p-2 text-xs flex gap-3 items-start">
+                <span className="text-2xl leading-none">{NPC_SKINS[e.npcSkin] ?? '🧑'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-100 truncate">{npcDisplay(e)}</span>
+                    <span className="text-[10px]">{ALIGN_ICONS[e.alignment]}</span>
+                    <span className="text-[10px]">{OFFER_ICONS[e.offer]}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 uppercase">
+                      {t(`npc.offer.${e.offer}`)}
+                    </span>
+                  </div>
+                  {/* Article échangé/volé/reçu — mis en valeur */}
+                  {item && (
+                    <p className={`text-xs mt-1 font-semibold ${item.direction === 'loss' ? 'text-rose-300' : 'text-emerald-300'}`}>
+                      {item.direction === 'loss'
+                        ? `🚫 ${t('encounters.itemStolen')} : ${item.text}`
+                        : `🎁 ${t('encounters.itemReceived')} : ${item.text}`}
+                    </p>
+                  )}
+                  <p className="text-slate-300 mt-0.5">{describe(e)}</p>
+                  <p className="text-[10px] text-slate-500">
+                    {new Date(e.timestamp).toLocaleString()}
                   </p>
-                )}
-                <p className="text-slate-300 mt-0.5">{describe(e)}</p>
-                <p className="text-[10px] text-slate-500">
-                  {new Date(e.timestamp).toLocaleString()}
-                </p>
-              </div>
-            </li>
-          ))}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -122,18 +146,31 @@ export function EncountersLog() {
           <>
             <select className="input mb-2" value={selected} onChange={e => setSelected(e.target.value)}>
               <option value="">{t('encounters.pick')}</option>
-              {all.slice(0, 100).map(e => (
-                <option key={e.timestamp} value={String(e.timestamp)}>
-                  {new Date(e.timestamp).toLocaleString()} — {e.npcName} ({t(`npc.offer.${e.offer}`)}){e.itemName ? ` · ${e.itemName}` : ''}
-                </option>
-              ))}
+              {all.slice(0, 100).map(e => {
+                const item = itemDisplay(e);
+                return (
+                  <option key={e.timestamp} value={String(e.timestamp)}>
+                    {new Date(e.timestamp).toLocaleString()} — {npcDisplay(e)} ({t(`npc.offer.${e.offer}`)}){item ? ` · ${item.direction === 'loss' ? '-' : '+'}${item.text}` : ''}
+                  </option>
+                );
+              })}
             </select>
             {selectedEntry && (
               <div className="bg-slate-800/60 rounded p-3 text-xs">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-2xl">{NPC_SKINS[selectedEntry.npcSkin] ?? '🧑'}</span>
-                  <span className="font-semibold text-cyan-300">{selectedEntry.npcName}</span>
+                  <span className="font-semibold text-cyan-300">{npcDisplay(selectedEntry)}</span>
                 </div>
+                {(() => {
+                  const item = itemDisplay(selectedEntry);
+                  return item ? (
+                    <p className={`font-semibold mb-1 ${item.direction === 'loss' ? 'text-rose-300' : 'text-emerald-300'}`}>
+                      {item.direction === 'loss'
+                        ? `🚫 ${t('encounters.itemStolen')} : ${item.text}`
+                        : `🎁 ${t('encounters.itemReceived')} : ${item.text}`}
+                    </p>
+                  ) : null;
+                })()}
                 <p className="text-slate-300">{describe(selectedEntry)}</p>
                 <p className="text-[10px] text-slate-500 mt-1">
                   {new Date(selectedEntry.timestamp).toLocaleString()}

@@ -72,7 +72,8 @@ async function main() {
     const id = keccak256(toBytes(key)).toLowerCase();
     const answerHash = keccak256(toBytes(normalizeAnswer(answer))).toLowerCase();
     const order = QUESTS.findIndex(q => q[0] === key); // 0..4, ordre d'affichage explicite
-    const def = { id, label, xpRequired, xpReward, scoreReward, answerHash, active: true, createdAt: now, order };
+    // i18nKey = le slug texte lui-même (ex. "quest.riddle_first") — voir web/src/i18n/messages/*.json
+    const def = { id, label, xpRequired, xpReward, scoreReward, answerHash, active: true, createdAt: now, order, i18nKey: key };
     await set(ref(db, `catalog/quests/${id}`), def);
     console.log(`✅ ${key} → ${id} (order ${order})\n   ${label.slice(0, 70)}…`);
   }

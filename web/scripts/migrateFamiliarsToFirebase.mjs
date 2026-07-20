@@ -32,9 +32,9 @@ for (const line of readFileSync(envPath, 'utf8').split('\n')) {
   if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 
-//   [id,            label,                     xpRequired, requiredItemId]
+//   [id,            label,                     xpRequired, requiredItemId, i18nKey]
 const FAMILIARS = [
-  ['dragon.gold', '🐲 Dragon d\'Or', 5000, 'ecaille_semaphore'],
+  ['dragon.gold', '🐲 Dragon d\'Or', 5000, 'ecaille_semaphore', 'familiar.dragon_gold'],
 ];
 
 async function main() {
@@ -49,10 +49,10 @@ async function main() {
   const db = getDatabase(app);
   const now = Date.now();
 
-  for (const [id, label, xpRequired, requiredItemId] of FAMILIARS) {
+  for (const [id, label, xpRequired, requiredItemId, i18nKey] of FAMILIARS) {
     const order = FAMILIARS.findIndex((f) => f[0] === id); // 0..n, ordre d'affichage explicite
     const key = id.toLowerCase().replace(/[.#$[\]]/g, '_'); // clé RTDB valide (Firebase interdit ".#$[]")
-    const def = { id, label, xpRequired, requiredItemId, active: true, createdAt: now, order };
+    const def = { id, label, xpRequired, requiredItemId, active: true, createdAt: now, order, i18nKey };
     await set(ref(db, `catalog/familiars/${key}`), def);
     console.log(`✅ ${id} → ${key} (order ${order}) — ${label} · ${xpRequired} XP + objet "${requiredItemId}"`);
   }
