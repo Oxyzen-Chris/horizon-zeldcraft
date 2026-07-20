@@ -52,7 +52,7 @@ const QUESTS = [
     "⚔️ Énigme 4 (WoW) : Quel est le nom de l'épée légendaire forgée à partir des éclats de Thunderaan ?",
     500, 400, 600, 'thunderfury'],
   ['quest.riddle_dragon',
-    "🐉 Énigme 5 (Voxlyn) : De quelle matière sont les écailles d'un Voxlyn ?",
+    "🐉 Énigme 5 (Légende draconique) : Selon la légende, de quelle matière scintillante sont faites les écailles des dragons anciens ?",
     1000, 600, 800, 'cristal'],
 ];
 

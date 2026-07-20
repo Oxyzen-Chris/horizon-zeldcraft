@@ -15,8 +15,8 @@
 ## 🔜 Phase 2 — Auth sociale & UX
 
 - [ ] Web3Auth ou Privy pour login Gmail/X/Discord/Apple/Github
-- [ ] Animations Framer Motion sur Voxlyn
-- [ ] Notifications push (Expo Notifications) : "Ton Voxlyn a faim !"
+- [ ] Animations Framer Motion sur Synk
+- [ ] Notifications push (Expo Notifications) : "Synk a faim !"
 - [ ] Système d'amis / classement
 - [ ] Cycle saisonnier automatique (skin change)
 - [ ] Deploy Instagram + kit contenu 30 posts

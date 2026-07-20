@@ -1,6 +1,6 @@
-# 🐉 Horizon ZeldCraft — Voxlyn
+# 🗡️ Horizon ZeldCraft — Synk
 
-> Un Tamagotchi Web3 crypté sur la blockchain Ethereum. Nourris ton **Voxlyn** (petit dragonneau cristallin) chaque jour, semaine, mois et année pour le faire évoluer, débloquer des sorts, skins, mondes et quêtes épiques inspirés de **Minecraft Dungeons**, **The Legend of Zelda: BOTW/TOTK** et **World of Warcraft**.
+> Un Tamagotchi Web3 crypté sur la blockchain Ethereum. Nourris ton **Synk** (jeune héros façon Link, en pixel-art) chaque jour, semaine, mois et année pour le faire évoluer, débloquer des sorts, skins, familiers, mondes et quêtes épiques inspirés de **Minecraft Dungeons**, **The Legend of Zelda: BOTW/TOTK** et **World of Warcraft**.
 
 ![status](https://img.shields.io/badge/status-MVP%20Phase%201-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![solidity](https://img.shields.io/badge/solidity-0.8.24-orange) ![nextjs](https://img.shields.io/badge/Next.js-14-black)
 
@@ -52,7 +52,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 
 | Donnée                                    | Stockage                | Pourquoi                             |
 | ----------------------------------------- | ----------------------- | ------------------------------------ |
-| Création du Voxlyn (mint)                 | 🔗 On-chain (payable)   | Preuve de propriété NFT              |
+| Création du Synk (mint)                   | 🔗 On-chain (payable)   | Preuve de propriété NFT              |
 | Nourrissage journalier/hebdo/mensuel/annuel | 🔗 On-chain (payable)   | Micro-paiements ETH → trésorerie     |
 | Achats catalogue « premium »              | 🔗 On-chain (payable)   | Vraies transactions ETH              |
 | Faim, vie, bonheur (temps réel)           | 🔥 Firebase             | Décroissance temporelle sans gas     |
@@ -63,13 +63,14 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 | Historique de chat multi-joueurs          | 🔥 Firebase             | WhatsApp-like, latence <500 ms       |
 | Log des transactions (facturation)        | 🔥 Firebase             | Base pour PDF invoice                |
 | Réponses d'énigmes révélées               | 🔥 Firebase             | Persiste au redéploiement            |
+| Familiers (catalogue + possession)        | 🔥 Firebase             | Rencontres chimériques, 0 gas        |
 
 **Garantie de persistance :** les données Firebase sont indexées par **adresse wallet**, jamais par adresse de contrat. Redéployer le smart contract ne perd rien du parcours joueur (stats, inventaire, chat, transactions).
 
 ## 🎮 Fonctionnalités v2.2
 
 ### Écran de jeu
-- 🥚 Mint du Voxlyn (~15–20 € en ETH, paramétrable admin)
+- 🗡️ Création de Synk (~15–20 € en ETH, paramétrable admin)
 - 🍖 Nourrissage journalier / hebdo / mensuel / annuel avec cooldowns et compte-à-rebours
 - 📊 Stats : XP · Vie · Faim · Bonheur · **Force** · **Sortilèges** · **Portefeuille** · **Reconnaissance**
 - 🌤️ Météo dynamique (☀️🌥️🌧️⛈️🌙❄️ — 3×/jour aléatoire, forçable admin)
@@ -115,7 +116,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 | MetaMask « transaction va probablement échouer » sur feed  | Ajout de `setFeedCooldown` on-chain + cooldowns réglables admin                                   |
 | Énigme retourne « RP » / « Gas limit too high »            | `normalizeAnswer()` (NFD, lowercase, trim) côté client ET script deploy + `simulateContract` preflight avant `writeContract` |
 | Prix/cooldown dropdown admin ne se rafraîchit pas          | `useReadContract` sur l'index sélectionné + `useEffect` peuplant l'input à chaque changement      |
-| Chat sans identification                                   | Pseudo obligatoire (par défaut = nom du Voxlyn), banner d'alerte tant qu'il n'est pas saisi       |
+| Chat sans identification                                   | Pseudo obligatoire (par défaut = nom de Synk), banner d'alerte tant qu'il n'est pas saisi       |
 | Perte de données au redéploiement de contrat               | Migration off-chain vers Firebase RTDB (clé = adresse wallet)                                     |
 | Expo SDK 51 incompatible Expo Go                           | Bumped mobile app to SDK 54                                                                       |
 
@@ -124,7 +125,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - [Architecture](./docs/ARCHITECTURE.md)
 - [Déploiement + variables d'environnement Vercel/contrats](./docs/DEPLOYMENT.md)
 - [Firebase (chat + off-chain) + **règles de sécurité RTDB à jour**](./docs/FIREBASE_CHAT.md) ← **à republier à chaque merge touchant les chemins RTDB**
-- [Lore & univers Voxlyn](./docs/LORE.md)
+- [Lore & univers Synk](./docs/LORE.md)
 - [Roadmap Phases 2/3/4](./docs/ROADMAP.md)
 
 ## 📸 Communauté

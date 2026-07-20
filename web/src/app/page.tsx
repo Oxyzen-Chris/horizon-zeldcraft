@@ -5,7 +5,7 @@ import { useAccount } from 'wagmi';
 import Link from 'next/link';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
-import { VoxlynSkin } from '@/components/VoxlynSkin';
+import { SynkSkin } from '@/components/SynkSkin';
 import { useI18n } from '@/lib/i18n';
 
 export default function Home() {
@@ -27,7 +27,7 @@ export default function Home() {
 
       <section className="card text-center">
         <div className="flex justify-center mb-6">
-          <VoxlynSkin stage={3} size={220} />
+          <SynkSkin stage={3} size={220} />
         </div>
         <h2 className="text-2xl font-bold mb-3">{t('connect.title')}</h2>
         <p className="text-slate-300 mb-6 max-w-xl mx-auto">{t('app.subtitle')}</p>
@@ -45,7 +45,7 @@ export default function Home() {
       <section className="mt-8 grid md:grid-cols-3 gap-4">
         {[0, 2, 4].map((s) => (
           <div key={s} className="card text-center">
-            <VoxlynSkin stage={s} size={120} />
+            <SynkSkin stage={s} size={120} />
             <p className="mt-2 text-sm text-slate-400">
               {t(`stage.${['egg','hatched','juvenile','adult','ancient'][s]}`)}
             </p>

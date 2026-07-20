@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, FEED_TYPES, STAGE_NAMES } from '@/lib/contract';
-import { VoxlynSkin } from '@/components/VoxlynSkin';
+import { SynkSkin } from '@/components/SynkSkin';
 import { Countdown } from '@/components/Countdown';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
@@ -19,6 +19,7 @@ import { NpcList } from '@/components/NpcList';
 import { TreasureList } from '@/components/TreasureList';
 import { WorldList } from '@/components/WorldList';
 import { TeamsPanel } from '@/components/TeamsPanel';
+import { FamiliarsList } from '@/components/FamiliarsList';
 import { NpcEncounterPopup } from '@/components/NpcEncounterPopup';
 import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
@@ -26,7 +27,7 @@ import { InventoryPanel } from '@/components/InventoryPanel';
 import { WalletPanel } from '@/components/WalletPanel';
 import { SleepModal } from '@/components/SleepModal';
 import { useI18n } from '@/lib/i18n';
-import { getOrCreatePlayer, subscribePlayer, logTx, applyEffect, type PlayerState } from '@/lib/gameState';
+import { getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, type PlayerState } from '@/lib/gameState';
 
 export default function GamePage() {
   const { address, isConnected } = useAccount();
@@ -114,7 +115,7 @@ export default function GamePage() {
 
       {!hasVoxlyn ? (
         <section className="card max-w-md mx-auto text-center">
-          <VoxlynSkin stage={0} size={180} />
+          <SynkSkin stage={0} size={180} />
           <h2 className="text-xl font-bold mt-4 mb-3">{t('game.mint.title')}</h2>
           <input
             value={name} onChange={(e) => setName(e.target.value)}
@@ -161,8 +162,12 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
   const { isLoading: isMining, isSuccess: isMined } = useWaitForTransactionReceipt({ hash: txHash });
   const [player, setPlayer] = useState<PlayerState | null>(null);
+  const [xpCap, setXpCap] = useState(100000);
 
-  // Initialisation + abonnement temps réel au PlayerState (Firebase)
+  // Charge le plafond XP paramétrable (admin) — voir RepRules.xpCap / RepRulesPanel
+  useEffect(() => {
+    getRepRules().then((r) => setXpCap(r.xpCap)).catch(() => {});
+  }, []);
   useEffect(() => {
     if (!address) return;
     getOrCreatePlayer(address, v?.[0]).catch(console.error);
@@ -218,7 +223,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   return (
     <div className="grid md:grid-cols-2 gap-6">
       <section className="card text-center">
-        <VoxlynSkin stage={Number(stage)} size={220} />
+        <SynkSkin stage={Number(stage)} size={220} />
         <h2 className="text-2xl font-bold mt-3">{name}</h2>
         <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-cyan-600/40 to-purple-600/40 border border-cyan-400/40">
           <span className="text-xs uppercase tracking-wider text-cyan-300">{t('game.stats.stage')}</span>
@@ -234,7 +239,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       <section className="card">
         <h3 className="text-lg font-semibold mb-3">{t('game.stats.title')}</h3>
-        <Stat label={t('game.stats.xp')}        value={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))}          max={10000}                     color="bg-purple-500" />
+        <Stat label={t('game.stats.xp')}        value={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))}          max={xpCap}                     color="bg-purple-500" />
         <Stat label={t('game.stats.hp')}        value={dispHp}              max={player?.hpMax        ?? 100} color="bg-rose-500" />
         <Stat label={t('game.stats.hunger')}    value={dispHunger}          max={player?.hungerMax    ?? 100} color="bg-orange-500" />
         <Stat label={t('game.stats.happiness')} value={dispHappiness}       max={player?.happinessMax ?? 100} color="bg-yellow-400" />
@@ -303,6 +308,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       <div className="md:col-span-2">
         <WorldList contract={contract} tokenId={tokenId} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
+      </div>
+
+      <div className="md:col-span-2">
+        <FamiliarsList playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       </div>
 
       <div className="md:col-span-2">

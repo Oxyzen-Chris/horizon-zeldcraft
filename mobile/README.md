@@ -12,12 +12,12 @@ npx expo start
 Scanne le QR code depuis l'app **Expo Go** (iOS / Android).
 
 ## Phase 1 (actuelle)
-- Affichage des 5 skins Voxlyn
+- Affichage des 5 skins Synk
 - Sélecteur de langue FR/EN/ES/PT
 - Redirection vers l'app web pour interactions on-chain
 
 ## Phase 2 (roadmap)
 - WalletConnect natif (via `@walletconnect/react-native`)
 - Nourrissage on-chain depuis mobile
-- Notifications push "Ton Voxlyn a faim !"
+- Notifications push "Synk a faim !"
 - Publication EAS Build (App Store / Play Store)

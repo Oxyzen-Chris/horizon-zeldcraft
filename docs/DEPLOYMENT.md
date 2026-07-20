@@ -30,7 +30,7 @@ npx hardhat verify --network sepolia <ADRESSE> <TREASURY_ADDRESS>
 | `PRIVATE_KEY`       | ✅     | Clé privée du wallet déployeur (0x + 64 hex). Doit avoir de l'ETH Sepolia/Mainnet. |
 | `ALCHEMY_KEY`       | ✅     | Clé Alchemy pour les RPC Sepolia/Mainnet côté Hardhat                        |
 | `ETHERSCAN_KEY`     | ✅     | Clé Etherscan V2 pour `hardhat verify`                                      |
-| `TREASURY_ADDRESS`  | ✅     | Adresse qui recevra les paiements du jeu (mint Voxlyn, achats, sorts…)      |
+| `TREASURY_ADDRESS`  | ✅     | Adresse qui recevra les paiements du jeu (mint Synk, achats, sorts…)      |
 
 ⚠️ **Ne mets jamais** ces variables dans Vercel — elles servent uniquement au poste de dev/CI pour compiler et déployer les contrats.
 
@@ -101,5 +101,5 @@ Pour publier : `eas build --platform ios/android` (nécessite compte Expo EAS).
 À faire manuellement :
 
 1. Créer compte Instagram `@horizon.zeldcraft`
-2. Bio suggérée : *"🐉 Nourris ton Voxlyn on-chain. Tamagotchi Web3 inspiré Zelda × Minecraft × WoW."*
+2. Bio suggérée : *"🗡️ Accompagne Synk on-chain. Tamagotchi Web3 inspiré Zelda × Minecraft × WoW."*
 3. Publier les skins générés dans `web/public/skins/` comme premiers posts

@@ -16,7 +16,7 @@
 
 ## Smart Contract
 
-- **Standard** : ERC-721 (chaque Voxlyn est un NFT unique)
+- **Standard** : ERC-721 (chaque Synk est un NFT unique)
 - **Lib** : OpenZeppelin (Ownable, ReentrancyGuard, Pausable)
 - **Solidity** : 0.8.24
 - **Réseaux** : Sepolia (chainId 11155111) + Mainnet (chainId 1)
@@ -25,7 +25,7 @@
 
 | Fonction                              | Description                                        | Access  |
 | ------------------------------------- | -------------------------------------------------- | ------- |
-| `mintVoxlyn(string name)`             | Crée son Voxlyn (1 par wallet)                     | Public  |
+| `mintVoxlyn(string name)`             | Crée son personnage Synk (1 par wallet, fonction historique `mintVoxlyn`) | Public  |
 | `feed(uint256 tokenId, FeedType t)`   | Nourrit (Daily/Weekly/Monthly/Yearly) — payable    | Owner NFT |
 | `buyCatalogItem(tokenId, itemId)`     | Achète sort/potion/skin — payable                  | Owner NFT |
 | `startQuest(tokenId, questId)`        | Démarre une quête si XP suffisante                 | Owner NFT |
@@ -47,7 +47,7 @@
 
 ### Événements
 
-`VoxlynMinted`, `Fed`, `LevelUp`, `ItemBought`, `QuestStarted`, `QuestCompleted`, `PriceChanged`
+`VoxlynMinted` *(nom historique on-chain, non renommé)*, `Fed`, `LevelUp`, `ItemBought`, `QuestStarted`, `QuestCompleted`, `PriceChanged`
 
 ## Front Web (Next.js 14 App Router)
 
@@ -60,7 +60,7 @@
 ### Routes
 
 - `/` — landing + connexion + choix langue + choix réseau
-- `/game` — dashboard Voxlyn (stats, actions, inventaire)
+- `/game` — dashboard Synk (stats, actions, inventaire)
 - `/admin` — panneau owner (ajout items/quêtes, prix, withdraw)
 
 ## Mobile Expo

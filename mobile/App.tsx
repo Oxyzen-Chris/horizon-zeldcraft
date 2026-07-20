@@ -1,7 +1,7 @@
 /**
  * Horizon ZeldCraft — Mobile (Expo Go)
  *
- * Vue simplifiée du Voxlyn pour mobile. Se connecte au même smart contract
+ * Vue simplifiée de Synk pour mobile. Se connecte au même smart contract
  * que la version web. Pour la connexion wallet en mobile, on utilise
  * WalletConnect via wagmi (à intégrer en Phase 2 avec RN adapter).
  *
@@ -13,14 +13,14 @@ import Svg, { Circle, Ellipse, Path, RadialGradient, Stop, Defs } from 'react-na
 import { useState } from 'react';
 
 const LOCALES = {
-  fr: { title: 'Horizon ZeldCraft', sub: 'Ton Voxlyn t\'attend', open: 'Ouvrir l\'app web' },
-  en: { title: 'Horizon ZeldCraft', sub: 'Your Voxlyn awaits',  open: 'Open web app' },
-  es: { title: 'Horizon ZeldCraft', sub: 'Tu Voxlyn te espera', open: 'Abrir app web' },
-  pt: { title: 'Horizon ZeldCraft', sub: 'Seu Voxlyn espera',   open: 'Abrir app web' },
+  fr: { title: 'Horizon ZeldCraft', sub: 'Synk t\'attend', open: 'Ouvrir l\'app web' },
+  en: { title: 'Horizon ZeldCraft', sub: 'Synk awaits',  open: 'Open web app' },
+  es: { title: 'Horizon ZeldCraft', sub: 'Synk te espera', open: 'Abrir app web' },
+  pt: { title: 'Horizon ZeldCraft', sub: 'Synk espera',   open: 'Abrir app web' },
 } as const;
 
 type Locale = keyof typeof LOCALES;
-const STAGES = ['Œuf', 'Éclos', 'Juvénile', 'Adulte', 'Ancien'];
+const STAGES = ['Jeune Adulte', 'Adulte Novice', 'Adulte Aguerri', 'Adulte Puissant', 'Maître Dresseur'];
 
 export default function App() {
   const [locale, setLocale] = useState<Locale>('fr');
@@ -39,11 +39,11 @@ export default function App() {
           ))}
         </View>
 
-        <Text style={styles.title}>🐉 {L.title}</Text>
+        <Text style={styles.title}>🗡️ {L.title}</Text>
         <Text style={styles.sub}>{L.sub}</Text>
 
         <View style={styles.skinBox}>
-          <VoxlynSkin stage={stage} />
+          <SynkSkin stage={stage} />
           <Text style={styles.stageTxt}>{STAGES[stage]}</Text>
         </View>
 
@@ -68,7 +68,7 @@ export default function App() {
   );
 }
 
-function VoxlynSkin({ stage }: { stage: number }) {
+function SynkSkin({ stage }: { stage: number }) {
   const palettes = [
     { bg: '#7dd3fc', accent: '#0ea5e9' },
     { bg: '#a5f3fc', accent: '#06b6d4' },

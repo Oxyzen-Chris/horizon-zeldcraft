@@ -33,6 +33,8 @@ Chemins RTDB utilisés par l'application (à jour au 2026-07) :
 | `catalog/shopItems` *(WIP)*             | admin `ShopPanel`                             | `Shop` (achats)                         |
 | `catalog/riddleAnswers/{questId}`       | `web/scripts/seedRiddleAnswers.mjs`, `web/scripts/backfillLegacyQuests.mjs` | scripts de migration (repli réponse legacy) |
 | `catalog/quests/{questId}`              | admin (panneau « Ajouter une quête »), `web/scripts/migrateQuestsToFirebase.mjs` | `QuestList` (catalogue complet, 100% hors-chaîne) |
+| `catalog/familiars/{id}`                | admin `FamiliarsAdminPanel`, `web/scripts/migrateFamiliarsToFirebase.mjs` | `FamiliarsList` (catalogue, 100% hors-chaîne) |
+| `players/{addr}/familiars/{id}`         | `tameFamiliar`                                | `FamiliarsList` (statut apprivoisé)     |
 
 ## 1. Créer le projet Firebase (gratuit)
 

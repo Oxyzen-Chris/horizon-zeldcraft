@@ -15,6 +15,8 @@
  *   players/{addr}/quests/{questId}    → { answer, solvedAt } (réponse révélée)
  *   playerIndex/{addr}                 → true (pour lister tous les joueurs)
  *   catalog/shop/{itemId}              → ShopItem (paramétrable par admin)
+ *   catalog/familiars/{id}             → FamiliarDef (paramétrable par admin — XP requis + objet rare optionnel)
+ *   players/{addr}/familiars/{id}      → { obtainedAt } (familier apprivoisé par le joueur)
  */
 import {
   ref, get, set, update, onValue, off, push, serverTimestamp, DataSnapshot,
@@ -480,6 +482,8 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'barque',    name: '🛶 Barque sans fond',   category: 'vehicle', priceGame: 500, effect: {},                          active: true },
   { itemId: 'montgolf',  name: '🎈 Montgolfière',       category: 'vehicle', priceGame: 800, effect: {},                          active: true },
   { itemId: 'mototaupe', name: '⛏️ Moto-taupe',         category: 'vehicle', priceGame: 700, effect: {},                          active: true },
+  // ─── Objets rares (nécessaires pour apprivoiser certains Familiers — voir FamiliarDef.requiredItemId)
+  { itemId: 'ecaille_semaphore', name: '🔴 Écaille de Sémaphore Écarlate', category: 'treasure', priceGame: 5000, effect: {}, active: true },
 ];
 
 // ─────────────────────────────────────── Rep rules ───────────────────────────────────────
@@ -517,6 +521,7 @@ export interface RepRules {
   fightSpellsWeight: number; // Poids des Sortilèges dans le bonus joueur (défaut 3)
   fightNpcBonusMax: number;  // Bonus max du PNJ, dérivé de sa Force (défaut 12)
   fightNpcForceRef: number;  // Force de référence du PNJ pour atteindre le bonus max (défaut 45)
+  xpCap: number;             // Plafond d'expérience affiché dans la barre "Statistiques" (défaut 100000)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -544,6 +549,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   fightSpellsWeight: 3,
   fightNpcBonusMax: 12,
   fightNpcForceRef: 45,
+  xpCap: 100000,
 };
 
 export async function getRepRules(): Promise<RepRules> {
@@ -559,6 +565,94 @@ export async function setRepRules(rules: RepRules): Promise<void> {
   if (!db) return;
   await ensureAnonSignIn();
   await set(ref(db, 'catalog/repRules'), rules);
+}
+
+// ─────────────────────────────────────── Familiers ───────────────────────────────────────
+
+/**
+ * Compagnons chimériques rencontrés au fil de la progression de Synk (dragons, elfes des forêts,
+ * etc.). Catalogue 100% hors-chaîne, paramétrable par l'admin : XP cumulé requis + un objet rare
+ * optionnel à posséder dans la besace (consommé lors de l'apprivoisement).
+ * Clé RTDB : catalog/familiars/{id} · ownership : players/{addr}/familiars/{id}
+ */
+export interface FamiliarDef {
+  id: string;
+  label: string;
+  xpRequired: number;
+  requiredItemId?: string; // ID d'un item (catalogue boutique) à posséder — consommé, optionnel
+  active: boolean;
+  createdAt: number;
+  order?: number;          // ordre d'affichage explicite — même logique que QuestDef.order
+}
+
+/** Sanitise un id lisible (ex. "dragon.gold") en clé RTDB valide (Firebase interdit ".#$[]"). */
+export function familiarKeyOf(id: string): string {
+  return id.toLowerCase().replace(/[.#$[\]]/g, '_');
+}
+
+/** Crée/modifie un familier (admin). Aucune transaction blockchain : écriture Firebase uniquement. */
+export async function addFamiliarDef(def: FamiliarDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/familiars/${familiarKeyOf(def.id)}`), def);
+}
+
+export async function removeFamiliarDef(id: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/familiars/${familiarKeyOf(id)}`), null);
+}
+
+/** Liste tous les familiers du catalogue, triés par `order` explicite puis date de création. */
+export async function getFamiliarDefs(): Promise<FamiliarDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/familiars'));
+  const v = snap.val() as Record<string, FamiliarDef> | null;
+  if (!v) return [];
+  return Object.values(v).sort((a, b) => {
+    const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+  });
+}
+
+/** Familiers déjà apprivoisés par un joueur (abonnement temps réel). */
+export function subscribeFamiliars(
+  address: string, cb: (owned: Record<string, { obtainedAt: number }>) => void,
+): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb({}); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/familiars`);
+  const handler = (snap: DataSnapshot) => cb((snap.val() as Record<string, { obtainedAt: number }>) ?? {});
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/**
+ * Tente d'apprivoiser un familier : vérifie le XP cumulé du joueur (on-chain + off-chain) et,
+ * si `requiredItemId` est défini, consomme 1 exemplaire de l'objet rare dans la besace.
+ * Retourne 'ok' | 'needXp' | 'needItem' | 'already'. Aucun gas requis.
+ */
+export async function tameFamiliar(
+  address: string, familiar: FamiliarDef, playerXp: number,
+): Promise<'ok' | 'needXp' | 'needItem' | 'already'> {
+  const db = getFirebaseDb();
+  if (!db) return 'needXp';
+  await ensureAnonSignIn();
+  const key = familiarKeyOf(familiar.id);
+  const ownedSnap = await get(ref(db, `players/${KEY(address)}/familiars/${key}`));
+  if (ownedSnap.exists()) return 'already';
+  if (playerXp < familiar.xpRequired) return 'needXp';
+  if (familiar.requiredItemId) {
+    const consumed = await removeFromInventory(address, familiar.requiredItemId, 1);
+    if (!consumed) return 'needItem';
+  }
+  await set(ref(db, `players/${KEY(address)}/familiars/${key}`), { obtainedAt: Date.now() });
+  return 'ok';
 }
 
 // ─────────────────────────────────────── Top-up presets ───────────────────────────────────────

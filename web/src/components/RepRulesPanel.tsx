@@ -65,6 +65,7 @@ export function RepRulesPanel() {
     { key: 'fightSpellsWeight',  labelKey: 'admin.repRules.fightSpellsWeight' },
     { key: 'fightNpcBonusMax',   labelKey: 'admin.repRules.fightNpcBonusMax' },
     { key: 'fightNpcForceRef',   labelKey: 'admin.repRules.fightNpcForceRef' },
+    { key: 'xpCap',              labelKey: 'admin.repRules.xpCap' },
   ];
 
   return (
