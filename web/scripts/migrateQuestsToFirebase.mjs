@@ -71,9 +71,10 @@ async function main() {
   for (const [key, label, xpRequired, xpReward, scoreReward, answer] of QUESTS) {
     const id = keccak256(toBytes(key)).toLowerCase();
     const answerHash = keccak256(toBytes(normalizeAnswer(answer))).toLowerCase();
-    const def = { id, label, xpRequired, xpReward, scoreReward, answerHash, active: true, createdAt: now };
+    const order = QUESTS.findIndex(q => q[0] === key); // 0..4, ordre d'affichage explicite
+    const def = { id, label, xpRequired, xpReward, scoreReward, answerHash, active: true, createdAt: now, order };
     await set(ref(db, `catalog/quests/${id}`), def);
-    console.log(`✅ ${key} → ${id}\n   ${label.slice(0, 70)}…`);
+    console.log(`✅ ${key} → ${id} (order ${order})\n   ${label.slice(0, 70)}…`);
   }
   console.log('\nTerminé — catalogue de quêtes 100% hors-chaîne opérationnel.');
   process.exit(0);

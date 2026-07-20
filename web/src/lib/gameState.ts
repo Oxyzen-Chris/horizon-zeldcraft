@@ -313,6 +313,7 @@ export interface QuestDef {
   answerHash: string;    // keccak256(normalizeAnswer(réponse)) — jamais la réponse en clair
   active: boolean;
   createdAt: number;
+  order?: number;        // ordre d'affichage explicite (0, 1, 2…) — voir getQuestDefs()
 }
 
 /** Recalcule un id stable `bytes32`-like à partir d'un identifiant texte (ex. "riddle.ice"). */
@@ -333,14 +334,24 @@ export async function addQuestDef(def: QuestDef): Promise<void> {
   await set(ref(db, `catalog/quests/${def.id.toLowerCase()}`), def);
 }
 
-/** Liste toutes les quêtes actives/inactives du catalogue (triées par date de création). */
+/**
+ * Liste toutes les quêtes actives/inactives du catalogue, triées par `order` explicite (0, 1, 2…)
+ * puis par date de création en repli. Sans ce champ `order`, des quêtes créées en lot (ex. script
+ * de migration) partageant le même horodatage se retrouveraient triées arbitrairement (ordre des
+ * clés Firebase, c.-à-d. l'ordre alphabétique du hash) — d'où l'utilité d'un ordre explicite.
+ */
 export async function getQuestDefs(): Promise<QuestDef[]> {
   const db = getFirebaseDb();
   if (!db) return [];
   const snap = await get(ref(db, 'catalog/quests'));
   const v = snap.val() as Record<string, QuestDef> | null;
   if (!v) return [];
-  return Object.values(v).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  return Object.values(v).sort((a, b) => {
+    const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+  });
 }
 
 /**

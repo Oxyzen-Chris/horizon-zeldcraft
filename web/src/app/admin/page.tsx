@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, FEED_TYPES, WEATHER, WEATHER_KEYS, normalizeAnswer } from '@/lib/contract';
-import { addQuestDef, questIdOf } from '@/lib/gameState';
+import { addQuestDef, getQuestDefs, questIdOf } from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { PlayerStats } from '@/components/PlayerStats';
@@ -175,6 +175,10 @@ export default function AdminPage() {
                 try {
                   // 100% hors-chaîne : catalogue + hash de réponse écrits uniquement en base
                   // (Firebase). Aucune transaction blockchain, donc aucun gas pour créer la quête.
+                  // `order` = position d'affichage explicite (évite un tri arbitraire quand
+                  // plusieurs quêtes partagent le même horodatage — voir getQuestDefs()).
+                  const existing = await getQuestDefs();
+                  const nextOrder = existing.reduce((max, q) => Math.max(max, q.order ?? -1), -1) + 1;
                   await addQuestDef({
                     id: questIdOf(questKey),
                     label: questLabel,
@@ -184,6 +188,7 @@ export default function AdminPage() {
                     answerHash: keccak256(toBytes(normalizeAnswer(questAnswer))),
                     active: true,
                     createdAt: Date.now(),
+                    order: nextOrder,
                   });
                   setQuestKey(''); setQuestLabel(''); setQuestAnswer('');
                   setQuestSaved(true);
