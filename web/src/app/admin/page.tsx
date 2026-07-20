@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, FEED_TYPES, WEATHER, WEATHER_KEYS, normalizeAnswer } from '@/lib/contract';
-import { seedQuestAnswer } from '@/lib/gameState';
+import { addQuestDef, questIdOf } from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { PlayerStats } from '@/components/PlayerStats';
@@ -51,8 +51,8 @@ export default function AdminPage() {
   const [questRew, setQuestRew] = useState('100');
   const [questScore, setQuestScore] = useState('50');
   const [questAnswer, setQuestAnswer] = useState('');
-  const [questTreasure, setQuestTreasure] = useState('');
-  const [questMinDiff, setQuestMinDiff] = useState('0');
+  const [questSaving, setQuestSaving] = useState(false);
+  const [questSaved, setQuestSaved] = useState(false);
 
   const [npcKey, setNpcKey] = useState('');
   const [npcName, setNpcName] = useState('');
@@ -164,32 +164,36 @@ export default function AdminPage() {
               <input className="input" placeholder={t('admin.quest.id')}            value={questKey}      onChange={e => setQuestKey(e.target.value)} />
               <input className="input" placeholder={t('admin.quest.label')}         value={questLabel}    onChange={e => setQuestLabel(e.target.value)} />
               <input className="input" placeholder={t('admin.quest.answer')}        value={questAnswer}   onChange={e => setQuestAnswer(e.target.value)} />
-              <input className="input" placeholder={t('admin.quest.treasure')}      value={questTreasure} onChange={e => setQuestTreasure(e.target.value)} />
               <input className="input" placeholder={t('admin.quest.xpRequired')}    value={questReq}      onChange={e => setQuestReq(e.target.value)} />
               <input className="input" placeholder={t('admin.quest.xpReward')}      value={questRew}      onChange={e => setQuestRew(e.target.value)} />
               <input className="input" placeholder={t('admin.quest.scoreReward')}   value={questScore}    onChange={e => setQuestScore(e.target.value)} />
-              <input className="input" placeholder={t('admin.quest.minDifficulty')} value={questMinDiff}  onChange={e => setQuestMinDiff(e.target.value)} />
             </div>
-            <button className="btn-primary" disabled={isPending || !questKey || !questLabel || !questAnswer}
-              onClick={() => {
-                const questIdHash = keccak256(toBytes(questKey));
-                // Réponse stockée en base (jamais dans le bundle JS) — la chaîne ne garde que le hash.
-                seedQuestAnswer(questIdHash, normalizeAnswer(questAnswer)).catch(() => {});
-                writeContract({
-                  address: contract, abi: HORIZON_ABI, functionName: 'addQuest',
-                  args: [
-                    questIdHash,
-                    questLabel,
-                    Number(questReq),
-                    Number(questRew),
-                    Number(questScore),
-                    keccak256(toBytes(normalizeAnswer(questAnswer))),
-                    questTreasure ? keccak256(toBytes(questTreasure)) : ('0x' + '00'.repeat(32)) as `0x${string}`,
-                    Number(questMinDiff),
-                  ],
-                });
+            <button className="btn-primary" disabled={questSaving || !questKey || !questLabel || !questAnswer}
+              onClick={async () => {
+                setQuestSaving(true);
+                setQuestSaved(false);
+                try {
+                  // 100% hors-chaîne : catalogue + hash de réponse écrits uniquement en base
+                  // (Firebase). Aucune transaction blockchain, donc aucun gas pour créer la quête.
+                  await addQuestDef({
+                    id: questIdOf(questKey),
+                    label: questLabel,
+                    xpRequired: Number(questReq),
+                    xpReward: Number(questRew),
+                    scoreReward: Number(questScore),
+                    answerHash: keccak256(toBytes(normalizeAnswer(questAnswer))),
+                    active: true,
+                    createdAt: Date.now(),
+                  });
+                  setQuestKey(''); setQuestLabel(''); setQuestAnswer('');
+                  setQuestSaved(true);
+                  setTimeout(() => setQuestSaved(false), 3000);
+                } finally {
+                  setQuestSaving(false);
+                }
               }}
-            >{t('admin.quest.submit')}</button>
+            >{questSaving ? '⏳' : t('admin.quest.submit')}</button>
+            {questSaved && <p className="text-xs text-emerald-400 mt-2">✅ {t('admin.quest.saved')}</p>}
             <p className="text-xs text-slate-500 mt-2">{t('admin.quest.hint')}</p>
           </section>
 

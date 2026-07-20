@@ -1,8 +1,6 @@
 /**
  * ABI HorizonZeldCraft v2 — quêtes énigmes, PNJ, trésors, mondes, météo, teams, chat
  */
-import { keccak256, toBytes } from 'viem';
-
 export const HORIZON_ABI = [
   // ─── Mint / Feed
   { type: 'function', name: 'mintVoxlyn', stateMutability: 'nonpayable',
@@ -154,16 +152,6 @@ export function normalizeAnswer(s: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')  // supprime les accents combinants
     .replace(/\s+/g, ' ');             // espaces multiples → 1
-}
-
-/**
- * Recalcule le questId `bytes32` (keccak256(utf8(s))) d'un identifiant texte, comme
- * `ethers.id(s)` côté script de déploiement. Utile pour retrouver/écrire une réponse
- * d'énigme en base de données à partir de son id texte (voir `gameState.ts` : 
- * `getSeedQuestAnswer` / `seedQuestAnswer`).
- */
-export function questIdOf(s: string): `0x${string}` {
-  return keccak256(toBytes(s));
 }
 
 /**

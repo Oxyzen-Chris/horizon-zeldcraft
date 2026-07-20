@@ -19,7 +19,9 @@
 import {
   ref, get, set, update, onValue, off, push, serverTimestamp, DataSnapshot,
 } from 'firebase/database';
+import { keccak256, toBytes } from 'viem';
 import { getFirebaseDb, ensureAnonSignIn } from './firebase';
+import { normalizeAnswer } from './contract';
 
 // ─────────────────────────────────────────── Types ───────────────────────────────────────────
 
@@ -39,6 +41,7 @@ export interface PlayerState {
   reputation: number;      // positif = notoriété (rencontres bienveillantes), négatif = mauvaise réputation (combats perdus, vol)
   wallet: number;
   xpBonus?: number;        // XP off-chain accumulé (peut être négatif après un troc coûteux)
+  score?: number;          // score off-chain accumulé (quêtes résolues hors-chaîne — voir QuestDef)
   sleeping?: boolean;      // vrai pendant le sommeil forcé (HP ≤ 20)
   lastTick?: number;
   createdAt?: number;
@@ -111,13 +114,17 @@ export async function getOrCreatePlayer(address: string, displayName?: string): 
   }
   const now = Date.now();
   const initial: PlayerState = {
-    address: k, displayName,
+    address: k,
+    // `displayName` omis si absent : Firebase RTDB rejette toute écriture contenant une
+    // valeur `undefined` (voir bug historique "value argument contains undefined").
+    ...(displayName ? { displayName } : {}),
     hp: 100, hpMax: 100,
     hunger: 80, hungerMax: 100,
     happiness: 60, happinessMax: 100,
     force: 10, forceMax: 100,
     spells: 5, spellsMax: 100,
     reputation: 0, wallet: 100,
+    score: 0,
     lastTick: now, createdAt: now, updatedAt: now,
   };
   await set(ref(db, `players/${k}`), initial);
@@ -187,6 +194,7 @@ export async function applyEffect(address: string, delta: Partial<PlayerState> &
     reputation: (cur.reputation ?? 0) + (delta.reputation ?? 0),
     wallet:     Math.max(0, (cur.wallet ?? 100) + (delta.wallet ?? 0)),
     xpBonus:    (cur.xpBonus ?? 0) + (delta.xpBonus ?? 0),
+    score:      (cur.score ?? 0) + (delta.score ?? 0),
     lastTick:   Date.now(),
     updatedAt:  Date.now(),
   };
@@ -291,6 +299,68 @@ export async function getNpcsMetCount(address: string): Promise<number> {
   return uniq.size;
 }
 
+// ────────────────────────────────────── Quêtes à énigmes (100% hors-chaîne) ──────────────────────────────────────
+// Catalogue ET vérification des réponses entièrement en Firebase : plus aucune transaction on-chain
+// n'est nécessaire pour créer une quête (admin) ou la résoudre (joueur) → zéro gas. Seul le HASH
+// (keccak256) de la réponse normalisée est stocké, jamais la réponse en clair.
+
+export interface QuestDef {
+  id: string;            // clé stable = keccak256(idTexte), ex. keccak256("riddle.ice")
+  label: string;
+  xpRequired: number;    // XP (on-chain + off-chain cumulés) nécessaire pour tenter la quête
+  xpReward: number;
+  scoreReward: number;
+  answerHash: string;    // keccak256(normalizeAnswer(réponse)) — jamais la réponse en clair
+  active: boolean;
+  createdAt: number;
+}
+
+/** Recalcule un id stable `bytes32`-like à partir d'un identifiant texte (ex. "riddle.ice"). */
+export function questIdOf(s: string): string {
+  return keccak256(toBytes(s));
+}
+
+/** Hash d'une réponse normalisée — comparé côté client, jamais transmis en clair vers la chaîne. */
+export function hashAnswer(rawAnswer: string): string {
+  return keccak256(toBytes(normalizeAnswer(rawAnswer)));
+}
+
+/** Crée/modifie une quête (admin). Aucune transaction blockchain : écriture Firebase uniquement. */
+export async function addQuestDef(def: QuestDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/quests/${def.id.toLowerCase()}`), def);
+}
+
+/** Liste toutes les quêtes actives/inactives du catalogue (triées par date de création). */
+export async function getQuestDefs(): Promise<QuestDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/quests'));
+  const v = snap.val() as Record<string, QuestDef> | null;
+  if (!v) return [];
+  return Object.values(v).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+}
+
+/**
+ * Vérifie la réponse d'une quête et applique la récompense hors-chaîne (xpBonus + score),
+ * sans aucun gas. Retourne 'correct' | 'wrong' | 'already'.
+ */
+export async function submitQuestAnswerOffchain(
+  address: string, quest: QuestDef, rawAnswer: string, reputationReward: number,
+): Promise<'correct' | 'wrong' | 'already'> {
+  const already = await getSolvedQuest(address, quest.id);
+  if (already) return 'already';
+  const normalized = normalizeAnswer(rawAnswer);
+  if (hashAnswer(normalized).toLowerCase() !== quest.answerHash.toLowerCase()) return 'wrong';
+  await applyEffect(address, {
+    xpBonus: quest.xpReward, score: quest.scoreReward, reputation: reputationReward,
+  });
+  await markQuestSolved(address, quest.id, normalized);
+  return 'correct';
+}
+
 // ────────────────────────────────────── Quests solved ──────────────────────────────────────
 
 /** Enregistre la réponse d'une quête résolue (pour l'afficher au joueur). */
@@ -312,11 +382,10 @@ export async function getSolvedQuest(address: string, questId: string): Promise<
 
 /**
  * Réponse "officielle" d'une énigme, stockée en base (Firebase) plutôt que dans le bundle JS
- * client afin de ne pas exposer publiquement les réponses des quêtes non résolues (les réponses
- * ne sont sur la blockchain que sous forme de hash keccak256, jamais en clair).
- * Utilisée comme filet de sécurité par `QuestList` quand une quête est déjà complétée on-chain
- * mais qu'aucun enregistrement `players/{addr}/quests/{questId}` n'existe encore (ex. quête
- * résolue avant l'ajout de `markQuestSolved`, ou quêtes seedées au déploiement du contrat).
+ * client afin de ne pas exposer publiquement les réponses des quêtes non résolues.
+ * Utilisée par les scripts de migration (`web/scripts/migrateQuestsToFirebase.mjs`,
+ * `web/scripts/backfillLegacyQuests.mjs`) pour reconstituer l'historique des quêtes résolues
+ * on-chain avant le passage à un système 100% hors-chaîne.
  */
 export async function getSeedQuestAnswer(questId: string): Promise<string | null> {
   const db = getFirebaseDb();

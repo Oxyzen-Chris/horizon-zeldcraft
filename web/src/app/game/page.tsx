@@ -282,11 +282,11 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       </section>
 
       <div className="md:col-span-2">
-        <Scoreboard contract={contract} tokenId={tokenId} level={Number(level)} xp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
+        <Scoreboard contract={contract} tokenId={tokenId} level={Number(level)} xp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} offchainScore={player?.score ?? 0} />
       </div>
 
       <div className="md:col-span-2">
-        <QuestList contract={contract} tokenId={tokenId} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
+        <QuestList playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       </div>
 
       <div className="md:col-span-2">

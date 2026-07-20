@@ -25,13 +25,14 @@ Chemins RTDB utilisés par l'application (à jour au 2026-07) :
 | `players/{addr}`                        | `applyEffect`, `getOrCreatePlayer`, `topupWallet` | `PlayerStats`, `Scoreboard`, popups |
 | `players/{addr}/inventory/{itemId}`     | `addToInventory`, `removeFromInventory`       | `Inventory`, popup vol PNJ hostile      |
 | `players/{addr}/encounters/{ts}`        | `logEncounter` (popup NPC)                    | `EncountersPanel`, admin PlayerStats    |
-| `players/{addr}/quests/{questId}`       | `markQuestSolved`                             | `QuestList` (affichage réponse)         |
+| `players/{addr}/quests/{questId}`       | `markQuestSolved`, `submitQuestAnswerOffchain`, `web/scripts/backfillLegacyQuests.mjs` | `QuestList` (statut résolu + réponse) |
 | `players/{addr}/txs/{ts}`               | `logTx` (mint, feed, buy, quest)              | admin PlayerStats + facture PDF         |
 | `playerIndex/{addr}`                    | `getOrCreatePlayer`                           | admin `listPlayers`, Scoreboard         |
 | `catalog/repRules`                      | admin `ReputationRulesPanel`                  | popup NPC (calcul reputation)           |
 | `catalog/topupPresets`                  | admin `TopupPresetsPanel`                     | `WalletTopupPopup` (choix montants)     |
 | `catalog/shopItems` *(WIP)*             | admin `ShopPanel`                             | `Shop` (achats)                         |
-| `catalog/riddleAnswers/{questId}`       | admin (ajout quête), `web/scripts/seedRiddleAnswers.mjs` | `QuestList` (filet de sécu réponse) |
+| `catalog/riddleAnswers/{questId}`       | `web/scripts/seedRiddleAnswers.mjs`, `web/scripts/backfillLegacyQuests.mjs` | scripts de migration (repli réponse legacy) |
+| `catalog/quests/{questId}`              | admin (panneau « Ajouter une quête »), `web/scripts/migrateQuestsToFirebase.mjs` | `QuestList` (catalogue complet, 100% hors-chaîne) |
 
 ## 1. Créer le projet Firebase (gratuit)
 

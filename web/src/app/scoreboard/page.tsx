@@ -83,7 +83,7 @@ export default function ScoreboardPage() {
         onChainXp, xpBonus,
         totalXp: Math.max(0, onChainXp + xpBonus),
         level,
-        score: Number(sc ?? 0),
+        score: Number(sc ?? 0) + (db?.score ?? 0),
         reputation: db?.reputation ?? 0,
       };
     }).sort((a, b) => b.totalXp - a.totalXp);

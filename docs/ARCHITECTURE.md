@@ -37,6 +37,14 @@
 | `withdraw()`                          | Retire les fonds vers treasury                     | Admin   |
 | `pause() / unpause()`                 | Pause d'urgence                                    | Admin   |
 
+> ⚠️ **Quêtes à énigmes — migrées 100% hors-chaîne.** `addQuest`/`submitQuestAnswer` restent dans
+> le contrat déployé (compat. historique, jamais re-déployé) mais **ne sont plus appelés par le
+> client** : le catalogue de quêtes, la vérification de réponse (hash keccak256) et l'attribution
+> des récompenses (XP, score, réputation) se font désormais exclusivement via Firebase RTDB
+> (`catalog/quests/{id}`, `players/{addr}/quests/{questId}`) — zéro gas pour créer ou résoudre une
+> quête. Voir `web/src/lib/gameState.ts` (`QuestDef`, `addQuestDef`, `submitQuestAnswerOffchain`)
+> et `docs/FIREBASE_CHAT.md`.
+
 ### Événements
 
 `VoxlynMinted`, `Fed`, `LevelUp`, `ItemBought`, `QuestStarted`, `QuestCompleted`, `PriceChanged`
