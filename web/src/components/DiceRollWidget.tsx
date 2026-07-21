@@ -10,8 +10,31 @@ import { useI18n } from '@/lib/i18n';
 
 const POS_KEY = 'zc.diceWidgetPos';
 const COLLAPSED_KEY = 'zc.diceWidgetCollapsed';
+const TUMBLE_MS = 900;    // durée de l'animation de tirage avant révélation du résultat
+const TUMBLE_TICK = 70;   // fréquence de rafraîchissement du chiffre pendant le tumbling
 
 interface Pos { x: number; y: number }
+
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+/**
+ * Dé animé (façon d20 "diamant") : tumbling (rotation + chiffre aléatoire qui défile) pendant le
+ * tirage, puis petit "pop" d'atterrissage une fois le résultat révélé. `landKey` change à chaque
+ * tirage complet pour rejouer l'animation de pop (remount via `key`).
+ */
+function Die({ value, rolling, landKey, tone }: { value: number; rolling: boolean; landKey: number; tone: 'neutral' | 'win' | 'lose' }) {
+  const toneClass = tone === 'win' ? 'from-emerald-600 to-emerald-800 border-emerald-300'
+    : tone === 'lose' ? 'from-rose-600 to-rose-800 border-rose-300'
+    : 'from-amber-600 to-amber-800 border-amber-300';
+  return (
+    <div
+      key={rolling ? 'rolling' : landKey}
+      className={`w-12 h-12 rotate-45 rounded-lg border-2 shadow-lg bg-gradient-to-br ${toneClass} flex items-center justify-center ${rolling ? 'animate-dice-tumble' : 'animate-dice-land'}`}
+    >
+      <span className="-rotate-45 text-base font-black text-white">{value}</span>
+    </div>
+  );
+}
 
 /** Tirage sans enjeu (façon "brouillon") : PNJ fictif de Force aléatoire 5-40, comme rollNpc(). */
 function rollQuickTest(playerBonus: number): { playerRoll: number; npcRoll: number; npcBonus: number; win: boolean } {
@@ -46,6 +69,11 @@ export function DiceRollWidget() {
   const [bonus, setBonus] = useState(0);
   const [dailyDone, setDailyDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rolling, setRolling] = useState<'quick' | 'daily' | null>(null);
+  const [spinPlayer, setSpinPlayer] = useState(1);
+  const [spinNpc, setSpinNpc] = useState(1);
+  const [landKey, setLandKey] = useState(0);
+  const tumbleRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [result, setResult] = useState<
     | { kind: 'quick'; playerRoll: number; npcRoll: number; playerBonus: number; npcBonus: number; win: boolean }
     | { kind: 'daily'; playerRoll: number; total: number; threshold: number; win: boolean; reward: string }
@@ -67,6 +95,9 @@ export function DiceRollWidget() {
     }).catch(() => {});
     hasRolledDailyLuck(address).then(setDailyDone).catch(() => {});
   }, [address, rules]);
+
+  // Coupe l'intervalle de tumbling si le widget se démonte pendant une animation en cours.
+  useEffect(() => () => { if (tumbleRef.current) clearInterval(tumbleRef.current); }, []);
 
   // ─── Drag (pointer events) ───
   const onPointerDown = (e: React.PointerEvent) => {
@@ -93,9 +124,32 @@ export function DiceRollWidget() {
     });
   };
 
-  const rollQuick = () => {
+  /** Démarre le tumbling visuel (chiffres aléatoires qui défilent sur le/les dés). */
+  const startTumble = (twoDice: boolean) => {
+    setResult(null);
+    setSpinPlayer(1 + Math.floor(Math.random() * 20));
+    if (twoDice) setSpinNpc(1 + Math.floor(Math.random() * 20));
+    tumbleRef.current = setInterval(() => {
+      setSpinPlayer(1 + Math.floor(Math.random() * 20));
+      if (twoDice) setSpinNpc(1 + Math.floor(Math.random() * 20));
+    }, TUMBLE_TICK);
+  };
+  const stopTumble = () => {
+    if (tumbleRef.current) { clearInterval(tumbleRef.current); tumbleRef.current = null; }
+  };
+
+  const rollQuick = async () => {
+    if (rolling || busy) return;
+    setRolling('quick');
+    startTumble(true);
     const r = rollQuickTest(bonus);
+    await sleep(TUMBLE_MS);
+    stopTumble();
+    setSpinPlayer(r.playerRoll);
+    setSpinNpc(r.npcRoll);
     setResult({ kind: 'quick', playerRoll: r.playerRoll, npcRoll: r.npcRoll, playerBonus: bonus, npcBonus: r.npcBonus, win: r.win });
+    setLandKey(k => k + 1);
+    setRolling(null);
   };
 
   /**
@@ -104,25 +158,34 @@ export function DiceRollWidget() {
    * infrastructure (bonus pondéré + tirage 1d20 + résultat affiché dans ce widget).
    */
   const rollDaily = async () => {
-    if (!address || busy || dailyDone || !rules) return;
+    if (!address || busy || rolling || dailyDone || !rules) return;
     setBusy(true);
+    setRolling('daily');
+    startTumble(false);
     try {
       const playerRoll = rollD20();
       const total = playerRoll + bonus;
       const win = total >= rules.dailyLuckThreshold;
       let reward: string;
-      if (win) {
-        await applyEffect(address, { wallet: rules.dailyLuckWalletReward, reputation: rules.dailyLuckRepReward });
-        reward = `+${rules.dailyLuckWalletReward} 💰 · +${rules.dailyLuckRepReward} ⭐`;
-      } else {
+      const applyPromise = (async () => {
+        if (win) {
+          await applyEffect(address, { wallet: rules.dailyLuckWalletReward, reputation: rules.dailyLuckRepReward });
+          return `+${rules.dailyLuckWalletReward} 💰 · +${rules.dailyLuckRepReward} ⭐`;
+        }
         await applyEffect(address, { xpBonus: rules.dailyLuckXpConsolation });
-        reward = `+${rules.dailyLuckXpConsolation} XP`;
-      }
+        return `+${rules.dailyLuckXpConsolation} XP`;
+      })();
+      [reward] = await Promise.all([applyPromise, sleep(TUMBLE_MS)]);
       await markDailyLuckRolled(address, win);
+      stopTumble();
+      setSpinPlayer(playerRoll);
       setDailyDone(true);
       setResult({ kind: 'daily', playerRoll, total, threshold: rules.dailyLuckThreshold, win, reward });
+      setLandKey(k => k + 1);
     } finally {
+      stopTumble();
       setBusy(false);
+      setRolling(null);
     }
   };
 
@@ -155,11 +218,45 @@ export function DiceRollWidget() {
       <div className="p-3 text-xs space-y-2">
         <p className="text-slate-400">{t('dice.bonusPreview', { v: bonus })}</p>
 
-        <button className="btn-secondary text-xs w-full" onClick={rollQuick}>
-          🎲 {t('dice.quickTest')}
+        {(rolling === 'quick' || result?.kind === 'quick') && (
+          <div className="flex items-center justify-center gap-4 py-2">
+            <div className="flex flex-col items-center gap-1">
+              <Die
+                value={spinPlayer}
+                rolling={rolling === 'quick'}
+                landKey={landKey}
+                tone={rolling === 'quick' || !result || result.kind !== 'quick' ? 'neutral' : (result.win ? 'win' : 'lose')}
+              />
+              <span className="text-[10px] text-slate-500">{t('dice.you')}</span>
+            </div>
+            <span className="text-slate-500">vs</span>
+            <div className="flex flex-col items-center gap-1">
+              <Die
+                value={spinNpc}
+                rolling={rolling === 'quick'}
+                landKey={landKey}
+                tone={rolling === 'quick' || !result || result.kind !== 'quick' ? 'neutral' : (result.win ? 'lose' : 'win')}
+              />
+              <span className="text-[10px] text-slate-500">{t('dice.rival')}</span>
+            </div>
+          </div>
+        )}
+        {(rolling === 'daily' || result?.kind === 'daily') && (
+          <div className="flex items-center justify-center py-2">
+            <Die
+              value={spinPlayer}
+              rolling={rolling === 'daily'}
+              landKey={landKey}
+              tone={rolling === 'daily' || !result || result.kind !== 'daily' ? 'neutral' : (result.win ? 'win' : 'lose')}
+            />
+          </div>
+        )}
+
+        <button className="btn-secondary text-xs w-full disabled:opacity-40" disabled={!!rolling || busy} onClick={rollQuick}>
+          {rolling === 'quick' ? '🎲…' : `🎲 ${t('dice.quickTest')}`}
         </button>
-        <button className="btn-primary text-xs w-full disabled:opacity-40" disabled={busy || dailyDone} onClick={rollDaily}>
-          {busy ? '⏳' : dailyDone ? t('dice.alreadyRolled') : t('dice.dailyLuck')}
+        <button className="btn-primary text-xs w-full disabled:opacity-40" disabled={busy || !!rolling || dailyDone} onClick={rollDaily}>
+          {rolling === 'daily' ? '🎲…' : busy ? '⏳' : dailyDone ? t('dice.alreadyRolled') : t('dice.dailyLuck')}
         </button>
 
         {result && result.kind === 'quick' && (
