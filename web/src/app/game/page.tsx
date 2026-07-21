@@ -21,6 +21,7 @@ import { WorldList } from '@/components/WorldList';
 import { TeamsPanel } from '@/components/TeamsPanel';
 import { FamiliarsList } from '@/components/FamiliarsList';
 import { NpcEncounterPopup } from '@/components/NpcEncounterPopup';
+import { DiceRollWidget } from '@/components/DiceRollWidget';
 import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
@@ -332,6 +333,8 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       {/* Popup de rencontres PNJ aléatoires (3-5×/jour, réglable) */}
       <NpcEncounterPopup contract={contract} tokenId={tokenId} />
+      {/* Fenêtre flottante et déplaçable de lancer de dés (infra générique + destin quotidien) */}
+      <DiceRollWidget />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}
       <SleepModal player={player} />
     </div>

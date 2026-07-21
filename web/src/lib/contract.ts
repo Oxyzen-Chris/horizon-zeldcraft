@@ -194,7 +194,13 @@ function slugMap(slugs: readonly string[]): Record<string, string> {
   return map;
 }
 
-const WORLD_SLUGS = ['world.zephyria', 'world.nether_cristal', 'world.azerothyl', 'world.nexus'] as const;
+const WORLD_SLUGS = [
+  'world.zephyria', 'world.nether_cristal', 'world.azerothyl', 'world.nexus',
+  // Mondes étendus (10 000 → 100 000 XP) — voir contracts/scripts/deploy.ts § Seed mondes
+  // et contracts/scripts/addWorlds.ts pour le seed incrémental post-déploiement.
+  'world.ember_wastes', 'world.frostfall_peaks', 'world.shadowmere_marsh',
+  'world.skyreach_spire', 'world.stargate_aethyria', 'world.eternum_sanctum',
+] as const;
 const TREASURE_SLUGS = [
   'treasure.master_sword', 'treasure.diamond_pickaxe', 'treasure.thunderfury',
   'treasure.rupees', 'treasure.dragon_egg',

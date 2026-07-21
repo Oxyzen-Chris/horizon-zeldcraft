@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useAccount, useReadContract, useChainId } from 'wagmi';
 import { ref, get } from 'firebase/database';
 import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES, NPC_SUFFIX_KEYS } from '@/lib/contract';
-import { applyEffect, logEncounter, addToInventory, removeFromInventory, getRepRules, getOrCreatePlayer, type EncounterRecord, type RepRules } from '@/lib/gameState';
+import {
+  applyEffect, logEncounter, addToInventory, removeFromInventory, getRepRules, getOrCreatePlayer,
+  computePlayerDiceBonus, rollD20, getChatScripts, getNextQuestHint, DEFAULT_CHAT_SCRIPTS, CHAT_RESPONSE_IDS,
+  type EncounterRecord, type RepRules, type ChatScript, type ChatResponseId, type ChatReaction,
+} from '@/lib/gameState';
 import { getFirebaseDb } from '@/lib/firebase';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { FightResultModal, type FightResultData } from './FightResultModal';
@@ -66,7 +70,6 @@ function rollNpc(): PopupNpc {
 // ─────────────────────────── Combat façon jet de dés (D&D-like) ───────────────────────────
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
-const rollD20 = () => 1 + Math.floor(Math.random() * 20);
 
 /** Butin possible lors d'une victoire (récupéré sur le PNJ vaincu). */
 const FIGHT_LOOT_TABLE = [
@@ -85,7 +88,8 @@ interface FightRoll {
 
 /**
  * Tirage 1d20 pondéré par les indices de Force, Vie, Faim et Sortilèges du joueur
- * (façon jeu de rôle papier). Le PNJ tire aussi 1d20 + bonus dérivé de sa Force.
+ * (façon jeu de rôle papier — bonus calculé par `computePlayerDiceBonus`, partagé avec le widget
+ * de dés persistant `DiceRollWidget.tsx`). Le PNJ tire aussi 1d20 + bonus dérivé de sa Force.
  * Égalité = défaite du joueur (avantage au défenseur).
  * Tous les poids et plafonds sont paramétrables via le menu Administration (RepRules).
  */
@@ -94,18 +98,7 @@ function resolveFight(
   npc: PopupNpc,
   rules: RepRules,
 ): FightRoll {
-  const hpPct     = clamp01(player.hp     / (player.hpMax     || 100));
-  const hungerPct = clamp01(player.hunger / (player.hungerMax || 100));
-  const forcePct  = clamp01(player.force  / (player.forceMax  || 100));
-  const spellsPct = clamp01(player.spells / (player.spellsMax || 100));
-
-  // Bonus joueur = somme pondérée des 4 stats (poids paramétrables, ex. défaut 6+4+3+3=16)
-  const playerBonus = Math.round(
-    forcePct  * (rules.fightForceWeight  ?? 6) +
-    hpPct     * (rules.fightHpWeight     ?? 4) +
-    hungerPct * (rules.fightHungerWeight ?? 3) +
-    spellsPct * (rules.fightSpellsWeight ?? 3),
-  );
+  const playerBonus = computePlayerDiceBonus(player, rules);
   // Bonus PNJ, dérivé de sa seule Force, plafonné à fightNpcBonusMax (défaut 12)
   const npcForceRef = Math.max(1, rules.fightNpcForceRef ?? 45);
   const npcBonus = Math.round(clamp01(npc.force / npcForceRef) * (rules.fightNpcBonusMax ?? 12));
@@ -120,17 +113,49 @@ function resolveFight(
   return { playerRoll, npcRoll, playerBonus, npcBonus, playerTotal, npcTotal, win, npcPurse };
 }
 
+// ─────────────────────────── Dialogues PNJ (offre "chat") ───────────────────────────
+
+/** État de la conversation en cours (npcLine ou réaction affichée, indice révélé, cumul XP/rep). */
+interface ChatFlowState {
+  npc: PopupNpc;
+  phase: 'question' | 'reacted';
+  script: ChatScript;
+  displayLine: string;
+  hintText: string | null;
+  pendingNext: ChatScript | null;
+  xpAccum: number;
+  repAccum: number;
+}
+
+/**
+ * Réactions génériques de repli si le script sélectionné ne définit pas de réaction pour la
+ * réponse choisie (ex. script admin incomplet) — garantit qu'un bouton ne reste jamais sans effet.
+ */
+const CHAT_FALLBACK_REACTIONS: Record<ChatResponseId, ChatReaction> = {
+  yes:       { line: 'Ravi de te l\'entendre dire !', i18nKey: 'npc.chat.fallback.yes', xp: 2 },
+  no:        { line: 'Ah, dommage...', i18nKey: 'npc.chat.fallback.no' },
+  dontknow:  { line: 'Ce n\'est pas grave, une autre fois peut-être.', i18nKey: 'npc.chat.fallback.dontknow', xp: 1 },
+  continue:  { line: 'Je n\'ai rien de plus à ajouter pour l\'instant.', i18nKey: 'npc.chat.fallback.continue' },
+  moreHints: { line: 'Cherche du côté de tes énigmes non résolues...', i18nKey: 'npc.chat.fallback.morehints', revealHint: true },
+};
+
 export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string}`; tokenId: bigint }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const chainId = useChainId();
   const [current, setCurrent] = useState<PopupNpc | null>(null);
   const [rules, setRules] = useState<RepRules | null>(null);
+  const [chatScripts, setChatScripts] = useState<ChatScript[]>([]);
   const timerRef = useRef<any>(null);
 
   // Charge les règles de reconnaissance paramétrables (admin)
   useEffect(() => {
     getRepRules().then(setRules).catch(() => {});
+  }, []);
+
+  // Charge le catalogue de scripts de dialogue PNJ (admin), avec repli intégré si base vide
+  useEffect(() => {
+    getChatScripts().then(setChatScripts).catch(() => {});
   }, []);
 
   const { data: maxPerDay } = useReadContract({
@@ -161,10 +186,95 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fightResult, setFightResult] = useState<FightResultData | null>(null);
-  const close = () => { setCurrent(null); setErrorMsg(null); };
+  const [chatFlow, setChatFlow] = useState<ChatFlowState | null>(null);
+  const [chatBusy, setChatBusy] = useState(false);
+  const close = () => { setCurrent(null); setErrorMsg(null); setChatFlow(null); };
+
+  /** Démarre la conversation : tire un script aléatoire du catalogue et affiche sa réplique d'ouverture. */
+  const startChat = (npc: PopupNpc) => {
+    const list = chatScripts.length ? chatScripts : DEFAULT_CHAT_SCRIPTS;
+    const script = pick(list);
+    setChatFlow({
+      npc, phase: 'question', script,
+      displayLine: localizeName(t, script.npcLineI18nKey, script.npcLine),
+      hintText: null, pendingNext: null, xpAccum: 0, repAccum: 0,
+    });
+  };
+
+  /** Applique la réaction du PNJ à la réponse choisie par le joueur (5 boutons fixes). */
+  const respondChat = async (responseId: ChatResponseId) => {
+    if (!chatFlow || chatBusy) return;
+    setChatBusy(true);
+    try {
+      const reaction = chatFlow.script.reactions[responseId] ?? CHAT_FALLBACK_REACTIONS[responseId];
+      let hintText: string | null = null;
+      if (reaction.revealHint && address) {
+        const q = await getNextQuestHint(address);
+        hintText = q ? localizeName(t, q.hintKey, q.hint || '') : t('npc.chat.hint.none');
+      }
+      const nextScript = reaction.nextScriptId
+        ? (chatScripts.find(s => s.id === reaction.nextScriptId)
+          ?? DEFAULT_CHAT_SCRIPTS.find(s => s.id === reaction.nextScriptId) ?? null)
+        : null;
+      setChatFlow(prev => prev && ({
+        ...prev, phase: 'reacted',
+        displayLine: localizeName(t, reaction.i18nKey, reaction.line),
+        hintText, pendingNext: nextScript,
+        xpAccum: prev.xpAccum + (reaction.xp ?? 0),
+        repAccum: prev.repAccum + (reaction.rep ?? 0),
+      }));
+    } finally {
+      setChatBusy(false);
+    }
+  };
+
+  /** Enchaîne vers le script suivant (si `nextScriptId`) ou clôt la conversation. */
+  const continueChat = () => {
+    if (!chatFlow) return;
+    if (chatFlow.pendingNext) {
+      const next = chatFlow.pendingNext;
+      setChatFlow(prev => prev && ({
+        ...prev, phase: 'question', script: next,
+        displayLine: localizeName(t, next.npcLineI18nKey, next.npcLine),
+        hintText: null, pendingNext: null,
+      }));
+    } else {
+      finalizeChat();
+    }
+  };
+
+  /** Applique les effets cumulés (XP/rep de la discussion + barème chatFriendly/... existant), log, ferme. */
+  const finalizeChat = async () => {
+    if (!chatFlow || !address || chatBusy) return;
+    setChatBusy(true);
+    setErrorMsg(null);
+    const npc = chatFlow.npc;
+    try {
+      const r = rules ?? (await getRepRules());
+      const baseRep = npc.alignment === 'friendly' ? r.chatFriendly
+                    : npc.alignment === 'hostile'   ? r.chatHostile
+                    : r.chatNeutral;
+      const xpDelta = Math.floor(npc.xp / 2) + chatFlow.xpAccum;
+      const repDelta = baseRep + chatFlow.repAccum;
+      await applyEffect(address, { reputation: repDelta, happiness: 5, xpBonus: xpDelta });
+      await logEncounter(address, {
+        npcId: npc.key, npcName: npc.name, npcSkin: npc.skin,
+        npcBaseKey: npc.baseKey, npcSuffixKey: NPC_SUFFIX_KEYS[npc.suffixIdx],
+        alignment: npc.alignment, offer: npc.offer,
+        timestamp: Date.now(), outcome: 'accepted', xpGained: xpDelta, repDelta,
+      });
+      close();
+    } catch (e: any) {
+      console.error('[NpcEncounter] chat finalize failed:', e);
+      setErrorMsg('❌ ' + (e?.message?.slice(0, 120) ?? 'Erreur inconnue'));
+    } finally {
+      setChatBusy(false);
+    }
+  };
 
   const accept = async () => {
     if (!current || !address || busy) return;
+    if (current.offer === 'chat') { startChat(current); return; }
     setBusy(true);
     setErrorMsg(null);
     const npc = current;
@@ -292,12 +402,6 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         spellsDelta = 3;
         xpBonusDelta = xpDelta;
         repDelta = r.questAccepted;
-      } else {
-        xpDelta = Math.floor(npc.xp / 2);
-        xpBonusDelta = xpDelta;
-        repDelta = npc.alignment === 'friendly' ? r.chatFriendly
-                : npc.alignment === 'hostile'   ? r.chatHostile
-                : r.chatNeutral;
       }
 
       await applyEffect(address, {
@@ -349,7 +453,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   return (
     <>
       {current && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => !busy && close()}>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => !busy && !chatBusy && close()}>
           <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
             <div className="text-center">
               <div className="text-6xl mb-3">{NPC_SKINS[current.skin]}</div>
@@ -362,16 +466,46 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
                 <span>✨ {current.xp} XP</span>
               </div>
             </div>
-            <p className="text-sm text-slate-300 mt-4 text-center">{t(`npc.dialogue.${OFFER_KEYS[current.offer]}`, { name: currentDisplayName })}</p>
-            {errorMsg && <p className="text-xs text-rose-400 mt-3 text-center">{errorMsg}</p>}
-            <div className="flex gap-3 mt-5">
-              <button className="btn-primary flex-1 disabled:opacity-50" disabled={busy} onClick={accept}>
-                {busy ? '⏳' : t('npc.accept')}
-              </button>
-              <button className="btn-secondary flex-1 disabled:opacity-50" disabled={busy} onClick={refuse}>
-                {t('npc.refuse')}
-              </button>
-            </div>
+            {chatFlow ? (
+              <>
+                <p className="text-sm text-slate-300 mt-4 text-center italic">💬 {chatFlow.displayLine}</p>
+                {chatFlow.hintText && (
+                  <p className="text-xs text-amber-300 mt-3 text-center bg-amber-900/20 rounded p-2">
+                    🧩 {t('npc.chat.hint.label')} : {chatFlow.hintText}
+                  </p>
+                )}
+                {errorMsg && <p className="text-xs text-rose-400 mt-3 text-center">{errorMsg}</p>}
+                {chatFlow.phase === 'question' ? (
+                  <div className="grid grid-cols-2 gap-2 mt-5">
+                    {CHAT_RESPONSE_IDS.map(rid => (
+                      <button key={rid} className="btn-secondary text-sm disabled:opacity-50"
+                        disabled={chatBusy} onClick={() => respondChat(rid)}>
+                        {t(`npc.chat.answer.${rid}`)}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-5">
+                    <button className="btn-primary w-full disabled:opacity-50" disabled={chatBusy} onClick={continueChat}>
+                      {chatBusy ? '⏳' : (chatFlow.pendingNext ? t('npc.chat.continueBtn') : t('npc.chat.close'))}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-slate-300 mt-4 text-center">{t(`npc.dialogue.${OFFER_KEYS[current.offer]}`, { name: currentDisplayName })}</p>
+                {errorMsg && <p className="text-xs text-rose-400 mt-3 text-center">{errorMsg}</p>}
+                <div className="flex gap-3 mt-5">
+                  <button className="btn-primary flex-1 disabled:opacity-50" disabled={busy} onClick={accept}>
+                    {busy ? '⏳' : t('npc.accept')}
+                  </button>
+                  <button className="btn-secondary flex-1 disabled:opacity-50" disabled={busy} onClick={refuse}>
+                    {t('npc.refuse')}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

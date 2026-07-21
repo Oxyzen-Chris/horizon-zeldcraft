@@ -57,6 +57,14 @@ async function main() {
     ["world.nether_cristal", "Grottes de Nether-Cristal", 200],
     ["world.azerothyl", "Sanctuaire d'Azerothyl", 1000],
     ["world.nexus", "Nexus Temporel", 5000],
+    // Mondes étendus (au-delà de 5000 XP) — voir aussi scripts/addWorlds.ts pour le
+    // seed incrémental sur un contrat déjà déployé (sans redéploiement complet).
+    ["world.ember_wastes", "Landes Cendrées d'Ember", 10000],
+    ["world.frostfall_peaks", "Pics Gelés de Frostfall", 20000],
+    ["world.shadowmere_marsh", "Marécages de Shadowmere", 35000],
+    ["world.skyreach_spire", "Flèche Céleste de Skyreach", 50000],
+    ["world.stargate_aethyria", "Portail des Étoiles d'Aethyria", 75000],
+    ["world.eternum_sanctum", "Sanctuaire Éternel d'Eternum", 100000],
   ];
   for (const [k, n, xp] of worlds) {
     await (await c.addWorld(id(k), n, xp)).wait();

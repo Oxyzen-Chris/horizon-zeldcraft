@@ -66,6 +66,10 @@ export function RepRulesPanel() {
     { key: 'fightNpcBonusMax',   labelKey: 'admin.repRules.fightNpcBonusMax' },
     { key: 'fightNpcForceRef',   labelKey: 'admin.repRules.fightNpcForceRef' },
     { key: 'xpCap',              labelKey: 'admin.repRules.xpCap' },
+    { key: 'dailyLuckThreshold',     labelKey: 'admin.repRules.dailyLuckThreshold' },
+    { key: 'dailyLuckWalletReward',  labelKey: 'admin.repRules.dailyLuckWalletReward' },
+    { key: 'dailyLuckRepReward',     labelKey: 'admin.repRules.dailyLuckRepReward' },
+    { key: 'dailyLuckXpConsolation', labelKey: 'admin.repRules.dailyLuckXpConsolation' },
   ];
 
   return (

@@ -17,6 +17,7 @@
  *   catalog/shop/{itemId}              → ShopItem (paramétrable par admin)
  *   catalog/familiars/{id}             → FamiliarDef (paramétrable par admin — XP requis + objet rare optionnel)
  *   players/{addr}/familiars/{id}      → { obtainedAt } (familier apprivoisé par le joueur)
+ *   catalog/chatScripts/{id}           → ChatScript (dialogues PNJ paramétrables par admin)
  */
 import {
   ref, get, set, update, onValue, off, push, serverTimestamp, DataSnapshot,
@@ -366,6 +367,8 @@ export interface QuestDef {
   createdAt: number;
   order?: number;        // ordre d'affichage explicite (0, 1, 2…) — voir getQuestDefs()
   i18nKey?: string;      // clé i18n (ex. "quest.riddle_first") pour un libellé traduit — voir localizeName()
+  hint?: string;         // indice en clair (repli, admin mono-langue) — révélé via le dialogue PNJ
+  hintKey?: string;      // clé i18n (ex. "quest.riddle_first.hint") pour un indice traduit — voir localizeName()
 }
 
 /** Recalcule un id stable `bytes32`-like à partir d'un identifiant texte (ex. "riddle.ice"). */
@@ -441,6 +444,22 @@ export async function getSolvedQuest(address: string, questId: string): Promise<
   if (!db) return null;
   const snap = await get(ref(db, `players/${KEY(address)}/quests/${questId.toLowerCase()}`));
   return snap.val();
+}
+
+/**
+ * Retrouve la prochaine énigme non résolue du joueur (dans l'ordre d'affichage `order`) disposant
+ * d'un indice (`hint`/`hintKey`) et la renvoie. Utilisée par la réaction "Donne plus d'indices" du
+ * système de dialogue PNJ (voir `ChatReaction.revealHint`). Renvoie `null` si aucune quête non
+ * résolue n'a d'indice défini.
+ */
+export async function getNextQuestHint(address: string): Promise<QuestDef | null> {
+  const quests = await getQuestDefs();
+  for (const q of quests) {
+    if (!q.active || (!q.hint && !q.hintKey)) continue;
+    const solved = await getSolvedQuest(address, q.id);
+    if (!solved) return q;
+  }
+  return null;
 }
 
 /**
@@ -572,6 +591,11 @@ export interface RepRules {
   fightNpcBonusMax: number;  // Bonus max du PNJ, dérivé de sa Force (défaut 12)
   fightNpcForceRef: number;  // Force de référence du PNJ pour atteindre le bonus max (défaut 45)
   xpCap: number;             // Plafond d'expérience affiché dans la barre "Statistiques" (défaut 100000)
+  // Lancer du destin quotidien (widget de dés persistant — 1x/jour, indépendant des combats PNJ)
+  dailyLuckThreshold: number;    // Total (1d20+bonus) à atteindre pour gagner (défaut 15)
+  dailyLuckWalletReward: number; // Monnaie de jeu gagnée en cas de succès (défaut 25)
+  dailyLuckRepReward: number;    // Réputation gagnée en cas de succès (défaut 2)
+  dailyLuckXpConsolation: number;// XP de consolation en cas d'échec (défaut 5)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -600,6 +624,10 @@ export const DEFAULT_REP_RULES: RepRules = {
   fightNpcBonusMax: 12,
   fightNpcForceRef: 45,
   xpCap: 100000,
+  dailyLuckThreshold: 15,
+  dailyLuckWalletReward: 25,
+  dailyLuckRepReward: 2,
+  dailyLuckXpConsolation: 5,
 };
 
 export async function getRepRules(): Promise<RepRules> {
@@ -615,6 +643,53 @@ export async function setRepRules(rules: RepRules): Promise<void> {
   if (!db) return;
   await ensureAnonSignIn();
   await set(ref(db, 'catalog/repRules'), rules);
+}
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+/**
+ * Bonus (0..~16 par défaut) appliqué au tirage 1d20 du joueur, pondéré par ses indices de Force,
+ * Vie, Faim et Sortilèges (poids paramétrables via RepRules). Formule partagée par le combat PNJ
+ * (`resolveFight` dans NpcEncounterPopup.tsx) et le widget de dés persistant (`DiceRollWidget.tsx`),
+ * pour garantir une seule source de vérité sur le calcul du bonus joueur.
+ */
+export function computePlayerDiceBonus(
+  player: { hp: number; hpMax: number; hunger: number; hungerMax: number; force: number; forceMax: number; spells: number; spellsMax: number },
+  rules: RepRules,
+): number {
+  const hpPct     = clamp01(player.hp     / (player.hpMax     || 100));
+  const hungerPct = clamp01(player.hunger / (player.hungerMax || 100));
+  const forcePct  = clamp01(player.force  / (player.forceMax  || 100));
+  const spellsPct = clamp01(player.spells / (player.spellsMax || 100));
+  return Math.round(
+    forcePct  * (rules.fightForceWeight  ?? 6) +
+    hpPct     * (rules.fightHpWeight     ?? 4) +
+    hungerPct * (rules.fightHungerWeight ?? 3) +
+    spellsPct * (rules.fightSpellsWeight ?? 3),
+  );
+}
+
+export const rollD20 = () => 1 + Math.floor(Math.random() * 20);
+
+/** Clé du jour courant (UTC device), ex. "2024-06-05" — utilisée pour les mécaniques 1x/jour. */
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Vrai si le joueur a déjà effectué son lancer du destin quotidien aujourd'hui. */
+export async function hasRolledDailyLuck(address: string): Promise<boolean> {
+  const db = getFirebaseDb();
+  if (!db) return false;
+  const snap = await get(ref(db, `players/${KEY(address)}/dailyLuck/${todayKey()}`));
+  return snap.exists();
+}
+
+/** Enregistre le lancer du destin quotidien du jour (empêche de relancer avant minuit). */
+export async function markDailyLuckRolled(address: string, win: boolean): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `players/${KEY(address)}/dailyLuck/${todayKey()}`), { win, rolledAt: Date.now() });
 }
 
 // ─────────────────────────────────────── Familiers ───────────────────────────────────────
@@ -704,6 +779,113 @@ export async function tameFamiliar(
   }
   await set(ref(db, `players/${KEY(address)}/familiars/${key}`), { obtainedAt: Date.now() });
   return 'ok';
+}
+
+// ─────────────────────────────────────── Dialogues PNJ (chat) ───────────────────────────────────────
+
+/**
+ * Mécanique de discussion avec un PNJ (offre "chat") : à l'acceptation, le PNJ ouvre une réplique
+ * et le joueur répond via 5 boutons fixes ("Oui"/"Non"/"Je ne sais pas"/"Continue"/"Donne plus
+ * d'indices"). Chaque réaction peut octroyer un peu de XP/réputation bonus, révéler l'indice de la
+ * prochaine énigme non résolue (`revealHint`), et/ou enchaîner vers un autre `ChatScript`
+ * (`nextScriptId`) pour simuler une conversation à plusieurs échanges — sans arbre de dialogue
+ * récursif : on référence simplement un autre script du même catalogue plat par son id (même
+ * convention que `FamiliarDef.requiredItemId`).
+ * Catalogue 100% hors-chaîne, paramétrable par l'admin. Clé RTDB : catalog/chatScripts/{id}
+ */
+export type ChatResponseId = 'yes' | 'no' | 'dontknow' | 'continue' | 'moreHints';
+
+export const CHAT_RESPONSE_IDS: ChatResponseId[] = ['yes', 'no', 'dontknow', 'continue', 'moreHints'];
+
+export interface ChatReaction {
+  line: string;             // réplique du PNJ suite à la réponse du joueur (repli FR/admin)
+  i18nKey?: string;         // clé i18n optionnelle (scripts par défaut uniquement) — voir localizeName()
+  xp?: number;              // XP hors-chaîne bonus/malus (optionnel, en plus du barème chatFriendly/...)
+  rep?: number;             // réputation bonus/malus (optionnel, en plus du barème chatFriendly/...)
+  revealHint?: boolean;     // révèle l'indice de la prochaine énigme non résolue (voir getNextQuestHint)
+  nextScriptId?: string;    // enchaîne vers un autre ChatScript du catalogue (conversation multi-tours)
+}
+
+export interface ChatScript {
+  id: string;
+  npcLine: string;           // réplique d'ouverture du PNJ (repli FR/admin)
+  npcLineI18nKey?: string;   // clé i18n optionnelle (scripts par défaut uniquement)
+  reactions: Partial<Record<ChatResponseId, ChatReaction>>;
+  active: boolean;
+  createdAt: number;
+  order?: number;
+}
+
+/**
+ * Scripts par défaut (repli si `catalog/chatScripts` est vide en base) — démontrent la mécanique
+ * dès le premier lancement : "greeting" enchaîne vers "legend" via la réponse "Continue", et
+ * "moreHints" révèle l'indice de la prochaine énigme non résolue du joueur.
+ */
+export const DEFAULT_CHAT_SCRIPTS: ChatScript[] = [
+  {
+    id: 'chat.default.greeting',
+    npcLine: "Une belle journée pour explorer, tu ne trouves pas ?",
+    npcLineI18nKey: 'npc.chat.script.greeting.npc',
+    active: true, createdAt: 0, order: 0,
+    reactions: {
+      yes:       { line: 'Ravi de voir un aventurier optimiste !', i18nKey: 'npc.chat.script.greeting.yes', xp: 5, rep: 1 },
+      no:        { line: 'Ah... les temps sont durs, je te l\'accorde.', i18nKey: 'npc.chat.script.greeting.no', xp: 2 },
+      dontknow:  { line: "L'important, c'est de rester en mouvement !", i18nKey: 'npc.chat.script.greeting.dontknow', xp: 2 },
+      continue:  { line: 'Alors laisse-moi te raconter une légende...', i18nKey: 'npc.chat.script.greeting.continue', nextScriptId: 'chat.default.legend' },
+      moreHints: { line: 'Cherche du côté de tes énigmes non résolues, un indice t\'y attend peut-être...', i18nKey: 'npc.chat.script.greeting.hints', revealHint: true },
+    },
+  },
+  {
+    id: 'chat.default.legend',
+    npcLine: 'On raconte qu\'un ancien gardien protège un secret au cœur du Nexus Temporel...',
+    npcLineI18nKey: 'npc.chat.script.legend.npc',
+    active: true, createdAt: 0, order: 1,
+    reactions: {
+      yes:       { line: "J'en étais sûr ! Sois prudent, aventurier.", i18nKey: 'npc.chat.script.legend.yes', xp: 8, rep: 2 },
+      no:        { line: 'Peu importe, certains secrets restent scellés.', i18nKey: 'npc.chat.script.legend.no' },
+      dontknow:  { line: "Beaucoup l'ignorent, c'est ce qui rend l'histoire fascinante.", i18nKey: 'npc.chat.script.legend.dontknow', xp: 3 },
+      continue:  { line: "Je n'en sais pas plus, mais bonne chance à toi !", i18nKey: 'npc.chat.script.legend.continue' },
+      moreHints: { line: 'Un indice ? Regarde du côté de tes énigmes non résolues...', i18nKey: 'npc.chat.script.legend.hints', revealHint: true },
+    },
+  },
+];
+
+/** Sanitise un id lisible (ex. "chat.default.greeting") en clé RTDB valide. */
+export function chatScriptKeyOf(id: string): string {
+  return id.toLowerCase().replace(/[.#$[\]]/g, '_');
+}
+
+/** Crée/modifie un script de dialogue (admin). Aucune transaction blockchain : écriture Firebase uniquement. */
+export async function addChatScript(def: ChatScript): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/chatScripts/${chatScriptKeyOf(def.id)}`), def);
+}
+
+export async function removeChatScript(id: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/chatScripts/${chatScriptKeyOf(id)}`), null);
+}
+
+/**
+ * Liste les scripts de dialogue du catalogue (triés par `order` puis date de création), avec repli
+ * sur `DEFAULT_CHAT_SCRIPTS` si la base est vide (même logique que `getShopCatalog`/`DEFAULT_SHOP`).
+ */
+export async function getChatScripts(): Promise<ChatScript[]> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_CHAT_SCRIPTS;
+  const snap = await get(ref(db, 'catalog/chatScripts'));
+  const v = snap.val() as Record<string, ChatScript> | null;
+  if (!v || Object.keys(v).length === 0) return DEFAULT_CHAT_SCRIPTS;
+  return Object.values(v).sort((a, b) => {
+    const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+  });
 }
 
 // ─────────────────────────────────────── Top-up presets ───────────────────────────────────────

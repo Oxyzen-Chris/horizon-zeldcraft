@@ -15,6 +15,7 @@ import { ChatHistory } from '@/components/ChatHistory';
 import { RepRulesPanel } from '@/components/RepRulesPanel';
 import { TopupPresetsPanel } from '@/components/TopupPresetsPanel';
 import { FamiliarsAdminPanel } from '@/components/FamiliarsAdminPanel';
+import { ChatScriptsAdminPanel } from '@/components/ChatScriptsAdminPanel';
 import { useI18n } from '@/lib/i18n';
 
 export default function AdminPage() {
@@ -52,6 +53,7 @@ export default function AdminPage() {
   const [questRew, setQuestRew] = useState('100');
   const [questScore, setQuestScore] = useState('50');
   const [questAnswer, setQuestAnswer] = useState('');
+  const [questHint, setQuestHint] = useState('');
   const [questSaving, setQuestSaving] = useState(false);
   const [questSaved, setQuestSaved] = useState(false);
 
@@ -144,6 +146,7 @@ export default function AdminPage() {
           <RepRulesPanel />
           <TopupPresetsPanel />
           <FamiliarsAdminPanel />
+          <ChatScriptsAdminPanel />
 
           <section className="card">
             <h2 className="text-xl font-semibold mb-3">{t('admin.item.title')}</h2>
@@ -169,6 +172,7 @@ export default function AdminPage() {
               <input className="input" placeholder={t('admin.quest.xpRequired')}    value={questReq}      onChange={e => setQuestReq(e.target.value)} />
               <input className="input" placeholder={t('admin.quest.xpReward')}      value={questRew}      onChange={e => setQuestRew(e.target.value)} />
               <input className="input" placeholder={t('admin.quest.scoreReward')}   value={questScore}    onChange={e => setQuestScore(e.target.value)} />
+              <input className="input md:col-span-2" placeholder={t('admin.quest.hintField')} value={questHint} onChange={e => setQuestHint(e.target.value)} />
             </div>
             <button className="btn-primary" disabled={questSaving || !questKey || !questLabel || !questAnswer}
               onClick={async () => {
@@ -191,8 +195,9 @@ export default function AdminPage() {
                     active: true,
                     createdAt: Date.now(),
                     order: nextOrder,
+                    hint: questHint.trim() || undefined,
                   });
-                  setQuestKey(''); setQuestLabel(''); setQuestAnswer('');
+                  setQuestKey(''); setQuestLabel(''); setQuestAnswer(''); setQuestHint('');
                   setQuestSaved(true);
                   setTimeout(() => setQuestSaved(false), 3000);
                 } finally {
