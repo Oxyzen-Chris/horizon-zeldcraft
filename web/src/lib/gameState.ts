@@ -623,7 +623,14 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'montgolf',  name: '🎈 Montgolfière',       category: 'vehicle', priceGame: 800, effect: {},                          active: true },
   { itemId: 'mototaupe', name: '⛏️ Moto-taupe',         category: 'vehicle', priceGame: 700, effect: {},                          active: true },
   // ─── Objets rares (nécessaires pour apprivoiser certains Familiers — voir FamiliarDef.requiredItemId)
-  { itemId: 'ecaille_semaphore', name: '🔴 Écaille de Sémaphore Écarlate', category: 'treasure', priceGame: 5000, effect: {}, active: true },
+  { itemId: 'ecaille_semaphore',       name: '🔴 Écaille de Sémaphore Écarlate',   category: 'treasure', priceGame: 5000,  effect: {}, active: true },
+  { itemId: 'griffe_gel_eternel',      name: '❄️ Griffe de Gel Éternel',           category: 'treasure', priceGame: 4000,  effect: {}, active: true },
+  { itemId: 'larme_marais_noir',       name: '🖤 Larme du Marais Noir',            category: 'treasure', priceGame: 6000,  effect: {}, active: true },
+  { itemId: 'ecaille_ronce_venin',     name: '☠️ Écaille de Ronce Venimeuse',      category: 'treasure', priceGame: 8000,  effect: {}, active: true },
+  { itemId: 'eclat_orage_saphir',      name: '⚡ Éclat d\'Orage Saphir',            category: 'treasure', priceGame: 10000, effect: {}, active: true },
+  { itemId: 'braise_coeur_volcan',     name: '🔥 Braise du Cœur du Volcan',        category: 'treasure', priceGame: 15000, effect: {}, active: true },
+  { itemId: 'plume_givre_lunaire',     name: '🌙 Plume de Givre Lunaire',          category: 'treasure', priceGame: 20000, effect: {}, active: true },
+  { itemId: 'perle_abysse_electrique', name: '🌊 Perle des Abysses Électriques',   category: 'treasure', priceGame: 25000, effect: {}, active: true },
 ];
 
 // ─────────────────────────────────────── Rep rules ───────────────────────────────────────

@@ -11,7 +11,8 @@
  * Bronze = foudre/côtier, curieux et joueur) sont bienveillants. Le Dragon d'Or, le plus noble,
  * reste le premier familier par défaut de Synk (5000 XP). Les autres apparaissent progressivement,
  * du plus commun (Blanc, 8000 XP) au plus rare et puissant (Bronze, 90000 XP), pour garder le jeu
- * jouable et évolutif sur le long terme.
+ * jouable et évolutif sur le long terme. Chacun requiert, en plus de l'XP, un objet rare thématique
+ * à posséder dans la besace (en vente dans la boutique — voir `DEFAULT_SHOP` dans gameState.ts).
  *
  * Usage (one-shot, depuis web/) :
  *   node scripts/migrateFamiliarsToFirebase.mjs
@@ -37,16 +38,16 @@ for (const line of readFileSync(envPath, 'utf8').split('\n')) {
   if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 
-//   [id,              label,                       xpRequired, requiredItemId,        i18nKey]
+//   [id,              label,                       xpRequired, requiredItemId,           i18nKey]
 const FAMILIARS = [
-  ['dragon.gold',   '🐲 Dragon d\'Or',      5000,  'ecaille_semaphore', 'familiar.dragon_gold'],
-  ['dragon.white',  '🐉 Dragon Blanc',      8000,  undefined,           'familiar.dragon_white'],
-  ['dragon.black',  '🐉 Dragon Noir',       15000, undefined,           'familiar.dragon_black'],
-  ['dragon.green',  '🐉 Dragon Vert',       22000, undefined,           'familiar.dragon_green'],
-  ['dragon.blue',   '🐉 Dragon Bleu',       32000, undefined,           'familiar.dragon_blue'],
-  ['dragon.red',    '🐉 Dragon Rouge',      45000, undefined,           'familiar.dragon_red'],
-  ['dragon.silver', '🐉 Dragon d\'Argent',  65000, undefined,           'familiar.dragon_silver'],
-  ['dragon.bronze', '🐉 Dragon de Bronze',  90000, undefined,           'familiar.dragon_bronze'],
+  ['dragon.gold',   '🐲 Dragon d\'Or',      5000,  'ecaille_semaphore',       'familiar.dragon_gold'],
+  ['dragon.white',  '🐉 Dragon Blanc',      8000,  'griffe_gel_eternel',      'familiar.dragon_white'],
+  ['dragon.black',  '🐉 Dragon Noir',       15000, 'larme_marais_noir',       'familiar.dragon_black'],
+  ['dragon.green',  '🐉 Dragon Vert',       22000, 'ecaille_ronce_venin',     'familiar.dragon_green'],
+  ['dragon.blue',   '🐉 Dragon Bleu',       32000, 'eclat_orage_saphir',      'familiar.dragon_blue'],
+  ['dragon.red',    '🐉 Dragon Rouge',      45000, 'braise_coeur_volcan',     'familiar.dragon_red'],
+  ['dragon.silver', '🐉 Dragon d\'Argent',  65000, 'plume_givre_lunaire',     'familiar.dragon_silver'],
+  ['dragon.bronze', '🐉 Dragon de Bronze',  90000, 'perle_abysse_electrique', 'familiar.dragon_bronze'],
 ];
 
 async function main() {
