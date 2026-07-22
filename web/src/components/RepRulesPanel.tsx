@@ -21,6 +21,11 @@ export function RepRulesPanel() {
     setRules(prev => ({ ...prev, [k]: isNaN(n) ? 0 : n }));
   };
 
+  /** Champs texte (montants ETH lisibles, ex. "0.00296") — pas de parseInt, valeur brute conservée. */
+  const setText = (k: keyof RepRules, v: string) => {
+    setRules(prev => ({ ...prev, [k]: v }));
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -84,6 +89,19 @@ export function RepRulesPanel() {
               value={rules[f.key]} onChange={e => set(f.key, e.target.value)} />
           </label>
         ))}
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-700">
+        <label className="text-sm">
+          <span className="text-slate-300">{t('admin.repRules.teamChatCreationCostEth')}</span>
+          <input type="text" className="input mt-1 w-full"
+            value={rules.teamChatCreationCostEth} onChange={e => setText('teamChatCreationCostEth', e.target.value)} />
+        </label>
+        <label className="text-sm">
+          <span className="text-slate-300">{t('admin.repRules.teamChatCreationCostFiatHint')}</span>
+          <input type="text" className="input mt-1 w-full"
+            value={rules.teamChatCreationCostFiatHint} onChange={e => setText('teamChatCreationCostFiatHint', e.target.value)} />
+        </label>
       </div>
       <div className="flex gap-3 mt-4">
         <button className="btn-primary" disabled={saving} onClick={save}>

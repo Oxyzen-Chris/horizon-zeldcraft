@@ -18,6 +18,7 @@
  *   catalog/familiars/{id}             → FamiliarDef (paramétrable par admin — XP requis + objet rare optionnel)
  *   players/{addr}/familiars/{id}      → { obtainedAt } (familier apprivoisé par le joueur)
  *   catalog/chatScripts/{id}           → ChatScript (dialogues PNJ paramétrables par admin)
+ *   catalog/customWidgets/{id}         → CustomWidgetDef (widgets flottants paramétrables par admin)
  */
 import {
   ref, get, set, update, onValue, off, push, serverTimestamp, DataSnapshot,
@@ -596,6 +597,10 @@ export interface RepRules {
   dailyLuckWalletReward: number; // Monnaie de jeu gagnée en cas de succès (défaut 25)
   dailyLuckRepReward: number;    // Réputation gagnée en cas de succès (défaut 2)
   dailyLuckXpConsolation: number;// XP de consolation en cas d'échec (défaut 5)
+  // Coût informatif de création d'un salon de discussion d'équipe (affiché dans TeamsPanel — aucun
+  // paiement n'est actuellement débité, purement indicatif en prévision d'une future monétisation)
+  teamChatCreationCostEth: string;      // Montant ETH affiché (défaut "0.00296")
+  teamChatCreationCostFiatHint: string; // Équivalent approximatif affiché entre parenthèses (défaut "~2 €")
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -628,6 +633,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   dailyLuckWalletReward: 25,
   dailyLuckRepReward: 2,
   dailyLuckXpConsolation: 5,
+  teamChatCreationCostEth: '0.00296',
+  teamChatCreationCostFiatHint: '~2 €',
 };
 
 export async function getRepRules(): Promise<RepRules> {
@@ -921,3 +928,95 @@ export async function setTopupPresets(presets: TopupPreset[]): Promise<void> {
   await ensureAnonSignIn();
   await set(ref(db, 'catalog/topupPresets'), presets);
 }
+
+// ───────────────────────────────────── Widgets personnalisés ─────────────────────────────────────
+
+/**
+ * Widgets flottants génériques, entièrement définis par l'admin (titre, contenu, animation,
+ * boutons + action de chaque bouton) — même esprit que le widget de dés / chat d'équipe, mais
+ * paramétrable sans code. Catalogue 100% hors-chaîne. Clé RTDB : catalog/customWidgets/{id}
+ */
+export type CustomWidgetActionType = 'none' | 'link' | 'message' | 'effect';
+export type CustomWidgetAnimation = 'none' | 'pulse' | 'bounce' | 'glow';
+
+/** Effet appliqué au joueur (mêmes champs que `applyEffect`) quand actionType === 'effect'. */
+export interface CustomWidgetEffect {
+  wallet?: number; xpBonus?: number; reputation?: number;
+  hp?: number; hunger?: number; happiness?: number; force?: number; spells?: number;
+}
+
+export interface CustomWidgetButton {
+  label: string;                  // texte affiché sur le bouton (repli mono-langue, contenu admin)
+  actionType: CustomWidgetActionType;
+  actionUrl?: string;              // si actionType === 'link' (ouvert dans un nouvel onglet)
+  actionMessage?: string;          // si actionType === 'message' (affiché sous le bouton)
+  effect?: CustomWidgetEffect;     // si actionType === 'effect' (appliqué via applyEffect)
+}
+
+export interface CustomWidgetDef {
+  id: string;
+  title: string;
+  content: string;                 // texte/description affiché dans le corps du widget
+  icon?: string;                   // emoji affiché sur la bulle réduite (défaut 🧩)
+  animation?: CustomWidgetAnimation;// anime la bulle réduite pour attirer l'attention
+  minXp?: number;                  // condition d'affichage : XP minimum requis (0/absent = toujours visible)
+  buttons: CustomWidgetButton[];
+  active: boolean;
+  createdAt: number;
+  order?: number;
+}
+
+/** Un widget de démonstration livré par défaut (visible dès le premier lancement). */
+export const DEFAULT_CUSTOM_WIDGETS: CustomWidgetDef[] = [
+  {
+    id: 'widget.default.community',
+    title: '📯 Communauté Horizon ZeldCraft',
+    content: 'Rejoins la communauté sur Instagram pour suivre les nouveautés, les saisons et les événements du royaume !',
+    icon: '📯',
+    animation: 'pulse',
+    minXp: 0,
+    active: true, createdAt: 0, order: 0,
+    buttons: [
+      { label: 'Suivre sur Instagram', actionType: 'link', actionUrl: 'https://instagram.com/horizon.zeldcraft' },
+    ],
+  },
+];
+
+/** Sanitise un id lisible (ex. "widget.default.community") en clé RTDB valide. */
+export function customWidgetKeyOf(id: string): string {
+  return id.toLowerCase().replace(/[.#$[\]]/g, '_');
+}
+
+/** Crée/modifie un widget personnalisé (admin). Aucune transaction blockchain : écriture Firebase uniquement. */
+export async function addCustomWidget(def: CustomWidgetDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/customWidgets/${customWidgetKeyOf(def.id)}`), def);
+}
+
+export async function removeCustomWidget(id: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/customWidgets/${customWidgetKeyOf(id)}`), null);
+}
+
+/**
+ * Liste les widgets personnalisés du catalogue (triés par `order` puis date de création), avec
+ * repli sur `DEFAULT_CUSTOM_WIDGETS` si la base est vide (même logique que `getChatScripts`).
+ */
+export async function getCustomWidgets(): Promise<CustomWidgetDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_CUSTOM_WIDGETS;
+  const snap = await get(ref(db, 'catalog/customWidgets'));
+  const v = snap.val() as Record<string, CustomWidgetDef> | null;
+  if (!v || Object.keys(v).length === 0) return DEFAULT_CUSTOM_WIDGETS;
+  return Object.values(v).sort((a, b) => {
+    const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+  });
+}
+

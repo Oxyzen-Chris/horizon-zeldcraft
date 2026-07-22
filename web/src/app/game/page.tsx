@@ -22,6 +22,8 @@ import { TeamsPanel } from '@/components/TeamsPanel';
 import { FamiliarsList } from '@/components/FamiliarsList';
 import { NpcEncounterPopup } from '@/components/NpcEncounterPopup';
 import { DiceRollWidget } from '@/components/DiceRollWidget';
+import { TeamChatWidget } from '@/components/TeamChatWidget';
+import { CustomWidgetsRenderer } from '@/components/CustomWidgetsRenderer';
 import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
@@ -316,7 +318,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       </div>
 
       <div className="md:col-span-2">
-        <TeamsPanel contract={contract} defaultName={name} />
+        <TeamsPanel contract={contract} />
       </div>
 
       <div className="md:col-span-2">
@@ -335,6 +337,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <NpcEncounterPopup contract={contract} tokenId={tokenId} />
       {/* Fenêtre flottante et déplaçable de lancer de dés (infra générique + destin quotidien) */}
       <DiceRollWidget />
+      {/* Fenêtre flottante et déplaçable du chat d'équipe multi-joueurs */}
+      <TeamChatWidget contract={contract} defaultName={name} />
+      {/* Widgets flottants personnalisés définis par l'admin (menu Administration) */}
+      <CustomWidgetsRenderer playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}
       <SleepModal player={player} />
     </div>

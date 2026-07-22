@@ -35,3 +35,11 @@ body {
 }
 .animate-dice-tumble { animation: dice-tumble 0.45s linear infinite; }
 .animate-dice-land { animation: dice-land 0.35s ease-out; }
+
+/* Halo pulsant pour attirer l'attention sur la bulle réduite d'un widget personnalisé (menu
+   Administration → "Widgets personnalisés", option d'animation "glow"). */
+@keyframes widget-glow {
+  0%, 100% { box-shadow: 0 0 6px 2px rgba(168, 85, 247, 0.5); }
+  50%      { box-shadow: 0 0 18px 8px rgba(168, 85, 247, 0.9); }
+}
+.animate-widget-glow { animation: widget-glow 1.6s ease-in-out infinite; }
