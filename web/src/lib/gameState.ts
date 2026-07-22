@@ -313,6 +313,7 @@ export async function getNpcsMetCount(address: string): Promise<number> {
 export interface PlayerActivityStats {
   questsSolved: number;
   encounters: number;    // rencontres PNJ non refusées (hors-chaîne, procédurales)
+  encountersToday: number; // rencontres non refusées du jour courant (objectif "moodEncounterGoalPerDay")
   fightsWon: number;
   familiarsOwned: number;
 }
@@ -324,7 +325,7 @@ export interface PlayerActivityStats {
  */
 export async function getPlayerActivityStats(address: string): Promise<PlayerActivityStats> {
   const db = getFirebaseDb();
-  if (!db) return { questsSolved: 0, encounters: 0, fightsWon: 0, familiarsOwned: 0 };
+  if (!db) return { questsSolved: 0, encounters: 0, encountersToday: 0, fightsWon: 0, familiarsOwned: 0 };
   const k = KEY(address);
   const [questsSnap, encSnap, famSnap] = await Promise.all([
     get(ref(db, `players/${k}/quests`)),
@@ -335,21 +336,90 @@ export async function getPlayerActivityStats(address: string): Promise<PlayerAct
   const famVal = famSnap.val() as Record<string, unknown> | null;
   const encVal = encSnap.val() as Record<string, EncounterRecord> | null;
   let encounters = 0;
+  let encountersToday = 0;
   let fightsWon = 0;
+  const todayStr = new Date().toDateString();
   if (encVal) {
     for (const e of Object.values(encVal)) {
       if (e.outcome === 'refused') continue;
       encounters++;
+      if (e.timestamp && new Date(e.timestamp).toDateString() === todayStr) encountersToday++;
       if (e.offer === 'fight' && e.outcome === 'won') fightsWon++;
     }
   }
   return {
     questsSolved: questsVal ? Object.keys(questsVal).length : 0,
     encounters,
+    encountersToday,
     fightsWon,
     familiarsOwned: famVal ? Object.keys(famVal).length : 0,
   };
 }
+
+// ────────────────────────────── Pondération de l'humeur (statistique "Bonheur") ──────────────────────────────
+
+export interface MoodHappinessResult {
+  value: number;                     // valeur finale affichée, clampée [0, happinessMax]
+  breakdown: {
+    weather: number;
+    encounters: number;
+    familiar: number;
+    wallet: number;
+    fights: number;
+  };
+}
+
+/**
+ * Calcule la statistique "Bonheur" affichée dans "Statistiques", en pondérant la valeur brute
+ * stockée (`baseHappiness`, celle que fait évoluer le nourrissage) par des modificateurs
+ * contextuels paramétrables par l'admin (`RepRules.mood*`) :
+ *  - météo du moment (ensoleillé = très heureux … nuit = humeur vagabonde, tirage aléatoire) ;
+ *  - progression des rencontres PNJ du jour vers l'objectif quotidien ;
+ *  - possession d'au moins un familier apprivoisé ;
+ *  - argent dans le portefeuille de jeu ;
+ *  - nombre de combats gagnés (plafonné).
+ * Purement un affichage dérivé : ne modifie jamais la valeur stockée en base.
+ */
+export function computeMoodHappiness(input: {
+  baseHappiness: number;
+  happinessMax: number;
+  weatherKey: string; // une des WEATHER_KEYS ('sunny'|'cloudy'|'rainy'|'stormy'|'night'|'snowy')
+  encountersToday: number;
+  hasFamiliar: boolean;
+  wallet: number;
+  fightsWon: number;
+  rules: RepRules;
+}): MoodHappinessResult {
+  const { baseHappiness, happinessMax, weatherKey, encountersToday, hasFamiliar, wallet, fightsWon, rules } = input;
+
+  let weather = 0;
+  switch (weatherKey) {
+    case 'sunny':  weather = rules.moodWeatherSunnyBonus; break;
+    case 'cloudy': weather = rules.moodWeatherCloudyBonus; break;
+    case 'rainy':  weather = rules.moodWeatherRainyBonus; break;
+    case 'stormy': weather = rules.moodWeatherStormyBonus; break;
+    case 'snowy':  weather = rules.moodWeatherSnowyBonus; break;
+    case 'night':  weather = Math.round((Math.random() * 2 - 1) * rules.moodWeatherNightSwing); break;
+    default: weather = 0;
+  }
+
+  const goal = Math.max(1, rules.moodEncounterGoalPerDay);
+  const encounters = Math.round(Math.min(encountersToday / goal, 1) * rules.moodEncounterBonusMax);
+
+  const familiar = hasFamiliar ? rules.moodFamiliarBonus : 0;
+
+  const walletBonus = rules.moodWalletThreshold > 0
+    ? Math.round(Math.min(Math.max(wallet, 0) / rules.moodWalletThreshold, 1) * rules.moodWalletBonusMax)
+    : 0;
+
+  const fights = Math.min(Math.max(fightsWon, 0) * rules.moodFightWinBonus, rules.moodFightWinBonusCap);
+
+  const total = weather + encounters + familiar + walletBonus + fights;
+  const value = Math.max(0, Math.min(happinessMax, Math.round(baseHappiness + total)));
+
+  return { value, breakdown: { weather, encounters, familiar, wallet: walletBonus, fights } };
+}
+
 
 
 // ────────────────────────────────────── Quêtes à énigmes (100% hors-chaîne) ──────────────────────────────────────
@@ -601,6 +671,22 @@ export interface RepRules {
   // paiement n'est actuellement débité, purement indicatif en prévision d'une future monétisation)
   teamChatCreationCostEth: string;      // Montant ETH affiché (défaut "0.00296")
   teamChatCreationCostFiatHint: string; // Équivalent approximatif affiché entre parenthèses (défaut "~2 €")
+  // Pondération de l'humeur (statistique "Bonheur" affichée dans "Statistiques") — modificateurs
+  // additifs appliqués à la valeur brute stockée, selon la météo, la progression des rencontres
+  // PNJ du jour, l'acquisition d'un familier, l'argent en poche et les combats gagnés.
+  moodWeatherSunnyBonus: number;   // ☀️ Ensoleillé = très heureux (défaut +20)
+  moodWeatherCloudyBonus: number;  // 🌥️ Nuageux = moyennement heureux (défaut +5)
+  moodWeatherRainyBonus: number;   // 🌧️ Pluvieux = moins heureux (défaut -15)
+  moodWeatherStormyBonus: number;  // ⛈️ Orageux (défaut -25)
+  moodWeatherSnowyBonus: number;   // ❄️ Neigeux (défaut -10)
+  moodWeatherNightSwing: number;   // 🌙 Nuit = humeur vagabonde, tirage aléatoire ±swing (défaut 20)
+  moodEncounterGoalPerDay: number; // 👥 Objectif de rencontres PNJ par jour (défaut 5)
+  moodEncounterBonusMax: number;   // 👥 Bonus max si l'objectif du jour est atteint (défaut 15)
+  moodFamiliarBonus: number;       // 🐉 Bonus si au moins un familier apprivoisé (défaut 15)
+  moodWalletThreshold: number;     // 💰 Montant de référence pour le bonus plein (défaut 200)
+  moodWalletBonusMax: number;      // 💰 Bonus max lié au portefeuille (défaut 10)
+  moodFightWinBonus: number;       // ⚔️ Bonus par combat gagné (défaut 2)
+  moodFightWinBonusCap: number;    // ⚔️ Plafond du bonus cumulé lié aux combats gagnés (défaut 20)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -635,6 +721,19 @@ export const DEFAULT_REP_RULES: RepRules = {
   dailyLuckXpConsolation: 5,
   teamChatCreationCostEth: '0.00296',
   teamChatCreationCostFiatHint: '~2 €',
+  moodWeatherSunnyBonus: 20,
+  moodWeatherCloudyBonus: 5,
+  moodWeatherRainyBonus: -15,
+  moodWeatherStormyBonus: -25,
+  moodWeatherSnowyBonus: -10,
+  moodWeatherNightSwing: 20,
+  moodEncounterGoalPerDay: 5,
+  moodEncounterBonusMax: 15,
+  moodFamiliarBonus: 15,
+  moodWalletThreshold: 200,
+  moodWalletBonusMax: 10,
+  moodFightWinBonus: 2,
+  moodFightWinBonusCap: 20,
 };
 
 export async function getRepRules(): Promise<RepRules> {

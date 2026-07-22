@@ -77,6 +77,22 @@ export function RepRulesPanel() {
     { key: 'dailyLuckXpConsolation', labelKey: 'admin.repRules.dailyLuckXpConsolation' },
   ];
 
+  const moodFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'moodWeatherSunnyBonus',   labelKey: 'admin.repRules.moodWeatherSunnyBonus' },
+    { key: 'moodWeatherCloudyBonus',  labelKey: 'admin.repRules.moodWeatherCloudyBonus' },
+    { key: 'moodWeatherRainyBonus',   labelKey: 'admin.repRules.moodWeatherRainyBonus' },
+    { key: 'moodWeatherStormyBonus',  labelKey: 'admin.repRules.moodWeatherStormyBonus' },
+    { key: 'moodWeatherSnowyBonus',   labelKey: 'admin.repRules.moodWeatherSnowyBonus' },
+    { key: 'moodWeatherNightSwing',   labelKey: 'admin.repRules.moodWeatherNightSwing' },
+    { key: 'moodEncounterGoalPerDay', labelKey: 'admin.repRules.moodEncounterGoalPerDay' },
+    { key: 'moodEncounterBonusMax',   labelKey: 'admin.repRules.moodEncounterBonusMax' },
+    { key: 'moodFamiliarBonus',       labelKey: 'admin.repRules.moodFamiliarBonus' },
+    { key: 'moodWalletThreshold',     labelKey: 'admin.repRules.moodWalletThreshold' },
+    { key: 'moodWalletBonusMax',      labelKey: 'admin.repRules.moodWalletBonusMax' },
+    { key: 'moodFightWinBonus',       labelKey: 'admin.repRules.moodFightWinBonus' },
+    { key: 'moodFightWinBonusCap',    labelKey: 'admin.repRules.moodFightWinBonusCap' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -102,6 +118,20 @@ export function RepRulesPanel() {
           <input type="text" className="input mt-1 w-full"
             value={rules.teamChatCreationCostFiatHint} onChange={e => setText('teamChatCreationCostFiatHint', e.target.value)} />
         </label>
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">😊 {t('admin.repRules.moodTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.moodDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {moodFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
       </div>
       <div className="flex gap-3 mt-4">
         <button className="btn-primary" disabled={saving} onClick={save}>

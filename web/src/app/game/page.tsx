@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
-import { HORIZON_ABI, FEED_TYPES, STAGE_NAMES } from '@/lib/contract';
+import { HORIZON_ABI, FEED_TYPES, STAGE_NAMES, WEATHER, WEATHER_KEYS } from '@/lib/contract';
 import { SynkSkin } from '@/components/SynkSkin';
 import { Countdown } from '@/components/Countdown';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -30,7 +30,10 @@ import { InventoryPanel } from '@/components/InventoryPanel';
 import { WalletPanel } from '@/components/WalletPanel';
 import { SleepModal } from '@/components/SleepModal';
 import { useI18n } from '@/lib/i18n';
-import { getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, type PlayerState } from '@/lib/gameState';
+import {
+  getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, getPlayerActivityStats,
+  computeMoodHappiness, type PlayerState, type RepRules, type PlayerActivityStats,
+} from '@/lib/gameState';
 
 export default function GamePage() {
   const { address, isConnected } = useAccount();
@@ -166,10 +169,12 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const { isLoading: isMining, isSuccess: isMined } = useWaitForTransactionReceipt({ hash: txHash });
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [xpCap, setXpCap] = useState(100000);
+  const [repRules, setRepRules] = useState<RepRules | null>(null);
+  const [activity, setActivity] = useState<PlayerActivityStats | null>(null);
 
-  // Charge le plafond XP paramétrable (admin) — voir RepRules.xpCap / RepRulesPanel
+  // Charge le plafond XP + le barème complet (mood, etc.) paramétrable (admin) — voir RepRulesPanel
   useEffect(() => {
-    getRepRules().then((r) => setXpCap(r.xpCap)).catch(() => {});
+    getRepRules().then((r) => { setXpCap(r.xpCap); setRepRules(r); }).catch(() => {});
   }, []);
   useEffect(() => {
     if (!address) return;
@@ -177,6 +182,20 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     const unsub = subscribePlayer(address, (p) => setPlayer(p));
     return unsub;
   }, [address, v]);
+
+  // Statistiques d'activité (rencontres du jour, familiers, combats gagnés) pour pondérer l'humeur
+  useEffect(() => {
+    if (!address) return;
+    getPlayerActivityStats(address).then(setActivity).catch(() => {});
+  }, [address]);
+
+  // Météo courante (même source que le WeatherWidget de l'en-tête)
+  const { data: weatherRaw } = useReadContract({
+    address: contract, abi: HORIZON_ABI, functionName: 'currentWeather',
+    query: { enabled: !!contract, refetchInterval: 30000 },
+  });
+  const weatherKey = WEATHER_KEYS[Number(weatherRaw ?? 0)] ?? 'sunny';
+  const weatherEmoji = WEATHER[Number(weatherRaw ?? 0)]?.emoji ?? '☀️';
 
   // Récupère les cooldowns configurés on-chain pour chaque type de repas
   const cooldowns = FEED_TYPES.map((_, idx) => {
@@ -204,7 +223,31 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   // Priorité aux valeurs DB (temps réel) si dispo, sinon fallback on-chain
   const dispHp        = player?.hp        ?? Number(hp);
   const dispHunger    = player?.hunger    ?? Number(hunger);
-  const dispHappiness = player?.happiness ?? Number(happiness);
+  const rawHappiness  = player?.happiness ?? Number(happiness);
+  const happinessMax  = player?.happinessMax ?? 100;
+
+  // Bonheur pondéré (affichage) par météo / rencontres du jour / familier / portefeuille / combats
+  // gagnés — voir `computeMoodHappiness` (paramétrable via RepRulesPanel → "Pondération de l'humeur").
+  const mood = repRules ? computeMoodHappiness({
+    baseHappiness: rawHappiness,
+    happinessMax,
+    weatherKey,
+    encountersToday: activity?.encountersToday ?? 0,
+    hasFamiliar: (activity?.familiarsOwned ?? 0) > 0,
+    wallet: player?.wallet ?? 0,
+    fightsWon: activity?.fightsWon ?? 0,
+    rules: repRules,
+  }) : null;
+  const dispHappiness = mood?.value ?? rawHappiness;
+  const moodGoal = repRules?.moodEncounterGoalPerDay ?? 5;
+  // Petit résumé des modificateurs actifs, affiché sous la barre "Bonheur" pour la transparence.
+  const moodHint = mood ? [
+    `${weatherEmoji} ${t(`weather.${weatherKey}`)} (${mood.breakdown.weather >= 0 ? '+' : ''}${mood.breakdown.weather})`,
+    `👥 ${activity?.encountersToday ?? 0}/${moodGoal} (${mood.breakdown.encounters >= 0 ? '+' : ''}${mood.breakdown.encounters})`,
+    `🐉 ${mood.breakdown.familiar > 0 ? `+${mood.breakdown.familiar}` : '0'}`,
+    `💰 +${mood.breakdown.wallet}`,
+    `⚔️ +${mood.breakdown.fights}`,
+  ].join(' · ') : undefined;
 
   const feed = (feedType: number) => {
     const price = feedPrices[feedType];
@@ -245,7 +288,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         <Stat label={t('game.stats.xp')}        value={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))}          max={xpCap}                     color="bg-purple-500" />
         <Stat label={t('game.stats.hp')}        value={dispHp}              max={player?.hpMax        ?? 100} color="bg-rose-500" />
         <Stat label={t('game.stats.hunger')}    value={dispHunger}          max={player?.hungerMax    ?? 100} color="bg-orange-500" />
-        <Stat label={t('game.stats.happiness')} value={dispHappiness}       max={player?.happinessMax ?? 100} color="bg-yellow-400" />
+        <Stat label={t('game.stats.happiness')} value={dispHappiness}       max={happinessMax} color="bg-yellow-400" hint={moodHint} />
         <Stat label={t('game.stats.force')}     value={player?.force  ?? 10} max={player?.forceMax    ?? 100} color="bg-red-500" />
         <Stat label={t('game.stats.spells')}    value={player?.spells ?? 5}  max={player?.spellsMax   ?? 100} color="bg-indigo-500" />
         <div className="flex justify-between text-sm mt-3 pt-3 border-t border-slate-700">
@@ -347,7 +390,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   );
 }
 
-function Stat({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+function Stat({ label, value, max, color, hint }: { label: string; value: number; max: number; color: string; hint?: string }) {
   const pct = Math.min(100, (value / max) * 100);
   return (
     <div className="mb-3">
@@ -358,6 +401,7 @@ function Stat({ label, value, max, color }: { label: string; value: number; max:
       <div className="h-2 bg-slate-800 rounded overflow-hidden">
         <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
+      {hint && <p className="text-[10px] text-slate-500 mt-1">{hint}</p>}
     </div>
   );
 }

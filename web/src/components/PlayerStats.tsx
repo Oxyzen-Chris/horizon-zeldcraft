@@ -4,10 +4,13 @@ import { useEffect, useState } from 'react';
 import { useChainId, useReadContract, useReadContracts } from 'wagmi';
 import { formatEther, isAddress } from 'viem';
 import jsPDF from 'jspdf';
-import { HORIZON_ABI, STAGE_NAMES } from '@/lib/contract';
+import { HORIZON_ABI, STAGE_NAMES, WEATHER, WEATHER_KEYS } from '@/lib/contract';
 import { useI18n } from '@/lib/i18n';
 import { useIdsList } from './useIdsList';
-import { listPlayers, getPlayer, getTxs, getNpcsMetCount, type PlayerState, type TxRecord } from '@/lib/gameState';
+import {
+  listPlayers, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
+  computeMoodHappiness, type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules,
+} from '@/lib/gameState';
 
 const ETHERSCAN_TX: Record<number, string> = {
   1: 'https://etherscan.io/tx/',
@@ -90,10 +93,21 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [loadingTxs, setLoadingTxs] = useState(false);
   const [npcsMetFb, setNpcsMetFb] = useState(0);
+  const [activity, setActivity] = useState<PlayerActivityStats | null>(null);
+  const [repRules, setRepRulesState] = useState<RepRules | null>(null);
 
   useEffect(() => {
     listPlayers().then(setPlayers).catch(() => {});
+    getRepRules().then(setRepRulesState).catch(() => {});
   }, []);
+
+  // Météo courante (même source que le widget en jeu) — utilisée pour pondérer le Bonheur affiché
+  const { data: weatherRaw } = useReadContract({
+    address: contract, abi: HORIZON_ABI, functionName: 'currentWeather',
+    query: { enabled: !!contract, refetchInterval: 30000 },
+  });
+  const weatherKey = WEATHER_KEYS[Number(weatherRaw ?? 0)] ?? 'sunny';
+  const weatherEmoji = WEATHER[Number(weatherRaw ?? 0)]?.emoji ?? '☀️';
 
   const { data: tokenId } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'voxlynOf',
@@ -154,15 +168,17 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     setAddr(val);
     setTarget(val as `0x${string}`);
     setLoadingTxs(true);
-    // Charge parallèlement DB player, Firebase txs et Etherscan history
-    const [p, dbTxs, chainTxs, npcCount] = await Promise.all([
+    // Charge parallèlement DB player, Firebase txs, Etherscan history et stats d'activité
+    const [p, dbTxs, chainTxs, npcCount, act] = await Promise.all([
       getPlayer(val),
       getTxs(val),
       fetchEtherscanTxs(chainId, val, contract),
       getNpcsMetCount(val),
+      getPlayerActivityStats(val),
     ]);
     setDbPlayer(p);
     setNpcsMetFb(npcCount);
+    setActivity(act);
     // Merge dédupliqué par hash (préférence DB pour le label riche)
     const map = new Map<string, TxRecord>();
     chainTxs.forEach(t => map.set(t.hash.toLowerCase(), t));
@@ -279,6 +295,22 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
               <StatRow label={t('game.stats.spells')}     value={`${dbPlayer.spells} / ${dbPlayer.spellsMax ?? 100}`}     color="text-indigo-400" />
               <StatRow label={t('game.stats.reputation')} value={String(dbPlayer.reputation)} color="text-amber-400" />
               <StatRow label={t('game.stats.wallet')}     value={String(dbPlayer.wallet)}     color="text-amber-400" />
+              {repRules && activity && (
+                <StatRow
+                  label={`😊 ${t('game.stats.happiness')} (${weatherEmoji})`}
+                  value={`${computeMoodHappiness({
+                    baseHappiness: dbPlayer.happiness,
+                    happinessMax: dbPlayer.happinessMax ?? 100,
+                    weatherKey,
+                    encountersToday: activity.encountersToday,
+                    hasFamiliar: activity.familiarsOwned > 0,
+                    wallet: dbPlayer.wallet,
+                    fightsWon: activity.fightsWon,
+                    rules: repRules,
+                  }).value} / ${dbPlayer.happinessMax ?? 100}`}
+                  color="text-yellow-400"
+                />
+              )}
             </>
           )}
         </div>
