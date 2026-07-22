@@ -296,20 +296,28 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
               <StatRow label={t('game.stats.reputation')} value={String(dbPlayer.reputation)} color="text-amber-400" />
               <StatRow label={t('game.stats.wallet')}     value={String(dbPlayer.wallet)}     color="text-amber-400" />
               {repRules && activity && (
-                <StatRow
-                  label={`😊 ${t('game.stats.happiness')} (${weatherEmoji})`}
-                  value={`${computeMoodHappiness({
-                    baseHappiness: dbPlayer.happiness,
-                    happinessMax: dbPlayer.happinessMax ?? 100,
-                    weatherKey,
-                    encountersToday: activity.encountersToday,
-                    hasFamiliar: activity.familiarsOwned > 0,
-                    wallet: dbPlayer.wallet,
-                    fightsWon: activity.fightsWon,
-                    rules: repRules,
-                  }).value} / ${dbPlayer.happinessMax ?? 100}`}
-                  color="text-yellow-400"
-                />
+                <>
+                  <StatRow
+                    label={`😊 ${t('game.stats.happiness')} (${weatherEmoji})`}
+                    value={`${computeMoodHappiness({
+                      baseHappiness: dbPlayer.happiness,
+                      happinessMax: dbPlayer.happinessMax ?? 100,
+                      weatherKey,
+                      encountersToday: activity.encountersToday,
+                      hasFamiliar: activity.familiarsOwned > 0,
+                      wallet: dbPlayer.wallet,
+                      fightsWon: activity.fightsWon,
+                      feedsToday: activity.feedsToday,
+                      rules: repRules,
+                    }).value} / ${dbPlayer.happinessMax ?? 100}`}
+                    color="text-yellow-400"
+                  />
+                  <StatRow
+                    label={`🍖 ${t('admin.stats.feedsToday')}`}
+                    value={`${activity.feedsToday} / ${repRules.moodFeedGoalPerDay} ${activity.feedsToday >= repRules.moodFeedGoalPerDay ? '✅' : '⚠️'}`}
+                    color={activity.feedsToday >= repRules.moodFeedGoalPerDay ? 'text-emerald-400' : 'text-rose-400'}
+                  />
+                </>
               )}
             </>
           )}

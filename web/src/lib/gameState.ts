@@ -48,6 +48,7 @@ export interface PlayerState {
   score?: number;          // score off-chain accumulé (quêtes résolues hors-chaîne — voir QuestDef)
   sleeping?: boolean;      // vrai pendant le sommeil forcé (HP ≤ 20)
   lastTick?: number;
+  lastFeedCheckAt?: number; // début de la fenêtre glissante de 24h en cours pour la pénalité "non nourri" (voir applyFeedPenalties)
   createdAt?: number;
   updatedAt?: number;
 }
@@ -143,19 +144,81 @@ export async function getOrCreatePlayer(address: string, displayName?: string): 
   return initial;
 }
 
-/** Dégradation temporelle : faim -1/heure, hp -1/jour si faim < 20. */
+/** Dégradation temporelle : faim -1/heure, hp -1/jour si faim < 20, + pénalité "non nourri" (voir applyFeedPenalties). */
 async function applyDecay(p: PlayerState, k: string): Promise<PlayerState> {
   const now = Date.now();
   const last = p.lastTick ?? now;
   const hoursElapsed = Math.max(0, Math.floor((now - last) / 3_600_000));
-  if (hoursElapsed === 0) return p;
-  const newHunger = Math.max(0, p.hunger - hoursElapsed);
-  const hpLoss = newHunger < 20 ? Math.floor(hoursElapsed / 24) : 0;
-  const newHp = Math.max(1, p.hp - hpLoss);
-  const updated = { ...p, hunger: newHunger, hp: newHp, lastTick: now, updatedAt: now };
+
+  let hunger = p.hunger;
+  let hp = p.hp;
+  if (hoursElapsed > 0) {
+    hunger = Math.max(0, p.hunger - hoursElapsed);
+    const hpLoss = hunger < 20 ? Math.floor(hoursElapsed / 24) : 0;
+    hp = Math.max(1, p.hp - hpLoss);
+  }
+
+  const { player: afterFeed, changed: feedChecked } = await applyFeedPenalties({ ...p, hunger, hp }, k, now);
+  if (hoursElapsed === 0 && !feedChecked) return p;
+
+  const updated = { ...afterFeed, lastTick: now, updatedAt: now };
   const db = getFirebaseDb()!;
-  await update(ref(db, `players/${k}`), { hunger: newHunger, hp: newHp, lastTick: now, updatedAt: now });
+  await update(ref(db, `players/${k}`), updated);
   return updated;
+}
+
+/**
+ * Pénalité "Synk non nourri régulièrement" : vérifie, par fenêtre glissante de 24h depuis
+ * `lastFeedCheckAt` (initialisée à `createdAt` — un joueur tout neuf n'est jamais pénalisé pour sa
+ * 1ère journée), si le nombre de transactions `feed` on-chain enregistrées atteint l'objectif
+ * paramétrable `moodFeedGoalPerDay` (défaut 4/jour). Si l'objectif d'une fenêtre déjà écoulée n'est
+ * pas atteint, applique une fois la pénalité (Bonheur/XP/Faim/Portefeuille, paramétrable dans le
+ * menu Admin — voir `RepRules.moodFeed*`). Plafonné à 30 fenêtres de rattrapage par appel pour
+ * éviter une rafale de pénalités après une longue absence.
+ */
+async function applyFeedPenalties(
+  p: PlayerState, k: string, now: number,
+): Promise<{ player: PlayerState; changed: boolean }> {
+  const DAY_MS = 86_400_000;
+  const windowStart0 = p.lastFeedCheckAt ?? p.createdAt ?? now;
+  const windowsElapsed = Math.floor((now - windowStart0) / DAY_MS);
+  if (windowsElapsed <= 0) return { player: p, changed: false };
+
+  const rules = await getRepRules();
+  const goal = Math.max(1, rules.moodFeedGoalPerDay ?? 4);
+  const happinessPenalty = rules.moodFeedHappinessPenalty ?? 10;
+  const xpPenalty = rules.moodFeedXpPenalty ?? 20;
+  const hungerPenalty = rules.moodFeedHungerPenalty ?? 10;
+  const walletPenalty = rules.moodFeedWalletPenalty ?? 10;
+
+  const txs = await getTxs(k);
+  const feedTimestamps = txs
+    .filter((tx) => tx.type === 'feed' && tx.status !== 'failed')
+    .map((tx) => tx.timestamp);
+
+  const cappedWindows = Math.min(windowsElapsed, 30);
+  const happinessMax = p.happinessMax ?? 100;
+  let happiness = p.happiness;
+  let xpBonus = p.xpBonus ?? 0;
+  let hunger = p.hunger;
+  let wallet = p.wallet;
+
+  for (let i = 0; i < cappedWindows; i++) {
+    const wStart = windowStart0 + i * DAY_MS;
+    const wEnd = wStart + DAY_MS;
+    const count = feedTimestamps.filter((ts) => ts >= wStart && ts < wEnd).length;
+    if (count < goal) {
+      happiness = clamp(happiness - happinessPenalty, 0, happinessMax);
+      xpBonus -= xpPenalty; // peut devenir négatif — déjà supporté (voir troc coûteux)
+      hunger = Math.max(0, hunger - hungerPenalty);
+      wallet = Math.max(0, wallet - walletPenalty);
+    }
+  }
+
+  return {
+    player: { ...p, happiness, xpBonus, hunger, wallet, lastFeedCheckAt: windowStart0 + cappedWindows * DAY_MS },
+    changed: true,
+  };
 }
 
 /** Écoute temps réel de l'état joueur. Retourne la fonction unsubscribe. */
@@ -316,25 +379,28 @@ export interface PlayerActivityStats {
   encountersToday: number; // rencontres non refusées du jour courant (objectif "moodEncounterGoalPerDay")
   fightsWon: number;
   familiarsOwned: number;
+  feedsToday: number;     // nombre de fois nourri (tx on-chain "feed") aujourd'hui (objectif "moodFeedGoalPerDay")
 }
 
 /**
  * Statistiques agrégées hors-chaîne d'un joueur (quêtes résolues, rencontres, combats gagnés,
- * familiers apprivoisés) — utilisées par le classement mondial (`/scoreboard`) et le panneau
- * admin. Une seule lecture par chemin, sans surcoût N+1.
+ * familiers apprivoisés, nourrissage du jour) — utilisées par le classement mondial (`/scoreboard`)
+ * et le panneau admin. Une seule lecture par chemin, sans surcoût N+1.
  */
 export async function getPlayerActivityStats(address: string): Promise<PlayerActivityStats> {
   const db = getFirebaseDb();
-  if (!db) return { questsSolved: 0, encounters: 0, encountersToday: 0, fightsWon: 0, familiarsOwned: 0 };
+  if (!db) return { questsSolved: 0, encounters: 0, encountersToday: 0, fightsWon: 0, familiarsOwned: 0, feedsToday: 0 };
   const k = KEY(address);
-  const [questsSnap, encSnap, famSnap] = await Promise.all([
+  const [questsSnap, encSnap, famSnap, txsSnap] = await Promise.all([
     get(ref(db, `players/${k}/quests`)),
     get(ref(db, `players/${k}/encounters`)),
     get(ref(db, `players/${k}/familiars`)),
+    get(ref(db, `players/${k}/txs`)),
   ]);
   const questsVal = questsSnap.val() as Record<string, unknown> | null;
   const famVal = famSnap.val() as Record<string, unknown> | null;
   const encVal = encSnap.val() as Record<string, EncounterRecord> | null;
+  const txsVal = txsSnap.val() as Record<string, TxRecord> | null;
   let encounters = 0;
   let encountersToday = 0;
   let fightsWon = 0;
@@ -347,12 +413,19 @@ export async function getPlayerActivityStats(address: string): Promise<PlayerAct
       if (e.offer === 'fight' && e.outcome === 'won') fightsWon++;
     }
   }
+  let feedsToday = 0;
+  if (txsVal) {
+    for (const tx of Object.values(txsVal)) {
+      if (tx.type === 'feed' && tx.status !== 'failed' && new Date(tx.timestamp).toDateString() === todayStr) feedsToday++;
+    }
+  }
   return {
     questsSolved: questsVal ? Object.keys(questsVal).length : 0,
     encounters,
     encountersToday,
     fightsWon,
     familiarsOwned: famVal ? Object.keys(famVal).length : 0,
+    feedsToday,
   };
 }
 
@@ -366,6 +439,7 @@ export interface MoodHappinessResult {
     familiar: number;
     wallet: number;
     fights: number;
+    feed: number;
   };
 }
 
@@ -377,7 +451,10 @@ export interface MoodHappinessResult {
  *  - progression des rencontres PNJ du jour vers l'objectif quotidien ;
  *  - possession d'au moins un familier apprivoisé ;
  *  - argent dans le portefeuille de jeu ;
- *  - nombre de combats gagnés (plafonné).
+ *  - nombre de combats gagnés (plafonné) ;
+ *  - nourrissage régulier de Synk du jour (bonus si l'objectif quotidien est atteint — la pénalité
+ *    en cas d'objectif manqué est, elle, appliquée directement sur la valeur stockée par
+ *    `applyFeedPenalties`, pas ici : cette fonction reste un pur affichage dérivé).
  * Purement un affichage dérivé : ne modifie jamais la valeur stockée en base.
  */
 export function computeMoodHappiness(input: {
@@ -388,9 +465,10 @@ export function computeMoodHappiness(input: {
   hasFamiliar: boolean;
   wallet: number;
   fightsWon: number;
+  feedsToday: number;
   rules: RepRules;
 }): MoodHappinessResult {
-  const { baseHappiness, happinessMax, weatherKey, encountersToday, hasFamiliar, wallet, fightsWon, rules } = input;
+  const { baseHappiness, happinessMax, weatherKey, encountersToday, hasFamiliar, wallet, fightsWon, feedsToday, rules } = input;
 
   let weather = 0;
   switch (weatherKey) {
@@ -414,10 +492,13 @@ export function computeMoodHappiness(input: {
 
   const fights = Math.min(Math.max(fightsWon, 0) * rules.moodFightWinBonus, rules.moodFightWinBonusCap);
 
-  const total = weather + encounters + familiar + walletBonus + fights;
+  const feedGoal = Math.max(1, rules.moodFeedGoalPerDay ?? 4);
+  const feed = feedsToday >= feedGoal ? (rules.moodFeedBonusMax ?? 10) : 0;
+
+  const total = weather + encounters + familiar + walletBonus + fights + feed;
   const value = Math.max(0, Math.min(happinessMax, Math.round(baseHappiness + total)));
 
-  return { value, breakdown: { weather, encounters, familiar, wallet: walletBonus, fights } };
+  return { value, breakdown: { weather, encounters, familiar, wallet: walletBonus, fights, feed } };
 }
 
 
@@ -694,6 +775,15 @@ export interface RepRules {
   moodWalletBonusMax: number;      // 💰 Bonus max lié au portefeuille (défaut 10)
   moodFightWinBonus: number;       // ⚔️ Bonus par combat gagné (défaut 2)
   moodFightWinBonusCap: number;    // ⚔️ Plafond du bonus cumulé lié aux combats gagnés (défaut 20)
+  // Nourrissage régulier de Synk (au moins `moodFeedGoalPerDay` fois par jour via l'action "feed"
+  // on-chain) — bonus de Bonheur si l'objectif du jour est atteint ; sinon, pénalité appliquée une
+  // fois par fenêtre de 24h manquée (Bonheur/XP/Faim/Portefeuille — voir applyFeedPenalties).
+  moodFeedGoalPerDay: number;       // 🍖 Nombre de nourrissages requis par jour (défaut 4)
+  moodFeedBonusMax: number;        // 🍖 Bonus de Bonheur si l'objectif du jour est atteint (défaut 10)
+  moodFeedHappinessPenalty: number;// 🍖 Bonheur retiré par jour manqué si objectif non atteint (défaut 10)
+  moodFeedXpPenalty: number;       // 🍖 XP d'Expérience retiré par jour manqué (défaut 20)
+  moodFeedHungerPenalty: number;   // 🍖 Faim retirée par jour manqué (défaut 10)
+  moodFeedWalletPenalty: number;   // 🍖 Pièces retirées du portefeuille par jour manqué (défaut 10)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -741,6 +831,12 @@ export const DEFAULT_REP_RULES: RepRules = {
   moodWalletBonusMax: 10,
   moodFightWinBonus: 2,
   moodFightWinBonusCap: 20,
+  moodFeedGoalPerDay: 4,
+  moodFeedBonusMax: 10,
+  moodFeedHappinessPenalty: 10,
+  moodFeedXpPenalty: 20,
+  moodFeedHungerPenalty: 10,
+  moodFeedWalletPenalty: 10,
 };
 
 export async function getRepRules(): Promise<RepRules> {

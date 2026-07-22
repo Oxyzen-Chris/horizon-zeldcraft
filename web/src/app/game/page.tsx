@@ -227,7 +227,8 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const happinessMax  = player?.happinessMax ?? 100;
 
   // Bonheur pondéré (affichage) par météo / rencontres du jour / familier / portefeuille / combats
-  // gagnés — voir `computeMoodHappiness` (paramétrable via RepRulesPanel → "Pondération de l'humeur").
+  // gagnés / nourrissage régulier — voir `computeMoodHappiness` (paramétrable via RepRulesPanel →
+  // "Pondération de l'humeur").
   const mood = repRules ? computeMoodHappiness({
     baseHappiness: rawHappiness,
     happinessMax,
@@ -236,10 +237,12 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     hasFamiliar: (activity?.familiarsOwned ?? 0) > 0,
     wallet: player?.wallet ?? 0,
     fightsWon: activity?.fightsWon ?? 0,
+    feedsToday: activity?.feedsToday ?? 0,
     rules: repRules,
   }) : null;
   const dispHappiness = mood?.value ?? rawHappiness;
   const moodGoal = repRules?.moodEncounterGoalPerDay ?? 5;
+  const feedGoal = repRules?.moodFeedGoalPerDay ?? 4;
   // Petit résumé des modificateurs actifs, affiché sous la barre "Bonheur" pour la transparence.
   const moodHint = mood ? [
     `${weatherEmoji} ${t(`weather.${weatherKey}`)} (${mood.breakdown.weather >= 0 ? '+' : ''}${mood.breakdown.weather})`,
@@ -247,6 +250,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     `🐉 ${mood.breakdown.familiar > 0 ? `+${mood.breakdown.familiar}` : '0'}`,
     `💰 +${mood.breakdown.wallet}`,
     `⚔️ +${mood.breakdown.fights}`,
+    `🍖 ${activity?.feedsToday ?? 0}/${feedGoal} (${mood.breakdown.feed > 0 ? `+${mood.breakdown.feed}` : '0'})`,
   ].join(' · ') : undefined;
 
   const feed = (feedType: number) => {

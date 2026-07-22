@@ -91,6 +91,12 @@ export function RepRulesPanel() {
     { key: 'moodWalletBonusMax',      labelKey: 'admin.repRules.moodWalletBonusMax' },
     { key: 'moodFightWinBonus',       labelKey: 'admin.repRules.moodFightWinBonus' },
     { key: 'moodFightWinBonusCap',    labelKey: 'admin.repRules.moodFightWinBonusCap' },
+    { key: 'moodFeedGoalPerDay',        labelKey: 'admin.repRules.moodFeedGoalPerDay' },
+    { key: 'moodFeedBonusMax',          labelKey: 'admin.repRules.moodFeedBonusMax' },
+    { key: 'moodFeedHappinessPenalty',  labelKey: 'admin.repRules.moodFeedHappinessPenalty' },
+    { key: 'moodFeedXpPenalty',         labelKey: 'admin.repRules.moodFeedXpPenalty' },
+    { key: 'moodFeedHungerPenalty',     labelKey: 'admin.repRules.moodFeedHungerPenalty' },
+    { key: 'moodFeedWalletPenalty',     labelKey: 'admin.repRules.moodFeedWalletPenalty' },
   ];
 
   return (

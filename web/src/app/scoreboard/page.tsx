@@ -27,7 +27,7 @@ type Row = {
   familiarsOwned: number;
 };
 
-const emptyActivity: PlayerActivityStats = { questsSolved: 0, encounters: 0, encountersToday: 0, fightsWon: 0, familiarsOwned: 0 };
+const emptyActivity: PlayerActivityStats = { questsSolved: 0, encounters: 0, encountersToday: 0, fightsWon: 0, familiarsOwned: 0, feedsToday: 0 };
 
 export default function ScoreboardPage() {
   const { t } = useI18n();
