@@ -5,6 +5,7 @@ import {
   addFamiliarDef, getFamiliarDefs, removeFamiliarDef, type FamiliarDef,
 } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
+import { DragonSkin, dragonKindFromId } from './DragonSkin';
 
 /**
  * Panneau admin — catalogue des Familiers (dragons, elfes, etc.). 100% hors-chaîne (Firebase),
@@ -62,6 +63,12 @@ export function FamiliarsAdminPanel() {
         <input className="input" type="number" placeholder={t('admin.familiars.xpRequired')} value={xpRequired} onChange={(e) => setXpRequired(e.target.value)} />
         <input className="input" placeholder={t('admin.familiars.itemId')} value={itemId} onChange={(e) => setItemId(e.target.value)} />
       </div>
+      {dragonKindFromId(id) && (
+        <div className="flex items-center gap-2 mt-2">
+          <DragonSkin kind={dragonKindFromId(id)!} size={40} />
+          <span className="text-xs text-slate-400">{t('admin.familiars.pixelPreview')}</span>
+        </div>
+      )}
       <button className="btn-primary mt-3" disabled={saving || !id || !label} onClick={submit}>
         {saving ? '⏳' : t('admin.familiars.submit')}
       </button>
@@ -74,9 +81,10 @@ export function FamiliarsAdminPanel() {
           <div className="space-y-2">
             {familiars.map((f) => (
               <div key={f.id} className="flex items-center justify-between bg-slate-800/60 rounded px-3 py-2 text-sm">
-                <span>
-                  <b>{f.label}</b> — {f.xpRequired} XP
-                  {f.requiredItemId && <> · 🎒 {f.requiredItemId}</>}
+                <span className="flex items-center gap-2">
+                  {dragonKindFromId(f.id) && <DragonSkin kind={dragonKindFromId(f.id)!} size={28} />}
+                  <span><b>{f.label}</b> — {f.xpRequired} XP
+                  {f.requiredItemId && <> · 🎒 {f.requiredItemId}</>}</span>
                 </span>
                 <button className="btn-secondary text-xs" onClick={() => remove(f.id)}>✕</button>
               </div>

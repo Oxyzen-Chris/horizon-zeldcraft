@@ -383,6 +383,7 @@
   "admin.familiars.label": "Familiar name",
   "admin.familiars.xpRequired": "XP required",
   "admin.familiars.itemId": "Required rare item ID (optional)",
+  "admin.familiars.pixelPreview": "Pixel Art preview detected (id \"dragon.<type>\")",
   "admin.familiars.submit": "Add familiar",
   "admin.familiars.saved": "Familiar saved to database (no gas required).",
   "admin.familiars.hint": "💡 The familiar is stored exclusively in the database. Required XP and an optional rare item (to own in the bag) gate the taming.",
@@ -514,6 +515,13 @@
   "dice.hint": "💡 Persistent dice widget — drag it wherever you like. Foundation for a future random-events system.",
 
   "familiar.dragon_gold": "🐲 Gold Dragon",
+  "familiar.dragon_white": "🐉 White Dragon",
+  "familiar.dragon_black": "🐉 Black Dragon",
+  "familiar.dragon_green": "🐉 Green Dragon",
+  "familiar.dragon_blue": "🐉 Blue Dragon",
+  "familiar.dragon_red": "🐉 Red Dragon",
+  "familiar.dragon_silver": "🐉 Silver Dragon",
+  "familiar.dragon_bronze": "🐉 Bronze Dragon",
 
   "scoreboard.quests": "Quests Solved",
   "scoreboard.stage": "Stage",

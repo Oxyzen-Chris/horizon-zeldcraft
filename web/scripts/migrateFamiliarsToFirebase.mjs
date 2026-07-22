@@ -1,19 +1,24 @@
 /**
- * Pousse en base (Firebase RTDB, `catalog/familiars/{id}`) le premier Familier du jeu : un Dragon
- * d'Or, rencontré sous forme de quête à accomplir dès 5000 XP cumulés, à condition de posséder
- * dans sa besace l'objet rare "Écaille de Sémaphore Écarlate" (en vente dans la boutique).
+ * Pousse en base (Firebase RTDB, `catalog/familiars/{id}`) les Familiers Dragon du jeu, rencontrés
+ * sous forme de quête à accomplir à mesure que Synk cumule de l'XP (jusqu'à 100 000 XP).
  *
- * Lore (inspiré de la mythologie draconique classique façon D&D) : les dragons chromatiques
- * (Rouge = feu, Noir = acide/marais, Vert = gaz toxique/ruse, Bleu = foudre/désert) sont malfaisants,
- * tandis que les dragons métalliques (Or = feu/noble/métamorphe, Argent = froid/sage, Bronze = foudre/
- * côtier, Cuivre = acide, Airain = feu/désert) sont bienveillants. Le Dragon d'Or, le plus noble et
- * protecteur des dragons métalliques, est choisi comme premier familier par défaut de Synk.
+ * Lore (inspiré de la mythologie draconique classique façon D&D, recherché pour être crédible) :
+ * les dragons chromatiques (Blanc = froid/arctique, le moins rusé mais redoutable au corps à corps ;
+ * Noir = acide/marais, sournois et corrosif ; Vert = gaz toxique, manipulateur et rusé ;
+ * Bleu = foudre/désert, fier et très territorial ; Rouge = feu/volcan, le plus puissant et le plus
+ * arrogant/avide de tous) sont malfaisants, tandis que les dragons métalliques (Or = feu/noble/
+ * métamorphe, le plus protecteur ; Argent = froid/sage, ami des humains, prend forme humaine ;
+ * Bronze = foudre/côtier, curieux et joueur) sont bienveillants. Le Dragon d'Or, le plus noble,
+ * reste le premier familier par défaut de Synk (5000 XP). Les autres apparaissent progressivement,
+ * du plus commun (Blanc, 8000 XP) au plus rare et puissant (Bronze, 90000 XP), pour garder le jeu
+ * jouable et évolutif sur le long terme.
  *
  * Usage (one-shot, depuis web/) :
  *   node scripts/migrateFamiliarsToFirebase.mjs
  *
  * Lit la config Firebase publique depuis web/.env.local (mêmes variables NEXT_PUBLIC_FIREBASE_*
  * que l'app). Écriture autorisée par la règle `catalog.write: auth != null` (auth anonyme).
+ * Idempotent : ré-exécuter ce script écrase simplement les mêmes clés avec les mêmes valeurs.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -32,9 +37,16 @@ for (const line of readFileSync(envPath, 'utf8').split('\n')) {
   if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 
-//   [id,            label,                     xpRequired, requiredItemId, i18nKey]
+//   [id,              label,                       xpRequired, requiredItemId,        i18nKey]
 const FAMILIARS = [
-  ['dragon.gold', '🐲 Dragon d\'Or', 5000, 'ecaille_semaphore', 'familiar.dragon_gold'],
+  ['dragon.gold',   '🐲 Dragon d\'Or',      5000,  'ecaille_semaphore', 'familiar.dragon_gold'],
+  ['dragon.white',  '🐉 Dragon Blanc',      8000,  undefined,           'familiar.dragon_white'],
+  ['dragon.black',  '🐉 Dragon Noir',       15000, undefined,           'familiar.dragon_black'],
+  ['dragon.green',  '🐉 Dragon Vert',       22000, undefined,           'familiar.dragon_green'],
+  ['dragon.blue',   '🐉 Dragon Bleu',       32000, undefined,           'familiar.dragon_blue'],
+  ['dragon.red',    '🐉 Dragon Rouge',      45000, undefined,           'familiar.dragon_red'],
+  ['dragon.silver', '🐉 Dragon d\'Argent',  65000, undefined,           'familiar.dragon_silver'],
+  ['dragon.bronze', '🐉 Dragon de Bronze',  90000, undefined,           'familiar.dragon_bronze'],
 ];
 
 async function main() {
@@ -52,9 +64,12 @@ async function main() {
   for (const [id, label, xpRequired, requiredItemId, i18nKey] of FAMILIARS) {
     const order = FAMILIARS.findIndex((f) => f[0] === id); // 0..n, ordre d'affichage explicite
     const key = id.toLowerCase().replace(/[.#$[\]]/g, '_'); // clé RTDB valide (Firebase interdit ".#$[]")
-    const def = { id, label, xpRequired, requiredItemId, active: true, createdAt: now, order, i18nKey };
+    // RTDB refuse toute valeur `undefined` explicite (déjà rencontré comme bug de push) : on omet
+    // la clé requiredItemId plutôt que de la laisser à `undefined` quand le dragon n'a pas d'objet requis.
+    const def = { id, label, xpRequired, active: true, createdAt: now, order, i18nKey };
+    if (requiredItemId) def.requiredItemId = requiredItemId;
     await set(ref(db, `catalog/familiars/${key}`), def);
-    console.log(`✅ ${id} → ${key} (order ${order}) — ${label} · ${xpRequired} XP + objet "${requiredItemId}"`);
+    console.log(`✅ ${id} → ${key} (order ${order}) — ${label} · ${xpRequired} XP${requiredItemId ? ` + objet "${requiredItemId}"` : ''}`);
   }
   console.log('\nTerminé — catalogue de familiers 100% hors-chaîne opérationnel.');
   process.exit(0);

@@ -383,6 +383,7 @@
   "admin.familiars.label": "Nom du familier",
   "admin.familiars.xpRequired": "XP requis",
   "admin.familiars.itemId": "ID de l'objet rare requis (optionnel)",
+  "admin.familiars.pixelPreview": "Aperçu Pixel Art détecté (id \"dragon.<type>\")",
   "admin.familiars.submit": "Ajouter le familier",
   "admin.familiars.saved": "Familier enregistré en base de données (aucun gas requis).",
   "admin.familiars.hint": "💡 Le familier est stocké exclusivement en base de données. Le XP requis et l'objet rare optionnel (à posséder dans la besace) conditionnent son apprivoisement.",
@@ -514,6 +515,13 @@
   "dice.hint": "💡 Widget de dés persistant — déplace-le où tu veux. Base du futur système d'événements aléatoires.",
 
   "familiar.dragon_gold": "🐲 Dragon d'Or",
+  "familiar.dragon_white": "🐉 Dragon Blanc",
+  "familiar.dragon_black": "🐉 Dragon Noir",
+  "familiar.dragon_green": "🐉 Dragon Vert",
+  "familiar.dragon_blue": "🐉 Dragon Bleu",
+  "familiar.dragon_red": "🐉 Dragon Rouge",
+  "familiar.dragon_silver": "🐉 Dragon d'Argent",
+  "familiar.dragon_bronze": "🐉 Dragon de Bronze",
 
   "scoreboard.quests": "Quêtes résolues",
   "scoreboard.stage": "Stade",

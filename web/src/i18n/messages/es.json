@@ -383,6 +383,7 @@
   "admin.familiars.label": "Nombre del familiar",
   "admin.familiars.xpRequired": "XP requerida",
   "admin.familiars.itemId": "ID del objeto raro requerido (opcional)",
+  "admin.familiars.pixelPreview": "Vista previa Pixel Art detectada (id \"dragon.<tipo>\")",
   "admin.familiars.submit": "Añadir familiar",
   "admin.familiars.saved": "Familiar guardado en base de datos (sin gas requerido).",
   "admin.familiars.hint": "💡 El familiar se almacena exclusivamente en base de datos. La XP requerida y un objeto raro opcional (a poseer en la bolsa) condicionan su domesticación.",
@@ -514,6 +515,13 @@
   "dice.hint": "💡 Widget de dados persistente — muévelo donde quieras. Base de un futuro sistema de eventos aleatorios.",
 
   "familiar.dragon_gold": "🐲 Dragón Dorado",
+  "familiar.dragon_white": "🐉 Dragón Blanco",
+  "familiar.dragon_black": "🐉 Dragón Negro",
+  "familiar.dragon_green": "🐉 Dragón Verde",
+  "familiar.dragon_blue": "🐉 Dragón Azul",
+  "familiar.dragon_red": "🐉 Dragón Rojo",
+  "familiar.dragon_silver": "🐉 Dragón de Plata",
+  "familiar.dragon_bronze": "🐉 Dragón de Bronce",
 
   "scoreboard.quests": "Misiones resueltas",
   "scoreboard.stage": "Etapa",

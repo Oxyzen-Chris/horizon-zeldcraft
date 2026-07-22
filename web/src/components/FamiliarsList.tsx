@@ -8,6 +8,7 @@ import {
 } from '@/lib/gameState';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
+import { DragonSkin, dragonKindFromId } from './DragonSkin';
 
 /**
  * Familiers — compagnons chimériques (dragons, elfes, etc.) rencontrés au fil de la progression
@@ -82,6 +83,7 @@ function FamiliarCard({
   const itemLocked = !!familiar.requiredItemId && !hasItem;
   const locked = xpLocked || itemLocked;
   const label = localizeName(t, familiar.i18nKey, familiar.label);
+  const dragonKind = dragonKindFromId(familiar.id);
 
   const runTame = async () => {
     if (!address) return;
@@ -109,7 +111,14 @@ function FamiliarCard({
   return (
     <div className={`bg-slate-800/60 rounded-lg p-4 border ${isOwned ? 'border-emerald-600' : locked ? 'border-slate-700 opacity-60' : 'border-slate-600'}`}>
       <div className="flex justify-between items-start mb-2">
-        <p className="font-semibold flex-1">{label}</p>
+        <div className="flex items-center gap-3 flex-1">
+          {dragonKind && (
+            <div className={locked ? 'opacity-40 grayscale' : ''}>
+              <DragonSkin kind={dragonKind} size={48} />
+            </div>
+          )}
+          <p className="font-semibold">{label}</p>
+        </div>
         {isOwned && <span className="text-emerald-400 text-sm ml-2">{t('game.familiars.owned')}</span>}
       </div>
       <p className="text-xs text-slate-400 mb-3">
