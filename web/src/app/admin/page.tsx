@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, FEED_TYPES, WEATHER, WEATHER_KEYS, normalizeAnswer } from '@/lib/contract';
-import { addQuestDef, getQuestDefs, questIdOf, seedQuestAnswer, getAllQuestAnswers, type QuestDef } from '@/lib/gameState';
+import { addQuestDef, getQuestDefs, questIdOf, seedQuestAnswer, getAllQuestAnswers, hashAnswer, type QuestDef } from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { PlayerStats } from '@/components/PlayerStats';
@@ -245,27 +245,12 @@ export default function AdminPage() {
                   </p>
                   <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
                     {sorted.map((q) => (
-                      <div key={q.id} className="bg-slate-900/60 rounded px-2 py-1.5 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className={`shrink-0 font-bold uppercase tracking-wide rounded px-1.5 py-0.5 ${
-                            q.npcGiver
-                              ? 'bg-fuchsia-900/50 text-fuchsia-300 border border-fuchsia-700'
-                              : 'bg-sky-900/50 text-sky-300 border border-sky-700'
-                          }`}
-                          >
-                            {q.npcGiver ? t('admin.quest.list.npcBadge') : t('admin.quest.list.classicBadge')}
-                          </span>
-                          <span className="flex-1 truncate">{localizeName(t, q.i18nKey, q.label)}</span>
-                          <span className="shrink-0 text-slate-500">
-                            {t('admin.quest.xpRequired')} {q.xpRequired} · +{q.xpReward} XP
-                          </span>
-                          {!q.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
-                        </div>
-                        {/* Réponse en clair — réservée à l'Administration, jamais affichée aux joueurs. */}
-                        <p className="mt-1 text-emerald-400">
-                          🔑 {t('admin.quest.list.answer')} : <b>{questAnswers[q.id.toLowerCase()] ?? '—'}</b>
-                        </p>
-                      </div>
+                      <QuestRow
+                        key={q.id}
+                        quest={q}
+                        answer={questAnswers[q.id.toLowerCase()] ?? ''}
+                        onSaved={refreshQuests}
+                      />
                     ))}
                   </div>
                 </div>
@@ -427,5 +412,113 @@ export default function AdminPage() {
         .input { background: #1e293b; border: 1px solid #475569; border-radius: 0.375rem; padding: 0.5rem 0.75rem; color: #e2e8f0; }
       `}</style>
     </main>
+  );
+}
+
+/**
+ * Ligne éditable de la liste "Quêtes existantes" (Administration) : type (classique/PNJ), nom de
+ * l'énigme, réponse, XP requis/gagné et indice. La sauvegarde ré-écrit intégralement la quête
+ * (`addQuestDef` → `set()` Firebase) SANS reporter `i18nKey`/`hintKey` : les libellés/indices
+ * édités ici font désormais foi dans toutes les langues (voir `localizeName()`, qui retombe sur
+ * `label`/`hint` dès que la clé i18n est absente). La réponse en clair (`answer`) n'est jamais
+ * envoyée aux composants de jeu — uniquement lue/écrite ici et dans `getAllQuestAnswers()`.
+ */
+function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string; onSaved: () => void }) {
+  const { t } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [npcGiver, setNpcGiver] = useState(!!quest.npcGiver);
+  const [label, setLabel] = useState(quest.label);
+  const [ans, setAns] = useState(answer);
+  const [xpReq, setXpReq] = useState(String(quest.xpRequired));
+  const [xpRew, setXpRew] = useState(String(quest.xpReward));
+  const [hint, setHint] = useState(quest.hint ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setNpcGiver(!!quest.npcGiver);
+    setLabel(quest.label);
+    setAns(answer);
+    setXpReq(String(quest.xpRequired));
+    setXpRew(String(quest.xpReward));
+    setHint(quest.hint ?? '');
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!label.trim() || !ans.trim() || saving) return;
+    setSaving(true);
+    try {
+      await addQuestDef({
+        id: quest.id,
+        label: label.trim(),
+        xpRequired: Number(xpReq) || 0,
+        xpReward: Number(xpRew) || 0,
+        scoreReward: quest.scoreReward,
+        answerHash: hashAnswer(ans),
+        active: quest.active,
+        createdAt: quest.createdAt,
+        order: quest.order,
+        ...(hint.trim() ? { hint: hint.trim() } : {}),
+        ...(npcGiver ? { npcGiver: true } : {}),
+      });
+      await seedQuestAnswer(quest.id, normalizeAnswer(ans));
+      setEditing(false);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="bg-slate-900/80 rounded px-2 py-2 text-xs border border-emerald-700 space-y-2">
+        <label className="flex items-center gap-2 text-slate-300">
+          <input type="checkbox" checked={npcGiver} onChange={e => setNpcGiver(e.target.checked)} />
+          {t('admin.quest.npcGiver')}
+        </label>
+        <input className="input w-full" placeholder={t('admin.quest.label')} value={label} onChange={e => setLabel(e.target.value)} />
+        <input className="input w-full" placeholder={t('admin.quest.answer')} value={ans} onChange={e => setAns(e.target.value)} />
+        <div className="grid grid-cols-2 gap-2">
+          <input className="input" placeholder={t('admin.quest.xpRequired')} value={xpReq} onChange={e => setXpReq(e.target.value)} />
+          <input className="input" placeholder={t('admin.quest.xpReward')} value={xpRew} onChange={e => setXpRew(e.target.value)} />
+        </div>
+        <input className="input w-full" placeholder={t('admin.quest.hintField')} value={hint} onChange={e => setHint(e.target.value)} />
+        <div className="flex gap-2">
+          <button className="btn-primary text-xs px-3 py-1" disabled={saving || !label.trim() || !ans.trim()} onClick={save}>
+            {saving ? '⏳' : t('admin.quest.list.save')}
+          </button>
+          <button className="btn-secondary text-xs px-3 py-1" disabled={saving} onClick={() => setEditing(false)}>
+            {t('admin.quest.list.cancel')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-900/60 rounded px-2 py-1.5 text-xs">
+      <div className="flex items-center gap-2">
+        <span className={`shrink-0 font-bold uppercase tracking-wide rounded px-1.5 py-0.5 ${
+          quest.npcGiver
+            ? 'bg-fuchsia-900/50 text-fuchsia-300 border border-fuchsia-700'
+            : 'bg-sky-900/50 text-sky-300 border border-sky-700'
+        }`}
+        >
+          {quest.npcGiver ? t('admin.quest.list.npcBadge') : t('admin.quest.list.classicBadge')}
+        </span>
+        <span className="flex-1 truncate">{localizeName(t, quest.i18nKey, quest.label)}</span>
+        <span className="shrink-0 text-slate-500">
+          {t('admin.quest.xpRequired')} {quest.xpRequired} · +{quest.xpReward} XP
+        </span>
+        {!quest.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
+        <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>
+          {t('admin.quest.list.edit')}
+        </button>
+      </div>
+      {/* Réponse en clair — réservée à l'Administration, jamais affichée aux joueurs. */}
+      <p className="mt-1 text-emerald-400">
+        🔑 {t('admin.quest.list.answer')} : <b>{answer || '—'}</b>
+      </p>
+    </div>
   );
 }
