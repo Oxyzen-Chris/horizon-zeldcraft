@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, FEED_TYPES, WEATHER, WEATHER_KEYS, normalizeAnswer } from '@/lib/contract';
-import { addQuestDef, getQuestDefs, questIdOf, type QuestDef } from '@/lib/gameState';
+import { addQuestDef, getQuestDefs, questIdOf, seedQuestAnswer, getAllQuestAnswers, type QuestDef } from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { PlayerStats } from '@/components/PlayerStats';
@@ -60,7 +60,11 @@ export default function AdminPage() {
   const [questSaving, setQuestSaving] = useState(false);
   const [questSaved, setQuestSaved] = useState(false);
   const [allQuests, setAllQuests] = useState<QuestDef[] | null>(null);
-  const refreshQuests = () => getQuestDefs().then(setAllQuests).catch(() => setAllQuests([]));
+  const [questAnswers, setQuestAnswers] = useState<Record<string, string>>({});
+  const refreshQuests = () => {
+    getQuestDefs().then(setAllQuests).catch(() => setAllQuests([]));
+    getAllQuestAnswers().then(setQuestAnswers).catch(() => setQuestAnswers({}));
+  };
   useEffect(() => { refreshQuests(); }, []);
 
   const [npcKey, setNpcKey] = useState('');
@@ -196,8 +200,9 @@ export default function AdminPage() {
                   // plusieurs quêtes partagent le même horodatage — voir getQuestDefs()).
                   const existing = await getQuestDefs();
                   const nextOrder = existing.reduce((max, q) => Math.max(max, q.order ?? -1), -1) + 1;
+                  const newQuestId = questIdOf(questKey);
                   await addQuestDef({
-                    id: questIdOf(questKey),
+                    id: newQuestId,
                     label: questLabel,
                     xpRequired: Number(questReq),
                     xpReward: Number(questRew),
@@ -211,6 +216,9 @@ export default function AdminPage() {
                     ...(questHint.trim() ? { hint: questHint.trim() } : {}),
                     ...(questNpcGiver ? { npcGiver: true } : {}),
                   });
+                  // Réponse en clair réservée à l'affichage Administration (jamais exposée aux
+                  // joueurs — voir getAllQuestAnswers()/QuestList.tsx).
+                  await seedQuestAnswer(newQuestId, normalizeAnswer(questAnswer));
                   setQuestKey(''); setQuestLabel(''); setQuestAnswer(''); setQuestHint(''); setQuestNpcGiver(false);
                   setQuestSaved(true);
                   setTimeout(() => setQuestSaved(false), 3000);
@@ -237,20 +245,26 @@ export default function AdminPage() {
                   </p>
                   <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
                     {sorted.map((q) => (
-                      <div key={q.id} className="flex items-center gap-2 text-xs bg-slate-900/60 rounded px-2 py-1.5">
-                        <span className={`shrink-0 font-bold uppercase tracking-wide rounded px-1.5 py-0.5 ${
-                          q.npcGiver
-                            ? 'bg-fuchsia-900/50 text-fuchsia-300 border border-fuchsia-700'
-                            : 'bg-sky-900/50 text-sky-300 border border-sky-700'
-                        }`}
-                        >
-                          {q.npcGiver ? t('admin.quest.list.npcBadge') : t('admin.quest.list.classicBadge')}
-                        </span>
-                        <span className="flex-1 truncate">{localizeName(t, q.i18nKey, q.label)}</span>
-                        <span className="shrink-0 text-slate-500">
-                          {t('admin.quest.xpRequired')} {q.xpRequired} · +{q.xpReward} XP
-                        </span>
-                        {!q.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
+                      <div key={q.id} className="bg-slate-900/60 rounded px-2 py-1.5 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className={`shrink-0 font-bold uppercase tracking-wide rounded px-1.5 py-0.5 ${
+                            q.npcGiver
+                              ? 'bg-fuchsia-900/50 text-fuchsia-300 border border-fuchsia-700'
+                              : 'bg-sky-900/50 text-sky-300 border border-sky-700'
+                          }`}
+                          >
+                            {q.npcGiver ? t('admin.quest.list.npcBadge') : t('admin.quest.list.classicBadge')}
+                          </span>
+                          <span className="flex-1 truncate">{localizeName(t, q.i18nKey, q.label)}</span>
+                          <span className="shrink-0 text-slate-500">
+                            {t('admin.quest.xpRequired')} {q.xpRequired} · +{q.xpReward} XP
+                          </span>
+                          {!q.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
+                        </div>
+                        {/* Réponse en clair — réservée à l'Administration, jamais affichée aux joueurs. */}
+                        <p className="mt-1 text-emerald-400">
+                          🔑 {t('admin.quest.list.answer')} : <b>{questAnswers[q.id.toLowerCase()] ?? '—'}</b>
+                        </p>
                       </div>
                     ))}
                   </div>

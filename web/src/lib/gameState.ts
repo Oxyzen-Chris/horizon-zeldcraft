@@ -644,6 +644,20 @@ export async function seedQuestAnswer(questId: string, answer: string): Promise<
   await set(ref(db, `catalog/riddleAnswers/${questId.toLowerCase()}`), answer);
 }
 
+/**
+ * Récupère en un seul accès Firebase l'ensemble des réponses officielles (clé = questId, valeur =
+ * réponse en clair) — réservé à l'affichage dans le menu Administration (page `/admin`, protégée
+ * par `isOwner`). Ces réponses ne sont JAMAIS exposées dans les composants de jeu accessibles à
+ * tous les joueurs (voir `QuestList.tsx`, qui ne révèle une réponse qu'après que LE JOUEUR
+ * lui-même l'a soumise et validée).
+ */
+export async function getAllQuestAnswers(): Promise<Record<string, string>> {
+  const db = getFirebaseDb();
+  if (!db) return {};
+  const snap = await get(ref(db, 'catalog/riddleAnswers'));
+  return (snap.val() as Record<string, string> | null) ?? {};
+}
+
 // ────────────────────────────── Quêtes à énigmes proposées par un PNJ ──────────────────────────────
 // Certaines quêtes du catalogue (`QuestDef.npcGiver === true`) restent masquées de la rubrique
 // "Quêtes à énigmes" tant qu'aucun PNJ (offer 'quest') ne les a proposées ET que le joueur ne les a
