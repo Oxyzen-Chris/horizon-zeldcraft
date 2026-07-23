@@ -13,9 +13,11 @@ import { useI18n, localizeName } from '@/lib/i18n';
  * ne transitent plus jamais par la blockchain. Zéro gas pour créer une quête (admin) ou la
  * résoudre (joueur). Voir `gameState.ts` (`QuestDef`, `submitQuestAnswerOffchain`).
  *
- * Les quêtes `npcGiver: true` restent masquées tant qu'un PNJ ne les a pas proposées et que le
- * joueur ne les a pas acceptées (voir `NpcEncounterPopup` → `pickNpcQuestForPlayer`/
- * `unlockQuestForPlayer`) — le catalogue seul ne suffit pas à les rendre visibles.
+ * Les 20 quêtes `npcGiver: true` sont affichées ici au même titre que les 5 quêtes classiques
+ * (badge "🗣️ Quête PNJ" pour les distinguer), mais restent verrouillées (impossible d'y
+ * répondre) tant qu'un PNJ ne les a pas proposées et que le joueur ne les a pas acceptées
+ * (voir `NpcEncounterPopup` → `pickNpcQuestForPlayer`/`unlockQuestForPlayer`). Une fois
+ * résolues, leur réponse s'affiche en clair exactement comme pour les énigmes classiques.
  */
 export function QuestList({ playerXp }: { playerXp: number }) {
   const { t } = useI18n();
@@ -29,22 +31,36 @@ export function QuestList({ playerXp }: { playerXp: number }) {
     getUnlockedQuestIds(address).then(setUnlocked).catch(() => setUnlocked(new Set()));
   }, [address]);
 
-  const visible = (quests ?? []).filter(q => q.active && (!q.npcGiver || unlocked?.has(q.id.toLowerCase())));
+  const visible = (quests ?? []).filter(q => q.active);
+  const npcCount = visible.filter(q => q.npcGiver).length;
+  const classicCount = visible.length - npcCount;
 
   return (
     <div className="card">
-      <h3 className="text-lg font-semibold mb-3">{t('game.quests.section')}</h3>
+      <h3 className="text-lg font-semibold mb-1">{t('game.quests.section')}</h3>
+      {visible.length > 0 && (
+        <p className="text-xs text-slate-500 mb-3">
+          {t('game.quests.total', { total: visible.length, classic: classicCount, npc: npcCount })}
+        </p>
+      )}
       {quests !== null && unlocked !== null && visible.length === 0 && (
         <p className="text-sm text-slate-400">{t('game.quests.empty')}</p>
       )}
       <div className="space-y-3">
-        {visible.map((q) => <QuestCard key={q.id} quest={q} playerXp={playerXp} />)}
+        {visible.map((q) => (
+          <QuestCard
+            key={q.id}
+            quest={q}
+            playerXp={playerXp}
+            npcUnlocked={!q.npcGiver || (unlocked?.has(q.id.toLowerCase()) ?? false)}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function QuestCard({ quest, playerXp }: { quest: QuestDef; playerXp: number }) {
+function QuestCard({ quest, playerXp, npcUnlocked }: { quest: QuestDef; playerXp: number; npcUnlocked: boolean }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const [answer, setAnswer] = useState('');
@@ -66,7 +82,10 @@ function QuestCard({ quest, playerXp }: { quest: QuestDef; playerXp: number }) {
     });
   }, [address, quest.id]);
 
-  const locked = playerXp < quest.xpRequired;
+  // Une quête PNJ non encore débloquée par une rencontre reste verrouillée même si le joueur
+  // a assez d'XP (xpRequired vaut 0 pour ces quêtes, le verrou vient uniquement de npcUnlocked).
+  const npcLocked = !!quest.npcGiver && !npcUnlocked;
+  const locked = npcLocked || playerXp < quest.xpRequired;
 
   const submit = async () => {
     if (!answer || !address || checking) return;
@@ -96,7 +115,14 @@ function QuestCard({ quest, playerXp }: { quest: QuestDef; playerXp: number }) {
   return (
     <div className={`bg-slate-800/60 rounded-lg p-4 border ${completed ? 'border-emerald-600' : locked ? 'border-slate-700 opacity-60' : 'border-slate-600'}`}>
       <div className="flex justify-between items-start mb-2">
-        <p className="font-semibold flex-1">{localizeName(t, quest.i18nKey, quest.label)}</p>
+        <p className="font-semibold flex-1">
+          {quest.npcGiver && (
+            <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-fuchsia-900/50 text-fuchsia-300 border border-fuchsia-700 rounded px-1.5 py-0.5 mr-2 align-middle">
+              {t('game.quests.npcBadge')}
+            </span>
+          )}
+          {localizeName(t, quest.i18nKey, quest.label)}
+        </p>
         {completed && <span className="text-emerald-400 text-sm ml-2">✅</span>}
       </div>
       {completed && solvedAnswer && (
@@ -126,7 +152,11 @@ function QuestCard({ quest, playerXp }: { quest: QuestDef; playerXp: number }) {
           </button>
         </div>
       )}
-      {locked && <p className="text-xs text-amber-400">{t('game.quests.locked', { v: quest.xpRequired })}</p>}
+      {locked && (
+        <p className="text-xs text-amber-400">
+          {npcLocked ? t('game.quests.lockedNpc') : t('game.quests.locked', { v: quest.xpRequired })}
+        </p>
+      )}
       {checking && <p className="text-xs text-slate-400 mt-2">{t('game.quests.checking')}</p>}
       {feedback && <p className="text-sm mt-2">{feedback}</p>}
     </div>
