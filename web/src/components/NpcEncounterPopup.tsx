@@ -7,7 +7,8 @@ import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES, NPC_SUFFIX_KEYS } from '@/li
 import {
   applyEffect, logEncounter, addToInventory, removeFromInventory, getRepRules, getOrCreatePlayer,
   computePlayerDiceBonus, rollD20, getChatScripts, getNextQuestHint, DEFAULT_CHAT_SCRIPTS, CHAT_RESPONSE_IDS,
-  type EncounterRecord, type RepRules, type ChatScript, type ChatResponseId, type ChatReaction,
+  pickNpcQuestForPlayer, unlockQuestForPlayer,
+  type EncounterRecord, type RepRules, type ChatScript, type ChatResponseId, type ChatReaction, type QuestDef,
 } from '@/lib/gameState';
 import { getFirebaseDb } from '@/lib/firebase';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
@@ -46,6 +47,9 @@ const ARCHETYPES = [
   { key: 'voleur',     base: 'Voleur',     align: 'hostile',  offer: 'fight' },
   { key: 'templier',   base: 'Templier',   align: 'neutral',  offer: 'quest' },
   { key: 'hobbit',     base: 'Hobbit',     align: 'friendly', offer: 'chat' },
+  { key: 'princesse',        base: 'Princesse Zelda',    align: 'friendly', offer: 'quest' },
+  { key: 'marchand_ambulant',base: 'Marchand ambulant',  align: 'neutral',  offer: 'quest' },
+  { key: 'dragon_ancestral', base: 'Dragon Ancestral',   align: 'unknown',  offer: 'quest' },
 ] as const;
 
 function pick<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -188,7 +192,8 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const [fightResult, setFightResult] = useState<FightResultData | null>(null);
   const [chatFlow, setChatFlow] = useState<ChatFlowState | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
-  const close = () => { setCurrent(null); setErrorMsg(null); setChatFlow(null); };
+  const [questGranted, setQuestGranted] = useState<{ quest: QuestDef | null; npcDisplayName: string } | null>(null);
+  const close = () => { setCurrent(null); setErrorMsg(null); setChatFlow(null); setQuestGranted(null); };
 
   /** Démarre la conversation : tire un script aléatoire du catalogue et affiche sa réplique d'ouverture. */
   const startChat = (npc: PopupNpc) => {
@@ -398,10 +403,17 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           walletDelta = 5;
           repDelta = npc.alignment === 'friendly' ? r.tradeFriendly : r.tradeNeutral;
         }
-      } else if (npc.offer === 'quest') {
+      }
+
+      let grantedQuest: QuestDef | null = null;
+      if (npc.offer === 'quest') {
         spellsDelta = 3;
         xpBonusDelta = xpDelta;
         repDelta = r.questAccepted;
+        grantedQuest = await pickNpcQuestForPlayer(address);
+        if (grantedQuest) {
+          await unlockQuestForPlayer(address, grantedQuest.id, npc.baseKey);
+        }
       }
 
       await applyEffect(address, {
@@ -415,8 +427,15 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         alignment: npc.alignment, offer: npc.offer,
         timestamp: Date.now(), outcome, xpGained: xpDelta,
         itemName, itemId, itemQty, itemDirection, walletDelta, hpDelta, repDelta,
+        questId: grantedQuest?.id, questLabel: grantedQuest?.label, questI18nKey: grantedQuest?.i18nKey,
       });
-      close();
+      if (npc.offer === 'quest') {
+        // Affiche un résultat dédié (quête ajoutée à "Quêtes à énigmes", ou repli si le pool
+        // des 20 énigmes PNJ est déjà épuisé pour ce joueur) au lieu de fermer immédiatement.
+        setQuestGranted({ quest: grantedQuest, npcDisplayName });
+      } else {
+        close();
+      }
     } catch (e: any) {
       console.error('[NpcEncounter] accept failed:', e);
       setErrorMsg('❌ ' + (e?.message?.slice(0, 120) ?? 'Erreur inconnue'));
@@ -466,7 +485,28 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
                 <span>✨ {current.xp} XP</span>
               </div>
             </div>
-            {chatFlow ? (
+            {questGranted ? (
+              <>
+                {questGranted.quest ? (
+                  <>
+                    <p className="text-sm text-slate-300 mt-4 text-center">
+                      {t('npc.quest.granted.intro', { name: questGranted.npcDisplayName })}
+                    </p>
+                    <p className="text-sm font-semibold text-amber-300 mt-3 text-center bg-amber-900/20 rounded p-2">
+                      🧩 {localizeName(t, questGranted.quest.i18nKey, questGranted.quest.label)}
+                    </p>
+                    <p className="text-xs text-emerald-400 mt-2 text-center">{t('npc.quest.granted.hint')}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-300 mt-4 text-center">
+                    {t('npc.quest.granted.none', { name: questGranted.npcDisplayName })}
+                  </p>
+                )}
+                <div className="mt-5">
+                  <button className="btn-primary w-full" onClick={close}>{t('npc.chat.close')}</button>
+                </div>
+              </>
+            ) : chatFlow ? (
               <>
                 <p className="text-sm text-slate-300 mt-4 text-center italic">💬 {chatFlow.displayLine}</p>
                 {chatFlow.hintText && (

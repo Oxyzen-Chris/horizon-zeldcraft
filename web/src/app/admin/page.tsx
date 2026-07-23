@@ -55,6 +55,7 @@ export default function AdminPage() {
   const [questScore, setQuestScore] = useState('50');
   const [questAnswer, setQuestAnswer] = useState('');
   const [questHint, setQuestHint] = useState('');
+  const [questNpcGiver, setQuestNpcGiver] = useState(false);
   const [questSaving, setQuestSaving] = useState(false);
   const [questSaved, setQuestSaved] = useState(false);
 
@@ -176,6 +177,10 @@ export default function AdminPage() {
               <input className="input" placeholder={t('admin.quest.scoreReward')}   value={questScore}    onChange={e => setQuestScore(e.target.value)} />
               <input className="input md:col-span-2" placeholder={t('admin.quest.hintField')} value={questHint} onChange={e => setQuestHint(e.target.value)} />
             </div>
+            <label className="flex items-center gap-2 text-sm text-slate-300 mb-3">
+              <input type="checkbox" checked={questNpcGiver} onChange={e => setQuestNpcGiver(e.target.checked)} />
+              {t('admin.quest.npcGiver')}
+            </label>
             <button className="btn-primary" disabled={questSaving || !questKey || !questLabel || !questAnswer}
               onClick={async () => {
                 setQuestSaving(true);
@@ -197,9 +202,12 @@ export default function AdminPage() {
                     active: true,
                     createdAt: Date.now(),
                     order: nextOrder,
-                    hint: questHint.trim() || undefined,
+                    // Firebase RTDB rejette toute écriture contenant `undefined` : champs optionnels
+                    // omis plutôt que mis à `undefined`.
+                    ...(questHint.trim() ? { hint: questHint.trim() } : {}),
+                    ...(questNpcGiver ? { npcGiver: true } : {}),
                   });
-                  setQuestKey(''); setQuestLabel(''); setQuestAnswer(''); setQuestHint('');
+                  setQuestKey(''); setQuestLabel(''); setQuestAnswer(''); setQuestHint(''); setQuestNpcGiver(false);
                   setQuestSaved(true);
                   setTimeout(() => setQuestSaved(false), 3000);
                 } finally {

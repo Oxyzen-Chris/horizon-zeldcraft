@@ -13,6 +13,7 @@
  *   players/{addr}/txs/{txHash}        → TxRecord (log de facturation)
  *   players/{addr}/encounters/{ts}     → EncounterRecord (rencontres popup)
  *   players/{addr}/quests/{questId}    → { answer, solvedAt } (réponse révélée)
+ *   players/{addr}/unlockedQuests/{questId} → { unlockedAt, npcKey? } (quête npcGiver débloquée)
  *   playerIndex/{addr}                 → true (pour lister tous les joueurs)
  *   catalog/shop/{itemId}              → ShopItem (paramétrable par admin)
  *   catalog/familiars/{id}             → FamiliarDef (paramétrable par admin — XP requis + objet rare optionnel)
@@ -86,6 +87,10 @@ export interface EncounterRecord {
   timestamp: number;
   outcome?: 'accepted' | 'refused' | 'won' | 'lost';
   xpGained?: number;
+  // Quête à énigmes débloquée par ce PNJ (offer 'quest') — voir pickNpcQuestForPlayer/unlockQuestForPlayer
+  questId?: string;
+  questLabel?: string;    // libellé brut FR de repli
+  questI18nKey?: string;  // clé i18n si disponible — voir localizeName()
   // Détails enrichis (affichés dans "Rencontres du jour")
   itemName?: string;      // objet donné/échangé lors d'un trade (texte final déjà formaté, ex. "-Pomme ×2")
   walletDelta?: number;   // pièces gagnées/perdues (négatif = vol)
@@ -521,6 +526,9 @@ export interface QuestDef {
   i18nKey?: string;      // clé i18n (ex. "quest.riddle_first") pour un libellé traduit — voir localizeName()
   hint?: string;         // indice en clair (repli, admin mono-langue) — révélé via le dialogue PNJ
   hintKey?: string;      // clé i18n (ex. "quest.riddle_first.hint") pour un indice traduit — voir localizeName()
+  npcGiver?: boolean;    // true = quête masquée de "Quêtes à énigmes" tant qu'un PNJ (offer 'quest')
+                         // ne l'a pas proposée et que le joueur ne l'a pas acceptée — voir
+                         // unlockQuestForPlayer()/getUnlockedQuestIds() et pickNpcQuestForPlayer()
 }
 
 /** Recalcule un id stable `bytes32`-like à partir d'un identifiant texte (ex. "riddle.ice"). */
@@ -634,6 +642,50 @@ export async function seedQuestAnswer(questId: string, answer: string): Promise<
   if (!db) return;
   await ensureAnonSignIn();
   await set(ref(db, `catalog/riddleAnswers/${questId.toLowerCase()}`), answer);
+}
+
+// ────────────────────────────── Quêtes à énigmes proposées par un PNJ ──────────────────────────────
+// Certaines quêtes du catalogue (`QuestDef.npcGiver === true`) restent masquées de la rubrique
+// "Quêtes à énigmes" tant qu'aucun PNJ (offer 'quest') ne les a proposées ET que le joueur ne les a
+// pas acceptées. Une fois acceptées, elles sont débloquées PAR JOUEUR (indépendamment de xpRequired,
+// généralement mis à 0 pour ces quêtes) via `players/{addr}/unlockedQuests/{questId}`.
+
+/** Débloque une quête pour un joueur (à l'acceptation d'une offre "quête" d'un PNJ). */
+export async function unlockQuestForPlayer(address: string, questId: string, npcKey?: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const clean: Record<string, unknown> = { unlockedAt: Date.now() };
+  if (npcKey) clean.npcKey = npcKey;
+  await set(ref(db, `players/${KEY(address)}/unlockedQuests/${questId.toLowerCase()}`), clean);
+}
+
+/** Liste les ids de quêtes `npcGiver` débloquées pour ce joueur (Set pour lookup O(1)). */
+export async function getUnlockedQuestIds(address: string): Promise<Set<string>> {
+  const db = getFirebaseDb();
+  if (!db) return new Set();
+  const snap = await get(ref(db, `players/${KEY(address)}/unlockedQuests`));
+  const v = snap.val() as Record<string, unknown> | null;
+  return new Set(v ? Object.keys(v) : []);
+}
+
+/**
+ * Choisit, parmi le catalogue des quêtes `npcGiver` actives, une énigme non encore débloquée ni
+ * résolue par ce joueur (tirage aléatoire) — appelée quand un PNJ "quête" est accepté dans
+ * `NpcEncounterPopup`. Renvoie `null` si le joueur a déjà débloqué/résolu les 20 énigmes du pool.
+ */
+export async function pickNpcQuestForPlayer(address: string): Promise<QuestDef | null> {
+  const [quests, unlocked] = await Promise.all([getQuestDefs(), getUnlockedQuestIds(address)]);
+  const pool = quests.filter(q => q.active && q.npcGiver && !unlocked.has(q.id.toLowerCase()));
+  if (pool.length === 0) return null;
+  // Filtre en plus les quêtes déjà résolues (filet de sécurité si `unlockedQuests` a été perdu).
+  const notSolved: QuestDef[] = [];
+  for (const q of pool) {
+    const solved = await getSolvedQuest(address, q.id);
+    if (!solved) notSolved.push(q);
+  }
+  const candidates = notSolved.length ? notSolved : pool;
+  return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
 // ─────────────────────────────────────── Player index ───────────────────────────────────────

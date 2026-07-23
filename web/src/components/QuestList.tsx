@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import {
-  getQuestDefs, getSolvedQuest, submitQuestAnswerOffchain,
+  getQuestDefs, getSolvedQuest, submitQuestAnswerOffchain, getUnlockedQuestIds,
   getRepRules, type QuestDef,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
@@ -12,21 +12,33 @@ import { useI18n, localizeName } from '@/lib/i18n';
  * Quêtes à énigmes — 100% hors-chaîne (Firebase) : catalogue, réponse (hash) et récompense
  * ne transitent plus jamais par la blockchain. Zéro gas pour créer une quête (admin) ou la
  * résoudre (joueur). Voir `gameState.ts` (`QuestDef`, `submitQuestAnswerOffchain`).
+ *
+ * Les quêtes `npcGiver: true` restent masquées tant qu'un PNJ ne les a pas proposées et que le
+ * joueur ne les a pas acceptées (voir `NpcEncounterPopup` → `pickNpcQuestForPlayer`/
+ * `unlockQuestForPlayer`) — le catalogue seul ne suffit pas à les rendre visibles.
  */
 export function QuestList({ playerXp }: { playerXp: number }) {
   const { t } = useI18n();
+  const { address } = useAccount();
   const [quests, setQuests] = useState<QuestDef[] | null>(null);
+  const [unlocked, setUnlocked] = useState<Set<string> | null>(null);
 
   useEffect(() => { getQuestDefs().then(setQuests).catch(() => setQuests([])); }, []);
+  useEffect(() => {
+    if (!address) { setUnlocked(new Set()); return; }
+    getUnlockedQuestIds(address).then(setUnlocked).catch(() => setUnlocked(new Set()));
+  }, [address]);
+
+  const visible = (quests ?? []).filter(q => q.active && (!q.npcGiver || unlocked?.has(q.id.toLowerCase())));
 
   return (
     <div className="card">
       <h3 className="text-lg font-semibold mb-3">{t('game.quests.section')}</h3>
-      {quests !== null && quests.filter(q => q.active).length === 0 && (
+      {quests !== null && unlocked !== null && visible.length === 0 && (
         <p className="text-sm text-slate-400">{t('game.quests.empty')}</p>
       )}
       <div className="space-y-3">
-        {(quests ?? []).filter(q => q.active).map((q) => <QuestCard key={q.id} quest={q} playerXp={playerXp} />)}
+        {visible.map((q) => <QuestCard key={q.id} quest={q} playerXp={playerXp} />)}
       </div>
     </div>
   );

@@ -71,6 +71,12 @@ export function EncountersLog() {
     return null;
   };
 
+  /** Libellé de la quête à énigmes débloquée par ce PNJ (offer 'quest'), localisé si possible. */
+  const questDisplay = (e: EncounterRecord): string | null => {
+    if (!e.questId) return null;
+    return localizeName(t, e.questI18nKey, e.questLabel ?? '');
+  };
+
   const describe = (e: EncounterRecord): string => {
     const outc = e.outcome ? t(`encounter.outcome.${e.outcome}`) : '';
     const parts: string[] = [outc];
@@ -126,6 +132,11 @@ export function EncountersLog() {
                         : `🎁 ${t('encounters.itemReceived')} : ${item.text}`}
                     </p>
                   )}
+                  {questDisplay(e) && (
+                    <p className="text-xs mt-1 font-semibold text-amber-300">
+                      🧩 {t('encounters.questGranted')} : {questDisplay(e)}
+                    </p>
+                  )}
                   <p className="text-slate-300 mt-0.5">{describe(e)}</p>
                   <p className="text-[10px] text-slate-500">
                     {new Date(e.timestamp).toLocaleString()}
@@ -171,6 +182,11 @@ export function EncountersLog() {
                     </p>
                   ) : null;
                 })()}
+                {questDisplay(selectedEntry) && (
+                  <p className="font-semibold mb-1 text-amber-300">
+                    🧩 {t('encounters.questGranted')} : {questDisplay(selectedEntry)}
+                  </p>
+                )}
                 <p className="text-slate-300">{describe(selectedEntry)}</p>
                 <p className="text-[10px] text-slate-500 mt-1">
                   {new Date(selectedEntry.timestamp).toLocaleString()}
