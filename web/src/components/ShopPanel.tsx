@@ -71,6 +71,7 @@ export function ShopPanel() {
         ...(item.defense ? { defense: item.defense } : {}),
         ...(item.durabilityMax ? { durabilityMax: item.durabilityMax } : {}),
         ...(item.requiresArrow ? { requiresArrow: true } : {}),
+        ...(item.requiresFamiliarId ? { requiresFamiliarId: item.requiresFamiliarId } : {}),
       });
       setFeedback(t('game.shop.bought', { name }));
     } catch (e: any) {

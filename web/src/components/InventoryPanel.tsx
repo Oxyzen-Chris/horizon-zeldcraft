@@ -16,6 +16,10 @@ import { DragonSkin, dragonKindFromId } from './DragonSkin';
  * protections/flèches restent volontairement drag-only (comportement historique), tandis
  * qu'engins et selles bénéficient des deux méthodes (voir demande utilisateur). */
 const EQUIP_BUTTON_CATEGORIES = new Set<InventoryItem['category']>(['vehicle', 'saddle']);
+/** Catégories consommables via la "bouche" de Synk (EquipmentWidget.tsx) — nourriture/potions/
+ * sortilèges n'ont pas de `slot` (non équipables) mais doivent tout de même être glissables pour
+ * le glisser-déposer vers la bouche, en plus du bouton "Utiliser" déjà présent ci-dessous. */
+const MOUTH_CATEGORIES = new Set<InventoryItem['category']>([...TAB_CATEGORIES.food, ...TAB_CATEGORIES.potion]);
 
 type ConfirmAction =
   | { kind: 'use'; item: InventoryItem }
@@ -157,13 +161,15 @@ export function InventoryPanel() {
         <p className="text-sm text-slate-400">{t('game.inventory.empty')}</p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {visibleItems.map((it) => (
+          {visibleItems.map((it) => {
+            const draggableItem = !!it.slot || it.category === 'arrow' || MOUTH_CATEGORIES.has(it.category);
+            return (
             <div
               key={it.itemId}
-              className={`bg-slate-800/60 rounded p-2 text-center ${it.slot || it.category === 'arrow' ? 'cursor-grab' : ''}`}
-              draggable={!!it.slot || it.category === 'arrow'}
+              className={`bg-slate-800/60 rounded p-2 text-center ${draggableItem ? 'cursor-grab' : ''}`}
+              draggable={draggableItem}
               onDragStart={(e) => e.dataTransfer.setData('text/plain', it.itemId)}
-              title={it.slot || it.category === 'arrow' ? t('game.inventory.dragHint') : undefined}
+              title={draggableItem ? t('game.inventory.dragHint') : undefined}
             >
               <p className="text-sm font-semibold truncate">{itemLabel(t, it.itemId, it.name)}</p>
               <p className="text-xs text-slate-400 mb-1">×{it.qty}</p>
@@ -179,11 +185,12 @@ export function InventoryPanel() {
                   🧝 {t('game.inventory.equip')}
                 </button>
               )}
-              {(it.slot || it.category === 'arrow') && (
+              {draggableItem && (
                 <p className="text-[9px] text-indigo-300 mt-1">🧝 {t('game.inventory.equipHint')}</p>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <p className="text-xs text-slate-500 mt-2">{t('game.inventory.hint')}</p>

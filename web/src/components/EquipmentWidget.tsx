@@ -115,54 +115,72 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
     e.preventDefault();
     setDragOverSlot(null);
     if (!address) return;
-    const raw = e.dataTransfer.getData('text/plain');
-    if (slot === 'familiar') {
-      if (!raw.startsWith(FAMILIAR_DRAG_PREFIX)) { flash('❌ ' + t('equip.wrongSlot')); return; }
-      const def = familiars.find((f) => f.id === raw.slice(FAMILIAR_DRAG_PREFIX.length));
-      if (!def) return;
-      setPending({ kind: 'equipFamiliar', def });
-      return;
+    try {
+      const raw = e.dataTransfer.getData('text/plain');
+      if (slot === 'familiar') {
+        if (!raw.startsWith(FAMILIAR_DRAG_PREFIX)) { flash('❌ ' + t('equip.wrongSlot')); return; }
+        const def = familiars.find((f) => f.id === raw.slice(FAMILIAR_DRAG_PREFIX.length));
+        if (!def) { flash('❌ ' + t('equip.itemNotFound')); return; }
+        setPending({ kind: 'equipFamiliar', def });
+        return;
+      }
+      const item = inventory.find((i) => i.itemId === raw);
+      if (!item) { flash('❌ ' + t('equip.itemNotFound')); return; }
+      if (!slotAcceptsItem(slot, item)) {
+        flash('❌ ' + t('equip.wrongSlot'));
+        return;
+      }
+      if (IMMEDIATE_SLOTS.has(slot)) {
+        const result = await equipItem(address, item, slot);
+        flash(result === 'ok' ? '✅ ' + t('equip.equipped', { name: itemLabel(t, item.itemId, item.name) })
+          : result === 'needFamiliar' ? '❌ ' + t('equip.needFamiliar') : '❌ ' + t('equip.failed'));
+        return;
+      }
+      setPending({ kind: 'equip', slot, item }); // vehicle / saddle → confirmation avant d'équiper
+    } catch (err) {
+      // Un glisser-déposer qui échoue silencieusement (promesse rejetée non affichée par le
+      // navigateur, l'événement natif `drop` n'attendant pas ce handler async) est indiscernable
+      // d'un simple "ça ne marche pas" pour le joueur — on affiche donc systématiquement l'erreur.
+      console.error('[equip] onDrop failed:', err);
+      flash('❌ ' + t('equip.failed'));
     }
-    const item = inventory.find((i) => i.itemId === raw);
-    if (!item) return;
-    if (!slotAcceptsItem(slot, item)) {
-      flash('❌ ' + t('equip.wrongSlot'));
-      return;
-    }
-    if (IMMEDIATE_SLOTS.has(slot)) {
-      const result = await equipItem(address, item, slot);
-      flash(result === 'ok' ? '✅ ' + t('equip.equipped', { name: itemLabel(t, item.itemId, item.name) })
-        : result === 'needFamiliar' ? '❌ ' + t('equip.needFamiliar') : '❌ ' + t('equip.failed'));
-      return;
-    }
-    setPending({ kind: 'equip', slot, item }); // vehicle / saddle → confirmation avant d'équiper
   };
 
   const onMouthDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setMouthOver(false);
-    const itemId = e.dataTransfer.getData('text/plain');
-    const item = inventory.find((i) => i.itemId === itemId);
-    if (!item) return;
-    if (!MOUTH_CATEGORIES.has(item.category)) { flash('❌ ' + t('equip.wrongSlot')); return; }
-    setPending({ kind: 'consume', item });
+    try {
+      const itemId = e.dataTransfer.getData('text/plain');
+      const item = inventory.find((i) => i.itemId === itemId);
+      if (!item) { flash('❌ ' + t('equip.itemNotFound')); return; }
+      if (!MOUTH_CATEGORIES.has(item.category)) { flash('❌ ' + t('equip.wrongSlot')); return; }
+      setPending({ kind: 'consume', item });
+    } catch (err) {
+      console.error('[equip] onMouthDrop failed:', err);
+      flash('❌ ' + t('equip.failed'));
+    }
   };
 
   const runPending = async () => {
     const action = pending;
     setPending(null);
     if (!action || !address) return;
-    if (action.kind === 'equip') {
-      const result = await equipItem(address, action.item, action.slot);
-      flash(result === 'ok' ? '✅ ' + t('equip.equipped', { name: itemLabel(t, action.item.itemId, action.item.name) })
-        : result === 'needFamiliar' ? '❌ ' + t('equip.needFamiliar') : '❌ ' + t('equip.failed'));
-    } else if (action.kind === 'equipFamiliar') {
-      const result = await equipFamiliar(address, action.def);
-      flash(result === 'ok' ? '✅ ' + t('equip.equipped', { name: localizeName(t, action.def.i18nKey, action.def.label) }) : '❌ ' + t('equip.failed'));
-    } else if (action.kind === 'consume') {
-      if (!rules) return;
-      await consumeInventoryItem(address, action.item, rules);
-      flash('✅ ' + t('equip.consumed', { name: itemLabel(t, action.item.itemId, action.item.name) }));
+    try {
+      if (action.kind === 'equip') {
+        const result = await equipItem(address, action.item, action.slot);
+        flash(result === 'ok' ? '✅ ' + t('equip.equipped', { name: itemLabel(t, action.item.itemId, action.item.name) })
+          : result === 'needFamiliar' ? '❌ ' + t('equip.needFamiliar') : '❌ ' + t('equip.failed'));
+      } else if (action.kind === 'equipFamiliar') {
+        const result = await equipFamiliar(address, action.def);
+        flash(result === 'ok' ? '✅ ' + t('equip.equipped', { name: localizeName(t, action.def.i18nKey, action.def.label) }) : '❌ ' + t('equip.failed'));
+      } else if (action.kind === 'consume') {
+        if (!rules) return;
+        await consumeInventoryItem(address, action.item, rules);
+        flash('✅ ' + t('equip.consumed', { name: itemLabel(t, action.item.itemId, action.item.name) }));
+      }
+    } catch (err) {
+      console.error('[equip] runPending failed:', err);
+      flash('❌ ' + t('equip.failed'));
     }
   };
 

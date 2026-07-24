@@ -358,7 +358,17 @@ export async function addToInventory(address: string, item: Omit<InventoryItem, 
   const snap = await get(ref(db, path));
   const existing = snap.val() as InventoryItem | null;
   if (existing) {
-    await update(ref(db, path), { qty: existing.qty + item.qty });
+    // Rafraîchit les champs d'équipement (slot/rareté/dégâts/défense/durabilité/arc/familier requis)
+    // avec ceux fournis par l'appelant, en plus d'incrémenter la quantité. Sans cela, un objet déjà
+    // possédé AVANT une mise à jour du catalogue (ex. admin qui édite ses stats, ou objet acheté
+    // avant l'ajout du glisser-déposer) restait figé sur son ancienne forme incomplète — le rendant
+    // par exemple non-glissable (pas de `slot`) même après un nouvel achat du même objet.
+    const refresh: Record<string, unknown> = { qty: existing.qty + item.qty };
+    const equipFields: (keyof Omit<InventoryItem, 'addedAt'>)[] = [
+      'slot', 'rarity', 'damage', 'defense', 'durabilityMax', 'requiresArrow', 'requiresFamiliarId', 'effect',
+    ];
+    for (const k of equipFields) if (item[k] !== undefined) refresh[k] = item[k];
+    await update(ref(db, path), refresh);
   } else {
     // Firebase RTDB rejette toute valeur `undefined` (bug déjà rencontré : un ShopItem sans
     // `effect` explicite en base — objet vidé par Firebase — provoquait un `set()` en échec et

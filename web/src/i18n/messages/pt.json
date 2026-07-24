@@ -663,6 +663,7 @@
   "equip.title": "Equipamento de Synk",
   "equip.hint": "Arraste uma arma, uma proteção ou flechas da sua bolsa para equipar Synk.",
   "equip.wrongSlot": "Este item não pode ser equipado neste espaço",
+  "equip.itemNotFound": "Item não encontrado na bolsa — tente arrastar e soltar novamente",
   "equip.equipped": "{name} equipado!",
   "equip.failed": "Não foi possível equipar este item",
   "equip.needFamiliar": "Você precisa equipar primeiro o dragão correspondente a esta sela",

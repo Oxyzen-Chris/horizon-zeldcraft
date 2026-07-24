@@ -663,6 +663,7 @@
   "equip.title": "Équipement de Synk",
   "equip.hint": "Glisse une arme, une protection ou des flèches depuis ta besace pour équiper Synk.",
   "equip.wrongSlot": "Cet objet ne peut pas être équipé dans cet emplacement",
+  "equip.itemNotFound": "Objet introuvable dans la besace — réessaie le glisser-déposer",
   "equip.equipped": "{name} équipé !",
   "equip.failed": "Impossible d'équiper cet objet",
   "equip.needFamiliar": "Il faut d'abord équiper le dragon correspondant à cette selle",

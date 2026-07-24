@@ -663,6 +663,7 @@
   "equip.title": "Synk's Equipment",
   "equip.hint": "Drag a weapon, armor piece or arrows from your bag to equip Synk.",
   "equip.wrongSlot": "This item cannot be equipped in this slot",
+  "equip.itemNotFound": "Item not found in the bag — try the drag-and-drop again",
   "equip.equipped": "{name} equipped!",
   "equip.failed": "Could not equip this item",
   "equip.needFamiliar": "You must equip the matching dragon before this saddle",
