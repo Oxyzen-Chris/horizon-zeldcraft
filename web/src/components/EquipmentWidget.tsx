@@ -11,6 +11,7 @@ import { useI18n, itemLabel, localizeName } from '@/lib/i18n';
 import { SynkSkin } from './SynkSkin';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DragonSkin, dragonKindFromId } from './DragonSkin';
+import { useWindowZIndex } from '@/lib/windowZOrder';
 
 const POS_KEY = 'zc.equipWidgetPos';
 const COLLAPSED_KEY = 'zc.equipWidgetCollapsed';
@@ -58,6 +59,7 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
   const [pos, setPos] = useState<Pos | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef<Pos>({ x: 0, y: 0 });
+  const { z, bringToFront } = useWindowZIndex();
 
   const [equipment, setEquipment] = useState<Partial<Record<EquipSlot, EquippedItem>>>({});
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -195,7 +197,8 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
     return (
       <button
         className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-indigo-500 text-2xl shadow-lg flex items-center justify-center"
-        style={{ left: pos.x, top: pos.y }}
+        style={{ left: pos.x, top: pos.y, zIndex: z }}
+        onPointerDownCapture={bringToFront}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onClick={() => !dragging && toggleCollapsed()}
         title={t('equip.title')}
@@ -270,7 +273,8 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
   return (
     <div
       className="fixed z-40 w-72 bg-slate-900 border-2 border-indigo-500 rounded-xl shadow-xl select-none"
-      style={{ left: pos.x, top: pos.y }}
+      style={{ left: pos.x, top: pos.y, zIndex: z }}
+      onPointerDownCapture={bringToFront}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-indigo-900/30 rounded-t-xl cursor-move"

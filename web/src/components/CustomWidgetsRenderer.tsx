@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { getCustomWidgets, applyEffect, type CustomWidgetDef, type CustomWidgetButton } from '@/lib/gameState';
+import { useWindowZIndex } from '@/lib/windowZOrder';
 
 interface Pos { x: number; y: number }
 
@@ -22,6 +23,7 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
   const [pos, setPos] = useState<Pos | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef<Pos>({ x: 0, y: 0 });
+  const { z, bringToFront } = useWindowZIndex();
   const [feedback, setFeedback] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -89,7 +91,8 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
     return (
       <button
         className={`fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-purple-500 text-2xl shadow-lg flex items-center justify-center ${animationClass(def.animation)}`}
-        style={{ left: pos.x, top: pos.y }}
+        style={{ left: pos.x, top: pos.y, zIndex: z }}
+        onPointerDownCapture={bringToFront}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onClick={() => !dragging && toggleCollapsed()}
         title={def.title}
@@ -100,7 +103,8 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
   return (
     <div
       className="fixed z-40 w-64 bg-slate-900 border-2 border-purple-500 rounded-xl shadow-xl select-none"
-      style={{ left: pos.x, top: pos.y }}
+      style={{ left: pos.x, top: pos.y, zIndex: z }}
+      onPointerDownCapture={bringToFront}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-purple-900/30 rounded-t-xl cursor-move"

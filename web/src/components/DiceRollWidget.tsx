@@ -7,6 +7,7 @@ import {
   hasRolledDailyLuck, markDailyLuckRolled, applyEffect, type RepRules,
 } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
+import { useWindowZIndex } from '@/lib/windowZOrder';
 
 const POS_KEY = 'zc.diceWidgetPos';
 const COLLAPSED_KEY = 'zc.diceWidgetCollapsed';
@@ -65,6 +66,7 @@ export function DiceRollWidget() {
   const [pos, setPos] = useState<Pos | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef<Pos>({ x: 0, y: 0 });
+  const { z, bringToFront } = useWindowZIndex();
 
   const [bonus, setBonus] = useState(0);
   const [dailyDone, setDailyDone] = useState(false);
@@ -195,7 +197,8 @@ export function DiceRollWidget() {
     return (
       <button
         className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-amber-500 text-2xl shadow-lg flex items-center justify-center"
-        style={{ left: pos.x, top: pos.y }}
+        style={{ left: pos.x, top: pos.y, zIndex: z }}
+        onPointerDownCapture={bringToFront}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onClick={() => !dragging && toggleCollapsed()}
         title={t('dice.title')}
@@ -206,7 +209,8 @@ export function DiceRollWidget() {
   return (
     <div
       className="fixed z-40 w-64 bg-slate-900 border-2 border-amber-500 rounded-xl shadow-xl select-none"
-      style={{ left: pos.x, top: pos.y }}
+      style={{ left: pos.x, top: pos.y, zIndex: z }}
+      onPointerDownCapture={bringToFront}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-amber-900/30 rounded-t-xl cursor-move"

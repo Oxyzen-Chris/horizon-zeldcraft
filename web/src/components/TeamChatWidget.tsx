@@ -6,6 +6,7 @@ import { HORIZON_ABI } from '@/lib/contract';
 import { getFirebaseDb, isFirebaseConfigured, ensureAnonSignIn } from '@/lib/firebase';
 import { ref, push, query, orderByChild, limitToLast, onValue, off, serverTimestamp, update } from 'firebase/database';
 import { useI18n } from '@/lib/i18n';
+import { useWindowZIndex } from '@/lib/windowZOrder';
 
 const POS_KEY = 'zc.teamChatWidgetPos';
 const COLLAPSED_KEY = 'zc.teamChatWidgetCollapsed';
@@ -40,6 +41,7 @@ export function TeamChatWidget({ contract, defaultName }: { contract: `0x${strin
   const [pos, setPos] = useState<Pos | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef<Pos>({ x: 0, y: 0 });
+  const { z, bringToFront } = useWindowZIndex();
   const fbReady = isFirebaseConfigured();
 
   const { data: teamId } = useReadContract({
@@ -223,7 +225,8 @@ export function TeamChatWidget({ contract, defaultName }: { contract: `0x${strin
     return (
       <button
         className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-emerald-500 text-2xl shadow-lg flex items-center justify-center"
-        style={{ left: pos.x, top: pos.y }}
+        style={{ left: pos.x, top: pos.y, zIndex: z }}
+        onPointerDownCapture={bringToFront}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onClick={() => !dragging && toggleCollapsed()}
         title={t('teamchat.title')}
@@ -234,7 +237,8 @@ export function TeamChatWidget({ contract, defaultName }: { contract: `0x${strin
   return (
     <div
       className="fixed z-40 w-80 bg-slate-900 border-2 border-emerald-500 rounded-xl shadow-xl select-none flex flex-col"
-      style={{ left: pos.x, top: pos.y, maxHeight: '70vh' }}
+      style={{ left: pos.x, top: pos.y, maxHeight: '70vh', zIndex: z }}
+      onPointerDownCapture={bringToFront}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-emerald-900/30 rounded-t-xl cursor-move"
