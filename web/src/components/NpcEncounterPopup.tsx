@@ -8,7 +8,10 @@ import {
   applyEffect, logEncounter, addToInventory, removeFromInventory, getRepRules, getOrCreatePlayer,
   computePlayerDiceBonus, rollD20, getChatScripts, getNextQuestHint, DEFAULT_CHAT_SCRIPTS, CHAT_RESPONSE_IDS,
   pickNpcQuestForPlayer, unlockQuestForPlayer,
+  computeEquipmentCombatBonus, applyEquipmentWear, getShopCatalog, rarityForXp,
+  subscribeEquipment,
   type EncounterRecord, type RepRules, type ChatScript, type ChatResponseId, type ChatReaction, type QuestDef,
+  type EquipSlot, type EquippedItem, type ItemRarity, type ShopItem,
 } from '@/lib/gameState';
 import { getFirebaseDb } from '@/lib/firebase';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
@@ -101,8 +104,9 @@ function resolveFight(
   player: { hp: number; hpMax: number; hunger: number; hungerMax: number; force: number; forceMax: number; spells: number; spellsMax: number },
   npc: PopupNpc,
   rules: RepRules,
+  equipBonus = 0,
 ): FightRoll {
-  const playerBonus = computePlayerDiceBonus(player, rules);
+  const playerBonus = computePlayerDiceBonus(player, rules) + equipBonus;
   // Bonus PNJ, dérivé de sa seule Force, plafonné à fightNpcBonusMax (défaut 12)
   const npcForceRef = Math.max(1, rules.fightNpcForceRef ?? 45);
   const npcBonus = Math.round(clamp01(npc.force / npcForceRef) * (rules.fightNpcBonusMax ?? 12));
@@ -150,6 +154,8 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const [current, setCurrent] = useState<PopupNpc | null>(null);
   const [rules, setRules] = useState<RepRules | null>(null);
   const [chatScripts, setChatScripts] = useState<ChatScript[]>([]);
+  const [equipment, setEquipment] = useState<Partial<Record<EquipSlot, EquippedItem>>>({});
+  const [shopCatalog, setShopCatalog] = useState<ShopItem[]>([]);
   const timerRef = useRef<any>(null);
 
   // Charge les règles de reconnaissance paramétrables (admin)
@@ -161,6 +167,14 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   useEffect(() => {
     getChatScripts().then(setChatScripts).catch(() => {});
   }, []);
+
+  // Équipement porté (arme/protections/flèches) — proposé en bonus de combat (voir accept()/runFight)
+  useEffect(() => {
+    if (!address) return;
+    return subscribeEquipment(address, setEquipment);
+  }, [address]);
+  // Catalogue boutique — nécessaire pour tirer un équipement au hasard en butin de victoire (par rareté)
+  useEffect(() => { getShopCatalog().then(setShopCatalog).catch(() => {}); }, []);
 
   const { data: maxPerDay } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'npcMaxPerDay',
@@ -193,7 +207,29 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const [chatFlow, setChatFlow] = useState<ChatFlowState | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
   const [questGranted, setQuestGranted] = useState<{ quest: QuestDef | null; npcDisplayName: string } | null>(null);
+  const [equipPromptNpc, setEquipPromptNpc] = useState<PopupNpc | null>(null);
   const close = () => { setCurrent(null); setErrorMsg(null); setChatFlow(null); setQuestGranted(null); };
+
+  /** Vrai si le joueur porte au moins une arme/protection en état de marche (durabilité > 0),
+   * utilisable pour un bonus de combat — voir computeEquipmentCombatBonus(). Un arc sans flèche
+   * équipée ne compte pas (il ne délivre alors aucun bonus). */
+  const hasUsableEquipment = () => {
+    const { weapon, offhand, head, body, legs, feet, belt, arrows } = equipment;
+    const weaponUsable = !!weapon && weapon.durability > 0 && (!weapon.requiresArrow || !!(arrows && (arrows.qty ?? 0) > 0));
+    const armorUsable = [offhand, head, body, legs, feet, belt].some((it) => it && it.durability > 0 && (it.defense ?? 0) > 0);
+    return weaponUsable || armorUsable;
+  };
+
+  /** Tire un objet aléatoire d'équipement (arme/protection/flèche) dans la limite de la rareté
+   * débloquée par l'XP du joueur (RepRules.equipRarityXp*) — voir rarityForXp(). */
+  const pickEquipmentLoot = (playerXp: number, r: RepRules): ShopItem | null => {
+    const order: ItemRarity[] = ['common', 'rare', 'legendary', 'epic'];
+    const maxIdx = order.indexOf(rarityForXp(playerXp, r));
+    const eligible = shopCatalog.filter((c) =>
+      c.rarity && order.indexOf(c.rarity) <= maxIdx
+      && (c.category === 'weapon' || c.category === 'armor' || c.category === 'shield' || c.category === 'arrow'));
+    return eligible.length ? pick(eligible) : null;
+  };
 
   /** Démarre la conversation : tire un script aléatoire du catalogue et affiche sa réplique d'ouverture. */
   const startChat = (npc: PopupNpc) => {
@@ -280,9 +316,25 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const accept = async () => {
     if (!current || !address || busy) return;
     if (current.offer === 'chat') { startChat(current); return; }
+    if (current.offer === 'fight' && hasUsableEquipment()) {
+      // Propose d'utiliser l'équipement porté pour un bonus avant de résoudre le combat.
+      setEquipPromptNpc(current);
+      return;
+    }
+    await runAccept(current, false);
+  };
+
+  /** Réponse au prompt "Utiliser ton équipement pour ce combat ?" */
+  const answerEquipPrompt = async (useEquip: boolean) => {
+    const npc = equipPromptNpc;
+    setEquipPromptNpc(null);
+    if (npc) await runAccept(npc, useEquip);
+  };
+
+  const runAccept = async (npc: PopupNpc, useEquip: boolean) => {
+    if (!address || busy) return;
     setBusy(true);
     setErrorMsg(null);
-    const npc = current;
     const npcDisplayName = `${localizeName(t, `npc.archetype.${npc.baseKey}`, npc.baseName)} ${localizeName(t, `npc.suffix.${NPC_SUFFIX_KEYS[npc.suffixIdx]}`, NPC_NAME_SUFFIXES[npc.suffixIdx])}`;
     try {
       const r = rules ?? (await getRepRules());
@@ -301,7 +353,10 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
 
       if (npc.offer === 'fight') {
         const p = await getOrCreatePlayer(address);
-        const roll = resolveFight(p, npc, r);
+        const equipInfo = useEquip
+          ? computeEquipmentCombatBonus(equipment, r)
+          : { bonus: 0, usedSlots: [] as EquipSlot[], arrowsExhausted: false };
+        const roll = resolveFight(p, npc, r, equipInfo.bonus);
         const win = roll.win;
         outcome = win ? 'won' : 'lost';
         xpDelta = win ? npc.xp : Math.floor(npc.xp / 3);
@@ -312,22 +367,48 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           ? (npc.alignment === 'hostile' ? r.fightWinHostile : r.fightWinNormal)
           : r.fightLoss;
 
+        // Usure de l'équipement utilisé (arme + protections portées) — casse possible en plein combat.
+        let brokenItemNames: string[] | undefined;
+        if (equipInfo.usedSlots.length) {
+          const { broken } = await applyEquipmentWear(address, equipInfo.usedSlots, r.equipDurabilityLossPct ?? 8);
+          if (broken.length) brokenItemNames = broken.map((b) => itemLabel(t, b.itemId, b.name));
+        }
+
         // Butin symétrique : le vainqueur prend une part de la bourse du perdant.
         const lootPct = Math.max(0, r.fightLootPct ?? 20) / 100;
         const lootCap = r.fightLootMaxWallet ?? 100;
         const maxLootItems = Math.max(0, r.fightLootMaxItems ?? 1);
         const lootChance = clamp01((r.fightLootChancePct ?? 35) / 100);
+        const equipDropChance = clamp01((r.equipDropChancePct ?? 15) / 100);
         let lootItemName: string | undefined;
         let stolenItemName: string | undefined;
 
         if (win) {
           walletDelta = Math.min(lootCap, Math.max(1, Math.floor(roll.npcPurse * lootPct)));
           if (maxLootItems > 0 && Math.random() < lootChance) {
-            const drop = pick(FIGHT_LOOT_TABLE);
-            await addToInventory(address, { ...drop, qty: 1 });
-            lootItemName = itemLabel(t, drop.itemId, drop.name);
-            itemName = `+${drop.name}`;
-            itemId = drop.itemId; itemQty = 1; itemDirection = 'gain';
+            // Chance qu'un équipement rare (arme/protection/flèche, selon la rareté débloquée par
+            // l'XP du joueur) tombe à la place de l'objet de butin classique.
+            const equipDrop = Math.random() < equipDropChance ? pickEquipmentLoot(p.xpBonus ?? 0, r) : null;
+            if (equipDrop) {
+              await addToInventory(address, {
+                itemId: equipDrop.itemId, name: equipDrop.name, category: equipDrop.category, qty: 1,
+                ...(equipDrop.slot ? { slot: equipDrop.slot } : {}),
+                ...(equipDrop.rarity ? { rarity: equipDrop.rarity } : {}),
+                ...(equipDrop.damage ? { damage: equipDrop.damage } : {}),
+                ...(equipDrop.defense ? { defense: equipDrop.defense } : {}),
+                ...(equipDrop.durabilityMax ? { durabilityMax: equipDrop.durabilityMax } : {}),
+                ...(equipDrop.requiresArrow ? { requiresArrow: true } : {}),
+              });
+              lootItemName = itemLabel(t, equipDrop.itemId, equipDrop.name);
+              itemName = `+${equipDrop.name}`;
+              itemId = equipDrop.itemId; itemQty = 1; itemDirection = 'gain';
+            } else {
+              const drop = pick(FIGHT_LOOT_TABLE);
+              await addToInventory(address, { ...drop, qty: 1 });
+              lootItemName = itemLabel(t, drop.itemId, drop.name);
+              itemName = `+${drop.name}`;
+              itemId = drop.itemId; itemQty = 1; itemDirection = 'gain';
+            }
           }
         } else {
           const lost = Math.min(lootCap, Math.max(1, Math.floor(p.wallet * lootPct)));
@@ -355,6 +436,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           playerTotal: roll.playerTotal, npcTotal: roll.npcTotal,
           npcName: npcDisplayName, xpDelta, hpDelta, coinsDelta: walletDelta,
           lootItemName, stolenItemName,
+          equipBonus: equipInfo.bonus || undefined, brokenItemNames,
         });
       } else if (npc.offer === 'trade') {
         if (npc.alignment === 'hostile') {
@@ -551,6 +633,23 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
       )}
       {fightResult && (
         <FightResultModal data={fightResult} onClose={() => setFightResult(null)} />
+      )}
+      {equipPromptNpc && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-slate-900 border-2 border-amber-500 rounded-xl p-6 max-w-sm w-full text-center">
+            <div className="text-4xl mb-2">⚔️🛡️</div>
+            <p className="text-sm text-slate-200 mb-1 font-semibold">{t('equip.useForFight.title')}</p>
+            <p className="text-xs text-slate-400 mb-4">{t('equip.useForFight.hint')}</p>
+            <div className="flex gap-3">
+              <button className="btn-primary flex-1" disabled={busy} onClick={() => answerEquipPrompt(true)}>
+                {t('equip.useForFight.yes')}
+              </button>
+              <button className="btn-secondary flex-1" disabled={busy} onClick={() => answerEquipPrompt(false)}>
+                {t('equip.useForFight.no')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

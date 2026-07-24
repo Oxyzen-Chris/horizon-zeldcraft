@@ -19,3 +19,6 @@ web-build/
 # Word/Office lock files
 ~$*.docx
 ~$*.xlsx
+
+# TypeScript incremental build cache
+web/tsconfig.tsbuildinfo

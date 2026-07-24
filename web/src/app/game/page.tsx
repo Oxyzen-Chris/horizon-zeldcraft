@@ -24,6 +24,7 @@ import { NpcEncounterPopup } from '@/components/NpcEncounterPopup';
 import { DiceRollWidget } from '@/components/DiceRollWidget';
 import { TeamChatWidget } from '@/components/TeamChatWidget';
 import { CustomWidgetsRenderer } from '@/components/CustomWidgetsRenderer';
+import { EquipmentWidget } from '@/components/EquipmentWidget';
 import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
@@ -386,6 +387,8 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <DiceRollWidget />
       {/* Fenêtre flottante et déplaçable du chat d'équipe multi-joueurs */}
       <TeamChatWidget contract={contract} defaultName={name} />
+      {/* Fenêtre flottante "homme de Vitruve" pour équiper armes/protections par drag-and-drop */}
+      <EquipmentWidget stage={Number(stage)} />
       {/* Widgets flottants personnalisés définis par l'admin (menu Administration) */}
       <CustomWidgetsRenderer playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}

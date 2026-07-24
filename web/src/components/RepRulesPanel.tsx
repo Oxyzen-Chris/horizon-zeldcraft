@@ -99,6 +99,20 @@ export function RepRulesPanel() {
     { key: 'moodFeedWalletPenalty',     labelKey: 'admin.repRules.moodFeedWalletPenalty' },
   ];
 
+  const equipFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'equipRarityXpCommon',    labelKey: 'admin.repRules.equipRarityXpCommon' },
+    { key: 'equipRarityXpRare',      labelKey: 'admin.repRules.equipRarityXpRare' },
+    { key: 'equipRarityXpLegendary', labelKey: 'admin.repRules.equipRarityXpLegendary' },
+    { key: 'equipRarityXpEpic',      labelKey: 'admin.repRules.equipRarityXpEpic' },
+    { key: 'equipShopMinPrice',      labelKey: 'admin.repRules.equipShopMinPrice' },
+    { key: 'equipDamageBonusDivisor',labelKey: 'admin.repRules.equipDamageBonusDivisor' },
+    { key: 'equipDefenseBonusDivisor',labelKey: 'admin.repRules.equipDefenseBonusDivisor' },
+    { key: 'equipDurabilityLossPct', labelKey: 'admin.repRules.equipDurabilityLossPct' },
+    { key: 'equipDropChancePct',     labelKey: 'admin.repRules.equipDropChancePct' },
+    { key: 'capeInvisibilityMinMinutes', labelKey: 'admin.repRules.capeInvisibilityMinMinutes' },
+    { key: 'capeInvisibilityMaxMinutes', labelKey: 'admin.repRules.capeInvisibilityMaxMinutes' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -111,6 +125,20 @@ export function RepRulesPanel() {
               value={rules[f.key]} onChange={e => set(f.key, e.target.value)} />
           </label>
         ))}
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">⚔️ {t('admin.repRules.equipTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.equipDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {equipFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-700">

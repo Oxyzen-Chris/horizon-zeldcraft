@@ -20,6 +20,7 @@
  *   players/{addr}/familiars/{id}      → { obtainedAt } (familier apprivoisé par le joueur)
  *   catalog/chatScripts/{id}           → ChatScript (dialogues PNJ paramétrables par admin)
  *   catalog/customWidgets/{id}         → CustomWidgetDef (widgets flottants paramétrables par admin)
+ *   players/{addr}/equipment/{slot}    → EquippedItem (arme/protection équipée — voir equipItem/unequipSlot)
  */
 import {
   ref, get, set, update, onValue, off, push, serverTimestamp, DataSnapshot,
@@ -50,21 +51,62 @@ export interface PlayerState {
   sleeping?: boolean;      // vrai pendant le sommeil forcé (HP ≤ 20)
   lastTick?: number;
   lastFeedCheckAt?: number; // début de la fenêtre glissante de 24h en cours pour la pénalité "non nourri" (voir applyFeedPenalties)
+  invisibleUntil?: number; // horodatage de fin d'invisibilité (cape d'invisibilité — voir activateInvisibility)
   createdAt?: number;
   updatedAt?: number;
 }
 
+/**
+ * Emplacement d'équipement du personnage (façon "homme de Vitruve" — voir EquipmentWidget.tsx).
+ * `arrows` est un slot spécial : consommable par tir (qty), pas de durabilité — un arc
+ * (`requiresArrow: true`) ne délivre son bonus de dégâts au combat que si des flèches y sont
+ * équipées (voir computeEquipmentCombatBonus).
+ */
+export type EquipSlot = 'weapon' | 'offhand' | 'head' | 'body' | 'legs' | 'feet' | 'belt' | 'arrows';
+export const EQUIP_SLOTS: EquipSlot[] = ['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'belt', 'arrows'];
+
+/** Rareté d'un équipement — seuils XP par palier paramétrables dans RepRules (equipRarityXp*). */
+export type ItemRarity = 'common' | 'rare' | 'legendary' | 'epic';
+
 export interface InventoryItem {
   itemId: string;
   name: string;
-  category: 'food' | 'weapon' | 'armor' | 'spell' | 'vehicle' | 'potion' | 'treasure' | 'super_potion';
+  category: 'food' | 'weapon' | 'armor' | 'shield' | 'arrow' | 'spell' | 'vehicle' | 'potion' | 'treasure' | 'super_potion';
   qty: number;
   effect?: {
     hp?: number; hunger?: number; happiness?: number; force?: number; spells?: number;
     // Boost permanent du plafond (super-fioles) — appliqué en +100 au max concerné
     maxHp?: number; maxForce?: number; maxSpells?: number;
+    // Cape d'invisibilité — durée en minutes (tirée aléatoirement entre capeInvisibilityMin/MaxMinutes
+    // au moment de l'usage, voir activateInvisibility) permettant de franchir un passage gardé.
+    invisibleMinutes?: number;
   };
+  // ─── Équipement (armes/protections/flèches) — voir EquipmentWidget.tsx et equipItem() ───
+  slot?: EquipSlot;          // emplacement où l'objet peut être équipé (absent = non équipable)
+  rarity?: ItemRarity;
+  damage?: number;           // bonus de dégâts en combat (armes/flèches)
+  defense?: number;          // bonus de protection en combat (armures/boucliers)
+  durabilityMax?: number;    // nombre d'utilisations en combat avant de risquer la casse
+  requiresArrow?: boolean;   // true pour un arc : inefficace tant qu'aucune flèche n'est équipée
   addedAt: number;
+}
+
+/** Objet équipé dans un emplacement du personnage — instance distincte de la pile d'inventaire,
+ * avec sa propre usure. Casser (durability ≤ 0) retire l'objet de l'équipement (perte définitive).
+ * RTDB : players/{addr}/equipment/{slot} */
+export interface EquippedItem {
+  itemId: string;
+  name: string;
+  category: InventoryItem['category'];
+  slot: EquipSlot;
+  rarity?: ItemRarity;
+  damage?: number;
+  defense?: number;
+  requiresArrow?: boolean;
+  durability: number;     // usure courante (0..durabilityMax) — non applicable au slot 'arrows'
+  durabilityMax: number;
+  qty?: number;           // nombre de flèches restantes (slot 'arrows' uniquement)
+  equippedAt: number;
 }
 
 export interface TxRecord {
@@ -113,6 +155,13 @@ export interface ShopItem {
   priceGame?: number;   // si achat/vente off-chain via wallet du jeu
   effect?: InventoryItem['effect'];
   active: boolean;
+  // ─── Équipement (armes/protections/flèches) — voir InventoryItem et EquipmentWidget.tsx ───
+  slot?: EquipSlot;
+  rarity?: ItemRarity;
+  damage?: number;
+  defense?: number;
+  durabilityMax?: number;
+  requiresArrow?: boolean;
 }
 
 // ────────────────────────────────────── Init player ──────────────────────────────────────
@@ -325,6 +374,165 @@ export function subscribeInventory(address: string, cb: (items: InventoryItem[])
   return () => off(r, 'value', handler);
 }
 
+/** Active la cape d'invisibilité (durée aléatoire entre les bornes admin, en minutes) — retire
+ * l'objet de l'inventaire (usage unique) et enregistre l'expiration sur le PlayerState. */
+export async function activateInvisibility(address: string, minMinutes: number, maxMinutes: number): Promise<number> {
+  const db = getFirebaseDb();
+  if (!db) return 0;
+  await ensureAnonSignIn();
+  const minutes = Math.max(1, minMinutes) + Math.floor(Math.random() * Math.max(1, maxMinutes - minMinutes + 1));
+  const until = Date.now() + minutes * 60_000;
+  await update(ref(db, `players/${KEY(address)}`), { invisibleUntil: until });
+  return until;
+}
+
+// ────────────────────────────────────── Équipement (Vitruve) ──────────────────────────────────────
+// Le joueur équipe une arme/protection/flèches par glisser-déposer depuis la besace vers
+// EquipmentWidget.tsx. Contrairement à l'inventaire (empilé par itemId), chaque emplacement
+// d'équipement porte sa propre usure (`durability`) : équiper consomme 1 unité (ou toute la pile
+// pour les flèches) de l'inventaire ; déséquiper la restitue à l'état neuf (simplification
+// volontaire — l'usure partielle n'est pas fractionnée dans la pile d'inventaire empilée par qty).
+
+export function subscribeEquipment(address: string, cb: (equipment: Partial<Record<EquipSlot, EquippedItem>>) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb({}); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/equipment`);
+  const handler = (snap: DataSnapshot) => cb((snap.val() as Partial<Record<EquipSlot, EquippedItem>> | null) ?? {});
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+export async function getEquipment(address: string): Promise<Partial<Record<EquipSlot, EquippedItem>>> {
+  const db = getFirebaseDb();
+  if (!db) return {};
+  const snap = await get(ref(db, `players/${KEY(address)}/equipment`));
+  return (snap.val() as Partial<Record<EquipSlot, EquippedItem>> | null) ?? {};
+}
+
+/** Équipe un objet de la besace dans un emplacement (doit correspondre à `item.slot`, ou
+ * catégorie 'arrow' → slot 'arrows'). Remet l'éventuel occupant précédent dans la besace. */
+export async function equipItem(address: string, item: InventoryItem, slot: EquipSlot): Promise<boolean> {
+  const db = getFirebaseDb();
+  if (!db) return false;
+  const validSlot = slot === 'arrows' ? item.category === 'arrow' : item.slot === slot;
+  if (!validSlot) return false;
+  await ensureAnonSignIn();
+  const takeQty = slot === 'arrows' ? item.qty : 1;
+  const ok = await removeFromInventory(address, item.itemId, takeQty);
+  if (!ok) return false;
+  await unequipSlot(address, slot); // restitue l'ancien occupant avant de poser le nouveau
+  const equipped: EquippedItem = {
+    itemId: item.itemId, name: item.name, category: item.category, slot,
+    durability: item.durabilityMax ?? 100, durabilityMax: item.durabilityMax ?? 100,
+    equippedAt: Date.now(),
+    ...(item.rarity ? { rarity: item.rarity } : {}),
+    ...(item.damage ? { damage: item.damage } : {}),
+    ...(item.defense ? { defense: item.defense } : {}),
+    ...(item.requiresArrow ? { requiresArrow: true } : {}),
+    ...(slot === 'arrows' ? { qty: takeQty } : {}),
+  };
+  await set(ref(db, `players/${KEY(address)}/equipment/${slot}`), equipped);
+  return true;
+}
+
+/** Retire l'objet équipé d'un emplacement et le restitue à la besace (à l'état neuf). */
+export async function unequipSlot(address: string, slot: EquipSlot): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  const path = `players/${KEY(address)}/equipment/${slot}`;
+  const snap = await get(ref(db, path));
+  const it = snap.val() as EquippedItem | null;
+  if (!it) return;
+  await addToInventory(address, {
+    itemId: it.itemId, name: it.name, category: it.category, qty: it.qty ?? 1,
+    ...(it.slot ? { slot: it.slot } : {}),
+    ...(it.rarity ? { rarity: it.rarity } : {}),
+    ...(it.damage ? { damage: it.damage } : {}),
+    ...(it.defense ? { defense: it.defense } : {}),
+    ...(it.durabilityMax ? { durabilityMax: it.durabilityMax } : {}),
+    ...(it.requiresArrow ? { requiresArrow: true } : {}),
+  });
+  await set(ref(db, path), null);
+}
+
+/** Bonus de combat dérivé de l'équipement porté (dégâts arme + défense armure/bouclier),
+ * pondéré par les diviseurs admin (RepRules.equipDamageBonusDivisor/equipDefenseBonusDivisor).
+ * Un arc (`requiresArrow`) ne compte ses dégâts que si des flèches sont équipées (qty > 0). */
+export function computeEquipmentCombatBonus(
+  equipment: Partial<Record<EquipSlot, EquippedItem>>, rules: RepRules,
+): { bonus: number; usedSlots: EquipSlot[]; arrowsExhausted: boolean } {
+  let damage = 0;
+  let defense = 0;
+  const usedSlots: EquipSlot[] = [];
+  let arrowsExhausted = false;
+  const weapon = equipment.weapon;
+  if (weapon && weapon.durability > 0) {
+    if (weapon.requiresArrow) {
+      const arrows = equipment.arrows;
+      if (arrows && (arrows.qty ?? 0) > 0) {
+        damage += (weapon.damage ?? 0) + (arrows.damage ?? 0);
+        usedSlots.push('weapon', 'arrows');
+      } else {
+        arrowsExhausted = true;
+      }
+    } else {
+      damage += weapon.damage ?? 0;
+      usedSlots.push('weapon');
+    }
+  }
+  (['offhand', 'head', 'body', 'legs', 'feet', 'belt'] as EquipSlot[]).forEach((slot) => {
+    const it = equipment[slot];
+    if (it && it.durability > 0 && it.defense) {
+      defense += it.defense;
+      usedSlots.push(slot);
+    }
+  });
+  const damageDivisor = Math.max(1, rules.equipDamageBonusDivisor ?? 4);
+  const defenseDivisor = Math.max(1, rules.equipDefenseBonusDivisor ?? 5);
+  const bonus = Math.floor(damage / damageDivisor) + Math.floor(defense / defenseDivisor);
+  return { bonus, usedSlots, arrowsExhausted };
+}
+
+/** Applique l'usure de combat aux emplacements utilisés (arme/protections) : réduit la durabilité
+ * de `wearPct` % du plafond (arrondi, minimum 1) ; si elle atteint 0, l'objet casse et disparaît
+ * (pop-up dédié côté UI). Les flèches sont consommées séparément (1 par tir), sans casse. */
+export async function applyEquipmentWear(
+  address: string, usedSlots: EquipSlot[], wearPct: number,
+): Promise<{ broken: EquippedItem[] }> {
+  const db = getFirebaseDb();
+  if (!db) return { broken: [] };
+  const broken: EquippedItem[] = [];
+  for (const slot of usedSlots) {
+    const path = `players/${KEY(address)}/equipment/${slot}`;
+    const snap = await get(ref(db, path));
+    const it = snap.val() as EquippedItem | null;
+    if (!it) continue;
+    if (slot === 'arrows') {
+      const remaining = Math.max(0, (it.qty ?? 1) - 1);
+      if (remaining <= 0) await set(ref(db, path), null);
+      else await update(ref(db, path), { qty: remaining });
+      continue;
+    }
+    const loss = Math.max(1, Math.round(it.durabilityMax * (Math.max(0, wearPct) / 100)));
+    const remaining = it.durability - loss;
+    if (remaining <= 0) {
+      await set(ref(db, path), null);
+      broken.push(it);
+    } else {
+      await update(ref(db, path), { durability: remaining });
+    }
+  }
+  return { broken };
+}
+
+/** Détermine la rareté max accessible pour un total d'XP donné (paliers paramétrables admin). */
+export function rarityForXp(xp: number, rules: RepRules): ItemRarity {
+  if (xp >= (rules.equipRarityXpEpic ?? 100000)) return 'epic';
+  if (xp >= (rules.equipRarityXpLegendary ?? 80000)) return 'legendary';
+  if (xp >= (rules.equipRarityXpRare ?? 20000)) return 'rare';
+  return 'common';
+}
+
 // ────────────────────────────────────── Transactions ──────────────────────────────────────
 
 export async function logTx(address: string, tx: TxRecord): Promise<void> {
@@ -529,6 +737,9 @@ export interface QuestDef {
   npcGiver?: boolean;    // true = quête masquée de "Quêtes à énigmes" tant qu'un PNJ (offer 'quest')
                          // ne l'a pas proposée et que le joueur ne l'a pas acceptée — voir
                          // unlockQuestForPlayer()/getUnlockedQuestIds() et pickNpcQuestForPlayer()
+  itemReward?: { itemId: string; name: string; qty: number; category: InventoryItem['category']; effect?: InventoryItem['effect'] };
+                         // objet remis en plus de l'XP/score à la résolution (ex. cape d'invisibilité
+                         // de la quête "Gardiens à trois têtes de chameaux") — voir submitQuestAnswerOffchain
 }
 
 /** Recalcule un id stable `bytes32`-like à partir d'un identifiant texte (ex. "riddle.ice"). */
@@ -583,6 +794,13 @@ export async function submitQuestAnswerOffchain(
   await applyEffect(address, {
     xpBonus: quest.xpReward, score: quest.scoreReward, reputation: reputationReward,
   });
+  if (quest.itemReward) {
+    await addToInventory(address, {
+      itemId: quest.itemReward.itemId, name: quest.itemReward.name,
+      category: quest.itemReward.category, qty: quest.itemReward.qty,
+      ...(quest.itemReward.effect ? { effect: quest.itemReward.effect } : {}),
+    });
+  }
   await markQuestSolved(address, quest.id, normalized);
   return 'correct';
 }
@@ -778,6 +996,53 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'braise_coeur_volcan',     name: '🔥 Braise du Cœur du Volcan',        category: 'treasure', priceGame: 15000, effect: {}, active: true },
   { itemId: 'plume_givre_lunaire',     name: '🌙 Plume de Givre Lunaire',          category: 'treasure', priceGame: 20000, effect: {}, active: true },
   { itemId: 'perle_abysse_electrique', name: '🌊 Perle des Abysses Électriques',   category: 'treasure', priceGame: 25000, effect: {}, active: true },
+  // ─── Équipement du personnage (armes/protections/flèches) — voir EquipmentWidget.tsx.
+  // Rareté croissante (common → rare → legendary → epic), inspirée de Tolkien/Donjons & Dragons,
+  // recherchée pour rester crédible (Andúril, Dard/Sting, mithril, arc de Galadriel…). Prix
+  // boutique ≥ 200 000 pièces (armes/protections/boucliers) — seuils admin RepRules.equipShopMinPrice.
+  // Peuvent aussi être gagnées via combats/quêtes rares selon la rareté (RepRules.equipRarityXp*).
+  // ── Armes (slot 'weapon', dégâts en combat)
+  { itemId: 'epee_courte',            name: '🗡️ Épée courte',                    category: 'weapon', slot: 'weapon', rarity: 'common',    damage: 15, durabilityMax: 20, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'epee_longue',            name: '⚔️ Épée longue',                    category: 'weapon', slot: 'weapon', rarity: 'common',    damage: 20, durabilityMax: 22, priceGame: 220000, effect: {}, active: true },
+  { itemId: 'lance_chevalier',        name: '🛡️ Lance de chevalier',             category: 'weapon', slot: 'weapon', rarity: 'common',    damage: 18, durabilityMax: 20, priceGame: 210000, effect: {}, active: true },
+  { itemId: 'gourdin_cloute',         name: '🪵 Gourdin clouté',                  category: 'weapon', slot: 'weapon', rarity: 'common',    damage: 12, durabilityMax: 25, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'masse_templiere',        name: '🔨 Masse templière',                 category: 'weapon', slot: 'weapon', rarity: 'common',    damage: 16, durabilityMax: 24, priceGame: 205000, effect: {}, active: true },
+  { itemId: 'epee_bataille',          name: '⚔️ Épée de bataille',                category: 'weapon', slot: 'weapon', rarity: 'rare',      damage: 35, durabilityMax: 18, priceGame: 380000, effect: {}, active: true },
+  { itemId: 'hache_guerre_naine',     name: '🪓 Hache de guerre naine',           category: 'weapon', slot: 'weapon', rarity: 'rare',      damage: 38, durabilityMax: 18, priceGame: 400000, effect: {}, active: true },
+  { itemId: 'marteau_guerre_sacre',   name: '⚒️ Marteau de guerre sacré',         category: 'weapon', slot: 'weapon', rarity: 'rare',      damage: 40, durabilityMax: 17, priceGame: 420000, effect: {}, active: true },
+  { itemId: 'dague_sept_eclats',      name: '🗡️ Dague aux Sept Éclats',           category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 55, durabilityMax: 14, priceGame: 750000, effect: {}, active: true },
+  { itemId: 'epee_elfique_argent',    name: '✨ Épée elfique à lame d\'argent',    category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 60, durabilityMax: 15, priceGame: 800000, effect: {}, active: true },
+  { itemId: 'dard_luisant',           name: '🔷 Dard, la lame qui luit près des Orcs', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 50, durabilityMax: 16, priceGame: 700000, effect: {}, active: true },
+  { itemId: 'anduril_replique',       name: '👑 Réplique d\'Andúril, l\'Épée Reforgée', category: 'weapon', slot: 'weapon', rarity: 'epic', damage: 90, durabilityMax: 10, priceGame: 1500000, effect: {}, active: true },
+  // ── Arcs (slot 'weapon', requiresArrow — inefficaces sans flèches équipées dans le slot 'arrows')
+  { itemId: 'arc_chasseur',           name: '🏹 Arc du chasseur',                 category: 'weapon', slot: 'weapon', rarity: 'common',    damage: 6,  durabilityMax: 28, requiresArrow: true, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'arc_elfique',            name: '🏹 Arc elfique',                     category: 'weapon', slot: 'weapon', rarity: 'rare',      damage: 10, durabilityMax: 30, requiresArrow: true, priceGame: 380000, effect: {}, active: true },
+  { itemId: 'arc_galadriel',          name: '🏹 Arc légendaire de Galadriel',     category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 20, durabilityMax: 20, requiresArrow: true, priceGame: 780000, effect: {}, active: true },
+  // ── Flèches (slot 'arrows', consommables — dégâts additionnés à ceux de l'arc)
+  { itemId: 'fleche_simple',    name: '➶ Flèche simple',    category: 'arrow', slot: 'arrows', damage: 5,  priceGame: 20,  effect: {}, active: true },
+  { itemId: 'fleche_glace',     name: '❄️ Flèche de glace',  category: 'arrow', slot: 'arrows', damage: 12, priceGame: 60,  effect: {}, active: true },
+  { itemId: 'fleche_feu',       name: '🔥 Flèche de feu',    category: 'arrow', slot: 'arrows', damage: 15, priceGame: 70,  effect: {}, active: true },
+  { itemId: 'fleche_explosive', name: '💥 Flèche explosive', category: 'arrow', slot: 'arrows', damage: 25, priceGame: 120, effect: {}, active: true },
+  // ── Protections (casque/torse/jambes/pieds/ceinture — defense en combat)
+  { itemId: 'casque_fer',        name: '⛑️ Casque de fer',                 category: 'armor', slot: 'head', rarity: 'common',    defense: 8,  durabilityMax: 20, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'casque_dragon',     name: '🐲 Casque en écailles de dragon',  category: 'armor', slot: 'head', rarity: 'legendary', defense: 25, durabilityMax: 14, priceGame: 780000, effect: {}, active: true },
+  { itemId: 'cotte_mailles',     name: '🥋 Cotte de mailles',              category: 'armor', slot: 'body', rarity: 'common',    defense: 15, durabilityMax: 22, priceGame: 210000, effect: {}, active: true },
+  { itemId: 'armure_plates',     name: '🛡️ Armure de plates',             category: 'armor', slot: 'body', rarity: 'rare',      defense: 30, durabilityMax: 18, priceGame: 400000, effect: {}, active: true },
+  { itemId: 'armure_mithril',    name: '💎 Armure de mithril',             category: 'armor', slot: 'body', rarity: 'epic',      defense: 70, durabilityMax: 12, priceGame: 1600000, effect: {}, active: true },
+  { itemId: 'jambieres_acier',   name: '🦵 Jambières d\'acier',            category: 'armor', slot: 'legs', rarity: 'common',    defense: 10, durabilityMax: 20, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'jambieres_naines',  name: '🦵 Jambières naines renforcées',   category: 'armor', slot: 'legs', rarity: 'rare',      defense: 20, durabilityMax: 18, priceGame: 380000, effect: {}, active: true },
+  { itemId: 'bottes_voyageur',   name: '👢 Bottes du voyageur',            category: 'armor', slot: 'feet', rarity: 'common',    defense: 6,  durabilityMax: 25, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'bottes_sept_lieues',name: '👢 Bottes de sept lieues',         category: 'armor', slot: 'feet', rarity: 'legendary', defense: 18, durabilityMax: 15, priceGame: 750000, effect: {}, active: true },
+  { itemId: 'ceinture_force',    name: '🎗️ Ceinture de force',            category: 'armor', slot: 'belt', rarity: 'common',    defense: 5,  durabilityMax: 22, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'ceinture_geant',    name: '🎗️ Ceinture du géant',            category: 'armor', slot: 'belt', rarity: 'rare',      defense: 15, durabilityMax: 18, priceGame: 380000, effect: {}, active: true },
+  // ── Boucliers (slot 'offhand')
+  { itemId: 'bouclier_bois',     name: '🛡️ Bouclier de bois clouté',      category: 'shield', slot: 'offhand', rarity: 'common',    defense: 10, durabilityMax: 20, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'bouclier_fer',      name: '🛡️ Bouclier de fer',              category: 'shield', slot: 'offhand', rarity: 'common',    defense: 16, durabilityMax: 22, priceGame: 220000, effect: {}, active: true },
+  { itemId: 'egide_templiere',   name: '🛡️ Égide templière',              category: 'shield', slot: 'offhand', rarity: 'rare',      defense: 30, durabilityMax: 18, priceGame: 400000, effect: {}, active: true },
+  { itemId: 'bouclier_dragon_or',name: '🛡️ Bouclier en écailles de Dragon d\'Or', category: 'shield', slot: 'offhand', rarity: 'epic', defense: 65, durabilityMax: 12, priceGame: 1500000, effect: {}, active: true },
+  // ── Cape d'invisibilité (consommable, 10-15 min — voir activateInvisibility et la quête
+  // "Gardiens à trois têtes de chameaux" qui la récompense, seedInvisibilityQuest.mjs)
+  { itemId: 'cape_invisibilite', name: '🫥 Cape d\'invisibilité', category: 'potion', rarity: 'epic', priceGame: 90000, effect: { invisibleMinutes: 12 }, active: true },
 ];
 
 // ─────────────────────────────────────── Rep rules ───────────────────────────────────────
@@ -850,6 +1115,18 @@ export interface RepRules {
   moodFeedXpPenalty: number;       // 🍖 XP d'Expérience retiré par jour manqué (défaut 20)
   moodFeedHungerPenalty: number;   // 🍖 Faim retirée par jour manqué (défaut 10)
   moodFeedWalletPenalty: number;   // 🍖 Pièces retirées du portefeuille par jour manqué (défaut 10)
+  // ─── Équipement (armes/protections/flèches — voir EquipmentWidget.tsx et NpcEncounterPopup.tsx) ───
+  equipRarityXpCommon: number;    // XP min pour qu'une arme/protection commune apparaisse en butin (défaut 4000)
+  equipRarityXpRare: number;      // XP min pour le palier rare (défaut 20000)
+  equipRarityXpLegendary: number; // XP min pour le palier légendaire (défaut 80000)
+  equipRarityXpEpic: number;      // XP min pour le palier épique (défaut 100000)
+  equipShopMinPrice: number;      // Prix boutique minimum indicatif pour une arme/protection (défaut 200000)
+  equipDamageBonusDivisor: number;  // Diviseur dégâts arme → bonus du jet de dés (défaut 4)
+  equipDefenseBonusDivisor: number; // Diviseur défense armure/bouclier → bonus du jet de dés (défaut 5)
+  equipDurabilityLossPct: number;   // % du plafond de durabilité perdu par usage en combat (défaut 8)
+  equipDropChancePct: number;       // % de chance qu'un butin de victoire soit un équipement plutôt qu'un objet basique (défaut 15)
+  capeInvisibilityMinMinutes: number; // Durée min de la cape d'invisibilité (défaut 10)
+  capeInvisibilityMaxMinutes: number; // Durée max de la cape d'invisibilité (défaut 15)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -903,6 +1180,17 @@ export const DEFAULT_REP_RULES: RepRules = {
   moodFeedXpPenalty: 20,
   moodFeedHungerPenalty: 10,
   moodFeedWalletPenalty: 10,
+  equipRarityXpCommon: 4000,
+  equipRarityXpRare: 20000,
+  equipRarityXpLegendary: 80000,
+  equipRarityXpEpic: 100000,
+  equipShopMinPrice: 200000,
+  equipDamageBonusDivisor: 4,
+  equipDefenseBonusDivisor: 5,
+  equipDurabilityLossPct: 8,
+  equipDropChancePct: 15,
+  capeInvisibilityMinMinutes: 10,
+  capeInvisibilityMaxMinutes: 15,
 };
 
 export async function getRepRules(): Promise<RepRules> {

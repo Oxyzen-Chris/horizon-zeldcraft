@@ -17,6 +17,7 @@ import { TopupPresetsPanel } from '@/components/TopupPresetsPanel';
 import { FamiliarsAdminPanel } from '@/components/FamiliarsAdminPanel';
 import { ChatScriptsAdminPanel } from '@/components/ChatScriptsAdminPanel';
 import { CustomWidgetsAdminPanel } from '@/components/CustomWidgetsAdminPanel';
+import { EquipmentAdminPanel } from '@/components/EquipmentAdminPanel';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 
@@ -156,6 +157,7 @@ export default function AdminPage() {
           <RepRulesPanel />
           <TopupPresetsPanel />
           <FamiliarsAdminPanel />
+          <EquipmentAdminPanel />
           <ChatScriptsAdminPanel />
           <CustomWidgetsAdminPanel />
 

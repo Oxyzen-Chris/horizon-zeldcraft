@@ -17,6 +17,8 @@ export interface FightResultData {
   coinsDelta: number;      // + gagné sur la bourse du PNJ, - volé par le PNJ
   lootItemName?: string;   // objet gagné (butin du PNJ vaincu)
   stolenItemName?: string; // objet perdu (le PNJ te l'a pris)
+  equipBonus?: number;         // bonus de dés apporté par l'équipement utilisé (voir computeEquipmentCombatBonus)
+  brokenItemNames?: string[]; // armes/protections cassées lors de ce combat (usure → 0)
 }
 
 /** Pop-up de résultat de combat façon jet de dés (D&D-like) — affiché après un combat PNJ. */
@@ -62,6 +64,12 @@ export function FightResultModal({ data, onClose }: { data: FightResultData | nu
           )}
           {data.stolenItemName && (
             <p className="text-rose-300">🚫 {t('fight.lootLost', { name: data.stolenItemName })}</p>
+          )}
+          {!!data.equipBonus && (
+            <p className="text-indigo-300">🧝 {t('fight.equipBonus', { v: data.equipBonus })}</p>
+          )}
+          {!!data.brokenItemNames?.length && (
+            <p className="text-rose-400">💥 {t('fight.equipBroken', { names: data.brokenItemNames.join(', ') })}</p>
           )}
         </div>
 
