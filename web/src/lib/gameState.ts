@@ -1056,8 +1056,12 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'super_force',   name: '💪 Super-fiole de Force (+100 max)',   category: 'super_potion', priceGame: 500, effect: { maxForce: 100, force: 50 },  active: true },
   { itemId: 'super_spells',  name: '🔮 Super-fiole de Sortilèges (+100 max)', category: 'super_potion', priceGame: 500, effect: { maxSpells: 100, spells: 50 }, active: true },
   { itemId: 'legend_hp',     name: '❤️‍🔥 Fiole légendaire de Vie (+200 max)',    category: 'super_potion', priceGame: 900, effect: { maxHp: 200, hp: 200 },       active: true },
-  { itemId: 'sword_ep',  name: '⚔️ Épée épique',        category: 'weapon',  priceGame: 200, effect: { force: 20 },              active: true },
-  { itemId: 'shield_lg', name: '🛡️ Bouclier légendaire', category: 'armor',  priceGame: 250, effect: { force: 15, hp: 20 },      active: true },
+  // Ces deux objets historiques (antérieurs au système d'équipement) gardent leur effet à
+  // usage unique (bouton "Utiliser") mais reçoivent désormais aussi un `slot` — sans quoi ils
+  // apparaissaient dans les onglets Armes/Protections de la besace sans jamais être glissables
+  // vers la fenêtre Équipement, contrairement à tous les autres objets de ces onglets.
+  { itemId: 'sword_ep',  name: '⚔️ Épée épique',        category: 'weapon', slot: 'weapon',  rarity: 'rare', damage: 20, durabilityMax: 20, priceGame: 200, effect: { force: 20 },              active: true },
+  { itemId: 'shield_lg', name: '🛡️ Bouclier légendaire', category: 'shield', slot: 'offhand', rarity: 'rare', defense: 20, durabilityMax: 20, priceGame: 250, effect: { force: 15, hp: 20 },      active: true },
   { itemId: 'spell_fire',name: '🔥 Sort de feu',        category: 'spell',   priceGame: 150, effect: { spells: 25 },             active: true },
   // ─── Engins mécaniques (gate d'accès aux mondes) — équipables (slot 'vehicle', voir
   // EquipmentWidget.tsx) pour désigner l'engin actif du voyage en cours.
