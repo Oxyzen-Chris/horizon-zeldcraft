@@ -282,7 +282,11 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
       <div className="p-3">
         <div className="relative mx-auto" style={{ width: 220, height: 220 }}>
           {/* Silhouette "homme de Vitruve" — bras/jambes écartés pour accueillir l'équipement */}
-          <div className="absolute inset-0 flex items-center justify-center opacity-90">
+          {/* pointer-events-none : cette silhouette purement décorative couvre tout le carré
+              220×220 (inset-0) et se trouvait donc superposée aux emplacements Slot ci-dessous
+              (arme/tête/corps/jambes/pieds/ceinture/amulette), interceptant parfois le
+              glisser-déposer natif HTML5 malgré son ordre de rendu antérieur dans le DOM. */}
+          <div className="absolute inset-0 flex items-center justify-center opacity-90 pointer-events-none">
             <SynkSkin stage={stage} size={110} />
           </div>
           <Slot slot="head"    className="top-0 left-1/2 -translate-x-1/2" />

@@ -91,6 +91,11 @@ const ITEMS = [
   ['selle_or',     "🥇 Selle Solaire du Dragon d'Or",          'saddle', 90000,  { slot: 'saddle', rarity: 'legendary', requiresFamiliarId: 'dragon.gold' }],
   ['selle_argent', "🥈 Selle Lunaire du Dragon d'Argent",      'saddle', 110000, { slot: 'saddle', rarity: 'epic',      requiresFamiliarId: 'dragon.silver' }],
   ['selle_bronze', '🥉 Selle des Forges du Dragon de Bronze',  'saddle', 130000, { slot: 'saddle', rarity: 'epic',      requiresFamiliarId: 'dragon.bronze' }],
+  // Objets historiques (antérieurs au système d'équipement, jamais inclus dans ce script avant
+  // ce correctif) — reçoivent enfin un slot pour devenir glissables/équipables tout en gardant
+  // leur effet à usage unique existant (voir gameState.ts DEFAULT_SHOP).
+  ['sword_ep',  '⚔️ Épée épique',        'weapon', 200, { slot: 'weapon',  rarity: 'rare', damage: 20,  durabilityMax: 20, effect: { force: 20 } }],
+  ['shield_lg', '🛡️ Bouclier légendaire', 'shield', 250, { slot: 'offhand', rarity: 'rare', defense: 20, durabilityMax: 20, effect: { force: 15, hp: 20 } }],
 ];
 
 async function main() {
