@@ -38,16 +38,16 @@ for (const line of readFileSync(envPath, 'utf8').split('\n')) {
   if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 
-//   [id,              label,                       xpRequired, requiredItemId,           i18nKey]
+//   [id,              label,                       xpRequired, requiredItemId,           i18nKey,                combatDamage, combatDefense]
 const FAMILIARS = [
-  ['dragon.gold',   '🐲 Dragon d\'Or',      5000,  'ecaille_semaphore',       'familiar.dragon_gold'],
-  ['dragon.white',  '🐉 Dragon Blanc',      8000,  'griffe_gel_eternel',      'familiar.dragon_white'],
-  ['dragon.black',  '🐉 Dragon Noir',       15000, 'larme_marais_noir',       'familiar.dragon_black'],
-  ['dragon.green',  '🐉 Dragon Vert',       22000, 'ecaille_ronce_venin',     'familiar.dragon_green'],
-  ['dragon.blue',   '🐉 Dragon Bleu',       32000, 'eclat_orage_saphir',      'familiar.dragon_blue'],
-  ['dragon.red',    '🐉 Dragon Rouge',      45000, 'braise_coeur_volcan',     'familiar.dragon_red'],
-  ['dragon.silver', '🐉 Dragon d\'Argent',  65000, 'plume_givre_lunaire',     'familiar.dragon_silver'],
-  ['dragon.bronze', '🐉 Dragon de Bronze',  90000, 'perle_abysse_electrique', 'familiar.dragon_bronze'],
+  ['dragon.gold',   '🐲 Dragon d\'Or',      5000,  'ecaille_semaphore',       'familiar.dragon_gold',   15, 25],
+  ['dragon.white',  '🐉 Dragon Blanc',      8000,  'griffe_gel_eternel',      'familiar.dragon_white',   8, 12],
+  ['dragon.black',  '🐉 Dragon Noir',       15000, 'larme_marais_noir',       'familiar.dragon_black',  14, 10],
+  ['dragon.green',  '🐉 Dragon Vert',       22000, 'ecaille_ronce_venin',     'familiar.dragon_green',  16, 12],
+  ['dragon.blue',   '🐉 Dragon Bleu',       32000, 'eclat_orage_saphir',      'familiar.dragon_blue',   20, 16],
+  ['dragon.red',    '🐉 Dragon Rouge',      45000, 'braise_coeur_volcan',     'familiar.dragon_red',    28, 18],
+  ['dragon.silver', '🐉 Dragon d\'Argent',  65000, 'plume_givre_lunaire',     'familiar.dragon_silver', 24, 32],
+  ['dragon.bronze', '🐉 Dragon de Bronze',  90000, 'perle_abysse_electrique', 'familiar.dragon_bronze', 26, 38],
 ];
 
 async function main() {
@@ -62,15 +62,15 @@ async function main() {
   const db = getDatabase(app);
   const now = Date.now();
 
-  for (const [id, label, xpRequired, requiredItemId, i18nKey] of FAMILIARS) {
+  for (const [id, label, xpRequired, requiredItemId, i18nKey, combatDamage, combatDefense] of FAMILIARS) {
     const order = FAMILIARS.findIndex((f) => f[0] === id); // 0..n, ordre d'affichage explicite
     const key = id.toLowerCase().replace(/[.#$[\]]/g, '_'); // clé RTDB valide (Firebase interdit ".#$[]")
     // RTDB refuse toute valeur `undefined` explicite (déjà rencontré comme bug de push) : on omet
     // la clé requiredItemId plutôt que de la laisser à `undefined` quand le dragon n'a pas d'objet requis.
-    const def = { id, label, xpRequired, active: true, createdAt: now, order, i18nKey };
+    const def = { id, label, xpRequired, active: true, createdAt: now, order, i18nKey, combatDamage, combatDefense };
     if (requiredItemId) def.requiredItemId = requiredItemId;
     await set(ref(db, `catalog/familiars/${key}`), def);
-    console.log(`✅ ${id} → ${key} (order ${order}) — ${label} · ${xpRequired} XP${requiredItemId ? ` + objet "${requiredItemId}"` : ''}`);
+    console.log(`✅ ${id} → ${key} (order ${order}) — ${label} · ${xpRequired} XP · ⚔️${combatDamage}/🛡️${combatDefense}${requiredItemId ? ` + objet "${requiredItemId}"` : ''}`);
   }
   console.log('\nTerminé — catalogue de familiers 100% hors-chaîne opérationnel.');
   process.exit(0);

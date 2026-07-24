@@ -4,21 +4,35 @@ import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import {
   subscribeInventory, applyEffect, removeFromInventory, activateInvisibility, getRepRules,
-  subscribeFamiliars, getFamiliarDefs, familiarKeyOf, type InventoryItem, type RepRules, type FamiliarDef,
+  subscribeFamiliars, getFamiliarDefs, familiarKeyOf, consumeInventoryItem, equipItem, equipFamiliar,
+  FAMILIAR_DRAG_PREFIX, type InventoryItem, type RepRules, type FamiliarDef,
 } from '@/lib/gameState';
 import { ITEM_TAB_CATEGORIES as TAB_CATEGORIES, ITEM_TAB_ORDER as TAB_ORDER, ITEM_TAB_ICON as TAB_ICON, type ItemTab as Tab } from '@/lib/itemTabs';
 import { useI18n, itemLabel, localizeName } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DragonSkin, dragonKindFromId } from './DragonSkin';
 
+/** Catégories équipables via un simple bouton "Équiper" (en plus du glisser-déposer) — armes/
+ * protections/flèches restent volontairement drag-only (comportement historique), tandis
+ * qu'engins et selles bénéficient des deux méthodes (voir demande utilisateur). */
+const EQUIP_BUTTON_CATEGORIES = new Set<InventoryItem['category']>(['vehicle', 'saddle']);
+
+type ConfirmAction =
+  | { kind: 'use'; item: InventoryItem }
+  | { kind: 'equip'; item: InventoryItem }
+  | { kind: 'equipFamiliar'; familiar: FamiliarDef };
+
 /** Sac du joueur — inventaire off-chain (Firebase), pas de gas pour manipuler. Découpé en
  * onglets par type d'objet (voir TAB_CATEGORIES) — les armes/protections/flèches équipables
- * (avec un `slot`) sont glissables (drag & drop) vers la fenêtre flottante EquipmentWidget.tsx. */
+ * (avec un `slot`) sont glissables (drag & drop) vers la fenêtre flottante EquipmentWidget.tsx.
+ * Engins/selles/familiers proposent en plus un bouton "Équiper" (avec pop-up de confirmation)
+ * comme méthode alternative au glisser-déposer. */
 export function InventoryPanel() {
   const { t } = useI18n();
   const { address } = useAccount();
   const [items, setItems] = useState<InventoryItem[]>([]);
-  const [confirm, setConfirm] = useState<InventoryItem | null>(null);
+  const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('weapon');
   const [rules, setRules] = useState<RepRules | null>(null);
   const [familiars, setFamiliars] = useState<FamiliarDef[]>([]);
@@ -35,23 +49,32 @@ export function InventoryPanel() {
     return subscribeFamiliars(address, setOwned);
   }, [address]);
 
+  const flash = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(null), 3000); };
+
   const use = async (it: InventoryItem) => {
+    if (!address || !rules) return;
+    await consumeInventoryItem(address, it, rules);
+  };
+  const doEquip = async (it: InventoryItem) => {
+    if (!address || !it.slot) return;
+    const result = await equipItem(address, it, it.slot);
+    if (result === 'ok') flash('✅ ' + t('equip.equipped', { name: itemLabel(t, it.itemId, it.name) }));
+    else if (result === 'needFamiliar') flash('❌ ' + t('equip.needFamiliar'));
+    else flash('❌ ' + t('equip.failed'));
+  };
+  const doEquipFamiliar = async (f: FamiliarDef) => {
     if (!address) return;
-    // Cape d'invisibilité (et tout futur objet à effet temporisé) : durée aléatoire admin plutôt
-    // qu'un simple delta de stats — voir activateInvisibility()/RepRules.capeInvisibility*.
-    if (it.effect?.invisibleMinutes) {
-      const min = rules?.capeInvisibilityMinMinutes ?? 10;
-      const max = rules?.capeInvisibilityMaxMinutes ?? 15;
-      await activateInvisibility(address, min, max);
-    } else if (it.effect) {
-      await applyEffect(address, it.effect);
-    }
-    await removeFromInventory(address, it.itemId, 1);
+    const result = await equipFamiliar(address, f);
+    if (result === 'ok') flash('✅ ' + t('equip.equipped', { name: localizeName(t, f.i18nKey, f.label) }));
+    else flash('❌ ' + t('equip.failed'));
   };
   const runConfirm = async () => {
-    const it = confirm;
+    const action = confirm;
     setConfirm(null);
-    if (it) await use(it);
+    if (!action) return;
+    if (action.kind === 'use') await use(action.item);
+    else if (action.kind === 'equip') await doEquip(action.item);
+    else if (action.kind === 'equipFamiliar') await doEquipFamiliar(action.familiar);
   };
 
   const renderEffect = (e: InventoryItem['effect']) => {
@@ -106,9 +129,25 @@ export function InventoryPanel() {
             {activeFamiliars.map((f) => {
               const kind = dragonKindFromId(f.id);
               return (
-                <div key={f.id} className="bg-slate-800/60 rounded p-2 text-center">
+                <div
+                  key={f.id}
+                  className="bg-slate-800/60 rounded p-2 text-center cursor-grab"
+                  draggable
+                  onDragStart={(e) => e.dataTransfer.setData('text/plain', `${FAMILIAR_DRAG_PREFIX}${f.id}`)}
+                  title={t('game.inventory.dragHint')}
+                >
                   {kind && <div className="flex justify-center mb-1"><DragonSkin kind={kind} size={40} /></div>}
                   <p className="text-xs font-semibold truncate">{localizeName(t, f.i18nKey, f.label)}</p>
+                  {(!!f.combatDamage || !!f.combatDefense) && (
+                    <p className="text-[10px] mb-1">
+                      {f.combatDamage ? <span className="text-emerald-400">⚔️ {f.combatDamage}</span> : null}
+                      {f.combatDefense ? <span className="text-sky-400"> 🛡️ {f.combatDefense}</span> : null}
+                    </p>
+                  )}
+                  <button className="btn-secondary text-xs w-full mt-1" onClick={() => setConfirm({ kind: 'equipFamiliar', familiar: f })}>
+                    🧝 {t('game.inventory.equip')}
+                  </button>
+                  <p className="text-[9px] text-indigo-300 mt-1">🧝 {t('game.inventory.equipHint')}</p>
                 </div>
               );
             })}
@@ -131,8 +170,13 @@ export function InventoryPanel() {
               {renderCombatStats(it)}
               {renderEffect(it.effect)}
               {it.effect && (
-                <button className="btn-secondary text-xs w-full" onClick={() => setConfirm(it)}>
+                <button className="btn-secondary text-xs w-full" onClick={() => setConfirm({ kind: 'use', item: it })}>
                   {t('game.inventory.use')}
+                </button>
+              )}
+              {it.slot && EQUIP_BUTTON_CATEGORIES.has(it.category) && (
+                <button className="btn-secondary text-xs w-full mt-1" onClick={() => setConfirm({ kind: 'equip', item: it })}>
+                  🧝 {t('game.inventory.equip')}
                 </button>
               )}
               {(it.slot || it.category === 'arrow') && (
@@ -143,14 +187,21 @@ export function InventoryPanel() {
         </div>
       )}
       <p className="text-xs text-slate-500 mt-2">{t('game.inventory.hint')}</p>
+      {feedback && <p className="text-sm mt-2 text-cyan-400">{feedback}</p>}
 
       <ConfirmDialog
         open={!!confirm}
-        title={t('game.inventory.confirmUseTitle')}
-        message={confirm ? t('game.inventory.confirmUseMsg', { name: itemLabel(t, confirm.itemId, confirm.name) }) : ''}
+        title={confirm?.kind === 'use' ? t('game.inventory.confirmUseTitle') : t('game.inventory.confirmEquipTitle')}
+        message={
+          confirm?.kind === 'use' ? t('game.inventory.confirmUseMsg', { name: itemLabel(t, confirm.item.itemId, confirm.item.name) })
+          : confirm?.kind === 'equip' ? t('game.inventory.confirmEquipMsg', { name: itemLabel(t, confirm.item.itemId, confirm.item.name) })
+          : confirm?.kind === 'equipFamiliar' ? t('game.inventory.confirmEquipFamiliarMsg', { name: localizeName(t, confirm.familiar.i18nKey, confirm.familiar.label) })
+          : ''
+        }
         onConfirm={runConfirm}
         onCancel={() => setConfirm(null)}
       />
     </div>
   );
 }
+

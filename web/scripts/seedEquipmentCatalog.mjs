@@ -1,9 +1,11 @@
 /**
  * Pousse en base (Firebase RTDB, `catalog/shop/{itemId}`) le catalogue d'équipement du personnage
- * (armes, arcs, flèches, protections, boucliers, cape d'invisibilité) — voir `DEFAULT_SHOP` dans
- * `web/src/lib/gameState.ts` pour la même liste (utilisée en repli local si `catalog/shop` est vide
- * en base). Ce script permet de propager les NOUVEAUX items dans une base déjà peuplée (le repli
- * `DEFAULT_SHOP` n'est utilisé QUE si `catalog/shop` est totalement vide côté Firebase).
+ * (armes, arcs, flèches, protections, boucliers, amulettes, engins, selles de dragon) — voir
+ * `DEFAULT_SHOP` dans `web/src/lib/gameState.ts` pour la même liste (utilisée en repli local si
+ * `catalog/shop` est vide en base). Ce script permet de propager les NOUVEAUX items dans une base
+ * déjà peuplée (le repli `DEFAULT_SHOP` n'est utilisé QUE si `catalog/shop` est totalement vide
+ * côté Firebase — d'où l'importance de relancer ce script après toute modification d'un item déjà
+ * seedé, ex. cape_invisibilite, sous peine que la version Firebase périmée l'emporte).
  *
  * Lore (inspiré de Tolkien et des bestiaires/arsenaux classiques Donjons & Dragons, recherché pour
  * rester crédible) : Andúril (l'Épée Reforgée d'Aragorn), Dard (l'épée de Bilbo/Frodo, luit près
@@ -70,7 +72,25 @@ const ITEMS = [
   ['bouclier_fer', '🛡️ Bouclier de fer', 'shield', 220000, { slot: 'offhand', rarity: 'common', defense: 16, durabilityMax: 22 }],
   ['egide_templiere', '🛡️ Égide templière', 'shield', 400000, { slot: 'offhand', rarity: 'rare', defense: 30, durabilityMax: 18 }],
   ['bouclier_dragon_or', "🛡️ Bouclier en écailles de Dragon d'Or", 'shield', 1500000, { slot: 'offhand', rarity: 'epic', defense: 65, durabilityMax: 12 }],
-  ['cape_invisibilite', "🫥 Cape d'invisibilité", 'potion', 90000, { rarity: 'epic', effect: { invisibleMinutes: 12 } }],
+  // Cape d'invisibilité : désormais un objet double-usage — s'équipe comme protection (slot
+  // 'amulet', défense + durabilité) OU se consomme directement (garde son effect.invisibleMinutes,
+  // voir consumeInventoryItem()) via le bouton "Utiliser" de la besace.
+  ['cape_invisibilite', "🫥 Cape d'invisibilité", 'armor', 90000, { slot: 'amulet', rarity: 'epic', defense: 20, durabilityMax: 6, effect: { invisibleMinutes: 12 } }],
+  ['amulette_vitalite', '📿 Amulette de Vitalité', 'armor', 200000, { slot: 'amulet', rarity: 'common', defense: 12, durabilityMax: 24 }],
+  ['amulette_anciens', '📿 Amulette des Anciens', 'armor', 400000, { slot: 'amulet', rarity: 'rare', defense: 28, durabilityMax: 18 }],
+  ['char_voile', '🌤️ Char à voile', 'vehicle', 500, { slot: 'vehicle' }],
+  ['barque', '🛶 Barque', 'vehicle', 400, { slot: 'vehicle' }],
+  ['montgolf', '🎈 Montgolfière', 'vehicle', 800, { slot: 'vehicle' }],
+  ['mototaupe', '🚀 Moto-taupe', 'vehicle', 900, { slot: 'vehicle' }],
+  // Selles de dragon (une par dragon, appairage strict via requiresFamiliarId — voir equipItem()).
+  ['selle_blanc',  '❄️ Selle Immaculée du Dragon Blanc',      'saddle', 40000,  { slot: 'saddle', rarity: 'common',    requiresFamiliarId: 'dragon.white' }],
+  ['selle_noir',   "🌑 Selle d'Ombre du Dragon Noir",          'saddle', 50000,  { slot: 'saddle', rarity: 'rare',      requiresFamiliarId: 'dragon.black' }],
+  ['selle_vert',   '🟢 Selle Sylvestre du Dragon Vert',        'saddle', 55000,  { slot: 'saddle', rarity: 'rare',      requiresFamiliarId: 'dragon.green' }],
+  ['selle_bleu',   '🔵 Selle des Tempêtes du Dragon Bleu',     'saddle', 65000,  { slot: 'saddle', rarity: 'legendary', requiresFamiliarId: 'dragon.blue' }],
+  ['selle_rouge',  '🔴 Selle Ardente du Dragon Rouge',         'saddle', 80000,  { slot: 'saddle', rarity: 'legendary', requiresFamiliarId: 'dragon.red' }],
+  ['selle_or',     "🥇 Selle Solaire du Dragon d'Or",          'saddle', 90000,  { slot: 'saddle', rarity: 'legendary', requiresFamiliarId: 'dragon.gold' }],
+  ['selle_argent', "🥈 Selle Lunaire du Dragon d'Argent",      'saddle', 110000, { slot: 'saddle', rarity: 'epic',      requiresFamiliarId: 'dragon.silver' }],
+  ['selle_bronze', '🥉 Selle des Forges du Dragon de Bronze',  'saddle', 130000, { slot: 'saddle', rarity: 'epic',      requiresFamiliarId: 'dragon.bronze' }],
 ];
 
 async function main() {

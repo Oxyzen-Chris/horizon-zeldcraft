@@ -23,6 +23,8 @@ export function FamiliarsAdminPanel() {
   const [label, setLabel] = useState('');
   const [xpRequired, setXpRequired] = useState('5000');
   const [itemId, setItemId] = useState('');
+  const [combatDamage, setCombatDamage] = useState('0');
+  const [combatDefense, setCombatDefense] = useState('0');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editing, setEditing] = useState<FamiliarDef | null>(null);
@@ -31,7 +33,8 @@ export function FamiliarsAdminPanel() {
   useEffect(() => { reload(); }, []);
 
   const resetForm = () => {
-    setId(''); setLabel(''); setItemId(''); setXpRequired('5000'); setEditing(null);
+    setId(''); setLabel(''); setItemId(''); setXpRequired('5000');
+    setCombatDamage('0'); setCombatDefense('0'); setEditing(null);
   };
 
   const startEdit = (f: FamiliarDef) => {
@@ -40,6 +43,8 @@ export function FamiliarsAdminPanel() {
     setLabel(f.label);
     setXpRequired(String(f.xpRequired));
     setItemId(f.requiredItemId ?? '');
+    setCombatDamage(String(f.combatDamage ?? 0));
+    setCombatDefense(String(f.combatDefense ?? 0));
   };
 
   const submit = async () => {
@@ -58,6 +63,8 @@ export function FamiliarsAdminPanel() {
         createdAt: editing?.createdAt ?? Date.now(),
         order: editing?.order ?? (familiars.length ? Math.max(...familiars.map((f) => f.order ?? 0)) + 1 : 0),
         ...(editing?.i18nKey ? { i18nKey: editing.i18nKey } : {}),
+        ...(Number(combatDamage) > 0 ? { combatDamage: Number(combatDamage) } : {}),
+        ...(Number(combatDefense) > 0 ? { combatDefense: Number(combatDefense) } : {}),
       };
       await addFamiliarDef(trimmedItemId ? { ...base, requiredItemId: trimmedItemId } : base);
       resetForm();
@@ -86,6 +93,8 @@ export function FamiliarsAdminPanel() {
         <input className="input" placeholder={t('admin.familiars.label')} value={label} onChange={(e) => setLabel(e.target.value)} />
         <input className="input" type="number" placeholder={t('admin.familiars.xpRequired')} value={xpRequired} onChange={(e) => setXpRequired(e.target.value)} />
         <input className="input" placeholder={t('admin.familiars.itemId')} value={itemId} onChange={(e) => setItemId(e.target.value)} />
+        <input className="input" type="number" placeholder={t('admin.familiars.combatDamage')} value={combatDamage} onChange={(e) => setCombatDamage(e.target.value)} />
+        <input className="input" type="number" placeholder={t('admin.familiars.combatDefense')} value={combatDefense} onChange={(e) => setCombatDefense(e.target.value)} />
       </div>
       {dragonKindFromId(id) && (
         <div className="flex items-center gap-2 mt-2">
@@ -113,7 +122,9 @@ export function FamiliarsAdminPanel() {
                 <span className="flex items-center gap-2">
                   {dragonKindFromId(f.id) && <DragonSkin kind={dragonKindFromId(f.id)!} size={28} />}
                   <span><b>{f.label}</b> — {f.xpRequired} XP
-                  {f.requiredItemId && <> · 🎒 {f.requiredItemId}</>}</span>
+                  {f.requiredItemId && <> · 🎒 {f.requiredItemId}</>}
+                  {!!f.combatDamage && <> · ⚔️{f.combatDamage}</>}
+                  {!!f.combatDefense && <> · 🛡️{f.combatDefense}</>}</span>
                 </span>
                 <span className="flex gap-2">
                   <button className="btn-secondary text-xs" onClick={() => startEdit(f)}>✏️ {t('admin.familiars.edit')}</button>

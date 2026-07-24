@@ -8,8 +8,8 @@ import {
 import { useI18n, itemLabel } from '@/lib/i18n';
 
 const RARITIES: ItemRarity[] = ['common', 'rare', 'legendary', 'epic'];
-const CATEGORIES: ShopItem['category'][] = ['weapon', 'armor', 'shield', 'arrow', 'potion', 'food', 'spell', 'treasure', 'super_potion', 'vehicle'];
-const EQUIP_CATEGORIES = new Set<ShopItem['category']>(['weapon', 'armor', 'shield', 'arrow']);
+const CATEGORIES: ShopItem['category'][] = ['weapon', 'armor', 'shield', 'arrow', 'potion', 'food', 'spell', 'treasure', 'super_potion', 'vehicle', 'saddle'];
+const EQUIP_CATEGORIES = new Set<ShopItem['category']>(['weapon', 'armor', 'shield', 'arrow', 'vehicle', 'saddle']);
 
 /**
  * Panneau admin — catalogue des armes/protections/flèches (équipement) : création et édition
@@ -31,6 +31,7 @@ export function EquipmentAdminPanel() {
   const [defense, setDefense] = useState('0');
   const [durabilityMax, setDurabilityMax] = useState('20');
   const [requiresArrow, setRequiresArrow] = useState(false);
+  const [requiresFamiliarId, setRequiresFamiliarId] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editing, setEditing] = useState<ShopItem | null>(null);
@@ -41,7 +42,7 @@ export function EquipmentAdminPanel() {
   const resetForm = () => {
     setItemId(''); setName(''); setCategory('weapon'); setPriceGame('200000');
     setSlot('weapon'); setRarity('common'); setDamage('0'); setDefense('0');
-    setDurabilityMax('20'); setRequiresArrow(false); setEditing(null);
+    setDurabilityMax('20'); setRequiresArrow(false); setRequiresFamiliarId(''); setEditing(null);
   };
 
   const startEdit = (it: ShopItem) => {
@@ -56,6 +57,7 @@ export function EquipmentAdminPanel() {
     setDefense(String(it.defense ?? 0));
     setDurabilityMax(String(it.durabilityMax ?? 20));
     setRequiresArrow(!!it.requiresArrow);
+    setRequiresFamiliarId(it.requiresFamiliarId ?? '');
   };
 
   const submit = async () => {
@@ -64,6 +66,7 @@ export function EquipmentAdminPanel() {
     setSaved(false);
     try {
       const isArrow = category === 'arrow';
+      const trimmedFamiliarId = requiresFamiliarId.trim();
       const item: ShopItem = {
         itemId, name, category,
         priceGame: Number(priceGame) || 0,
@@ -76,6 +79,9 @@ export function EquipmentAdminPanel() {
         // Les flèches sont consommables (qty), pas de durabilité par unité.
         ...(!isArrow && Number(durabilityMax) > 0 ? { durabilityMax: Number(durabilityMax) } : {}),
         ...(requiresArrow ? { requiresArrow: true } : {}),
+        // Selle (slot 'saddle') liée à un dragon précis — Firebase refuse toute valeur undefined,
+        // on n'ajoute donc la clé que si un id de familier est réellement saisi.
+        ...(category === 'saddle' && trimmedFamiliarId ? { requiresFamiliarId: trimmedFamiliarId } : {}),
       };
       await setShopItem(item);
       resetForm();
@@ -121,6 +127,9 @@ export function EquipmentAdminPanel() {
           <input type="checkbox" checked={requiresArrow} onChange={(e) => setRequiresArrow(e.target.checked)} />
           <span className="text-slate-300">{t('admin.equipment.requiresArrow')}</span>
         </label>
+        {category === 'saddle' && (
+          <input className="input" placeholder={t('admin.equipment.requiresFamiliarId')} value={requiresFamiliarId} onChange={(e) => setRequiresFamiliarId(e.target.value)} />
+        )}
       </div>
       <div className="flex gap-2 mt-3">
         <button className="btn-primary" disabled={saving || !itemId || !name} onClick={submit}>
@@ -146,6 +155,7 @@ export function EquipmentAdminPanel() {
                   {!!it.damage && <> · ⚔️{it.damage}</>}
                   {!!it.defense && <> · 🛡️{it.defense}</>}
                   {!!it.durabilityMax && <> · 🔧{it.durabilityMax}</>}
+                  {it.requiresFamiliarId && <> · 🐲{it.requiresFamiliarId}</>}
                   {it.priceGame ? <> · 💰{it.priceGame}</> : null}
                 </span>
                 <span className="flex gap-2">

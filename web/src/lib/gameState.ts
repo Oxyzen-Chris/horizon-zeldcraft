@@ -62,8 +62,15 @@ export interface PlayerState {
  * (`requiresArrow: true`) ne délivre son bonus de dégâts au combat que si des flèches y sont
  * équipées (voir computeEquipmentCombatBonus).
  */
-export type EquipSlot = 'weapon' | 'offhand' | 'head' | 'body' | 'legs' | 'feet' | 'belt' | 'arrows';
-export const EQUIP_SLOTS: EquipSlot[] = ['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'belt', 'arrows'];
+// `amulet` : protections type collier/cape (ex. cape d'invisibilité). `vehicle` : engin actif pour
+// les voyages (char à voile, montgolfière...). `familiar` : compagnon (dragon...) équipé comme
+// familier de combat — n'est PAS un objet de la besace (voir equipFamiliar), juste un slot logé
+// dans le même arbre `equipment` pour réutiliser l'infrastructure du widget. `saddle` : selle de
+// dragon, ne fonctionne qu'associée au familier correspondant (voir InventoryItem.requiresFamiliarId).
+export type EquipSlot = 'weapon' | 'offhand' | 'head' | 'body' | 'legs' | 'feet' | 'belt' | 'arrows'
+  | 'amulet' | 'vehicle' | 'familiar' | 'saddle';
+export const EQUIP_SLOTS: EquipSlot[] = ['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'belt', 'arrows',
+  'amulet', 'vehicle', 'familiar', 'saddle'];
 
 /** Rareté d'un équipement — seuils XP par palier paramétrables dans RepRules (equipRarityXp*). */
 export type ItemRarity = 'common' | 'rare' | 'legendary' | 'epic';
@@ -71,7 +78,7 @@ export type ItemRarity = 'common' | 'rare' | 'legendary' | 'epic';
 export interface InventoryItem {
   itemId: string;
   name: string;
-  category: 'food' | 'weapon' | 'armor' | 'shield' | 'arrow' | 'spell' | 'vehicle' | 'potion' | 'treasure' | 'super_potion';
+  category: 'food' | 'weapon' | 'armor' | 'shield' | 'arrow' | 'spell' | 'vehicle' | 'potion' | 'treasure' | 'super_potion' | 'saddle';
   qty: number;
   effect?: {
     hp?: number; hunger?: number; happiness?: number; force?: number; spells?: number;
@@ -81,29 +88,35 @@ export interface InventoryItem {
     // au moment de l'usage, voir activateInvisibility) permettant de franchir un passage gardé.
     invisibleMinutes?: number;
   };
-  // ─── Équipement (armes/protections/flèches) — voir EquipmentWidget.tsx et equipItem() ───
+  // ─── Équipement (armes/protections/flèches/engins/selles) — voir EquipmentWidget.tsx et equipItem() ───
   slot?: EquipSlot;          // emplacement où l'objet peut être équipé (absent = non équipable)
   rarity?: ItemRarity;
-  damage?: number;           // bonus de dégâts en combat (armes/flèches)
-  defense?: number;          // bonus de protection en combat (armures/boucliers)
+  damage?: number;           // bonus de dégâts en combat (armes/flèches/familier)
+  defense?: number;          // bonus de protection en combat (armures/boucliers/amulettes/familier)
   durabilityMax?: number;    // nombre d'utilisations en combat avant de risquer la casse
   requiresArrow?: boolean;   // true pour un arc : inefficace tant qu'aucune flèche n'est équipée
+  // Selle (slot 'saddle') : id du familier requis pour pouvoir l'équiper — voir equipItem().
+  // Ex. 'dragon.gold' → seule la Selle Solaire fonctionne avec le Dragon d'Or équipé.
+  requiresFamiliarId?: string;
   addedAt: number;
 }
 
 /** Objet équipé dans un emplacement du personnage — instance distincte de la pile d'inventaire,
  * avec sa propre usure. Casser (durability ≤ 0) retire l'objet de l'équipement (perte définitive).
+ * `category` accepte aussi 'familiar', un pseudo-objet non stocké en besace (voir equipFamiliar).
  * RTDB : players/{addr}/equipment/{slot} */
 export interface EquippedItem {
   itemId: string;
   name: string;
-  category: InventoryItem['category'];
+  category: InventoryItem['category'] | 'familiar';
   slot: EquipSlot;
   rarity?: ItemRarity;
   damage?: number;
   defense?: number;
   requiresArrow?: boolean;
-  durability: number;     // usure courante (0..durabilityMax) — non applicable au slot 'arrows'
+  requiresFamiliarId?: string;
+  i18nKey?: string;      // clé i18n du familier équipé (voir localizeName)
+  durability: number;     // usure courante (0..durabilityMax) — non applicable aux slots 'arrows'/'familiar'
   durabilityMax: number;
   qty?: number;           // nombre de flèches restantes (slot 'arrows' uniquement)
   equippedAt: number;
@@ -162,6 +175,7 @@ export interface ShopItem {
   defense?: number;
   durabilityMax?: number;
   requiresArrow?: boolean;
+  requiresFamiliarId?: string;
 }
 
 // ────────────────────────────────────── Init player ──────────────────────────────────────
@@ -392,6 +406,21 @@ export async function activateInvisibility(address: string, minMinutes: number, 
   return until;
 }
 
+/** Consomme un objet de la besace (nourriture/potion/sortilège) : applique son effet — ou
+ * déclenche l'invisibilité temporisée pour la cape — puis retire 1 exemplaire de l'inventaire.
+ * Logique partagée entre le bouton "Utiliser" de InventoryPanel.tsx et le glisser-déposer vers la
+ * "bouche" de Synk dans EquipmentWidget.tsx (deux méthodes équivalentes pour nourrir Synk). */
+export async function consumeInventoryItem(address: string, item: InventoryItem, rules: RepRules): Promise<void> {
+  if (item.effect?.invisibleMinutes) {
+    const min = rules.capeInvisibilityMinMinutes ?? 10;
+    const max = rules.capeInvisibilityMaxMinutes ?? 15;
+    await activateInvisibility(address, min, max);
+  } else if (item.effect) {
+    await applyEffect(address, item.effect);
+  }
+  await removeFromInventory(address, item.itemId, 1);
+}
+
 // ────────────────────────────────────── Équipement (Vitruve) ──────────────────────────────────────
 // Le joueur équipe une arme/protection/flèches par glisser-déposer depuis la besace vers
 // EquipmentWidget.tsx. Contrairement à l'inventaire (empilé par itemId), chaque emplacement
@@ -416,16 +445,24 @@ export async function getEquipment(address: string): Promise<Partial<Record<Equi
 }
 
 /** Équipe un objet de la besace dans un emplacement (doit correspondre à `item.slot`, ou
- * catégorie 'arrow' → slot 'arrows'). Remet l'éventuel occupant précédent dans la besace. */
-export async function equipItem(address: string, item: InventoryItem, slot: EquipSlot): Promise<boolean> {
+ * catégorie 'arrow' → slot 'arrows'). Remet l'éventuel occupant précédent dans la besace.
+ * Une selle (`slot === 'saddle'`) liée à un dragon précis (`requiresFamiliarId`) ne peut être
+ * équipée que si ce familier est déjà le compagnon de combat actif (slot 'familiar'). */
+export type EquipResult = 'ok' | 'wrongSlot' | 'needFamiliar' | 'failed';
+
+export async function equipItem(address: string, item: InventoryItem, slot: EquipSlot): Promise<EquipResult> {
   const db = getFirebaseDb();
-  if (!db) return false;
+  if (!db) return 'failed';
   const validSlot = slot === 'arrows' ? item.category === 'arrow' : item.slot === slot;
-  if (!validSlot) return false;
+  if (!validSlot) return 'wrongSlot';
+  if (slot === 'saddle' && item.requiresFamiliarId) {
+    const equipment = await getEquipment(address);
+    if (equipment.familiar?.itemId !== item.requiresFamiliarId) return 'needFamiliar';
+  }
   await ensureAnonSignIn();
   const takeQty = slot === 'arrows' ? item.qty : 1;
   const ok = await removeFromInventory(address, item.itemId, takeQty);
-  if (!ok) return false;
+  if (!ok) return 'failed';
   await unequipSlot(address, slot); // restitue l'ancien occupant avant de poser le nouveau
   const equipped: EquippedItem = {
     itemId: item.itemId, name: item.name, category: item.category, slot,
@@ -435,13 +472,17 @@ export async function equipItem(address: string, item: InventoryItem, slot: Equi
     ...(item.damage ? { damage: item.damage } : {}),
     ...(item.defense ? { defense: item.defense } : {}),
     ...(item.requiresArrow ? { requiresArrow: true } : {}),
+    ...(item.requiresFamiliarId ? { requiresFamiliarId: item.requiresFamiliarId } : {}),
     ...(slot === 'arrows' ? { qty: takeQty } : {}),
   };
   await set(ref(db, `players/${KEY(address)}/equipment/${slot}`), equipped);
-  return true;
+  return 'ok';
 }
 
-/** Retire l'objet équipé d'un emplacement et le restitue à la besace (à l'état neuf). */
+/** Retire l'objet équipé d'un emplacement et le restitue à la besace (à l'état neuf). Le slot
+ * 'familiar' est un cas particulier : ce n'est pas un objet de besace (juste une référence vers un
+ * familier déjà apprivoisé, voir equipFamiliar), donc rien n'est restitué — le familier reste
+ * possédé indéfiniment, on ne fait que le retirer du rang de compagnon de combat actif. */
 export async function unequipSlot(address: string, slot: EquipSlot): Promise<void> {
   const db = getFirebaseDb();
   if (!db) return;
@@ -449,21 +490,27 @@ export async function unequipSlot(address: string, slot: EquipSlot): Promise<voi
   const snap = await get(ref(db, path));
   const it = snap.val() as EquippedItem | null;
   if (!it) return;
+  if (slot === 'familiar') {
+    await set(ref(db, path), null);
+    return;
+  }
   await addToInventory(address, {
-    itemId: it.itemId, name: it.name, category: it.category, qty: it.qty ?? 1,
+    itemId: it.itemId, name: it.name, category: it.category as InventoryItem['category'], qty: it.qty ?? 1,
     ...(it.slot ? { slot: it.slot } : {}),
     ...(it.rarity ? { rarity: it.rarity } : {}),
     ...(it.damage ? { damage: it.damage } : {}),
     ...(it.defense ? { defense: it.defense } : {}),
     ...(it.durabilityMax ? { durabilityMax: it.durabilityMax } : {}),
     ...(it.requiresArrow ? { requiresArrow: true } : {}),
+    ...(it.requiresFamiliarId ? { requiresFamiliarId: it.requiresFamiliarId } : {}),
   });
   await set(ref(db, path), null);
 }
 
-/** Bonus de combat dérivé de l'équipement porté (dégâts arme + défense armure/bouclier),
- * pondéré par les diviseurs admin (RepRules.equipDamageBonusDivisor/equipDefenseBonusDivisor).
- * Un arc (`requiresArrow`) ne compte ses dégâts que si des flèches sont équipées (qty > 0). */
+/** Bonus de combat dérivé de l'équipement porté (dégâts arme + défense armure/bouclier/amulette
+ * + familier de combat), pondéré par les diviseurs admin (RepRules.equipDamageBonusDivisor/
+ * equipDefenseBonusDivisor). Un arc (`requiresArrow`) ne compte ses dégâts que si des flèches
+ * sont équipées (qty > 0). Le familier (dragon...) ne s'use jamais — jamais ajouté à `usedSlots`. */
 export function computeEquipmentCombatBonus(
   equipment: Partial<Record<EquipSlot, EquippedItem>>, rules: RepRules,
 ): { bonus: number; usedSlots: EquipSlot[]; arrowsExhausted: boolean } {
@@ -486,13 +533,19 @@ export function computeEquipmentCombatBonus(
       usedSlots.push('weapon');
     }
   }
-  (['offhand', 'head', 'body', 'legs', 'feet', 'belt'] as EquipSlot[]).forEach((slot) => {
+  (['offhand', 'head', 'body', 'legs', 'feet', 'belt', 'amulet'] as EquipSlot[]).forEach((slot) => {
     const it = equipment[slot];
     if (it && it.durability > 0 && it.defense) {
       defense += it.defense;
       usedSlots.push(slot);
     }
   });
+  // Familier de combat (ex. dragon) — bonus fixe, compagnon vivant : ne s'use et ne casse jamais.
+  const familiar = equipment.familiar;
+  if (familiar) {
+    damage += familiar.damage ?? 0;
+    defense += familiar.defense ?? 0;
+  }
   const damageDivisor = Math.max(1, rules.equipDamageBonusDivisor ?? 4);
   const defenseDivisor = Math.max(1, rules.equipDefenseBonusDivisor ?? 5);
   const bonus = Math.floor(damage / damageDivisor) + Math.floor(defense / defenseDivisor);
@@ -996,11 +1049,12 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'sword_ep',  name: '⚔️ Épée épique',        category: 'weapon',  priceGame: 200, effect: { force: 20 },              active: true },
   { itemId: 'shield_lg', name: '🛡️ Bouclier légendaire', category: 'armor',  priceGame: 250, effect: { force: 15, hp: 20 },      active: true },
   { itemId: 'spell_fire',name: '🔥 Sort de feu',        category: 'spell',   priceGame: 150, effect: { spells: 25 },             active: true },
-  // ─── Engins mécaniques (gate d'accès aux mondes)
-  { itemId: 'char_voile',name: '🌤️ Char à voile',      category: 'vehicle', priceGame: 500, effect: {},                          active: true },
-  { itemId: 'barque',    name: '🛶 Barque sans fond',   category: 'vehicle', priceGame: 500, effect: {},                          active: true },
-  { itemId: 'montgolf',  name: '🎈 Montgolfière',       category: 'vehicle', priceGame: 800, effect: {},                          active: true },
-  { itemId: 'mototaupe', name: '⛏️ Moto-taupe',         category: 'vehicle', priceGame: 700, effect: {},                          active: true },
+  // ─── Engins mécaniques (gate d'accès aux mondes) — équipables (slot 'vehicle', voir
+  // EquipmentWidget.tsx) pour désigner l'engin actif du voyage en cours.
+  { itemId: 'char_voile',name: '🌤️ Char à voile',      category: 'vehicle', slot: 'vehicle', priceGame: 500, effect: {},                          active: true },
+  { itemId: 'barque',    name: '🛶 Barque sans fond',   category: 'vehicle', slot: 'vehicle', priceGame: 500, effect: {},                          active: true },
+  { itemId: 'montgolf',  name: '🎈 Montgolfière',       category: 'vehicle', slot: 'vehicle', priceGame: 800, effect: {},                          active: true },
+  { itemId: 'mototaupe', name: '⛏️ Moto-taupe',         category: 'vehicle', slot: 'vehicle', priceGame: 700, effect: {},                          active: true },
   // ─── Objets rares (nécessaires pour apprivoiser certains Familiers — voir FamiliarDef.requiredItemId)
   { itemId: 'ecaille_semaphore',       name: '🔴 Écaille de Sémaphore Écarlate',   category: 'treasure', priceGame: 5000,  effect: {}, active: true },
   { itemId: 'griffe_gel_eternel',      name: '❄️ Griffe de Gel Éternel',           category: 'treasure', priceGame: 4000,  effect: {}, active: true },
@@ -1054,9 +1108,26 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'bouclier_fer',      name: '🛡️ Bouclier de fer',              category: 'shield', slot: 'offhand', rarity: 'common',    defense: 16, durabilityMax: 22, priceGame: 220000, effect: {}, active: true },
   { itemId: 'egide_templiere',   name: '🛡️ Égide templière',              category: 'shield', slot: 'offhand', rarity: 'rare',      defense: 30, durabilityMax: 18, priceGame: 400000, effect: {}, active: true },
   { itemId: 'bouclier_dragon_or',name: '🛡️ Bouclier en écailles de Dragon d\'Or', category: 'shield', slot: 'offhand', rarity: 'epic', defense: 65, durabilityMax: 12, priceGame: 1500000, effect: {}, active: true },
-  // ── Cape d'invisibilité (consommable, 10-15 min — voir activateInvisibility et la quête
-  // "Gardiens à trois têtes de chameaux" qui la récompense, seedInvisibilityQuest.mjs)
-  { itemId: 'cape_invisibilite', name: '🫥 Cape d\'invisibilité', category: 'potion', rarity: 'epic', priceGame: 90000, effect: { invisibleMinutes: 12 }, active: true },
+  // ── Cape d'invisibilité (10-15 min — voir activateInvisibility et la quête "Gardiens à trois
+  // têtes de chameaux" qui la récompense, seedInvisibilityQuest.mjs) — désormais équipable comme
+  // amulette (slot 'amulet', protection) : drag & drop vers EquipmentWidget déclenche l'invisibilité
+  // ET protège Synk (défense) jusqu'à ce qu'elle s'use en combat ; reste aussi utilisable
+  // directement depuis la besace via le bouton "Utiliser" (consommée immédiatement, sans équiper).
+  { itemId: 'cape_invisibilite', name: '🫥 Cape d\'invisibilité', category: 'armor', slot: 'amulet', rarity: 'epic', defense: 20, durabilityMax: 6, priceGame: 90000, effect: { invisibleMinutes: 12 }, active: true },
+  // ── Amulettes (slot 'amulet', protections légères) ──
+  { itemId: 'amulette_vitalite', name: '📿 Amulette de Vitalité', category: 'armor', slot: 'amulet', rarity: 'common', defense: 12, durabilityMax: 24, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'amulette_anciens',  name: '📿 Amulette des Anciens', category: 'armor', slot: 'amulet', rarity: 'rare',   defense: 28, durabilityMax: 18, priceGame: 400000, effect: {}, active: true },
+  // ── Selles de dragon (slot 'saddle') — chacune ne fonctionne qu'avec le dragon correspondant déjà
+  // équipé comme familier de combat actif (requiresFamiliarId, voir equipItem()). Prix ≥ 40 000
+  // pièces, croissant avec la rareté/puissance du dragon associé (voir migrateFamiliarsToFirebase.mjs).
+  { itemId: 'selle_blanc',  name: '❄️ Selle Immaculée du Dragon Blanc',      category: 'saddle', slot: 'saddle', rarity: 'common',    requiresFamiliarId: 'dragon.white',  priceGame: 40000,  effect: {}, active: true },
+  { itemId: 'selle_noir',   name: '🌑 Selle d\'Ombre du Dragon Noir',        category: 'saddle', slot: 'saddle', rarity: 'rare',      requiresFamiliarId: 'dragon.black',  priceGame: 50000,  effect: {}, active: true },
+  { itemId: 'selle_vert',   name: '🟢 Selle Sylvestre du Dragon Vert',       category: 'saddle', slot: 'saddle', rarity: 'rare',      requiresFamiliarId: 'dragon.green',  priceGame: 55000,  effect: {}, active: true },
+  { itemId: 'selle_bleu',   name: '🔵 Selle des Tempêtes du Dragon Bleu',    category: 'saddle', slot: 'saddle', rarity: 'legendary', requiresFamiliarId: 'dragon.blue',   priceGame: 65000,  effect: {}, active: true },
+  { itemId: 'selle_rouge',  name: '🔴 Selle Ardente du Dragon Rouge',        category: 'saddle', slot: 'saddle', rarity: 'legendary', requiresFamiliarId: 'dragon.red',    priceGame: 80000,  effect: {}, active: true },
+  { itemId: 'selle_or',     name: '🥇 Selle Solaire du Dragon d\'Or',        category: 'saddle', slot: 'saddle', rarity: 'legendary', requiresFamiliarId: 'dragon.gold',   priceGame: 90000,  effect: {}, active: true },
+  { itemId: 'selle_argent', name: '🥈 Selle Lunaire du Dragon d\'Argent',    category: 'saddle', slot: 'saddle', rarity: 'epic',      requiresFamiliarId: 'dragon.silver', priceGame: 110000, effect: {}, active: true },
+  { itemId: 'selle_bronze', name: '🥉 Selle des Forges du Dragon de Bronze', category: 'saddle', slot: 'saddle', rarity: 'epic',      requiresFamiliarId: 'dragon.bronze', priceGame: 130000, effect: {}, active: true },
 ];
 
 // ─────────────────────────────────────── Rep rules ───────────────────────────────────────
@@ -1286,7 +1357,16 @@ export interface FamiliarDef {
   createdAt: number;
   order?: number;          // ordre d'affichage explicite — même logique que QuestDef.order
   i18nKey?: string;        // clé i18n (ex. "familiar.dragon_gold") pour un libellé traduit — voir localizeName()
+  // ─── Bonus de combat une fois équipé comme familier actif (slot 'familiar') — voir equipFamiliar()
+  // et computeEquipmentCombatBonus(). Paramétrable dans le menu Administration (FamiliarsAdminPanel).
+  combatDamage?: number;
+  combatDefense?: number;
 }
+
+/** Préfixe du id transporté par `dataTransfer` lors du glisser-déposer d'un familier (les
+ * familiers ne sont pas des objets de besace empilés par itemId comme les autres — voir
+ * `equipFamiliar()`) — permet à EquipmentWidget.tsx de distinguer un familier d'un itemId classique. */
+export const FAMILIAR_DRAG_PREFIX = 'familiar:';
 
 /** Sanitise un id lisible (ex. "dragon.gold") en clé RTDB valide (Firebase interdit ".#$[]"). */
 export function familiarKeyOf(id: string): string {
@@ -1355,6 +1435,32 @@ export async function tameFamiliar(
     if (!consumed) return 'needItem';
   }
   await set(ref(db, `players/${KEY(address)}/familiars/${key}`), { obtainedAt: Date.now() });
+  return 'ok';
+}
+
+/**
+ * Équipe un familier déjà apprivoisé comme compagnon de combat actif (slot 'familiar' de
+ * `players/{addr}/equipment`) — glisser-déposer depuis l'onglet "Familiers" de la besace vers le
+ * nouveau compartiment "Familiers" de EquipmentWidget.tsx, ou bouton "Équiper" équivalent.
+ * Ce n'est PAS un objet de besace : aucune consommation, aucune casse (compagnon vivant) — voir
+ * computeEquipmentCombatBonus() pour le bonus de dégâts/défense qu'il accorde une fois équipé.
+ */
+export type EquipFamiliarResult = 'ok' | 'notOwned' | 'failed';
+
+export async function equipFamiliar(address: string, familiar: FamiliarDef): Promise<EquipFamiliarResult> {
+  const db = getFirebaseDb();
+  if (!db) return 'failed';
+  await ensureAnonSignIn();
+  const ownedSnap = await get(ref(db, `players/${KEY(address)}/familiars/${familiarKeyOf(familiar.id)}`));
+  if (!ownedSnap.exists()) return 'notOwned';
+  const equipped: EquippedItem = {
+    itemId: familiar.id, name: familiar.label, category: 'familiar', slot: 'familiar',
+    durability: 1, durabilityMax: 1, equippedAt: Date.now(),
+    ...(familiar.i18nKey ? { i18nKey: familiar.i18nKey } : {}),
+    ...(familiar.combatDamage ? { damage: familiar.combatDamage } : {}),
+    ...(familiar.combatDefense ? { defense: familiar.combatDefense } : {}),
+  };
+  await set(ref(db, `players/${KEY(address)}/equipment/familiar`), equipped);
   return 'ok';
 }
 
