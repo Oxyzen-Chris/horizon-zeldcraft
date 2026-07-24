@@ -78,11 +78,14 @@ function rollNpc(): PopupNpc {
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-/** Butin possible lors d'une victoire (récupéré sur le PNJ vaincu). */
+/** Butin possible lors d'une victoire (récupéré sur le PNJ vaincu). Reçoit les mêmes champs
+ * d'équipement (slot/rarité/dégâts ou défense/durabilité) que les objets de boutique — sans quoi
+ * un butin de combat restait visible en besace mais impossible à glisser-déposer ou équiper vers
+ * la fenêtre Équipement de Synk, contrairement aux objets achetés (bug déjà rencontré). */
 const FIGHT_LOOT_TABLE = [
-  { itemId: 'dague_rouillee', name: '🗡️ Dague rouillée',         category: 'weapon' as const, effect: { force: 5 } },
+  { itemId: 'dague_rouillee', name: '🗡️ Dague rouillée',         category: 'weapon' as const, slot: 'weapon' as const, rarity: 'common' as const, damage: 8, durabilityMax: 12, effect: { force: 5 } },
   { itemId: 'bourse_pnj',     name: '💰 Bourse trouvée',          category: 'treasure' as const, effect: {} },
-  { itemId: 'amulette_prot',  name: '📿 Amulette de protection',  category: 'armor' as const, effect: { hp: 10 } },
+  { itemId: 'amulette_prot',  name: '📿 Amulette de protection',  category: 'armor' as const, slot: 'amulet' as const, rarity: 'common' as const, defense: 6, durabilityMax: 15, effect: { hp: 10 } },
 ];
 
 interface FightRoll {

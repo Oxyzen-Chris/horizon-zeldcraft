@@ -64,7 +64,13 @@ async function main() {
     id, label: LABEL, xpRequired: XP_REQUIRED, xpReward: XP_REWARD, scoreReward: SCORE_REWARD,
     answerHash, active: true, createdAt: now, order: nextOrder, i18nKey: KEY,
     hint: HINT, hintKey: `${KEY}.hint`,
-    itemReward: { itemId: 'cape_invisibilite', name: "🫥 Cape d'invisibilité", qty: 1, category: 'potion', effect: { invisibleMinutes: 12 } },
+    // Champs d'équipement alignés sur cape_invisibilite dans seedEquipmentCatalog.mjs/DEFAULT_SHOP —
+    // sans quoi la cape obtenue via cette quête restait un simple consommable non glissable/
+    // équipable vers la fenêtre Équipement de Synk, contrairement à celle achetée en boutique.
+    itemReward: {
+      itemId: 'cape_invisibilite', name: "🫥 Cape d'invisibilité", qty: 1, category: 'armor',
+      slot: 'amulet', rarity: 'epic', defense: 20, durabilityMax: 6, effect: { invisibleMinutes: 12 },
+    },
   };
   await set(ref(db, `catalog/quests/${id}`), def);
   await set(ref(db, `catalog/riddleAnswers/${id}`), normalized);

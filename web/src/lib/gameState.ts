@@ -806,7 +806,13 @@ export interface QuestDef {
   npcGiver?: boolean;    // true = quête masquée de "Quêtes à énigmes" tant qu'un PNJ (offer 'quest')
                          // ne l'a pas proposée et que le joueur ne l'a pas acceptée — voir
                          // unlockQuestForPlayer()/getUnlockedQuestIds() et pickNpcQuestForPlayer()
-  itemReward?: { itemId: string; name: string; qty: number; category: InventoryItem['category']; effect?: InventoryItem['effect'] };
+  itemReward?: {
+    itemId: string; name: string; qty: number; category: InventoryItem['category']; effect?: InventoryItem['effect'];
+    // Champs d'équipement (mêmes que ShopItem/InventoryItem) — permet à une quête de remettre un
+    // objet glissable/équipable (arme, protection, amulette...) et pas seulement un consommable.
+    slot?: EquipSlot; rarity?: ItemRarity; damage?: number; defense?: number; durabilityMax?: number;
+    requiresArrow?: boolean; requiresFamiliarId?: string;
+  };
                          // objet remis en plus de l'XP/score à la résolution (ex. cape d'invisibilité
                          // de la quête "Gardiens à trois têtes de chameaux") — voir submitQuestAnswerOffchain
 }
@@ -868,6 +874,13 @@ export async function submitQuestAnswerOffchain(
       itemId: quest.itemReward.itemId, name: quest.itemReward.name,
       category: quest.itemReward.category, qty: quest.itemReward.qty,
       ...(quest.itemReward.effect ? { effect: quest.itemReward.effect } : {}),
+      ...(quest.itemReward.slot ? { slot: quest.itemReward.slot } : {}),
+      ...(quest.itemReward.rarity ? { rarity: quest.itemReward.rarity } : {}),
+      ...(quest.itemReward.damage ? { damage: quest.itemReward.damage } : {}),
+      ...(quest.itemReward.defense ? { defense: quest.itemReward.defense } : {}),
+      ...(quest.itemReward.durabilityMax ? { durabilityMax: quest.itemReward.durabilityMax } : {}),
+      ...(quest.itemReward.requiresArrow ? { requiresArrow: true } : {}),
+      ...(quest.itemReward.requiresFamiliarId ? { requiresFamiliarId: quest.itemReward.requiresFamiliarId } : {}),
     });
   }
   await markQuestSolved(address, quest.id, normalized);
@@ -1131,6 +1144,10 @@ export const DEFAULT_SHOP: ShopItem[] = [
   // ── Amulettes (slot 'amulet', protections légères) ──
   { itemId: 'amulette_vitalite', name: '📿 Amulette de Vitalité', category: 'armor', slot: 'amulet', rarity: 'common', defense: 12, durabilityMax: 24, priceGame: 200000, effect: {}, active: true },
   { itemId: 'amulette_anciens',  name: '📿 Amulette des Anciens', category: 'armor', slot: 'amulet', rarity: 'rare',   defense: 28, durabilityMax: 18, priceGame: 400000, effect: {}, active: true },
+  // ── Amulettes d'entrée de gamme (prix symbolique, accessibles dès le début de partie) ──
+  { itemId: 'amulette_voyageur', name: '📿 Amulette du Voyageur',      category: 'armor', slot: 'amulet', rarity: 'common', defense: 2, durabilityMax: 10, priceGame: 20, effect: {}, active: true },
+  { itemId: 'amulette_bois',     name: '🪵 Amulette de Bois runique',  category: 'armor', slot: 'amulet', rarity: 'common', defense: 3, durabilityMax: 12, priceGame: 25, effect: {}, active: true },
+  { itemId: 'amulette_argile',   name: '🏺 Amulette d\'Argile bénie',   category: 'armor', slot: 'amulet', rarity: 'common', defense: 4, durabilityMax: 14, priceGame: 30, effect: {}, active: true },
   // ── Selles de dragon (slot 'saddle') — chacune ne fonctionne qu'avec le dragon correspondant déjà
   // équipé comme familier de combat actif (requiresFamiliarId, voir equipItem()). Prix ≥ 40 000
   // pièces, croissant avec la rareté/puissance du dragon associé (voir migrateFamiliarsToFirebase.mjs).

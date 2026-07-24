@@ -78,6 +78,10 @@ const ITEMS = [
   ['cape_invisibilite', "🫥 Cape d'invisibilité", 'armor', 90000, { slot: 'amulet', rarity: 'epic', defense: 20, durabilityMax: 6, effect: { invisibleMinutes: 12 } }],
   ['amulette_vitalite', '📿 Amulette de Vitalité', 'armor', 200000, { slot: 'amulet', rarity: 'common', defense: 12, durabilityMax: 24 }],
   ['amulette_anciens', '📿 Amulette des Anciens', 'armor', 400000, { slot: 'amulet', rarity: 'rare', defense: 28, durabilityMax: 18 }],
+  // Amulettes d'entrée de gamme (prix symbolique, accessibles dès le début de partie).
+  ['amulette_voyageur', '📿 Amulette du Voyageur', 'armor', 20, { slot: 'amulet', rarity: 'common', defense: 2, durabilityMax: 10 }],
+  ['amulette_bois', '🪵 Amulette de Bois runique', 'armor', 25, { slot: 'amulet', rarity: 'common', defense: 3, durabilityMax: 12 }],
+  ['amulette_argile', "🏺 Amulette d'Argile bénie", 'armor', 30, { slot: 'amulet', rarity: 'common', defense: 4, durabilityMax: 14 }],
   ['char_voile', '🌤️ Char à voile', 'vehicle', 500, { slot: 'vehicle' }],
   ['barque', '🛶 Barque', 'vehicle', 400, { slot: 'vehicle' }],
   ['montgolf', '🎈 Montgolfière', 'vehicle', 800, { slot: 'vehicle' }],
