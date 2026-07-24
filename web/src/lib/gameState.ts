@@ -21,6 +21,12 @@
  *   catalog/chatScripts/{id}           → ChatScript (dialogues PNJ paramétrables par admin)
  *   catalog/customWidgets/{id}         → CustomWidgetDef (widgets flottants paramétrables par admin)
  *   players/{addr}/equipment/{slot}    → EquippedItem (arme/protection équipée — voir equipItem/unequipSlot)
+ *   catalog/npcDefs/{id}               → NpcDef (PNJ « officiels », paramétrable par admin — voir addNpcDef)
+ *   catalog/treasureDefs/{id}          → TreasureDef (coffres à seuil d'XP, paramétrable par admin)
+ *   catalog/worldDefs/{id}             → WorldDef (mondes à seuil d'XP, paramétrable par admin)
+ *   players/{addr}/npcsMet/{id}        → { metAt } (PNJ officiel rencontré)
+ *   players/{addr}/treasuresFound/{id} → { foundAt } (trésor ouvert)
+ *   players/{addr}/worldsUnlocked/{id} → { unlockedAt } (monde débloqué)
  */
 import {
   ref, get, set, update, onValue, off, push, serverTimestamp, DataSnapshot,
@@ -181,6 +187,12 @@ export interface ShopItem {
 // ────────────────────────────────────── Init player ──────────────────────────────────────
 
 const KEY = (addr: string) => addr.toLowerCase();
+
+/** Clé RTDB sûre : les segments de chemin Firebase interdisent ".", "#", "$", "[", "]"
+ * (ex. ids hérités de l'ancien slug on-chain "npc.zelda_princess" — voir migrateNpcsTreasuresWorldsToFirebase.mjs).
+ * Le champ `id` d'origine (avec points) est conservé tel quel dans la valeur stockée ; seul le
+ * segment de chemin est assaini, pour ne jamais planter sur un id admin mal formé. */
+const RKEY = (id: string) => id.toLowerCase().replace(/[.#$[\]]/g, '_');
 
 /** Récupère ou crée le PlayerState. */
 export async function getOrCreatePlayer(address: string, displayName?: string): Promise<PlayerState> {
@@ -1002,6 +1014,171 @@ export async function pickNpcQuestForPlayer(address: string): Promise<QuestDef |
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
+// ─────────────────────── PNJ officiels / Trésors / Mondes (100% hors-chaîne) ───────────────────────
+// Reprend en Firebase le même principe que les Quêtes ci-dessus : le contrat Solidity n'expose,
+// pour les PNJ/trésors/mondes « officiels », que des fonctions de CRÉATION (`addNpc`/`addTreasure`/
+// `addWorld`, chacune avec `require(!x[id].active, "exists")`) — aucune fonction de mise à jour d'un
+// champ (nom, XP, dialogue). Rendre ces catalogues réellement « modifiables » depuis le menu
+// Administration nécessite donc de les stocker en base plutôt que sur la chaîne (comme les quêtes),
+// avec les mêmes id/nom/XP que le seed on-chain d'origine pour rester cohérent avec l'historique
+// (voir contracts/scripts/deploy.ts et scripts/migrateNpcsTreasuresWorldsToFirebase.mjs).
+
+export interface NpcDef {
+  id: string;            // clé stable texte, ex. "npc.zelda_princess"
+  name: string;
+  i18nKey?: string;      // clé i18n (ex. "npc.official.zelda_princess") — voir localizeName()
+  dialog: string;
+  xpReward: number;
+  questId?: string;      // QuestDef.id proposé/débloqué à la rencontre (facultatif)
+  active: boolean;
+  createdAt: number;
+  order?: number;
+}
+export interface TreasureDef {
+  id: string;            // ex. "treasure.master_sword"
+  name: string;
+  i18nKey?: string;      // clé i18n (ex. "treasure.master_sword")
+  xpRequired: number;    // XP cumulé nécessaire pour pouvoir ouvrir le coffre
+  xpReward: number;      // XP octroyé (une fois) à l'ouverture
+  active: boolean;
+  createdAt: number;
+  order?: number;
+}
+export interface WorldDef {
+  id: string;            // ex. "world.zephyria"
+  name: string;
+  i18nKey?: string;      // clé i18n (ex. "world.zephyria")
+  xpRequired: number;    // XP cumulé nécessaire pour débloquer le monde
+  active: boolean;
+  createdAt: number;
+  order?: number;
+}
+
+function sortDefsByOrder<T extends { order?: number; createdAt: number }>(list: T[]): T[] {
+  return list.sort((a, b) => {
+    const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return (a.createdAt ?? 0) - (b.createdAt ?? 0);
+  });
+}
+
+// ── PNJ officiels (distincts des rencontres aléatoires du popup — voir NpcEncounterPopup.tsx) ──
+
+/** Crée/modifie un PNJ officiel (admin). Aucune transaction blockchain. */
+export async function addNpcDef(def: NpcDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/npcDefs/${RKEY(def.id)}`), def);
+}
+
+export async function getNpcDefs(): Promise<NpcDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/npcDefs'));
+  const v = snap.val() as Record<string, NpcDef> | null;
+  return v ? sortDefsByOrder(Object.values(v)) : [];
+}
+
+/** Ids des PNJ officiels déjà rencontrés par ce joueur (Set pour lookup O(1)). */
+export async function getMetNpcIds(address: string): Promise<Set<string>> {
+  const db = getFirebaseDb();
+  if (!db) return new Set();
+  const snap = await get(ref(db, `players/${KEY(address)}/npcsMet`));
+  const v = snap.val() as Record<string, unknown> | null;
+  return new Set(v ? Object.keys(v) : []);
+}
+
+/** Rencontre un PNJ officiel (hors-chaîne) : XP octroyé + déblocage éventuel d'une quête liée. */
+export async function meetNpcOffchain(address: string, npc: NpcDef): Promise<'met' | 'already'> {
+  const db = getFirebaseDb();
+  if (!db) return 'already';
+  const key = RKEY(npc.id);
+  const already = (await get(ref(db, `players/${KEY(address)}/npcsMet/${key}`))).val();
+  if (already) return 'already';
+  await applyEffect(address, { xpBonus: npc.xpReward });
+  await ensureAnonSignIn();
+  await set(ref(db, `players/${KEY(address)}/npcsMet/${key}`), { metAt: Date.now() });
+  if (npc.questId) await unlockQuestForPlayer(address, npc.questId, npc.id).catch(() => {});
+  return 'met';
+}
+
+// ── Trésors (coffres à seuil d'XP, ouverture manuelle une fois le seuil atteint) ──
+
+/** Crée/modifie un trésor (admin). Aucune transaction blockchain. */
+export async function addTreasureDef(def: TreasureDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/treasureDefs/${RKEY(def.id)}`), def);
+}
+
+export async function getTreasureDefs(): Promise<TreasureDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/treasureDefs'));
+  const v = snap.val() as Record<string, TreasureDef> | null;
+  return v ? sortDefsByOrder(Object.values(v)) : [];
+}
+
+export async function getFoundTreasureIds(address: string): Promise<Set<string>> {
+  const db = getFirebaseDb();
+  if (!db) return new Set();
+  const snap = await get(ref(db, `players/${KEY(address)}/treasuresFound`));
+  const v = snap.val() as Record<string, unknown> | null;
+  return new Set(v ? Object.keys(v) : []);
+}
+
+export async function openTreasureOffchain(address: string, treasure: TreasureDef): Promise<'found' | 'already'> {
+  const db = getFirebaseDb();
+  if (!db) return 'already';
+  const key = RKEY(treasure.id);
+  const already = (await get(ref(db, `players/${KEY(address)}/treasuresFound/${key}`))).val();
+  if (already) return 'already';
+  await applyEffect(address, { xpBonus: treasure.xpReward });
+  await ensureAnonSignIn();
+  await set(ref(db, `players/${KEY(address)}/treasuresFound/${key}`), { foundAt: Date.now() });
+  return 'found';
+}
+
+// ── Mondes (déblocage à seuil d'XP, comme l'ancienne version on-chain) ──
+
+/** Crée/modifie un monde (admin). Aucune transaction blockchain. */
+export async function addWorldDef(def: WorldDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/worldDefs/${RKEY(def.id)}`), def);
+}
+
+export async function getWorldDefs(): Promise<WorldDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/worldDefs'));
+  const v = snap.val() as Record<string, WorldDef> | null;
+  return v ? sortDefsByOrder(Object.values(v)) : [];
+}
+
+export async function getUnlockedWorldIds(address: string): Promise<Set<string>> {
+  const db = getFirebaseDb();
+  if (!db) return new Set();
+  const snap = await get(ref(db, `players/${KEY(address)}/worldsUnlocked`));
+  const v = snap.val() as Record<string, unknown> | null;
+  return new Set(v ? Object.keys(v) : []);
+}
+
+export async function discoverWorldOffchain(address: string, world: WorldDef): Promise<'unlocked' | 'already'> {
+  const db = getFirebaseDb();
+  if (!db) return 'already';
+  const key = RKEY(world.id);
+  const already = (await get(ref(db, `players/${KEY(address)}/worldsUnlocked/${key}`))).val();
+  if (already) return 'already';
+  await ensureAnonSignIn();
+  await set(ref(db, `players/${KEY(address)}/worldsUnlocked/${key}`), { unlockedAt: Date.now() });
+  return 'unlocked';
+}
+
 // ─────────────────────────────────────── Player index ───────────────────────────────────────
 
 /** Liste tous les joueurs enregistrés (pour dropdown admin). */
@@ -1243,6 +1420,10 @@ export interface RepRules {
   equipDropChancePct: number;       // % de chance qu'un butin de victoire soit un équipement plutôt qu'un objet basique (défaut 15)
   capeInvisibilityMinMinutes: number; // Durée min de la cape d'invisibilité (défaut 10)
   capeInvisibilityMaxMinutes: number; // Durée max de la cape d'invisibilité (défaut 15)
+  // Fréquence des rencontres PNJ aléatoires (popup) — voir NpcEncounterPopup.tsx. Anciennement
+  // paramétrable uniquement via une transaction on-chain (`setNpcMaxPerDay`) ; désormais 100%
+  // hors-chaîne (voir setNpcMaxPerDay ci-dessous), donc gratuit à modifier depuis l'Administration.
+  npcMaxPerDay: number; // Nombre max de rencontres PNJ (popup) par jour (défaut 4)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -1307,6 +1488,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   equipDropChancePct: 15,
   capeInvisibilityMinMinutes: 10,
   capeInvisibilityMaxMinutes: 15,
+  npcMaxPerDay: 4,
 };
 
 export async function getRepRules(): Promise<RepRules> {
@@ -1322,6 +1504,17 @@ export async function setRepRules(rules: RepRules): Promise<void> {
   if (!db) return;
   await ensureAnonSignIn();
   await set(ref(db, 'catalog/repRules'), rules);
+}
+
+/**
+ * Met à jour uniquement `npcMaxPerDay` (écriture "feuille" — n'écrase pas le reste de RepRules),
+ * remplaçant l'ancienne transaction on-chain `setNpcMaxPerDay` : gratuit, appliqué instantanément.
+ */
+export async function setNpcMaxPerDay(value: number): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await update(ref(db, 'catalog/repRules'), { npcMaxPerDay: Math.max(1, Math.round(value)) });
 }
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));

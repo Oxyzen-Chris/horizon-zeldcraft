@@ -346,7 +346,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       </div>
 
       <div className="md:col-span-2">
-        <NpcList contract={contract} tokenId={tokenId} />
+        <NpcList />
       </div>
 
       <div className="md:col-span-2">
@@ -354,11 +354,11 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       </div>
 
       <div className="md:col-span-2">
-        <TreasureList contract={contract} tokenId={tokenId} />
+        <TreasureList playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       </div>
 
       <div className="md:col-span-2">
-        <WorldList contract={contract} tokenId={tokenId} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
+        <WorldList playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       </div>
 
       <div className="md:col-span-2">

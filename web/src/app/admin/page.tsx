@@ -8,6 +8,10 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, FEED_TYPES, WEATHER, WEATHER_KEYS, normalizeAnswer } from '@/lib/contract';
 import { addQuestDef, getQuestDefs, questIdOf, seedQuestAnswer, getAllQuestAnswers, hashAnswer, type QuestDef } from '@/lib/gameState';
+import {
+  addNpcDef, getNpcDefs, addTreasureDef, getTreasureDefs, addWorldDef, getWorldDefs,
+  getRepRules, setNpcMaxPerDay, type NpcDef, type TreasureDef, type WorldDef,
+} from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { PlayerStats } from '@/components/PlayerStats';
@@ -73,18 +77,35 @@ export default function AdminPage() {
   const [npcDialog, setNpcDialog] = useState('');
   const [npcXp, setNpcXp] = useState('30');
   const [npcQuest, setNpcQuest] = useState('');
+  const [npcSaving, setNpcSaving] = useState(false);
+  const [allNpcs, setAllNpcs] = useState<NpcDef[] | null>(null);
+  const refreshNpcs = () => { getNpcDefs().then(setAllNpcs).catch(() => setAllNpcs([])); };
+  useEffect(() => { refreshNpcs(); }, []);
 
   const [trsKey, setTrsKey] = useState('');
   const [trsName, setTrsName] = useState('');
+  const [trsXpReq, setTrsXpReq] = useState('50');
   const [trsXp, setTrsXp] = useState('75');
+  const [trsSaving, setTrsSaving] = useState(false);
+  const [allTreasures, setAllTreasures] = useState<TreasureDef[] | null>(null);
+  const refreshTreasures = () => { getTreasureDefs().then(setAllTreasures).catch(() => setAllTreasures([])); };
+  useEffect(() => { refreshTreasures(); }, []);
 
   const [wldKey, setWldKey] = useState('');
   const [wldName, setWldName] = useState('');
   const [wldXp, setWldXp] = useState('500');
+  const [wldSaving, setWldSaving] = useState(false);
+  const [allWorlds, setAllWorlds] = useState<WorldDef[] | null>(null);
+  const refreshWorlds = () => { getWorldDefs().then(setAllWorlds).catch(() => setAllWorlds([])); };
+  useEffect(() => { refreshWorlds(); }, []);
 
   const [difficulty, setDifficulty] = useState('50');
   const [weather, setWeather] = useState('0');
+  // Fréquence des rencontres PNJ (RepRules.npcMaxPerDay) — 100% hors-chaîne, voir setNpcMaxPerDay.
   const [npcMax, setNpcMax] = useState('4');
+  const [npcMaxSaving, setNpcMaxSaving] = useState(false);
+  const [npcMaxSaved, setNpcMaxSaved] = useState(false);
+  useEffect(() => { getRepRules().then((r) => setNpcMax(String(r.npcMaxPerDay))).catch(() => {}); }, []);
 
   const [feedIdx, setFeedIdx] = useState(0);
   const [feedNewPrice, setFeedNewPrice] = useState('0.0001');
@@ -269,30 +290,72 @@ export default function AdminPage() {
               <input className="input md:col-span-2" placeholder={t('admin.npc.dialog')} value={npcDialog} onChange={e => setNpcDialog(e.target.value)} />
               <input className="input" placeholder={t('admin.npc.questId')} value={npcQuest} onChange={e => setNpcQuest(e.target.value)} />
             </div>
-            <button className="btn-primary" disabled={isPending || !npcKey || !npcName}
-              onClick={() => writeContract({
-                address: contract, abi: HORIZON_ABI, functionName: 'addNpc',
-                args: [
-                  keccak256(toBytes(npcKey)), npcName, npcDialog, Number(npcXp),
-                  npcQuest ? keccak256(toBytes(npcQuest)) : ('0x' + '00'.repeat(32)) as `0x${string}`,
-                ],
-              })}
-            >{t('admin.npc.submit')}</button>
+            <button className="btn-primary" disabled={npcSaving || !npcKey || !npcName}
+              onClick={async () => {
+                setNpcSaving(true);
+                try {
+                  // 100% hors-chaîne (Firebase) : aucune transaction blockchain, aucun gas — voir
+                  // NpcDef dans gameState.ts. `addNpc` on-chain reste create-only (require(!active)),
+                  // ce qui rendait ce catalogue impossible à modifier sans redéploiement du contrat.
+                  const existing = await getNpcDefs();
+                  const nextOrder = existing.reduce((mx, n) => Math.max(mx, n.order ?? -1), -1) + 1;
+                  await addNpcDef({
+                    id: npcKey.trim(), name: npcName.trim(), dialog: npcDialog.trim(),
+                    xpReward: Number(npcXp) || 0, active: true, createdAt: Date.now(), order: nextOrder,
+                    ...(npcQuest.trim() ? { questId: npcQuest.trim() } : {}),
+                  });
+                  setNpcKey(''); setNpcName(''); setNpcDialog(''); setNpcXp('30'); setNpcQuest('');
+                  refreshNpcs();
+                } finally {
+                  setNpcSaving(false);
+                }
+              }}
+            >{npcSaving ? '⏳' : t('admin.npc.submit')}</button>
+
+            {allNpcs && (
+              <div className="mt-5 pt-4 border-t border-slate-700">
+                <h3 className="text-sm font-semibold mb-3">{t('admin.npc.list.title')}</h3>
+                <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                  {allNpcs.map((n) => <NpcRow key={n.id} npc={n} onSaved={refreshNpcs} />)}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="card">
             <h2 className="text-xl font-semibold mb-3">{t('admin.treasure.title')}</h2>
-            <div className="grid md:grid-cols-3 gap-3 mb-3">
+            <div className="grid md:grid-cols-4 gap-3 mb-3">
               <input className="input" placeholder={t('admin.treasure.id')}   value={trsKey}  onChange={e => setTrsKey(e.target.value)} />
               <input className="input" placeholder={t('admin.treasure.name')} value={trsName} onChange={e => setTrsName(e.target.value)} />
+              <input className="input" placeholder={t('admin.treasure.xpRequired')} value={trsXpReq} onChange={e => setTrsXpReq(e.target.value)} />
               <input className="input" placeholder={t('admin.treasure.xp')}   value={trsXp}   onChange={e => setTrsXp(e.target.value)} />
             </div>
-            <button className="btn-primary" disabled={isPending || !trsKey || !trsName}
-              onClick={() => writeContract({
-                address: contract, abi: HORIZON_ABI, functionName: 'addTreasure',
-                args: [keccak256(toBytes(trsKey)), trsName, Number(trsXp)],
-              })}
-            >{t('admin.actions.add')}</button>
+            <button className="btn-primary" disabled={trsSaving || !trsKey || !trsName}
+              onClick={async () => {
+                setTrsSaving(true);
+                try {
+                  const existing = await getTreasureDefs();
+                  const nextOrder = existing.reduce((mx, w) => Math.max(mx, w.order ?? -1), -1) + 1;
+                  await addTreasureDef({
+                    id: trsKey.trim(), name: trsName.trim(), xpRequired: Number(trsXpReq) || 0,
+                    xpReward: Number(trsXp) || 0, active: true, createdAt: Date.now(), order: nextOrder,
+                  });
+                  setTrsKey(''); setTrsName(''); setTrsXpReq('50'); setTrsXp('75');
+                  refreshTreasures();
+                } finally {
+                  setTrsSaving(false);
+                }
+              }}
+            >{trsSaving ? '⏳' : t('admin.actions.add')}</button>
+
+            {allTreasures && (
+              <div className="mt-5 pt-4 border-t border-slate-700">
+                <h3 className="text-sm font-semibold mb-3">{t('admin.treasure.list.title')}</h3>
+                <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                  {allTreasures.map((tr) => <TreasureRow key={tr.id} treasure={tr} onSaved={refreshTreasures} />)}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="card">
@@ -302,12 +365,32 @@ export default function AdminPage() {
               <input className="input" placeholder={t('admin.world.name')}       value={wldName} onChange={e => setWldName(e.target.value)} />
               <input className="input" placeholder={t('admin.world.xpRequired')} value={wldXp}   onChange={e => setWldXp(e.target.value)} />
             </div>
-            <button className="btn-primary" disabled={isPending || !wldKey || !wldName}
-              onClick={() => writeContract({
-                address: contract, abi: HORIZON_ABI, functionName: 'addWorld',
-                args: [keccak256(toBytes(wldKey)), wldName, Number(wldXp)],
-              })}
-            >{t('admin.actions.add')}</button>
+            <button className="btn-primary" disabled={wldSaving || !wldKey || !wldName}
+              onClick={async () => {
+                setWldSaving(true);
+                try {
+                  const existing = await getWorldDefs();
+                  const nextOrder = existing.reduce((mx, w) => Math.max(mx, w.order ?? -1), -1) + 1;
+                  await addWorldDef({
+                    id: wldKey.trim(), name: wldName.trim(), xpRequired: Number(wldXp) || 0,
+                    active: true, createdAt: Date.now(), order: nextOrder,
+                  });
+                  setWldKey(''); setWldName(''); setWldXp('500');
+                  refreshWorlds();
+                } finally {
+                  setWldSaving(false);
+                }
+              }}
+            >{wldSaving ? '⏳' : t('admin.actions.add')}</button>
+
+            {allWorlds && (
+              <div className="mt-5 pt-4 border-t border-slate-700">
+                <h3 className="text-sm font-semibold mb-3">{t('admin.world.list.title')}</h3>
+                <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                  {allWorlds.map((w) => <WorldRow key={w.id} world={w} onSaved={refreshWorlds} />)}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="card">
@@ -354,12 +437,23 @@ export default function AdminPage() {
               <span className="w-20 text-center font-bold text-cyan-400">
                 {t('admin.npcFreq.perDay', { v: npcMax })}
               </span>
-              <button className="btn-primary" disabled={isPending}
-                onClick={() => writeContract({
-                  address: contract, abi: HORIZON_ABI, functionName: 'setNpcMaxPerDay', args: [Number(npcMax)],
-                })}
-              >{t('admin.actions.apply')}</button>
+              <button className="btn-primary" disabled={npcMaxSaving}
+                onClick={async () => {
+                  setNpcMaxSaving(true);
+                  setNpcMaxSaved(false);
+                  try {
+                    // 100% hors-chaîne (RepRules.npcMaxPerDay) : plus de transaction blockchain
+                    // (anciennement setNpcMaxPerDay on-chain), donc gratuit et instantané.
+                    await setNpcMaxPerDay(Number(npcMax));
+                    setNpcMaxSaved(true);
+                    setTimeout(() => setNpcMaxSaved(false), 3000);
+                  } finally {
+                    setNpcMaxSaving(false);
+                  }
+                }}
+              >{npcMaxSaving ? '⏳' : t('admin.actions.apply')}</button>
             </div>
+            {npcMaxSaved && <p className="text-xs text-emerald-400 mt-2">{t('admin.actions.saved')}</p>}
           </section>
 
           <section className="card">
@@ -521,6 +615,204 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
       <p className="mt-1 text-emerald-400">
         🔑 {t('admin.quest.list.answer')} : <b>{answer || '—'}</b>
       </p>
+    </div>
+  );
+}
+
+/**
+ * Ligne éditable de la liste "PNJ existants" (Administration) : nom, dialogue, XP donné et quête
+ * liée. 100% hors-chaîne (`addNpcDef` → `set()` Firebase) — remplace l'ancien `addNpc` on-chain
+ * qui ne permettait ni mise à jour ni consultation de la liste (create-only, voir HorizonZeldCraft.sol).
+ */
+function NpcRow({ npc, onSaved }: { npc: NpcDef; onSaved: () => void }) {
+  const { t } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(npc.name);
+  const [dialog, setDialog] = useState(npc.dialog);
+  const [xp, setXp] = useState(String(npc.xpReward));
+  const [questId, setQuestId] = useState(npc.questId ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setName(npc.name); setDialog(npc.dialog); setXp(String(npc.xpReward)); setQuestId(npc.questId ?? '');
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      await addNpcDef({
+        id: npc.id, name: name.trim(), dialog: dialog.trim(), xpReward: Number(xp) || 0,
+        active: npc.active, createdAt: npc.createdAt, order: npc.order,
+        ...(questId.trim() ? { questId: questId.trim() } : {}),
+      });
+      setEditing(false);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="bg-slate-900/80 rounded px-2 py-2 text-xs border border-emerald-700 space-y-2">
+        <input className="input w-full" placeholder={t('admin.npc.name')} value={name} onChange={e => setName(e.target.value)} />
+        <input className="input w-full" placeholder={t('admin.npc.dialog')} value={dialog} onChange={e => setDialog(e.target.value)} />
+        <div className="grid grid-cols-2 gap-2">
+          <input className="input" placeholder={t('admin.npc.xp')} value={xp} onChange={e => setXp(e.target.value)} />
+          <input className="input" placeholder={t('admin.npc.questId')} value={questId} onChange={e => setQuestId(e.target.value)} />
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-primary text-xs px-3 py-1" disabled={saving || !name.trim()} onClick={save}>
+            {saving ? '⏳' : t('admin.quest.list.save')}
+          </button>
+          <button className="btn-secondary text-xs px-3 py-1" disabled={saving} onClick={() => setEditing(false)}>
+            {t('admin.quest.list.cancel')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-900/60 rounded px-2 py-1.5 text-xs">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 truncate">{localizeName(t, npc.i18nKey, npc.name)}</span>
+        <span className="shrink-0 text-slate-500">+{npc.xpReward} XP</span>
+        {!npc.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
+        <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>
+          {t('admin.quest.list.edit')}
+        </button>
+      </div>
+      <p className="mt-1 text-slate-400 italic truncate">&ldquo;{npc.dialog}&rdquo;</p>
+    </div>
+  );
+}
+
+/**
+ * Ligne éditable de la liste "Trésors existants" (Administration) : nom, XP requis pour ouvrir
+ * et XP octroyé. 100% hors-chaîne — voir TreasureDef/addTreasureDef dans gameState.ts.
+ */
+function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: () => void }) {
+  const { t } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(treasure.name);
+  const [xpReq, setXpReq] = useState(String(treasure.xpRequired));
+  const [xpRew, setXpRew] = useState(String(treasure.xpReward));
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setName(treasure.name); setXpReq(String(treasure.xpRequired)); setXpRew(String(treasure.xpReward));
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      await addTreasureDef({
+        id: treasure.id, name: name.trim(), xpRequired: Number(xpReq) || 0, xpReward: Number(xpRew) || 0,
+        active: treasure.active, createdAt: treasure.createdAt, order: treasure.order,
+      });
+      setEditing(false);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="bg-slate-900/80 rounded px-2 py-2 text-xs border border-emerald-700 space-y-2">
+        <input className="input w-full" placeholder={t('admin.treasure.name')} value={name} onChange={e => setName(e.target.value)} />
+        <div className="grid grid-cols-2 gap-2">
+          <input className="input" placeholder={t('admin.treasure.xpRequired')} value={xpReq} onChange={e => setXpReq(e.target.value)} />
+          <input className="input" placeholder={t('admin.treasure.xp')} value={xpRew} onChange={e => setXpRew(e.target.value)} />
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-primary text-xs px-3 py-1" disabled={saving || !name.trim()} onClick={save}>
+            {saving ? '⏳' : t('admin.quest.list.save')}
+          </button>
+          <button className="btn-secondary text-xs px-3 py-1" disabled={saving} onClick={() => setEditing(false)}>
+            {t('admin.quest.list.cancel')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-900/60 rounded px-2 py-1.5 text-xs">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 truncate">{localizeName(t, treasure.i18nKey, treasure.name)}</span>
+        <span className="shrink-0 text-slate-500">
+          {t('admin.treasure.xpRequired')} {treasure.xpRequired} · +{treasure.xpReward} XP
+        </span>
+        {!treasure.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
+        <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>
+          {t('admin.quest.list.edit')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Ligne éditable de la liste "Mondes existants" (Administration) : nom et XP requis pour
+ * débloquer. 100% hors-chaîne — voir WorldDef/addWorldDef dans gameState.ts.
+ */
+function WorldRow({ world, onSaved }: { world: WorldDef; onSaved: () => void }) {
+  const { t } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(world.name);
+  const [xpReq, setXpReq] = useState(String(world.xpRequired));
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => { setName(world.name); setXpReq(String(world.xpRequired)); setEditing(true); };
+
+  const save = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      await addWorldDef({
+        id: world.id, name: name.trim(), xpRequired: Number(xpReq) || 0,
+        active: world.active, createdAt: world.createdAt, order: world.order,
+      });
+      setEditing(false);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="bg-slate-900/80 rounded px-2 py-2 text-xs border border-emerald-700 space-y-2">
+        <input className="input w-full" placeholder={t('admin.world.name')} value={name} onChange={e => setName(e.target.value)} />
+        <input className="input w-full" placeholder={t('admin.world.xpRequired')} value={xpReq} onChange={e => setXpReq(e.target.value)} />
+        <div className="flex gap-2">
+          <button className="btn-primary text-xs px-3 py-1" disabled={saving || !name.trim()} onClick={save}>
+            {saving ? '⏳' : t('admin.quest.list.save')}
+          </button>
+          <button className="btn-secondary text-xs px-3 py-1" disabled={saving} onClick={() => setEditing(false)}>
+            {t('admin.quest.list.cancel')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-900/60 rounded px-2 py-1.5 text-xs">
+      <div className="flex items-center gap-2">
+        <span className="flex-1 truncate">{localizeName(t, world.i18nKey, world.name)}</span>
+        <span className="shrink-0 text-slate-500">{t('admin.world.xpRequired')} {world.xpRequired}</span>
+        {!world.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
+        <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>
+          {t('admin.quest.list.edit')}
+        </button>
+      </div>
     </div>
   );
 }

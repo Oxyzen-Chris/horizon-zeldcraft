@@ -1,41 +1,66 @@
 'use client';
 
-import { useReadContract } from 'wagmi';
-import { HORIZON_ABI, TREASURE_ID_TO_KEY } from '@/lib/contract';
-import { useIdsList } from './useIdsList';
+import { useEffect, useState } from 'react';
+import { useAccount } from 'wagmi';
+import { getTreasureDefs, getFoundTreasureIds, openTreasureOffchain, type TreasureDef } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
-export function TreasureList({ contract, tokenId }: { contract: `0x${string}`; tokenId: bigint }) {
+/**
+ * Trésors — 100% hors-chaîne (voir gameState.ts::TreasureDef). Ouverture manuelle une fois le
+ * seuil `xpRequired` atteint (même mécanique que WorldList). Remplace l'ancienne version on-chain
+ * dont l'ouverture (`treasureFound`) n'était déclenchée que par l'ancien `submitQuestAnswer`
+ * on-chain — devenu obsolète depuis la migration des quêtes vers `submitQuestAnswerOffchain`
+ * (aucun trésor ne pouvait donc plus jamais être trouvé).
+ */
+export function TreasureList({ playerXp }: { playerXp: number }) {
   const { t } = useI18n();
-  const ids = useIdsList(contract, 'treasuresLength', 'treasureIds', 20);
+  const { address } = useAccount();
+  const [defs, setDefs] = useState<TreasureDef[] | null>(null);
+  const [found, setFound] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    getTreasureDefs().then(setDefs).catch(() => setDefs([]));
+    if (address) getFoundTreasureIds(address).then(setFound).catch(() => setFound(new Set()));
+  }, [address]);
+
+  const active = (defs ?? []).filter((d) => d.active);
+
+  const open = async (treasure: TreasureDef) => {
+    if (!address || busy) return;
+    setBusy(treasure.id);
+    try {
+      const res = await openTreasureOffchain(address, treasure);
+      if (res === 'found') setFound((prev) => new Set(prev).add(treasure.id.toLowerCase()));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="card">
       <h3 className="text-lg font-semibold mb-3">{t('game.treasures.section')}</h3>
-      {ids.length === 0 && <p className="text-sm text-slate-400">{t('game.treasures.empty')}</p>}
+      {active.length === 0 && <p className="text-sm text-slate-400">{t('game.treasures.empty')}</p>}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-        {ids.map((id) => <Chest key={id} contract={contract} treasureId={id} tokenId={tokenId} />)}
+        {active.map((tr) => {
+          const owned = found.has(tr.id.toLowerCase());
+          const canOpen = !owned && playerXp >= tr.xpRequired;
+          const label = localizeName(t, tr.i18nKey, tr.name);
+          return (
+            <div key={tr.id} className={`rounded p-2 text-center text-xs ${owned ? 'bg-yellow-900/40 border border-yellow-600' : 'bg-slate-800/40 border border-slate-700'}`}>
+              <div className="text-2xl">{owned ? '💎' : '🔒'}</div>
+              <p className="mt-1 font-semibold truncate">{owned ? label : '???'}</p>
+              {!owned && <p className="text-slate-500 mt-0.5">{t('game.treasures.xpRequired', { v: tr.xpRequired })}</p>}
+              {canOpen && (
+                <button className="btn-primary text-xs w-full mt-1.5" disabled={busy === tr.id} onClick={() => open(tr)}>
+                  {busy === tr.id ? '⏳' : t('game.treasures.open')}
+                </button>
+              )}
+              {owned && <p className="text-emerald-400 mt-0.5">{t('game.treasures.found')}</p>}
+            </div>
+          );
+        })}
       </div>
-    </div>
-  );
-}
-
-function Chest({ contract, treasureId, tokenId }: { contract: `0x${string}`; treasureId: `0x${string}`; tokenId: bigint }) {
-  const { t } = useI18n();
-  const { data: chest } = useReadContract({ address: contract, abi: HORIZON_ABI, functionName: 'treasures', args: [treasureId] });
-  const { data: found } = useReadContract({
-    address: contract, abi: HORIZON_ABI, functionName: 'treasureFound', args: [tokenId, treasureId],
-    query: { refetchInterval: 10000 },
-  });
-  if (!chest) return null;
-  const [name, , active] = chest as any;
-  if (!active) return null;
-  const owned = !!found;
-  const treasureKey = TREASURE_ID_TO_KEY[treasureId.toLowerCase()];
-  const label = localizeName(t, treasureKey ? `treasure.${treasureKey}` : undefined, name);
-  return (
-    <div className={`rounded p-2 text-center text-xs ${owned ? 'bg-yellow-900/40 border border-yellow-600' : 'bg-slate-800/40 border border-slate-700 opacity-50'}`}>
-      <div className="text-2xl">{owned ? '💎' : '❔'}</div>
-      <p className="mt-1 font-semibold truncate">{owned ? label : '???'}</p>
     </div>
   );
 }

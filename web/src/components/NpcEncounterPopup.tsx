@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useAccount, useReadContract, useChainId } from 'wagmi';
+import { useAccount, useChainId } from 'wagmi';
 import { ref, get } from 'firebase/database';
-import { HORIZON_ABI, NPC_SKINS, NPC_NAME_SUFFIXES, NPC_SUFFIX_KEYS } from '@/lib/contract';
+import { NPC_SKINS, NPC_NAME_SUFFIXES, NPC_SUFFIX_KEYS } from '@/lib/contract';
 import {
   applyEffect, logEncounter, addToInventory, removeFromInventory, getRepRules, getOrCreatePlayer,
   computePlayerDiceBonus, rollD20, getChatScripts, getNextQuestHint, DEFAULT_CHAT_SCRIPTS, CHAT_RESPONSE_IDS,
-  pickNpcQuestForPlayer, unlockQuestForPlayer,
+  DEFAULT_REP_RULES, pickNpcQuestForPlayer, unlockQuestForPlayer,
   computeEquipmentCombatBonus, applyEquipmentWear, getShopCatalog, rarityForXp,
   subscribeEquipment,
   type EncounterRecord, type RepRules, type ChatScript, type ChatResponseId, type ChatReaction, type QuestDef,
@@ -18,9 +18,17 @@ import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { FightResultModal, type FightResultData } from './FightResultModal';
 
 /**
- * Popup de rencontres PNJ aléatoires — 3 à 5×/jour selon le réglage admin
- * (`npcMaxPerDay` on-chain, réutilisé). Le tirage est stocké en localStorage
+ * Popup de rencontres PNJ aléatoires — 3 à 5×/jour selon le réglage admin (`RepRules.npcMaxPerDay`,
+ * 100% hors-chaîne — voir setNpcMaxPerDay dans gameState.ts). Le tirage est stocké en localStorage
  * pour éviter de rejouer la même journée après refresh.
+ *
+ * Planificateur en "battement de cœur" (`setInterval`, voir plus bas) plutôt qu'une chaîne de
+ * `setTimeout` : une ancienne version replanifiait un nouveau tirage à chaque fois qu'une popup
+ * s'affichait (le state `current` était dans le tableau de dépendances de l'effet), pouvant en
+ * écraser une déjà ouverte silencieusement, et toute exception dans le corps de l'effet pouvait
+ * interrompre définitivement le mécanisme pour le reste de la session. Le battement de cœur relit
+ * un horodatage "prochain tirage" persisté en localStorage (survit aux remounts/re-renders), ne
+ * dépend d'aucun state instable, et est protégé par un try/catch qui ne peut jamais le bloquer.
  */
 type PopupNpc = {
   key: string;         // id local du tirage (pas on-chain)
@@ -159,7 +167,6 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const [chatScripts, setChatScripts] = useState<ChatScript[]>([]);
   const [equipment, setEquipment] = useState<Partial<Record<EquipSlot, EquippedItem>>>({});
   const [shopCatalog, setShopCatalog] = useState<ShopItem[]>([]);
-  const timerRef = useRef<any>(null);
 
   // Charge les règles de reconnaissance paramétrables (admin)
   useEffect(() => {
@@ -179,30 +186,52 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   // Catalogue boutique — nécessaire pour tirer un équipement au hasard en butin de victoire (par rareté)
   useEffect(() => { getShopCatalog().then(setShopCatalog).catch(() => {}); }, []);
 
-  const { data: maxPerDay } = useReadContract({
-    address: contract, abi: HORIZON_ABI, functionName: 'npcMaxPerDay',
-    query: { enabled: !!contract },
-  });
+  // Ref toujours à jour avec la popup affichée, lue par le battement de cœur ci-dessous SANS
+  // figurer dans son tableau de dépendances (ce qui provoquait l'ancien bug de replanification).
+  const currentRef = useRef<PopupNpc | null>(null);
+  useEffect(() => { currentRef.current = current; }, [current]);
 
-  // Planificateur : découpe la journée en N tranches et déclenche la popup
-  // dans une fenêtre aléatoire de chaque tranche, tant que quota non atteint.
+  // Planificateur "battement de cœur" : toutes les 15s, vérifie si le quota du jour (RepRules.
+  // npcMaxPerDay, hors-chaîne) est atteint et si l'horodatage "prochain tirage" (persisté en
+  // localStorage, tirée dans une fenêtre aléatoire de 60s à 25min) est dépassé. Aucune dépendance
+  // instable (ni `current`, ni une valeur on-chain) : un battement en retard/raté n'empêche jamais
+  // définitivement les suivants, et toute exception est absorbée par le try/catch.
   useEffect(() => {
     if (!address) return;
-    const max = Number(maxPerDay ?? 4);
-    const storageKey = `zc.popupCount.${address.toLowerCase()}.${new Date().toDateString()}`;
-    const count = Number(localStorage.getItem(storageKey) ?? 0);
-    if (count >= max) return;
+    const dayKey = new Date().toDateString();
+    const countKey = `zc.popupCount.${address.toLowerCase()}.${dayKey}`;
+    const nextKey = `zc.popupNext.${address.toLowerCase()}.${dayKey}`;
 
-    // Prochain popup dans 60s à 25min (accéléré pour démo ; ajustable)
-    const delay = 60_000 + Math.random() * 25 * 60_000;
-    timerRef.current = setTimeout(() => {
-      const npc = rollNpc();
-      setCurrent(npc);
-      localStorage.setItem(storageKey, String(count + 1));
-    }, delay);
-    return () => clearTimeout(timerRef.current);
+    const scheduleNext = (): number => {
+      const next = Date.now() + 60_000 + Math.random() * 25 * 60_000;
+      try { localStorage.setItem(nextKey, String(next)); } catch { /* quota localStorage plein, ignoré */ }
+      return next;
+    };
+
+    let nextAt = Number(localStorage.getItem(nextKey) ?? 0) || scheduleNext();
+
+    const tick = () => {
+      try {
+        const max = Number((rules ?? DEFAULT_REP_RULES).npcMaxPerDay ?? 4);
+        const count = Number(localStorage.getItem(countKey) ?? 0);
+        if (count >= max) return;
+        if (currentRef.current) return; // une popup est déjà affichée : on patiente
+        if (Date.now() < nextAt) return;
+        const npc = rollNpc();
+        setCurrent(npc);
+        localStorage.setItem(countKey, String(count + 1));
+        nextAt = scheduleNext();
+      } catch {
+        // Ne jamais laisser une exception bloquer durablement le planificateur.
+        nextAt = scheduleNext();
+      }
+    };
+
+    tick(); // vérifie immédiatement (utile si l'horodatage est déjà dépassé après un rechargement)
+    const interval = setInterval(tick, 15_000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, maxPerDay, current, chainId]);
+  }, [address, chainId, rules?.npcMaxPerDay]);
 
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
