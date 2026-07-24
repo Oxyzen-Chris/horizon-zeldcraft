@@ -346,7 +346,13 @@ export async function addToInventory(address: string, item: Omit<InventoryItem, 
   if (existing) {
     await update(ref(db, path), { qty: existing.qty + item.qty });
   } else {
-    await set(ref(db, path), { ...item, addedAt: Date.now() });
+    // Firebase RTDB rejette toute valeur `undefined` (bug déjà rencontré : un ShopItem sans
+    // `effect` explicite en base — objet vidé par Firebase — provoquait un `set()` en échec et
+    // empêchait silencieusement l'ajout de l'objet acheté, ex. les flèches). On élimine donc
+    // toute clé à valeur undefined avant l'écriture, quel que soit l'appelant.
+    const clean: Record<string, unknown> = { addedAt: Date.now() };
+    for (const [k, v] of Object.entries(item)) if (v !== undefined) clean[k] = v;
+    await set(ref(db, path), clean);
   }
 }
 
@@ -948,7 +954,15 @@ export async function getShopCatalog(): Promise<ShopItem[]> {
   try {
     const snap = await get(ref(db, 'catalog/shop'));
     const v = snap.val() as Record<string, ShopItem> | null;
-    return v && Object.keys(v).length ? Object.values(v).filter(i => i.active) : DEFAULT_SHOP;
+    if (!v || !Object.keys(v).length) return DEFAULT_SHOP;
+    // Fusionne avec DEFAULT_SHOP (Firebase prioritaire par itemId) : un ajout partiel en base
+    // (ex. seed d'une nouvelle catégorie d'objets) ne doit jamais faire disparaître les objets
+    // du catalogue par défaut qui n'y ont jamais été explicitement repoussés (bug déjà rencontré :
+    // le seed de l'équipement avait fait disparaître nourriture/potions/sortilèges de la boutique).
+    const merged: Record<string, ShopItem> = {};
+    for (const it of DEFAULT_SHOP) merged[it.itemId] = it;
+    for (const it of Object.values(v)) merged[it.itemId] = it;
+    return Object.values(merged).filter(i => i.active);
   } catch (e) {
     console.warn('[shop] catalog read failed, using DEFAULT_SHOP:', e);
     return DEFAULT_SHOP;

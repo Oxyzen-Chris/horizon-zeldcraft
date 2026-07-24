@@ -6,26 +6,10 @@ import {
   subscribeInventory, applyEffect, removeFromInventory, activateInvisibility, getRepRules,
   subscribeFamiliars, getFamiliarDefs, familiarKeyOf, type InventoryItem, type RepRules, type FamiliarDef,
 } from '@/lib/gameState';
+import { ITEM_TAB_CATEGORIES as TAB_CATEGORIES, ITEM_TAB_ORDER as TAB_ORDER, ITEM_TAB_ICON as TAB_ICON, type ItemTab as Tab } from '@/lib/itemTabs';
 import { useI18n, itemLabel, localizeName } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DragonSkin, dragonKindFromId } from './DragonSkin';
-
-type Tab = 'weapon' | 'armor' | 'food' | 'potion' | 'vehicle' | 'treasure' | 'familiars';
-
-/** Compartiment de la besace auquel appartient chaque catégorie d'objet — une arme ne peut être
- * rangée QUE dans "Armes", une protection QUE dans "Protections", etc. (voir user story besace). */
-const TAB_CATEGORIES: Record<Exclude<Tab, 'familiars'>, InventoryItem['category'][]> = {
-  weapon: ['weapon', 'arrow'],
-  armor: ['armor', 'shield'],
-  food: ['food'],
-  potion: ['potion', 'super_potion', 'spell'],
-  vehicle: ['vehicle'],
-  treasure: ['treasure'],
-};
-const TAB_ORDER: Tab[] = ['weapon', 'armor', 'food', 'potion', 'vehicle', 'treasure', 'familiars'];
-const TAB_ICON: Record<Tab, string> = {
-  weapon: '⚔️', armor: '🛡️', food: '🍖', potion: '🧪', vehicle: '🚗', treasure: '💎', familiars: '🐲',
-};
 
 /** Sac du joueur — inventaire off-chain (Firebase), pas de gas pour manipuler. Découpé en
  * onglets par type d'objet (voir TAB_CATEGORIES) — les armes/protections/flèches équipables

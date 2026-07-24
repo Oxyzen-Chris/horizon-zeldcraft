@@ -3,14 +3,18 @@
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { getShopCatalog, addToInventory, applyEffect, subscribePlayer, subscribeInventory,
-  removeFromInventory, type ShopItem, type PlayerState, type InventoryItem } from '@/lib/gameState';
-import { useI18n, itemLabel } from '@/lib/i18n';
+  removeFromInventory, subscribeFamiliars, getFamiliarDefs, familiarKeyOf,
+  type ShopItem, type PlayerState, type InventoryItem, type FamiliarDef } from '@/lib/gameState';
+import { ITEM_TAB_CATEGORIES, ITEM_TAB_ORDER, ITEM_TAB_ICON, type ItemTab } from '@/lib/itemTabs';
+import { useI18n, itemLabel, localizeName } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
+import { DragonSkin, dragonKindFromId } from './DragonSkin';
 
 /**
  * Boutique — achat/vente d'objets. Utilise la monnaie de jeu (wallet) pour éviter
  * du gas ETH pour chaque petit item. Les gros items (engins mécaniques, sorts épiques)
  * peuvent toujours être vendus on-chain via le catalogue existant.
+ * Découpée en onglets par catégorie, identiques à ceux de la besace (voir itemTabs.ts).
  */
 export function ShopPanel() {
   const { t } = useI18n();
@@ -19,6 +23,9 @@ export function ShopPanel() {
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [tab, setTab] = useState<'buy' | 'sell'>('buy');
+  const [itemTab, setItemTab] = useState<ItemTab>('weapon');
+  const [familiars, setFamiliars] = useState<FamiliarDef[]>([]);
+  const [owned, setOwned] = useState<Record<string, { obtainedAt: number }>>({});
   const [feedback, setFeedback] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<
     | { kind: 'buy'; item: ShopItem }
@@ -33,6 +40,11 @@ export function ShopPanel() {
     const u2 = subscribeInventory(address, setInventory);
     return () => { u1(); u2(); };
   }, [address]);
+  useEffect(() => { getFamiliarDefs().then(setFamiliars).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!address) return;
+    return subscribeFamiliars(address, setOwned);
+  }, [address]);
 
   const buy = async (item: ShopItem) => {
     if (!address || !item.priceGame) return;
@@ -45,7 +57,21 @@ export function ShopPanel() {
     }
     try {
       await applyEffect(address, { wallet: -item.priceGame });
-      await addToInventory(address, { itemId: item.itemId, name: item.name, category: item.category, qty: 1, effect: item.effect });
+      // Reporte l'intégralité des propriétés d'équipement du catalogue vers la besace (slot,
+      // rareté, dégâts, défense, durabilité, arc) — sans quoi un objet acheté en boutique perdait
+      // ses stats de combat et devenait impossible à équiper (glisser-déposer refusé, "mauvais
+      // emplacement") sur la fenêtre Équipement. `effect` n'est ajouté que s'il existe réellement
+      // (un objet sans effet stocké en base via {} finit sans ce champ — Firebase l'élague).
+      await addToInventory(address, {
+        itemId: item.itemId, name: item.name, category: item.category, qty: 1,
+        ...(item.effect ? { effect: item.effect } : {}),
+        ...(item.slot ? { slot: item.slot } : {}),
+        ...(item.rarity ? { rarity: item.rarity } : {}),
+        ...(item.damage ? { damage: item.damage } : {}),
+        ...(item.defense ? { defense: item.defense } : {}),
+        ...(item.durabilityMax ? { durabilityMax: item.durabilityMax } : {}),
+        ...(item.requiresArrow ? { requiresArrow: true } : {}),
+      });
       setFeedback(t('game.shop.bought', { name }));
     } catch (e: any) {
       console.error('[shop] buy failed:', e);
@@ -65,12 +91,10 @@ export function ShopPanel() {
   };
 
   const askBuy = (item: ShopItem) => {
-    console.log('[Shop] askBuy →', item.itemId, 'priceGame=', item.priceGame);
     if (!item.priceGame) return;
     setConfirm({ kind: 'buy', item });
   };
   const askSell = (it: InventoryItem) => {
-    console.log('[Shop] askSell →', it.itemId);
     const cat = catalog.find(c => c.itemId === it.itemId);
     const salePrice = cat?.priceGame ? Math.floor(cat.priceGame / 2) : 5;
     setConfirm({ kind: 'sell', item: it, price: salePrice });
@@ -83,6 +107,14 @@ export function ShopPanel() {
     if (c.kind === 'sell') await sell(c.item, c.price);
   };
 
+  const activeFamiliars = familiars.filter((f) => f.active && owned[familiarKeyOf(f.id)]);
+  const visibleCatalog = itemTab !== 'familiars'
+    ? catalog.filter((c) => ITEM_TAB_CATEGORIES[itemTab].includes(c.category))
+    : [];
+  const visibleInventory = itemTab !== 'familiars'
+    ? inventory.filter((it) => ITEM_TAB_CATEGORIES[itemTab].includes(it.category))
+    : [];
+
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-3">
@@ -94,28 +126,67 @@ export function ShopPanel() {
       </div>
       <p className="text-xs text-slate-400 mb-3">💰 {t('game.stats.wallet')} : <b className="text-amber-400">{player?.wallet ?? 0}</b></p>
 
-      {tab === 'buy' ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {catalog.map((c) => {
-            const resell = c.priceGame ? Math.floor(c.priceGame / 2) : 5;
-            return (
-              <div key={c.itemId} className="bg-slate-800/60 rounded p-2">
-                <p className="text-sm font-semibold truncate">{itemLabel(t, c.itemId, c.name)}</p>
-                <p className="text-xs text-slate-400">{c.priceGame ?? '—'} 💰</p>
-                <p className="text-[10px] text-emerald-400 mb-2">
-                  ↩ {t('game.shop.resellAt')} {resell} 💰
-                </p>
-                <button className="btn-primary text-xs w-full" disabled={!c.priceGame} onClick={() => askBuy(c)}>
-                  {t('game.shop.buy')}
-                </button>
-              </div>
-            );
-          })}
-        </div>
+      <div className="flex flex-wrap gap-1 mb-3">
+        {ITEM_TAB_ORDER.map((tb) => (
+          <button
+            key={tb}
+            className={`px-2 py-1 rounded text-xs ${itemTab === tb ? 'bg-indigo-600' : 'bg-slate-700'}`}
+            onClick={() => setItemTab(tb)}
+          >
+            {ITEM_TAB_ICON[tb]} {t(`game.inventory.tab.${tb}`)}
+          </button>
+        ))}
+      </div>
+
+      {itemTab === 'familiars' ? (
+        activeFamiliars.length === 0 ? (
+          <p className="text-sm text-slate-400">{t('game.inventory.tab.familiars.empty')}</p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {activeFamiliars.map((f) => {
+              const kind = dragonKindFromId(f.id);
+              return (
+                <div key={f.id} className="bg-slate-800/60 rounded p-2 text-center">
+                  {kind && <div className="flex justify-center mb-1"><DragonSkin kind={kind} size={40} /></div>}
+                  <p className="text-xs font-semibold truncate">{localizeName(t, f.i18nKey, f.label)}</p>
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : tab === 'buy' ? (
+        visibleCatalog.length === 0 ? (
+          <p className="text-sm text-slate-400">{t('game.inventory.empty')}</p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {visibleCatalog.map((c) => {
+              const resell = c.priceGame ? Math.floor(c.priceGame / 2) : 5;
+              return (
+                <div key={c.itemId} className="bg-slate-800/60 rounded p-2">
+                  <p className="text-sm font-semibold truncate">{itemLabel(t, c.itemId, c.name)}</p>
+                  <p className="text-xs text-slate-400">{c.priceGame ?? '—'} 💰</p>
+                  {(c.damage || c.defense) && (
+                    <p className="text-[10px] mb-1">
+                      {c.damage ? <span className="text-emerald-400">⚔️ {c.damage}</span> : null}
+                      {c.defense ? <span className="text-sky-400"> 🛡️ {c.defense}</span> : null}
+                      {c.rarity ? <span className="text-amber-400"> · {t(`equip.rarity.${c.rarity}`)}</span> : null}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-emerald-400 mb-2">
+                    ↩ {t('game.shop.resellAt')} {resell} 💰
+                  </p>
+                  <button className="btn-primary text-xs w-full" disabled={!c.priceGame} onClick={() => askBuy(c)}>
+                    {t('game.shop.buy')}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {inventory.length === 0 && <p className="text-sm text-slate-400 col-span-full">{t('game.inventory.empty')}</p>}
-          {inventory.map((it) => {
+          {visibleInventory.length === 0 && <p className="text-sm text-slate-400 col-span-full">{t('game.inventory.empty')}</p>}
+          {visibleInventory.map((it) => {
             const cat = catalog.find(c => c.itemId === it.itemId);
             const salePrice = cat?.priceGame ? Math.floor(cat.priceGame / 2) : 5;
             return (
@@ -151,3 +222,4 @@ export function ShopPanel() {
     </div>
   );
 }
+
