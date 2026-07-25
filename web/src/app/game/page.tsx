@@ -244,6 +244,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     fightsWon: activity?.fightsWon ?? 0,
     feedsToday: activity?.feedsToday ?? 0,
     rules: repRules,
+    seed: address,
   }) : null;
   const dispHappiness = mood?.value ?? rawHappiness;
   const moodGoal = repRules?.moodEncounterGoalPerDay ?? 5;

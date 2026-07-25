@@ -356,6 +356,26 @@ export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?
     }
   }, [moveTo, worldMarkers]);
 
+  // ─── Clic sur une tuile portant une hutte décorative (🛖 générée aléatoirement par worldTileAt,
+  // biais village/taverne/étable/hutte) ─── Aucune MapPoiDef "hutte" n'est semée par défaut dans le
+  // catalogue (elles ne sont créées que si l'admin en ajoute via la rubrique Carte) : la hutte que
+  // le joueur voit et clique le plus souvent sur la Plateforme 2D isométrique est donc CETTE tuile
+  // décorative, qui — comme le portail ci-dessus — ne déclenchait jusqu'ici aucun pop-up. On
+  // synthétise un marqueur "poi/hut" pour ouvrir le même pop-up de repos que HutBody (voir
+  // PoiInteractionModal.tsx), avec son message de cooldown déjà géré (getHutRestRemainingMs).
+  const onHutTileClick = useCallback((wc: number, wr: number) => {
+    const cur = worldPosRef.current;
+    const dist = Math.max(Math.abs(wc - Math.round(cur.x)), Math.abs(wr - Math.round(cur.y)));
+    if (dist <= 1) {
+      setInteractionMarker({
+        id: `hut-${wc}-${wr}`, kind: 'poi', poiType: 'hut',
+        name: t(PROP_I18N_KEY.hut), icon: PROP_ICON.hut, x: wc, y: wr,
+      });
+    } else {
+      moveTo(wc, wr);
+    }
+  }, [moveTo, t]);
+
   // Déplacement au clavier (flèches directionnelles) — actif seulement widget déplié, et ignoré
   // si le focus est dans un champ de saisie (chat, admin, etc.) pour ne pas interférer.
   useEffect(() => {
@@ -470,9 +490,11 @@ export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?
                     clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
                     border: '1px solid rgba(0,0,0,0.15)',
                   }}
-                  onClick={() => (tile.prop === 'portal'
-                    ? onPortalTileClick(origin.col + c, origin.row + r)
-                    : moveTo(origin.col + c, origin.row + r))}
+                  onClick={() => {
+                    if (tile.prop === 'portal') onPortalTileClick(origin.col + c, origin.row + r);
+                    else if (tile.prop === 'hut') onHutTileClick(origin.col + c, origin.row + r);
+                    else moveTo(origin.col + c, origin.row + r);
+                  }}
                   title={tile.prop ? `${PROP_ICON[tile.prop]} ${t(PROP_I18N_KEY[tile.prop])}` : t(TERRAIN_I18N_KEY[tile.terrain])}
                 />
                 {tile.prop && (

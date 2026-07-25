@@ -309,6 +309,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
                       fightsWon: activity.fightsWon,
                       feedsToday: activity.feedsToday,
                       rules: repRules,
+                      seed: target,
                     }).value} / ${dbPlayer.happinessMax ?? 100}`}
                     color="text-yellow-400"
                   />

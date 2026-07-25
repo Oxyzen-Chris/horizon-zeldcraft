@@ -751,6 +751,18 @@ export interface MoodHappinessResult {
   };
 }
 
+// Hash déterministe (FNV-1a) d'une chaîne vers un flottant stable dans [0, 1) — utilisé pour que
+// les tirages « aléatoires » affichés (ex. humeur vagabonde de nuit ci-dessous) restent identiques
+// tant que la clé (joueur + jour) ne change pas, au lieu de varier à chaque rendu React.
+function stableUnitRand(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 100000) / 100000;
+}
+
 /**
  * Calcule la statistique "Bonheur" affichée dans "Statistiques", en pondérant la valeur brute
  * stockée (`baseHappiness`, celle que fait évoluer le nourrissage) par des modificateurs
@@ -775,8 +787,9 @@ export function computeMoodHappiness(input: {
   fightsWon: number;
   feedsToday: number;
   rules: RepRules;
+  seed?: string; // adresse du joueur — stabilise le tirage "nuit" (voir plus bas)
 }): MoodHappinessResult {
-  const { baseHappiness, happinessMax, weatherKey, encountersToday, hasFamiliar, wallet, fightsWon, feedsToday, rules } = input;
+  const { baseHappiness, happinessMax, weatherKey, encountersToday, hasFamiliar, wallet, fightsWon, feedsToday, rules, seed } = input;
 
   let weather = 0;
   switch (weatherKey) {
@@ -785,7 +798,17 @@ export function computeMoodHappiness(input: {
     case 'rainy':  weather = rules.moodWeatherRainyBonus; break;
     case 'stormy': weather = rules.moodWeatherStormyBonus; break;
     case 'snowy':  weather = rules.moodWeatherSnowyBonus; break;
-    case 'night':  weather = Math.round((Math.random() * 2 - 1) * rules.moodWeatherNightSwing); break;
+    case 'night': {
+      // Tirage "humeur vagabonde" STABLE (déterministe par joueur + jour courant), et non plus
+      // Math.random() pur : cette fonction est appelée à chaque rendu (voir PlayerStats.tsx et
+      // game/page.tsx), un tirage réellement aléatoire faisait donc « varier » le Bonheur affiché
+      // à chaque clic/rafraîchissement tant que la météo restait sur 🌙 Nuit, sans qu'aucune vraie
+      // valeur n'ait changé en base — un bug d'affichage, pas une évolution réelle du jeu.
+      const day = new Date().toISOString().slice(0, 10);
+      const r = stableUnitRand(`${seed ?? 'anon'}|${day}`);
+      weather = Math.round((r * 2 - 1) * rules.moodWeatherNightSwing);
+      break;
+    }
     default: weather = 0;
   }
 
