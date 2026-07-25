@@ -645,6 +645,7 @@ function NpcRow({ npc, onSaved }: { npc: NpcDef; onSaved: () => void }) {
       await addNpcDef({
         id: npc.id, name: name.trim(), dialog: dialog.trim(), xpReward: Number(xp) || 0,
         active: npc.active, createdAt: npc.createdAt, order: npc.order,
+        ...(npc.i18nKey ? { i18nKey: npc.i18nKey } : {}),
         ...(questId.trim() ? { questId: questId.trim() } : {}),
       });
       setEditing(false);
@@ -714,6 +715,8 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
       await addTreasureDef({
         id: treasure.id, name: name.trim(), xpRequired: Number(xpReq) || 0, xpReward: Number(xpRew) || 0,
         active: treasure.active, createdAt: treasure.createdAt, order: treasure.order,
+        ...(treasure.i18nKey ? { i18nKey: treasure.i18nKey } : {}),
+        ...(treasure.itemReward ? { itemReward: treasure.itemReward } : {}),
       });
       setEditing(false);
       onSaved();
@@ -778,6 +781,7 @@ function WorldRow({ world, onSaved }: { world: WorldDef; onSaved: () => void }) 
       await addWorldDef({
         id: world.id, name: name.trim(), xpRequired: Number(xpReq) || 0,
         active: world.active, createdAt: world.createdAt, order: world.order,
+        ...(world.i18nKey ? { i18nKey: world.i18nKey } : {}),
       });
       setEditing(false);
       onSaved();

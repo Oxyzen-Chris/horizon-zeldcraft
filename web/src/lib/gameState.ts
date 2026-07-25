@@ -192,7 +192,7 @@ const KEY = (addr: string) => addr.toLowerCase();
  * (ex. ids hérités de l'ancien slug on-chain "npc.zelda_princess" — voir migrateNpcsTreasuresWorldsToFirebase.mjs).
  * Le champ `id` d'origine (avec points) est conservé tel quel dans la valeur stockée ; seul le
  * segment de chemin est assaini, pour ne jamais planter sur un id admin mal formé. */
-const RKEY = (id: string) => id.toLowerCase().replace(/[.#$[\]]/g, '_');
+export const RKEY = (id: string) => id.toLowerCase().replace(/[.#$[\]]/g, '_');
 
 /** Récupère ou crée le PlayerState. */
 export async function getOrCreatePlayer(address: string, displayName?: string): Promise<PlayerState> {
@@ -1043,6 +1043,14 @@ export interface TreasureDef {
   active: boolean;
   createdAt: number;
   order?: number;
+  // Objet remis dans la besace à l'ouverture (même forme que QuestDef.itemReward) — voir
+  // openTreasureOffchain(). Sans ce champ, ouvrir un coffre ne rapportait QUE de l'XP : le rubis/
+  // l'épée/la pioche promis par le nom du trésor n'apparaissait jamais dans la besace (bug signalé).
+  itemReward?: {
+    itemId: string; name: string; qty: number; category: InventoryItem['category']; effect?: InventoryItem['effect'];
+    slot?: EquipSlot; rarity?: ItemRarity; damage?: number; defense?: number; durabilityMax?: number;
+    requiresArrow?: boolean; requiresFamiliarId?: string;
+  };
 }
 export interface WorldDef {
   id: string;            // ex. "world.zephyria"
@@ -1130,15 +1138,53 @@ export async function getFoundTreasureIds(address: string): Promise<Set<string>>
   return new Set(v ? Object.keys(v) : []);
 }
 
+/** Objet de récompense d'un trésor formaté pour addToInventory() — factorisé pour être appelé à la
+ * fois lors d'une ouverture normale et lors du rattrapage rétroactif (voir claimMissingTreasureItem). */
+function treasureRewardItem(treasure: TreasureDef) {
+  const r = treasure.itemReward!;
+  return {
+    itemId: r.itemId, name: r.name, category: r.category, qty: r.qty,
+    ...(r.effect ? { effect: r.effect } : {}),
+    ...(r.slot ? { slot: r.slot } : {}),
+    ...(r.rarity ? { rarity: r.rarity } : {}),
+    ...(r.damage ? { damage: r.damage } : {}),
+    ...(r.defense ? { defense: r.defense } : {}),
+    ...(r.durabilityMax ? { durabilityMax: r.durabilityMax } : {}),
+    ...(r.requiresArrow ? { requiresArrow: true } : {}),
+    ...(r.requiresFamiliarId ? { requiresFamiliarId: r.requiresFamiliarId } : {}),
+  };
+}
+
+/** Rattrapage : si ce trésor est déjà marqué "trouvé" par ce joueur mais que son `itemReward`
+ * (ajouté après coup, ou jamais octroyé à cause de l'ancien bug de clé RTDB avec points) n'a
+ * jamais été remis en besace, on le complète maintenant — sans jamais redonner l'XP déjà perçue.
+ * Idempotent (flag `itemGranted`). Appelé automatiquement au chargement de TreasureList. */
+export async function claimMissingTreasureItem(address: string, treasure: TreasureDef): Promise<boolean> {
+  const db = getFirebaseDb();
+  if (!db || !treasure.itemReward) return false;
+  const path = `players/${KEY(address)}/treasuresFound/${RKEY(treasure.id)}`;
+  const already = (await get(ref(db, path))).val() as { foundAt: number; itemGranted?: boolean } | null;
+  if (!already || already.itemGranted) return false;
+  await addToInventory(address, treasureRewardItem(treasure));
+  await ensureAnonSignIn();
+  await update(ref(db, path), { itemGranted: true });
+  return true;
+}
+
 export async function openTreasureOffchain(address: string, treasure: TreasureDef): Promise<'found' | 'already'> {
   const db = getFirebaseDb();
   if (!db) return 'already';
   const key = RKEY(treasure.id);
-  const already = (await get(ref(db, `players/${KEY(address)}/treasuresFound/${key}`))).val();
-  if (already) return 'already';
+  const path = `players/${KEY(address)}/treasuresFound/${key}`;
+  const already = (await get(ref(db, path))).val();
+  if (already) {
+    await claimMissingTreasureItem(address, treasure);
+    return 'already';
+  }
   await applyEffect(address, { xpBonus: treasure.xpReward });
+  if (treasure.itemReward) await addToInventory(address, treasureRewardItem(treasure));
   await ensureAnonSignIn();
-  await set(ref(db, `players/${KEY(address)}/treasuresFound/${key}`), { foundAt: Date.now() });
+  await set(ref(db, path), { foundAt: Date.now(), itemGranted: !!treasure.itemReward });
   return 'found';
 }
 

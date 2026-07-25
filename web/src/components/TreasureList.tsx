@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { getTreasureDefs, getFoundTreasureIds, openTreasureOffchain, type TreasureDef } from '@/lib/gameState';
+import { getTreasureDefs, getFoundTreasureIds, openTreasureOffchain, claimMissingTreasureItem, RKEY, type TreasureDef } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /**
@@ -20,7 +20,12 @@ export function TreasureList({ playerXp }: { playerXp: number }) {
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
-    getTreasureDefs().then(setDefs).catch(() => setDefs([]));
+    getTreasureDefs().then((all) => {
+      setDefs(all);
+      // Rattrapage silencieux : les trésors déjà "trouvés" avant l'ajout d'itemReward (ou avant la
+      // correction du bug de clé RTDB avec points) n'avaient jamais reçu leur objet en besace.
+      if (address) all.forEach((tr) => claimMissingTreasureItem(address, tr).catch(() => {}));
+    }).catch(() => setDefs([]));
     if (address) getFoundTreasureIds(address).then(setFound).catch(() => setFound(new Set()));
   }, [address]);
 
@@ -31,7 +36,7 @@ export function TreasureList({ playerXp }: { playerXp: number }) {
     setBusy(treasure.id);
     try {
       const res = await openTreasureOffchain(address, treasure);
-      if (res === 'found') setFound((prev) => new Set(prev).add(treasure.id.toLowerCase()));
+      if (res === 'found') setFound((prev) => new Set(prev).add(RKEY(treasure.id)));
     } finally {
       setBusy(null);
     }
@@ -43,7 +48,7 @@ export function TreasureList({ playerXp }: { playerXp: number }) {
       {active.length === 0 && <p className="text-sm text-slate-400">{t('game.treasures.empty')}</p>}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {active.map((tr) => {
-          const owned = found.has(tr.id.toLowerCase());
+          const owned = found.has(RKEY(tr.id));
           const canOpen = !owned && playerXp >= tr.xpRequired;
           const label = localizeName(t, tr.i18nKey, tr.name);
           return (

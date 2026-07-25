@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { getWorldDefs, getUnlockedWorldIds, discoverWorldOffchain, type WorldDef } from '@/lib/gameState';
+import { getWorldDefs, getUnlockedWorldIds, discoverWorldOffchain, RKEY, type WorldDef } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /**
@@ -29,7 +29,7 @@ export function WorldList({ playerXp }: { playerXp: number }) {
     setBusy(world.id);
     try {
       const res = await discoverWorldOffchain(address, world);
-      if (res === 'unlocked') setUnlocked((prev) => new Set(prev).add(world.id.toLowerCase()));
+      if (res === 'unlocked') setUnlocked((prev) => new Set(prev).add(RKEY(world.id)));
     } finally {
       setBusy(null);
     }
@@ -40,7 +40,7 @@ export function WorldList({ playerXp }: { playerXp: number }) {
       <h3 className="text-lg font-semibold mb-3">{t('game.worlds.section')}</h3>
       <div className="grid md:grid-cols-2 gap-3">
         {active.map((world) => {
-          const isUnlocked = unlocked.has(world.id.toLowerCase());
+          const isUnlocked = unlocked.has(RKEY(world.id));
           const canUnlock = !isUnlocked && playerXp >= world.xpRequired;
           const label = localizeName(t, world.i18nKey, world.name);
           return (

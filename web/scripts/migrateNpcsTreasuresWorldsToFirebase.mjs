@@ -14,8 +14,10 @@
  * découverte : leur ouverture n'était déclenchée que par l'ancien `submitQuestAnswer` on-chain
  * (lien `treasureId` sur une quête), mécanisme abandonné depuis la migration des quêtes vers
  * `submitQuestAnswerOffchain` (qui ne relie plus de trésor). On leur ajoute donc ici un seuil
- * `xpRequired` (comme les mondes) pour une ouverture manuelle une fois le seuil atteint — voir
- * `TreasureList.tsx`.
+ * `xpRequired` (comme les mondes) pour une ouverture manuelle une fois le seuil atteint, ainsi
+ * qu'un `itemReward` (objet effectivement remis dans la besace à l'ouverture — sans quoi le
+ * rubis/l'épée/la pioche promis par le nom du trésor n'apparaissaient jamais réellement dans la
+ * besace du joueur, bug signalé) — voir `TreasureList.tsx` et `openTreasureOffchain()`.
  *
  * Usage (one-shot, depuis web/) :
  *   node scripts/migrateNpcsTreasuresWorldsToFirebase.mjs
@@ -62,13 +64,24 @@ const NPCS = [
 
 // xpRequired repris des seuils des 5 quêtes classiques auxquelles chaque trésor était relié
 // on-chain (treasureId sur Quest), pour conserver la même progression narrative.
-//   [id,                          name,                          xpRequired, xpReward]
+// itemReward : objet effectivement remis dans la besace à l'ouverture (voir openTreasureOffchain
+// dans gameState.ts) — sans quoi le coffre n'octroyait que de l'XP et l'objet promis par le nom du
+// trésor (rubis/épée/pioche...) n'apparaissait jamais dans la besace (bug signalé par l'utilisateur).
+//   [id,                     name,                       xpRequired, xpReward, itemReward]
 const TREASURES = [
-  ['treasure.rupees',            'Bourse de rubis',                0,    30],
-  ['treasure.master_sword',      'Épée de maître (Zelda)',         50,    100],
-  ['treasure.diamond_pickaxe',   'Pioche en diamant (MC)',        100,    80],
-  ['treasure.thunderfury',       'Thunderfury (WoW)',             500,    500],
-  ['treasure.dragon_egg',        'Œuf de dragon ancien',         1000,    250],
+  ['treasure.rupees', 'Bourse de rubis', 0, 30,
+    { itemId: 'tresor_bourse_rubis', name: 'Bourse de rubis', category: 'treasure', qty: 50 }],
+  ['treasure.master_sword', 'Épée de maître (Zelda)', 50, 100,
+    { itemId: 'tresor_epee_maitre', name: 'Épée de maître (Zelda)', category: 'weapon', qty: 1,
+      slot: 'weapon', rarity: 'legendary', damage: 65, durabilityMax: 16 }],
+  ['treasure.diamond_pickaxe', 'Pioche en diamant (MC)', 100, 80,
+    { itemId: 'tresor_pioche_diamant', name: 'Pioche en diamant (MC)', category: 'weapon', qty: 1,
+      slot: 'weapon', rarity: 'rare', damage: 35, durabilityMax: 20 }],
+  ['treasure.thunderfury', 'Thunderfury (WoW)', 500, 500,
+    { itemId: 'tresor_thunderfury', name: 'Thunderfury', category: 'weapon', qty: 1,
+      slot: 'weapon', rarity: 'epic', damage: 95, durabilityMax: 10 }],
+  ['treasure.dragon_egg', 'Œuf de dragon ancien', 1000, 250,
+    { itemId: 'tresor_oeuf_dragon', name: 'Œuf de dragon ancien', category: 'treasure', qty: 1 }],
 ];
 
 //   [id,                          name,                                  xpRequired]
@@ -108,13 +121,13 @@ async function main() {
   }
 
   console.log('\n💎 Trésors...');
-  for (const [id, name, xpRequired, xpReward] of TREASURES) {
+  for (const [id, name, xpRequired, xpReward, itemReward] of TREASURES) {
     const order = TREASURES.findIndex((tr) => tr[0] === id);
     const key = rkey(id);
     const i18nKey = `treasure.${id.split('.').slice(1).join('.')}`;
-    const def = { id, name, xpRequired, xpReward, active: true, createdAt: now, order, i18nKey };
+    const def = { id, name, xpRequired, xpReward, active: true, createdAt: now, order, i18nKey, itemReward };
     await set(ref(db, `catalog/treasureDefs/${key}`), def);
-    console.log(`   + ${name} (requiert ${xpRequired} XP, +${xpReward} XP à l'ouverture)`);
+    console.log(`   + ${name} (requiert ${xpRequired} XP, +${xpReward} XP + 🎒 ${itemReward.name} à l'ouverture)`);
   }
 
   console.log('\n🗺️  Mondes...');

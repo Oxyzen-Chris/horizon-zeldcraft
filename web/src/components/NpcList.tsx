@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { getNpcDefs, getMetNpcIds, meetNpcOffchain, type NpcDef } from '@/lib/gameState';
+import { getNpcDefs, getMetNpcIds, meetNpcOffchain, RKEY, type NpcDef } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /**
@@ -31,7 +31,7 @@ export function NpcList() {
     setBusy(npc.id);
     try {
       const res = await meetNpcOffchain(address, npc);
-      if (res === 'met') setMet((prev) => new Set(prev).add(npc.id.toLowerCase()));
+      if (res === 'met') setMet((prev) => new Set(prev).add(RKEY(npc.id)));
     } finally {
       setBusy(null);
     }
@@ -48,7 +48,7 @@ export function NpcList() {
       {active.length === 0 && <p className="text-sm text-slate-400">{t('game.npcs.empty')}</p>}
       <div className="grid md:grid-cols-2 gap-3">
         {active.map((npc) => {
-          const isMet = met.has(npc.id.toLowerCase());
+          const isMet = met.has(RKEY(npc.id));
           const label = localizeName(t, npc.i18nKey, npc.name);
           return (
             <div key={npc.id} className={`bg-slate-800/60 rounded-lg p-3 border ${isMet ? 'border-emerald-600' : 'border-slate-600'}`}>
