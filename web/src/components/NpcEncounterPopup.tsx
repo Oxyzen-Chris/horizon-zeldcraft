@@ -7,11 +7,11 @@ import { NPC_SKINS, NPC_NAME_SUFFIXES, NPC_SUFFIX_KEYS } from '@/lib/contract';
 import {
   applyEffect, logEncounter, addToInventory, removeFromInventory, getRepRules, getOrCreatePlayer,
   computePlayerDiceBonus, rollD20, getChatScripts, getNextQuestHint, DEFAULT_CHAT_SCRIPTS, CHAT_RESPONSE_IDS,
-  DEFAULT_REP_RULES, pickNpcQuestForPlayer, unlockQuestForPlayer,
+  DEFAULT_REP_RULES, pickNpcQuestForPlayer, unlockQuestForPlayer, getCurrentSeason,
   computeEquipmentCombatBonus, applyEquipmentWear, getShopCatalog, rarityForXp,
   subscribeEquipment,
   type EncounterRecord, type RepRules, type ChatScript, type ChatResponseId, type ChatReaction, type QuestDef,
-  type EquipSlot, type EquippedItem, type ItemRarity, type ShopItem,
+  type EquipSlot, type EquippedItem, type ItemRarity, type ShopItem, type Season,
 } from '@/lib/gameState';
 import { getFirebaseDb } from '@/lib/firebase';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
@@ -48,8 +48,16 @@ const OFFER_ICONS = { trade: '💰', quest: '📜', fight: '⚔️', chat: '💬
 const OFFER_KEYS  = { trade: 'trade', quest: 'quest', fight: 'fight', chat: 'chat' };
 
 // Archétypes de PNJ (nom base ; skin choisi aléatoirement). `key` = clé i18n stable
-// (voir t(`npc.archetype.${key}`)), `base` = texte FR brut de repli.
-const ARCHETYPES = [
+// (voir t(`npc.archetype.${key}`)), `base` = texte FR brut de repli. Les 4 archétypes saisonniers
+// (`season` renseigné) n'apparaissent que pendant la saison effective (voir getCurrentSeason() /
+// rollNpc()) — les autres restent disponibles toute l'année.
+type NpcArchetype = {
+  key: string; base: string;
+  align: 'friendly' | 'neutral' | 'hostile' | 'unknown';
+  offer: 'trade' | 'quest' | 'fight' | 'chat';
+  season?: Season;
+};
+const ARCHETYPES: readonly NpcArchetype[] = [
   { key: 'marchand',   base: 'Marchand',   align: 'friendly', offer: 'trade' },
   { key: 'chevalier',  base: 'Chevalier',  align: 'neutral',  offer: 'quest' },
   { key: 'combattant', base: 'Combattant', align: 'hostile',  offer: 'fight' },
@@ -61,12 +69,20 @@ const ARCHETYPES = [
   { key: 'princesse',        base: 'Princesse Zelda',    align: 'friendly', offer: 'quest' },
   { key: 'marchand_ambulant',base: 'Marchand ambulant',  align: 'neutral',  offer: 'quest' },
   { key: 'dragon_ancestral', base: 'Dragon Ancestral',   align: 'unknown',  offer: 'quest' },
-] as const;
+  { key: 'nymphe_printemps', base: 'Nymphe du Printemps', align: 'friendly', offer: 'chat',  season: 'spring' },
+  { key: 'esprit_ete',       base: "Esprit de l'Été",     align: 'friendly', offer: 'trade', season: 'summer' },
+  { key: 'faucheur_automne', base: "Faucheur d'Automne",  align: 'neutral',  offer: 'quest',  season: 'autumn' },
+  { key: 'roi_hiver',        base: "Roi de l'Hiver",      align: 'unknown',  offer: 'fight',  season: 'winter' },
+];
 
 function pick<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
-function rollNpc(): PopupNpc {
-  const a = pick(ARCHETYPES);
+/** Tirage d'un PNJ aléatoire — si `season` est fourni, exclut les archétypes des 3 autres saisons
+ * (ceux sans `season` restent toujours disponibles), pour laisser réellement apparaître de
+ * nouveaux visages au fil de l'année. */
+function rollNpc(season: Season | null): PopupNpc {
+  const pool = ARCHETYPES.filter(a => !a.season || a.season === season);
+  const a = pick(pool.length ? pool : ARCHETYPES);
   const suffixIdx = Math.floor(Math.random() * NPC_NAME_SUFFIXES.length);
   return {
     key: Math.random().toString(36).slice(2, 10),
@@ -191,6 +207,18 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const currentRef = useRef<PopupNpc | null>(null);
   useEffect(() => { currentRef.current = current; }, [current]);
 
+  // Saison effective (voir gameState.ts::getCurrentSeason) — lue dans un ref (pas de re-render
+  // requis) pour filtrer les archétypes saisonniers tirés par rollNpc(). Rafraîchie de temps en
+  // temps pour suivre un changement de saison en cours de session (rollover de date ou bascule
+  // manuelle admin), sans réinterroger Firebase à chaque battement de cœur (15s).
+  const seasonRef = useRef<Season | null>(null);
+  useEffect(() => {
+    const refresh = () => getCurrentSeason().then(s => { seasonRef.current = s; }).catch(() => {});
+    refresh();
+    const id = setInterval(refresh, 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Planificateur "battement de cœur" : toutes les 15s, vérifie si le quota du jour (RepRules.
   // npcMaxPerDay, hors-chaîne) est atteint et si l'horodatage "prochain tirage" (persisté en
   // localStorage, tirée dans une fenêtre aléatoire de 60s à 25min) est dépassé. Aucune dépendance
@@ -217,7 +245,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         if (count >= max) return;
         if (currentRef.current) return; // une popup est déjà affichée : on patiente
         if (Date.now() < nextAt) return;
-        const npc = rollNpc();
+        const npc = rollNpc(seasonRef.current);
         setCurrent(npc);
         localStorage.setItem(countKey, String(count + 1));
         nextAt = scheduleNext();

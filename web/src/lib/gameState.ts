@@ -31,6 +31,7 @@
  *   catalog/mapPois/{id}               → MapPoiDef (point d'intérêt terrain/décor sur une carte — voir WorldMapWidget.tsx)
  *   players/{addr}/mapPos              → { mapId, x, y, updatedAt } (position libre de Synk sur la carte, déplacement libre)
  *   players/{addr}/mapPoisVisited/{id} → { visitedAt } (POI découvert par hasard en explorant — XP de découverte, une fois)
+ *   catalog/seasonState                → SeasonState (saison courante — auto (date réelle) ou forcée par l'admin)
  */
 import {
   ref, get, set, update, onValue, off, push, serverTimestamp, DataSnapshot,
@@ -84,6 +85,15 @@ export const EQUIP_SLOTS: EquipSlot[] = ['weapon', 'offhand', 'head', 'body', 'l
 
 /** Rareté d'un équipement — seuils XP par palier paramétrables dans RepRules (equipRarityXp*). */
 export type ItemRarity = 'common' | 'rare' | 'legendary' | 'epic';
+
+/** Saison courante du jeu — gestion tournante (printemps/été/automne/hiver) : par défaut calculée
+ * depuis la date réelle (hémisphère nord, voir computeAutoSeason()), ou forcée par l'admin (voir
+ * SeasonState/getCurrentSeason ci-dessous). De nouveaux PNJ, quêtes, trésors et POI peuvent être
+ * tagués `season` pour n'apparaître que pendant la saison correspondante — voir NpcList.tsx,
+ * QuestList.tsx, TreasureList.tsx, WorldMapWidget.tsx et pickNpcQuestForPlayer(). */
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
+export const SEASONS: Season[] = ['spring', 'summer', 'autumn', 'winter'];
+export const SEASON_ICONS: Record<Season, string> = { spring: '🌸', summer: '☀️', autumn: '🍂', winter: '❄️' };
 
 export interface InventoryItem {
   itemId: string;
@@ -822,6 +832,9 @@ export interface QuestDef {
   npcGiver?: boolean;    // true = quête masquée de "Quêtes à énigmes" tant qu'un PNJ (offer 'quest')
                          // ne l'a pas proposée et que le joueur ne l'a pas acceptée — voir
                          // unlockQuestForPlayer()/getUnlockedQuestIds() et pickNpcQuestForPlayer()
+  season?: Season;       // si renseigné, quête offerte par PNJ uniquement pendant cette saison (voir
+                         // pickNpcQuestForPlayer()) — une fois débloquée/résolue elle reste visible
+                         // toute l'année (voir QuestList.tsx). undefined = disponible toute l'année.
   itemReward?: {
     itemId: string; name: string; qty: number; category: InventoryItem['category']; effect?: InventoryItem['effect'];
     // Champs d'équipement (mêmes que ShopItem/InventoryItem) — permet à une quête de remettre un
@@ -1003,10 +1016,12 @@ export async function getUnlockedQuestIds(address: string): Promise<Set<string>>
  * Choisit, parmi le catalogue des quêtes `npcGiver` actives, une énigme non encore débloquée ni
  * résolue par ce joueur (tirage aléatoire) — appelée quand un PNJ "quête" est accepté dans
  * `NpcEncounterPopup`. Renvoie `null` si le joueur a déjà débloqué/résolu les 20 énigmes du pool.
+ * Les quêtes tagués `season` ne sont proposées que pendant la saison effective (voir
+ * getCurrentSeason()) — une quête sans `season` reste toujours proposable.
  */
 export async function pickNpcQuestForPlayer(address: string): Promise<QuestDef | null> {
-  const [quests, unlocked] = await Promise.all([getQuestDefs(), getUnlockedQuestIds(address)]);
-  const pool = quests.filter(q => q.active && q.npcGiver && !unlocked.has(q.id.toLowerCase()));
+  const [quests, unlocked, season] = await Promise.all([getQuestDefs(), getUnlockedQuestIds(address), getCurrentSeason()]);
+  const pool = quests.filter(q => q.active && q.npcGiver && !unlocked.has(q.id.toLowerCase()) && (!q.season || q.season === season));
   if (pool.length === 0) return null;
   // Filtre en plus les quêtes déjà résolues (filet de sécurité si `unlockedQuests` a été perdu).
   const notSolved: QuestDef[] = [];
@@ -1037,6 +1052,8 @@ export interface NpcDef {
   active: boolean;
   createdAt: number;
   order?: number;
+  season?: Season;       // si renseigné, ce PNJ officiel n'apparaît dans "PNJ" que pendant cette
+                         // saison (voir NpcList.tsx) — undefined = visible toute l'année.
 }
 export interface TreasureDef {
   id: string;            // ex. "treasure.master_sword"
@@ -1047,6 +1064,9 @@ export interface TreasureDef {
   active: boolean;
   createdAt: number;
   order?: number;
+  season?: Season;       // si renseigné, coffre visible/ouvrable uniquement pendant cette saison
+                         // tant qu'il n'a pas déjà été trouvé (voir TreasureList.tsx) — une fois
+                         // trouvé il reste visible toute l'année. undefined = toute l'année.
   // Objet remis dans la besace à l'ouverture (même forme que QuestDef.itemReward) — voir
   // openTreasureOffchain(). Sans ce champ, ouvrir un coffre ne rapportait QUE de l'XP : le rubis/
   // l'épée/la pioche promis par le nom du trésor n'apparaissait jamais dans la besace (bug signalé).
@@ -1109,6 +1129,9 @@ export interface MapPoiDef {
   active: boolean;
   createdAt: number;
   order?: number;
+  season?: Season;       // si renseigné, décor visible uniquement pendant cette saison tant qu'il
+                         // n'a pas déjà été découvert (voir WorldMapWidget.tsx) — undefined = toute
+                         // l'année.
 }
 
 export const DEFAULT_MAP_ID = 'map.synk_territory';
@@ -1373,6 +1396,55 @@ export async function getInventoryOnce(address: string): Promise<InventoryItem[]
   const snap = await get(ref(db, `players/${KEY(address)}/inventory`));
   const v = snap.val() as Record<string, InventoryItem> | null;
   return v ? Object.values(v) : [];
+}
+
+// ───────────────────────────── Saisons (gestion tournante, admin) ─────────────────────────────
+// Par défaut la saison courante est calculée depuis la date réelle (hémisphère nord), pour donner
+// vie au monde sans aucune intervention manuelle. L'admin peut à tout moment forcer une saison
+// (démo, événement, rattrapage d'hémisphère) via `setSeasonState`. De nouveaux PNJ/quêtes/trésors/
+// POI tagués `season` (voir plus haut) n'apparaissent alors que pendant la saison effective.
+
+export interface SeasonState {
+  mode: 'auto' | 'manual';
+  manualSeason?: Season;
+  updatedAt: number;
+}
+
+const DEFAULT_SEASON_STATE: SeasonState = { mode: 'auto', updatedAt: 0 };
+
+/** Saison hémisphère nord à partir du mois (0-11) — mars-mai printemps, juin-août été,
+ * septembre-novembre automne, décembre-février hiver. Pure/synchrone, sans accès réseau. */
+export function computeAutoSeason(date: Date = new Date()): Season {
+  const m = date.getMonth();
+  if (m >= 2 && m <= 4) return 'spring';
+  if (m >= 5 && m <= 7) return 'summer';
+  if (m >= 8 && m <= 10) return 'autumn';
+  return 'winter';
+}
+
+export async function getSeasonState(): Promise<SeasonState> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_SEASON_STATE;
+  const snap = await get(ref(db, 'catalog/seasonState'));
+  const v = snap.val() as SeasonState | null;
+  return v ? { ...DEFAULT_SEASON_STATE, ...v } : DEFAULT_SEASON_STATE;
+}
+
+/** Force (ou remet en automatique) la saison courante — admin uniquement. */
+export async function setSeasonState(mode: 'auto' | 'manual', manualSeason?: Season): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/seasonState'), {
+    mode, ...(mode === 'manual' && manualSeason ? { manualSeason } : {}), updatedAt: Date.now(),
+  });
+}
+
+/** Saison effective (mode auto → date réelle, mode manuel → saison forcée par l'admin). */
+export async function getCurrentSeason(): Promise<Season> {
+  const state = await getSeasonState();
+  if (state.mode === 'manual' && state.manualSeason) return state.manualSeason;
+  return computeAutoSeason();
 }
 
 // ─────────────────────────────────────── Player index ───────────────────────────────────────

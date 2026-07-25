@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import {
   getQuestDefs, getSolvedQuest, submitQuestAnswerOffchain, getUnlockedQuestIds,
-  getRepRules, type QuestDef,
+  getRepRules, getCurrentSeason, type QuestDef, type Season,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
@@ -24,14 +24,20 @@ export function QuestList({ playerXp }: { playerXp: number }) {
   const { address } = useAccount();
   const [quests, setQuests] = useState<QuestDef[] | null>(null);
   const [unlocked, setUnlocked] = useState<Set<string> | null>(null);
+  const [season, setSeason] = useState<Season | null>(null);
 
   useEffect(() => { getQuestDefs().then(setQuests).catch(() => setQuests([])); }, []);
   useEffect(() => {
     if (!address) { setUnlocked(new Set()); return; }
     getUnlockedQuestIds(address).then(setUnlocked).catch(() => setUnlocked(new Set()));
   }, [address]);
+  useEffect(() => { getCurrentSeason().then(setSeason).catch(() => {}); }, []);
 
-  const visible = (quests ?? []).filter(q => q.active);
+  // Une quête tagué `season` reste masquée hors de sa saison tant qu'elle n'a pas déjà été
+  // proposée/débloquée par un PNJ (voir pickNpcQuestForPlayer()) — une fois débloquée, elle reste
+  // visible toute l'année pour que le joueur ne perde jamais l'accès à une énigme en cours.
+  const visible = (quests ?? []).filter(q => q.active
+    && (!q.season || q.season === season || (unlocked?.has(q.id.toLowerCase()) ?? false)));
   const npcCount = visible.filter(q => q.npcGiver).length;
   const classicCount = visible.length - npcCount;
 

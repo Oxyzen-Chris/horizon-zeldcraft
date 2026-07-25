@@ -13,6 +13,7 @@ import { Countdown } from '@/components/Countdown';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { WeatherWidget } from '@/components/WeatherWidget';
+import { SeasonWidget } from '@/components/SeasonWidget';
 import { Scoreboard } from '@/components/Scoreboard';
 import { QuestList } from '@/components/QuestList';
 import { NpcList } from '@/components/NpcList';
@@ -115,6 +116,7 @@ export default function GamePage() {
         <Link href="/" className="text-2xl font-bold text-voxlyn-crystal">🐉 {t('app.title')}</Link>
         <div className="flex flex-wrap gap-3 items-center">
           {contract && <WeatherWidget contract={contract} />}
+          <SeasonWidget />
           <LanguageSwitcher />
           <NetworkSwitcher />
           {isOwner && <Link href="/admin" className="btn-secondary text-sm">⚙️ {t('admin.title')}</Link>}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { getNpcDefs, getMetNpcIds, meetNpcOffchain, RKEY, type NpcDef } from '@/lib/gameState';
+import { getNpcDefs, getMetNpcIds, meetNpcOffchain, getCurrentSeason, RKEY, type NpcDef, type Season } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /**
@@ -17,14 +17,17 @@ export function NpcList() {
   const [defs, setDefs] = useState<NpcDef[] | null>(null);
   const [met, setMet] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
+  const [season, setSeason] = useState<Season | null>(null);
 
   const refresh = () => {
     getNpcDefs().then(setDefs).catch(() => setDefs([]));
     if (address) getMetNpcIds(address).then(setMet).catch(() => setMet(new Set()));
   };
   useEffect(refresh, [address]);
+  useEffect(() => { getCurrentSeason().then(setSeason).catch(() => {}); }, []);
 
-  const active = (defs ?? []).filter((n) => n.active);
+  // Un PNJ officiel tagué `season` n'apparaît que pendant la saison effective (voir gameState.ts).
+  const active = (defs ?? []).filter((n) => n.active && (!n.season || n.season === season));
 
   const meet = async (npc: NpcDef) => {
     if (!address || busy) return;

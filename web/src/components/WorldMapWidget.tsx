@@ -5,8 +5,8 @@ import { useAccount } from 'wagmi';
 import {
   getMapPoiDefs, getWorldDefs, getPlayerMapPos, setPlayerMapPos, getUnlockedWorldIds,
   getVisitedMapPoiIds, visitMapPoi, discoverWorldOffchain, getInventoryOnce, getRepRules,
-  getOrCreatePlayer, computePlayerDiceBonus, rollD20, applyEffect, RKEY, DEFAULT_MAP_ID,
-  type MapPoiDef, type WorldDef, type RepRules,
+  getOrCreatePlayer, computePlayerDiceBonus, rollD20, applyEffect, getCurrentSeason, RKEY, DEFAULT_MAP_ID,
+  type MapPoiDef, type WorldDef, type RepRules, type Season,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
@@ -63,6 +63,7 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
   const [visitedPois, setVisitedPois] = useState<Set<string>>(new Set());
   const [rules, setRules] = useState<RepRules | null>(null);
   const [mapPos, setMapPos] = useState<Pos>({ x: 50, y: 88 });
+  const [season, setSeason] = useState<Season | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
   const [travelConfirm, setTravelConfirm] = useState<WorldDef | null>(null);
@@ -81,6 +82,7 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
     getMapPoiDefs(DEFAULT_MAP_ID).then(setPois).catch(() => {});
     getWorldDefs().then(setWorlds).catch(() => {});
     getRepRules().then(setRules).catch(() => {});
+    getCurrentSeason().then(setSeason).catch(() => {});
   }, []);
 
   const refreshPlayerBits = useCallback(() => {
@@ -92,6 +94,10 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
   useEffect(() => { refreshPlayerBits(); }, [refreshPlayerBits]);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 5000); };
+
+  // Un POI tagué `season` reste masqué/non-découvrable hors de sa saison tant qu'il n'a pas déjà
+  // été découvert par ce joueur (voir gameState.ts::MapPoiDef.season).
+  const visiblePois = pois.filter(p => !p.season || p.season === season || visitedPois.has(RKEY(p.id)));
 
   // ─── Drag (déplacement de la fenêtre) ───
   const onHeaderPointerDown = (e: React.PointerEvent) => {
@@ -142,7 +148,7 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
     setMapPos({ x: xPct, y: yPct });
     await setPlayerMapPos(address, DEFAULT_MAP_ID, xPct, yPct);
     // Découverte fortuite : tout POI non visité à moins de 6% de distance devient découvert.
-    for (const poi of pois) {
+    for (const poi of visiblePois) {
       if (visitedPois.has(RKEY(poi.id))) continue;
       const d = Math.hypot(poi.x - xPct, poi.y - yPct);
       if (d <= 6) {
@@ -285,7 +291,7 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
           </p>
 
           {/* Points d'intérêt (terrain/décor) */}
-          {pois.map(poi => (
+          {visiblePois.map(poi => (
             <div
               key={poi.id}
               title={poi.name}

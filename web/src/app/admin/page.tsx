@@ -11,7 +11,9 @@ import { addQuestDef, getQuestDefs, questIdOf, seedQuestAnswer, getAllQuestAnswe
 import {
   addNpcDef, getNpcDefs, addTreasureDef, getTreasureDefs, addWorldDef, getWorldDefs,
   getRepRules, setNpcMaxPerDay, addMapPoiDef, getMapPoiDefs, removeMapPoiDef, addMapDef, getMapDefs,
+  getSeasonState, setSeasonState, computeAutoSeason, SEASONS, SEASON_ICONS,
   DEFAULT_MAP_ID, type NpcDef, type TreasureDef, type WorldDef, type MapPoiDef, type MapPoiType,
+  type Season, type SeasonState,
 } from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
@@ -110,6 +112,7 @@ export default function AdminPage() {
   const [poiIcon, setPoiIcon] = useState('');
   const [poiX, setPoiX] = useState('50');
   const [poiY, setPoiY] = useState('50');
+  const [poiSeason, setPoiSeason] = useState<Season | ''>('');
   const [poiSaving, setPoiSaving] = useState(false);
   const [allPois, setAllPois] = useState<MapPoiDef[] | null>(null);
   const refreshPois = () => { getMapPoiDefs(DEFAULT_MAP_ID).then(setAllPois).catch(() => setAllPois([])); };
@@ -125,6 +128,31 @@ export default function AdminPage() {
   }, []);
   const POI_TYPES: MapPoiType[] = ['plain', 'stream', 'lake', 'mountain', 'forest', 'cave', 'beach', 'waterfall',
     'village_ally', 'village_enemy', 'path', 'bridge', 'tavern', 'stable', 'hut'];
+
+  // Saisons (gestion tournante) — voir gameState.ts::Season/SeasonState/getCurrentSeason.
+  const [seasonState, setSeasonStateLocal] = useState<SeasonState | null>(null);
+  const [seasonMode, setSeasonMode] = useState<'auto' | 'manual'>('auto');
+  const [seasonManual, setSeasonManual] = useState<Season>('spring');
+  const [seasonSaving, setSeasonSaving] = useState(false);
+  const [seasonSaved, setSeasonSaved] = useState(false);
+  useEffect(() => {
+    getSeasonState().then(s => {
+      setSeasonStateLocal(s);
+      setSeasonMode(s.mode);
+      setSeasonManual(s.manualSeason ?? computeAutoSeason());
+    }).catch(() => {});
+  }, []);
+  const effectiveSeason: Season = seasonState?.mode === 'manual' && seasonState.manualSeason
+    ? seasonState.manualSeason : computeAutoSeason();
+  const saveSeason = async () => {
+    setSeasonSaving(true);
+    try {
+      await setSeasonState(seasonMode, seasonMode === 'manual' ? seasonManual : undefined);
+      setSeasonStateLocal(await getSeasonState());
+      setSeasonSaved(true);
+      setTimeout(() => setSeasonSaved(false), 2000);
+    } finally { setSeasonSaving(false); }
+  };
 
   const [difficulty, setDifficulty] = useState('50');
   const [weather, setWeather] = useState('0');
@@ -438,6 +466,10 @@ export default function AdminPage() {
               </select>
               <input className="input" placeholder={t('admin.map.x')} value={poiX} onChange={e => setPoiX(e.target.value)} />
               <input className="input" placeholder={t('admin.map.y')} value={poiY} onChange={e => setPoiY(e.target.value)} />
+              <select className="input" value={poiSeason} onChange={e => setPoiSeason(e.target.value as Season | '')}>
+                <option value="">{t('admin.season.allYear')}</option>
+                {SEASONS.map(s => <option key={s} value={s}>{SEASON_ICONS[s]} {t(`season.${s}`)}</option>)}
+              </select>
             </div>
             <button className="btn-primary" disabled={poiSaving || !poiKey || !poiName}
               onClick={async () => {
@@ -449,8 +481,9 @@ export default function AdminPage() {
                     id: poiKey.trim(), mapId: DEFAULT_MAP_ID, type: poiType, name: poiName.trim(),
                     icon: poiIcon.trim(), x: Number(poiX) || 50, y: Number(poiY) || 50,
                     active: true, createdAt: Date.now(), order: nextOrder,
+                    ...(poiSeason ? { season: poiSeason } : {}),
                   });
-                  setPoiKey(''); setPoiName(''); setPoiIcon(''); setPoiX('50'); setPoiY('50');
+                  setPoiKey(''); setPoiName(''); setPoiIcon(''); setPoiX('50'); setPoiY('50'); setPoiSeason('');
                   refreshPois();
                 } finally {
                   setPoiSaving(false);
@@ -503,6 +536,28 @@ export default function AdminPage() {
                   address: contract, abi: HORIZON_ABI, functionName: 'clearWeatherOverride', args: [],
                 })}
               >{t('admin.weather.auto')}</button>
+            </div>
+          </section>
+
+          <section className="card">
+            <h2 className="text-xl font-semibold mb-3">{t('admin.season.title')}</h2>
+            <p className="text-xs text-slate-400 mb-3">{t('admin.season.hint')}</p>
+            <p className="text-sm mb-3">
+              {t('admin.season.effective')} : <span className="font-bold text-emerald-400">{SEASON_ICONS[effectiveSeason]} {t(`season.${effectiveSeason}`)}</span>
+            </p>
+            <div className="flex flex-wrap gap-3 items-center mb-2">
+              <select className="input" value={seasonMode} onChange={e => setSeasonMode(e.target.value as 'auto' | 'manual')}>
+                <option value="auto">{t('admin.season.auto')}</option>
+                <option value="manual">{t('admin.season.manual')}</option>
+              </select>
+              {seasonMode === 'manual' && (
+                <select className="input" value={seasonManual} onChange={e => setSeasonManual(e.target.value as Season)}>
+                  {SEASONS.map(s => <option key={s} value={s}>{SEASON_ICONS[s]} {t(`season.${s}`)}</option>)}
+                </select>
+              )}
+              <button className="btn-primary" disabled={seasonSaving} onClick={saveSeason}>
+                {seasonSaving ? '⏳' : seasonSaved ? '✅' : t('admin.actions.apply')}
+              </button>
             </div>
           </section>
 
@@ -606,6 +661,7 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
   const [xpReq, setXpReq] = useState(String(quest.xpRequired));
   const [xpRew, setXpRew] = useState(String(quest.xpReward));
   const [hint, setHint] = useState(quest.hint ?? '');
+  const [season, setSeason] = useState<Season | ''>(quest.season ?? '');
   const [saving, setSaving] = useState(false);
 
   const startEdit = () => {
@@ -615,6 +671,7 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
     setXpReq(String(quest.xpRequired));
     setXpRew(String(quest.xpReward));
     setHint(quest.hint ?? '');
+    setSeason(quest.season ?? '');
     setEditing(true);
   };
 
@@ -634,6 +691,7 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
         order: quest.order,
         ...(hint.trim() ? { hint: hint.trim() } : {}),
         ...(npcGiver ? { npcGiver: true } : {}),
+        ...(season ? { season } : {}),
       });
       await seedQuestAnswer(quest.id, normalizeAnswer(ans));
       setEditing(false);
@@ -657,6 +715,10 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
           <input className="input" placeholder={t('admin.quest.xpReward')} value={xpRew} onChange={e => setXpRew(e.target.value)} />
         </div>
         <input className="input w-full" placeholder={t('admin.quest.hintField')} value={hint} onChange={e => setHint(e.target.value)} />
+        <select className="input w-full" value={season} onChange={e => setSeason(e.target.value as Season | '')}>
+          <option value="">{t('admin.season.allYear')}</option>
+          {SEASONS.map(s => <option key={s} value={s}>{SEASON_ICONS[s]} {t(`season.${s}`)}</option>)}
+        </select>
         <div className="flex gap-2">
           <button className="btn-primary text-xs px-3 py-1" disabled={saving || !label.trim() || !ans.trim()} onClick={save}>
             {saving ? '⏳' : t('admin.quest.list.save')}
@@ -681,6 +743,7 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
           {quest.npcGiver ? t('admin.quest.list.npcBadge') : t('admin.quest.list.classicBadge')}
         </span>
         <span className="flex-1 truncate">{localizeName(t, quest.i18nKey, quest.label)}</span>
+        {quest.season && <span className="shrink-0" title={t(`season.${quest.season}`)}>{SEASON_ICONS[quest.season]}</span>}
         <span className="shrink-0 text-slate-500">
           {t('admin.quest.xpRequired')} {quest.xpRequired} · +{quest.xpReward} XP
         </span>
@@ -709,10 +772,12 @@ function NpcRow({ npc, onSaved }: { npc: NpcDef; onSaved: () => void }) {
   const [dialog, setDialog] = useState(npc.dialog);
   const [xp, setXp] = useState(String(npc.xpReward));
   const [questId, setQuestId] = useState(npc.questId ?? '');
+  const [season, setSeason] = useState<Season | ''>(npc.season ?? '');
   const [saving, setSaving] = useState(false);
 
   const startEdit = () => {
     setName(npc.name); setDialog(npc.dialog); setXp(String(npc.xpReward)); setQuestId(npc.questId ?? '');
+    setSeason(npc.season ?? '');
     setEditing(true);
   };
 
@@ -725,6 +790,7 @@ function NpcRow({ npc, onSaved }: { npc: NpcDef; onSaved: () => void }) {
         active: npc.active, createdAt: npc.createdAt, order: npc.order,
         ...(npc.i18nKey ? { i18nKey: npc.i18nKey } : {}),
         ...(questId.trim() ? { questId: questId.trim() } : {}),
+        ...(season ? { season } : {}),
       });
       setEditing(false);
       onSaved();
@@ -742,6 +808,10 @@ function NpcRow({ npc, onSaved }: { npc: NpcDef; onSaved: () => void }) {
           <input className="input" placeholder={t('admin.npc.xp')} value={xp} onChange={e => setXp(e.target.value)} />
           <input className="input" placeholder={t('admin.npc.questId')} value={questId} onChange={e => setQuestId(e.target.value)} />
         </div>
+        <select className="input w-full" value={season} onChange={e => setSeason(e.target.value as Season | '')}>
+          <option value="">{t('admin.season.allYear')}</option>
+          {SEASONS.map(s => <option key={s} value={s}>{SEASON_ICONS[s]} {t(`season.${s}`)}</option>)}
+        </select>
         <div className="flex gap-2">
           <button className="btn-primary text-xs px-3 py-1" disabled={saving || !name.trim()} onClick={save}>
             {saving ? '⏳' : t('admin.quest.list.save')}
@@ -758,6 +828,7 @@ function NpcRow({ npc, onSaved }: { npc: NpcDef; onSaved: () => void }) {
     <div className="bg-slate-900/60 rounded px-2 py-1.5 text-xs">
       <div className="flex items-center gap-2">
         <span className="flex-1 truncate">{localizeName(t, npc.i18nKey, npc.name)}</span>
+        {npc.season && <span className="shrink-0" title={t(`season.${npc.season}`)}>{SEASON_ICONS[npc.season]}</span>}
         <span className="shrink-0 text-slate-500">+{npc.xpReward} XP</span>
         {!npc.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
         <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>
@@ -779,10 +850,12 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
   const [name, setName] = useState(treasure.name);
   const [xpReq, setXpReq] = useState(String(treasure.xpRequired));
   const [xpRew, setXpRew] = useState(String(treasure.xpReward));
+  const [season, setSeason] = useState<Season | ''>(treasure.season ?? '');
   const [saving, setSaving] = useState(false);
 
   const startEdit = () => {
     setName(treasure.name); setXpReq(String(treasure.xpRequired)); setXpRew(String(treasure.xpReward));
+    setSeason(treasure.season ?? '');
     setEditing(true);
   };
 
@@ -795,6 +868,7 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
         active: treasure.active, createdAt: treasure.createdAt, order: treasure.order,
         ...(treasure.i18nKey ? { i18nKey: treasure.i18nKey } : {}),
         ...(treasure.itemReward ? { itemReward: treasure.itemReward } : {}),
+        ...(season ? { season } : {}),
       });
       setEditing(false);
       onSaved();
@@ -811,6 +885,10 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
           <input className="input" placeholder={t('admin.treasure.xpRequired')} value={xpReq} onChange={e => setXpReq(e.target.value)} />
           <input className="input" placeholder={t('admin.treasure.xp')} value={xpRew} onChange={e => setXpRew(e.target.value)} />
         </div>
+        <select className="input w-full" value={season} onChange={e => setSeason(e.target.value as Season | '')}>
+          <option value="">{t('admin.season.allYear')}</option>
+          {SEASONS.map(s => <option key={s} value={s}>{SEASON_ICONS[s]} {t(`season.${s}`)}</option>)}
+        </select>
         <div className="flex gap-2">
           <button className="btn-primary text-xs px-3 py-1" disabled={saving || !name.trim()} onClick={save}>
             {saving ? '⏳' : t('admin.quest.list.save')}
@@ -827,6 +905,7 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
     <div className="bg-slate-900/60 rounded px-2 py-1.5 text-xs">
       <div className="flex items-center gap-2">
         <span className="flex-1 truncate">{localizeName(t, treasure.i18nKey, treasure.name)}</span>
+        {treasure.season && <span className="shrink-0" title={t(`season.${treasure.season}`)}>{SEASON_ICONS[treasure.season]}</span>}
         <span className="shrink-0 text-slate-500">
           {t('admin.treasure.xpRequired')} {treasure.xpRequired} · +{treasure.xpReward} XP
         </span>
@@ -929,10 +1008,12 @@ function MapPoiRow({ poi, poiTypes, onSaved, onDeleted }: {
   const [icon, setIcon] = useState(poi.icon);
   const [x, setX] = useState(String(poi.x));
   const [y, setY] = useState(String(poi.y));
+  const [season, setSeason] = useState<Season | ''>(poi.season ?? '');
   const [saving, setSaving] = useState(false);
 
   const startEdit = () => {
     setType(poi.type); setName(poi.name); setIcon(poi.icon); setX(String(poi.x)); setY(String(poi.y));
+    setSeason(poi.season ?? '');
     setEditing(true);
   };
 
@@ -943,6 +1024,7 @@ function MapPoiRow({ poi, poiTypes, onSaved, onDeleted }: {
       await addMapPoiDef({
         id: poi.id, mapId: poi.mapId, type, name: name.trim(), icon: icon.trim(),
         x: Number(x) || 0, y: Number(y) || 0, active: poi.active, createdAt: poi.createdAt, order: poi.order,
+        ...(season ? { season } : {}),
       });
       setEditing(false);
       onSaved();
@@ -963,6 +1045,10 @@ function MapPoiRow({ poi, poiTypes, onSaved, onDeleted }: {
           <input className="input" placeholder={t('admin.map.x')} value={x} onChange={e => setX(e.target.value)} />
           <input className="input" placeholder={t('admin.map.y')} value={y} onChange={e => setY(e.target.value)} />
         </div>
+        <select className="input w-full" value={season} onChange={e => setSeason(e.target.value as Season | '')}>
+          <option value="">{t('admin.season.allYear')}</option>
+          {SEASONS.map(s => <option key={s} value={s}>{SEASON_ICONS[s]} {t(`season.${s}`)}</option>)}
+        </select>
         <div className="flex gap-2">
           <button className="btn-primary text-xs px-3 py-1" disabled={saving || !name.trim()} onClick={save}>
             {saving ? '⏳' : t('admin.quest.list.save')}
@@ -980,6 +1066,7 @@ function MapPoiRow({ poi, poiTypes, onSaved, onDeleted }: {
       <div className="flex items-center gap-2">
         <span className="shrink-0">{poi.icon}</span>
         <span className="flex-1 truncate">{poi.name}</span>
+        {poi.season && <span className="shrink-0" title={t(`season.${poi.season}`)}>{SEASON_ICONS[poi.season]}</span>}
         <span className="shrink-0 text-slate-500">{t(`admin.map.type.${poi.type}`)}</span>
         <span className="shrink-0 text-slate-500">x:{poi.x}% y:{poi.y}%</span>
         <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>

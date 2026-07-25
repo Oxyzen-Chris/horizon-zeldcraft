@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { getTreasureDefs, getFoundTreasureIds, openTreasureOffchain, claimMissingTreasureItem, RKEY, type TreasureDef } from '@/lib/gameState';
+import { getTreasureDefs, getFoundTreasureIds, openTreasureOffchain, claimMissingTreasureItem, getCurrentSeason, RKEY, type TreasureDef, type Season } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /**
@@ -18,6 +18,7 @@ export function TreasureList({ playerXp }: { playerXp: number }) {
   const [defs, setDefs] = useState<TreasureDef[] | null>(null);
   const [found, setFound] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
+  const [season, setSeason] = useState<Season | null>(null);
 
   useEffect(() => {
     getTreasureDefs().then((all) => {
@@ -28,8 +29,11 @@ export function TreasureList({ playerXp }: { playerXp: number }) {
     }).catch(() => setDefs([]));
     if (address) getFoundTreasureIds(address).then(setFound).catch(() => setFound(new Set()));
   }, [address]);
+  useEffect(() => { getCurrentSeason().then(setSeason).catch(() => {}); }, []);
 
-  const active = (defs ?? []).filter((d) => d.active);
+  // Un trésor tagué `season` reste masqué hors de sa saison tant qu'il n'a pas déjà été trouvé.
+  const active = (defs ?? []).filter((d) => d.active
+    && (!d.season || d.season === season || found.has(RKEY(d.id))));
 
   const open = async (treasure: TreasureDef) => {
     if (!address || busy) return;
