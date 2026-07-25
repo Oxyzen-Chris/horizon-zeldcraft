@@ -805,5 +805,15 @@
   "canvas2d.dpadUp": "Haut",
   "canvas2d.dpadDown": "Bas",
   "canvas2d.dpadLeft": "Gauche",
-  "canvas2d.dpadRight": "Droite"
+  "canvas2d.dpadRight": "Droite",
+  "canvas2d.synkLabel": "Synk (toi)",
+  "canvas2d.terrainGrass": "Prairie",
+  "canvas2d.terrainWater": "Eau",
+  "canvas2d.terrainRock": "Roche",
+  "canvas2d.terrainSand": "Sable",
+  "canvas2d.terrainPath": "Sentier",
+  "canvas2d.propTree": "Arbre",
+  "canvas2d.propCastle": "Château",
+  "canvas2d.propHut": "Hutte",
+  "canvas2d.propPortal": "Portail temporel"
 }

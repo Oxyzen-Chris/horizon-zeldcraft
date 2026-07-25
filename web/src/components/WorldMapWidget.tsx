@@ -6,7 +6,8 @@ import {
   getMapPoiDefs, getWorldDefs, setPlayerMapPos, subscribePlayerMapPos, getUnlockedWorldIds,
   getVisitedMapPoiIds, visitMapPoi, discoverWorldOffchain, getInventoryOnce, getRepRules,
   getOrCreatePlayer, computePlayerDiceBonus, rollD20, applyEffect, getCurrentSeason, RKEY, DEFAULT_MAP_ID,
-  type MapPoiDef, type WorldDef, type RepRules, type Season,
+  getAllMapMarkers,
+  type MapPoiDef, type WorldDef, type RepRules, type Season, type MapMarker,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
@@ -64,6 +65,9 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
   const [rules, setRules] = useState<RepRules | null>(null);
   const [mapPos, setMapPos] = useState<Pos>({ x: 50, y: 88 });
   const [season, setSeason] = useState<Season | null>(null);
+  // Marqueurs PNJ/trésors/familiers/quêtes localisés (voir gameState.ts::getAllMapMarkers) — POI
+  // terrain et mondes restent gérés séparément ci-dessus (logique de découverte/déverrouillage).
+  const [entityMarkers, setEntityMarkers] = useState<MapMarker[]>([]);
 
   const [toast, setToast] = useState<string | null>(null);
   const [travelConfirm, setTravelConfirm] = useState<WorldDef | null>(null);
@@ -94,6 +98,7 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
     getWorldDefs().then(setWorlds).catch(() => {});
     getRepRules().then(setRules).catch(() => {});
     getCurrentSeason().then(setSeason).catch(() => {});
+    getAllMapMarkers(DEFAULT_MAP_ID).then(list => setEntityMarkers(list.filter(m => m.kind === 'npc' || m.kind === 'treasure' || m.kind === 'familiar' || m.kind === 'quest'))).catch(() => {});
   }, []);
 
   const refreshPlayerBits = useCallback(() => {
@@ -338,6 +343,16 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
             >
               <span style={{ fontSize: 14 + zoom * 6 }}>{poi.icon || POI_TYPE_FALLBACK_ICON[poi.type] || '📍'}</span>
               {zoom >= 1.2 && <span className="text-[9px] text-amber-950/80 font-semibold whitespace-nowrap" style={{ fontFamily: 'serif' }}>{poi.name}</span>}
+            </div>
+          ))}
+
+          {/* PNJ, trésors, familiers et quêtes révélées par PNJ, localisés sur la carte (voir
+              gameState.ts::getAllMapMarkers/poiFallbackPos) — informatif seulement (survol = nom). */}
+          {entityMarkers.map(m => (
+            <div key={`${m.kind}-${m.id}`} title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
+              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none"
+              style={{ left: `${m.x}%`, top: `${m.y}%` }}>
+              <span style={{ fontSize: 13 + zoom * 5 }}>{m.icon}</span>
             </div>
           ))}
 

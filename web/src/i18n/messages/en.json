@@ -805,5 +805,15 @@
   "canvas2d.dpadUp": "Up",
   "canvas2d.dpadDown": "Down",
   "canvas2d.dpadLeft": "Left",
-  "canvas2d.dpadRight": "Right"
+  "canvas2d.dpadRight": "Right",
+  "canvas2d.synkLabel": "Synk (you)",
+  "canvas2d.terrainGrass": "Grass",
+  "canvas2d.terrainWater": "Water",
+  "canvas2d.terrainRock": "Rock",
+  "canvas2d.terrainSand": "Sand",
+  "canvas2d.terrainPath": "Path",
+  "canvas2d.propTree": "Tree",
+  "canvas2d.propCastle": "Castle",
+  "canvas2d.propHut": "Hut",
+  "canvas2d.propPortal": "Time portal"
 }

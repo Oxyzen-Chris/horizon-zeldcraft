@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import {
-  getMapPoiDefs, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID,
-  type MapPoiDef, type MapPoiType,
+  getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID,
+  type MapMarker, type MapPoiType,
 } from '@/lib/gameState';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { SynkSkin } from './SynkSkin';
 
@@ -24,17 +24,25 @@ const TILE_W = 56, TILE_H = 28;
 // déplace Synk de STEP_PCT sur cette échelle, ce qui garde les deux widgets parfaitement cohérents
 // (même source de vérité : players/{addr}/mapPos, voir gameState.ts::setPlayerMapPos).
 const WORLD_SIZE = 100;
-const STEP_PCT = 3;
+const STEP_PCT = 1; // Synk avance d'une case (= 1 unité mapmonde) à chaque pression/clic — voir move()
 const MARGIN = 1; // marge (en cellules) avant que la caméra ne recadre le décor
+const POI_BIAS_RADIUS = 9; // rayon (en unités mapmonde) dans lequel un POI influence le terrain local
 
-type Terrain = 'grass' | 'water' | 'rock' | 'sand';
+type Terrain = 'grass' | 'water' | 'rock' | 'sand' | 'path';
 type PropKind = 'tree' | 'castle' | 'hut' | 'portal' | null;
 
 const TERRAIN_COLOR: Record<Terrain, string> = {
-  grass: '#4d8a3f', water: '#3b7fb0', rock: '#8a8577', sand: '#d8c07a',
+  grass: '#4d8a3f', water: '#3b7fb0', rock: '#8a8577', sand: '#d8c07a', path: '#a9865a',
 };
 const PROP_ICON: Record<Exclude<PropKind, null>, string> = {
   tree: '🌲', castle: '🏰', hut: '🛖', portal: '🌀',
+};
+const TERRAIN_I18N_KEY: Record<Terrain, string> = {
+  grass: 'canvas2d.terrainGrass', water: 'canvas2d.terrainWater', rock: 'canvas2d.terrainRock',
+  sand: 'canvas2d.terrainSand', path: 'canvas2d.terrainPath',
+};
+const PROP_I18N_KEY: Record<Exclude<PropKind, null>, string> = {
+  tree: 'canvas2d.propTree', castle: 'canvas2d.propCastle', hut: 'canvas2d.propHut', portal: 'canvas2d.propPortal',
 };
 
 interface Tile { terrain: Terrain; prop: PropKind }
@@ -51,13 +59,25 @@ function hashRand(wc: number, wr: number, salt: number): number {
   return ((h >>> 0) % 100000) / 100000;
 }
 
-/** Terrain déterministe d'une cellule absolue (wc, wr) de la mapmonde, biaisé par le type de POI
- * le plus proche de la position réelle de Synk (voir raccord carte↔vue isométrique plus bas). */
-function worldTileAt(wc: number, wr: number, bias: MapPoiType | null): Tile {
+/** Terrain déterministe d'une cellule absolue (wc, wr) de la mapmonde, biaisé par le POI-décor le
+ * PLUS PROCHE dans un rayon de POI_BIAS_RADIUS unités (et non plus par un biais global unique) —
+ * ainsi un lac/une montagne/un sentier de la mapmonde apparaît bien À SA VRAIE POSITION dans la
+ * vue isométrique (cohérence carte ↔ plateforme demandée), et pas de façon uniforme sur toute la
+ * fenêtre affichée. */
+function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: number; poiType?: MapPoiType }[]): Tile {
+  let bias: MapPoiType | null = null;
+  let bestD = POI_BIAS_RADIUS;
+  for (const p of poiPoints) {
+    if (!p.poiType) continue;
+    const d = Math.hypot(p.x - wc, p.y - wr);
+    if (d <= bestD) { bestD = d; bias = p.poiType; }
+  }
+
   const waterBias = bias === 'lake' || bias === 'stream' || bias === 'waterfall';
   const sandBias = bias === 'beach';
   const rockBias = bias === 'mountain' || bias === 'cave';
   const forestBias = bias === 'forest';
+  const pathBias = bias === 'path' || bias === 'bridge';
   const buildingBias = bias === 'village_ally' || bias === 'village_enemy' || bias === 'tavern' || bias === 'stable' || bias === 'hut';
 
   let terrain: Terrain = 'grass';
@@ -65,6 +85,7 @@ function worldTileAt(wc: number, wr: number, bias: MapPoiType | null): Tile {
   if (waterBias && r0 < 0.32) terrain = 'water';
   else if (sandBias && r0 < 0.35) terrain = 'sand';
   else if (rockBias && r0 < 0.35) terrain = 'rock';
+  else if (pathBias && r0 < 0.5) terrain = 'path';
   else if (r0 < 0.04) terrain = 'water'; // petit point d'eau ambiant même hors biais
 
   let prop: PropKind = null;
@@ -81,11 +102,11 @@ function worldTileAt(wc: number, wr: number, bias: MapPoiType | null): Tile {
 }
 
 /** Construit la grille COLSxROWS visible à partir du coin (originCol, originRow) de la caméra. */
-function buildViewportGrid(originCol: number, originRow: number, bias: MapPoiType | null): Tile[][] {
+function buildViewportGrid(originCol: number, originRow: number, poiPoints: { x: number; y: number; poiType?: MapPoiType }[]): Tile[][] {
   const grid: Tile[][] = [];
   for (let r = 0; r < ROWS; r++) {
     const row: Tile[] = [];
-    for (let c = 0; c < COLS; c++) row.push(worldTileAt(originCol + c, originRow + r, bias));
+    for (let c = 0; c < COLS; c++) row.push(worldTileAt(originCol + c, originRow + r, poiPoints));
     grid.push(row);
   }
   return grid;
@@ -131,9 +152,15 @@ export function GameCanvas2D({ stage }: { stage: number }) {
   const dragOffset = useRef<Pos>({ x: 0, y: 0 });
   const resizeStart = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
 
-  const [bias, setBias] = useState<MapPoiType | null>(null);
   const [biasLabel, setBiasLabel] = useState<string>('');
-  const [poisState, setPoisState] = useState<MapPoiDef[]>([]);
+  // Tous les marqueurs de la mapmonde (décor/terrain, mondes, PNJ, trésors, familiers, quêtes PNJ —
+  // voir gameState.ts::getAllMapMarkers), positionnés IDENTIQUEMENT à WorldMapWidget.tsx (même
+  // fonction, même repli déterministe) afin que les deux vues soient toujours cohérentes.
+  const [markers, setMarkers] = useState<MapMarker[]>([]);
+  const poiPoints = useMemo(
+    () => markers.filter(m => m.kind === 'poi').map(m => ({ x: m.x, y: m.y, poiType: m.poiType })),
+    [markers],
+  );
 
   // Position réelle de Synk sur la mapmonde (0-100%, source de vérité partagée avec
   // WorldMapWidget.tsx) et coin de la caméra isométrique (en cellules, 0-100 chacun).
@@ -154,8 +181,9 @@ export function GameCanvas2D({ stage }: { stage: number }) {
     if (savedSize) { try { setSize(JSON.parse(savedSize)); } catch { /* ignore */ } }
   }, []);
 
-  // Liste des POI de la mapmonde (une fois) — sert à déterminer le biais de terrain (voir plus bas).
-  useEffect(() => { getMapPoiDefs(DEFAULT_MAP_ID).then(setPoisState).catch(() => {}); }, []);
+  // Tous les marqueurs de la mapmonde (une fois) — décor pour le biais de terrain local (voir
+  // worldTileAt) ET affichage direct dans la fenêtre de la caméra (voir rendu plus bas).
+  useEffect(() => { getAllMapMarkers(DEFAULT_MAP_ID).then(setMarkers).catch(() => {}); }, []);
 
   // Écoute temps réel de la position de Synk — synchronise instantanément avec WorldMapWidget.tsx,
   // quel que soit le widget à l'origine du déplacement (clic carte, flèches, pavé virtuel).
@@ -166,18 +194,20 @@ export function GameCanvas2D({ stage }: { stage: number }) {
     });
   }, [address]);
 
-  // Raccord avec la mapmonde : détermine le POI le plus proche de la position réelle de Synk pour
-  // orienter le décor procédural de la vue isométrique (voir worldTileAt()).
+  // Raccord avec la mapmonde : détermine le POI-décor le plus proche de la position réelle de Synk
+  // (juste pour l'indication textuelle affichée sous le titre — le terrain lui-même est désormais
+  // biaisé LOCALEMENT par POI, voir worldTileAt()).
   useEffect(() => {
-    if (!poisState.length) return;
-    let nearest: MapPoiDef | null = null;
+    if (!poiPoints.length) return;
+    let nearest: { name: string } | null = null;
     let bestD = Infinity;
-    for (const poi of poisState) {
+    for (const poi of markers) {
+      if (poi.kind !== 'poi') continue;
       const d = Math.hypot(poi.x - worldPos.x, poi.y - worldPos.y);
       if (d < bestD) { bestD = d; nearest = poi; }
     }
-    if (nearest) { setBias(nearest.type); setBiasLabel(nearest.name); }
-  }, [poisState, worldPos]);
+    if (nearest) setBiasLabel(nearest.name);
+  }, [markers, poiPoints.length, worldPos]);
 
   // Caméra qui suit Synk : recadre (pan) le décor dès qu'il approche du bord de la fenêtre
   // affichée, pour continuer à progresser dans l'espace total de la mapmonde (0-100%).
@@ -196,7 +226,19 @@ export function GameCanvas2D({ stage }: { stage: number }) {
     });
   }, [worldPos]);
 
-  const grid = useMemo(() => buildViewportGrid(origin.col, origin.row, bias), [origin, bias]);
+  const grid = useMemo(() => buildViewportGrid(origin.col, origin.row, poiPoints), [origin, poiPoints]);
+
+  // Marqueurs visibles dans la fenêtre de caméra actuelle (COLSxROWS), convertis en cellule locale —
+  // c'est ce qui « repositionne tous les POI de la mapmonde sur la plateforme 2D isométrique ».
+  const visibleMarkers = useMemo(() => {
+    const out: (MapMarker & { col: number; row: number })[] = [];
+    for (const m of markers) {
+      const wc = Math.round(m.x), wr = Math.round(m.y);
+      const col = wc - origin.col, row = wr - origin.row;
+      if (col >= 0 && col < COLS && row >= 0 && row < ROWS) out.push({ ...m, col, row });
+    }
+    return out;
+  }, [markers, origin]);
 
   const worldCol = Math.round(clamp100(worldPos.x));
   const worldRow = Math.round(clamp100(worldPos.y));
@@ -336,7 +378,7 @@ export function GameCanvas2D({ stage }: { stage: number }) {
                     border: '1px solid rgba(0,0,0,0.15)',
                   }}
                   onClick={() => moveTo(origin.col + c, origin.row + r)}
-                  title={`${tile.terrain} (${origin.col + c},${origin.row + r})`}
+                  title={tile.prop ? `${PROP_ICON[tile.prop]} ${t(PROP_I18N_KEY[tile.prop])}` : t(TERRAIN_I18N_KEY[tile.terrain])}
                 />
                 {tile.prop && (
                   <span className="absolute left-1/2 -translate-x-1/2 -top-4 text-lg pointer-events-none select-none" style={{ zIndex: zIdx + 1 }}>
@@ -347,19 +389,38 @@ export function GameCanvas2D({ stage }: { stage: number }) {
             );
           }))}
 
+          {/* POI/mondes/PNJ/trésors/familiers/quêtes de la mapmonde, repositionnés à leur vraie
+              position dans la fenêtre de caméra (voir gameState.ts::getAllMapMarkers) — survol =
+              info-bulle avec le nom du POI. */}
+          {visibleMarkers.map(m => {
+            const x = projX(m.col, m.row), y = projY(m.col, m.row);
+            const zIdx = m.col + m.row + 1;
+            return (
+              <div
+                key={`m-${m.kind}-${m.id}`}
+                className="absolute -translate-x-1/2 cursor-help pointer-events-auto select-none"
+                style={{ left: x, top: y - 18, zIndex: zIdx }}
+                title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
+              >
+                <span className="text-base drop-shadow" style={{ filter: 'drop-shadow(0 0 2px #000)' }}>{m.icon}</span>
+              </div>
+            );
+          })}
+
           {/* PNJ errant */}
-          <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-none"
+          <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto cursor-help"
             style={{ left: projX(npc.col, npc.row), top: projY(npc.col, npc.row) - 22, zIndex: npc.col + npc.row + 2 }} title={npc.label}>
             <span className="text-lg">{npc.icon}</span>
           </div>
           {/* Dragon errant */}
-          <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-none"
+          <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto cursor-help"
             style={{ left: projX(dragon.col, dragon.row), top: projY(dragon.col, dragon.row) - 22, zIndex: dragon.col + dragon.row + 2 }} title={dragon.label}>
             <span className="text-xl">{dragon.icon}</span>
           </div>
           {/* Synk (joueur) */}
-          <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-500 pointer-events-none"
-            style={{ left: projX(playerCell.col, playerCell.row), top: projY(playerCell.col, playerCell.row) - 26, zIndex: playerCell.col + playerCell.row + 3 }}>
+          <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-500 pointer-events-auto cursor-help"
+            style={{ left: projX(playerCell.col, playerCell.row), top: projY(playerCell.col, playerCell.row) - 26, zIndex: playerCell.col + playerCell.row + 3 }}
+            title={t('canvas2d.synkLabel')}>
             <SynkSkin stage={stage} size={26} />
           </div>
         </div>

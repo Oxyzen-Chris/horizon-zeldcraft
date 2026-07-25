@@ -805,5 +805,15 @@
   "canvas2d.dpadUp": "Arriba",
   "canvas2d.dpadDown": "Abajo",
   "canvas2d.dpadLeft": "Izquierda",
-  "canvas2d.dpadRight": "Derecha"
+  "canvas2d.dpadRight": "Derecha",
+  "canvas2d.synkLabel": "Synk (tú)",
+  "canvas2d.terrainGrass": "Pradera",
+  "canvas2d.terrainWater": "Agua",
+  "canvas2d.terrainRock": "Roca",
+  "canvas2d.terrainSand": "Arena",
+  "canvas2d.terrainPath": "Sendero",
+  "canvas2d.propTree": "Árbol",
+  "canvas2d.propCastle": "Castillo",
+  "canvas2d.propHut": "Choza",
+  "canvas2d.propPortal": "Portal temporal"
 }

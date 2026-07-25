@@ -835,6 +835,11 @@ export interface QuestDef {
   season?: Season;       // si renseigné, quête offerte par PNJ uniquement pendant cette saison (voir
                          // pickNpcQuestForPlayer()) — une fois débloquée/résolue elle reste visible
                          // toute l'année (voir QuestList.tsx). undefined = disponible toute l'année.
+  // ─── Positionnement sur la mapmonde/plateforme isométrique (voir WorldMapWidget.tsx et
+  // GameCanvas2D.tsx) — facultatif : sans valeur explicite, une position stable est dérivée de
+  // l'id (voir poiFallbackPos()) pour que chaque quête ait tout de même un point fixe sur la carte.
+  mapX?: number;
+  mapY?: number;
   itemReward?: {
     itemId: string; name: string; qty: number; category: InventoryItem['category']; effect?: InventoryItem['effect'];
     // Champs d'équipement (mêmes que ShopItem/InventoryItem) — permet à une quête de remettre un
@@ -1054,6 +1059,9 @@ export interface NpcDef {
   order?: number;
   season?: Season;       // si renseigné, ce PNJ officiel n'apparaît dans "PNJ" que pendant cette
                          // saison (voir NpcList.tsx) — undefined = visible toute l'année.
+  // ─── Positionnement sur la mapmonde/plateforme isométrique — voir QuestDef.mapX/mapY ci-dessus.
+  mapX?: number;
+  mapY?: number;
 }
 export interface TreasureDef {
   id: string;            // ex. "treasure.master_sword"
@@ -1067,6 +1075,9 @@ export interface TreasureDef {
   season?: Season;       // si renseigné, coffre visible/ouvrable uniquement pendant cette saison
                          // tant qu'il n'a pas déjà été trouvé (voir TreasureList.tsx) — une fois
                          // trouvé il reste visible toute l'année. undefined = toute l'année.
+  // ─── Positionnement sur la mapmonde/plateforme isométrique — voir QuestDef.mapX/mapY ci-dessus.
+  mapX?: number;
+  mapY?: number;
   // Objet remis dans la besace à l'ouverture (même forme que QuestDef.itemReward) — voir
   // openTreasureOffchain(). Sans ce champ, ouvrir un coffre ne rapportait QUE de l'XP : le rubis/
   // l'épée/la pioche promis par le nom du trésor n'apparaissait jamais dans la besace (bug signalé).
@@ -1135,6 +1146,29 @@ export interface MapPoiDef {
 }
 
 export const DEFAULT_MAP_ID = 'map.synk_territory';
+
+/**
+ * Position (x, y en %, 0-100) déterministe et STABLE dérivée d'un id texte — sert de repli quand
+ * un PNJ/trésor/familier/quête n'a pas de `mapX`/`mapY` explicite en base, pour que ces éléments
+ * (demandés « localisés sur la carte » — voir WorldMapWidget.tsx et GameCanvas2D.tsx) aient tout de
+ * même un point fixe et reproductible sur la mapmonde/plateforme isométrique, sans intervention
+ * admin obligatoire. `salt` décorrèle les différentes catégories (PNJ/trésor/familier/quête) pour
+ * qu'elles ne se superposent pas systématiquement sur les mêmes cases pour un même id numérique.
+ * Marge de 6 à 94 (jamais tout à fait sur les bords) pour rester lisible sur la carte parchemin.
+ */
+export function poiFallbackPos(id: string, salt: number): { x: number; y: number } {
+  let h1 = salt * 2246822519, h2 = salt * 3266489917;
+  for (let i = 0; i < id.length; i++) {
+    const c = id.charCodeAt(i);
+    h1 = (Math.imul(h1 ^ c, 2654435761)) | 0;
+    h2 = (Math.imul(h2 ^ c, 2246822519)) | 0;
+  }
+  h1 = (h1 ^ (h1 >>> 15)) >>> 0;
+  h2 = (h2 ^ (h2 >>> 13)) >>> 0;
+  const x = 6 + (h1 % 89000) / 1000; // 6..95
+  const y = 6 + (h2 % 89000) / 1000;
+  return { x, y };
+}
 
 function sortDefsByOrder<T extends { order?: number; createdAt: number }>(list: T[]): T[] {
   return list.sort((a, b) => {
@@ -1344,6 +1378,58 @@ export async function getMapPoiDefs(mapId?: string): Promise<MapPoiDef[]> {
   const v = snap.val() as Record<string, MapPoiDef> | null;
   const all = v ? sortDefsByOrder(Object.values(v)) : [];
   return mapId ? all.filter(p => p.mapId === mapId) : all;
+}
+
+/** Catégorie d'un marqueur localisé sur la mapmonde/plateforme isométrique — voir MapMarker. */
+export type MapMarkerKind = 'poi' | 'world' | 'npc' | 'treasure' | 'familiar' | 'quest';
+
+/**
+ * Marqueur unifié positionné sur la carte : regroupe les décors/terrain (MapPoiDef), les portes de
+ * mondes (WorldDef), les PNJ, trésors, familiers et quêtes révélées par PNJ. Utilisé à la fois par
+ * WorldMapWidget.tsx (mapmonde grand format) et GameCanvas2D.tsx (caméra isométrique) afin que les
+ * DEUX vues affichent strictement les mêmes éléments aux mêmes positions — une seule fonction fait
+ * autorité sur "où se trouve quoi" plutôt que de dupliquer la logique de repli (poiFallbackPos) et
+ * les filtres (actif/saison) dans chaque composant.
+ */
+export interface MapMarker {
+  id: string; kind: MapMarkerKind; name: string; i18nKey?: string; icon: string; x: number; y: number;
+  poiType?: MapPoiType;
+}
+
+/** Construit la liste unifiée des marqueurs d'une carte (voir MapMarker). `season`/`unlockedWorlds`
+ * sont facultatifs : sans eux, tous les éléments actifs sont renvoyés (repli permissif). */
+export async function getAllMapMarkers(
+  mapId: string = DEFAULT_MAP_ID, season?: Season | null,
+): Promise<MapMarker[]> {
+  const [pois, worlds, npcs, treasures, familiars, quests] = await Promise.all([
+    getMapPoiDefs(mapId), getWorldDefs(), getNpcDefs(), getTreasureDefs(), getFamiliarDefs(), getQuestDefs(),
+  ]);
+  const markers: MapMarker[] = [];
+  for (const p of pois) {
+    if (p.season && season !== undefined && p.season !== season) continue; // filtré finement par appelant si besoin (visité)
+    markers.push({ id: p.id, kind: 'poi', name: p.name, icon: p.icon || '📍', x: p.x, y: p.y, poiType: p.type });
+  }
+  for (const w of worlds.filter(w2 => w2.active !== false)) {
+    const x = w.mapX ?? 50, y = w.mapY ?? 50;
+    markers.push({ id: w.id, kind: 'world', name: w.name, i18nKey: w.i18nKey, icon: '🌀', x, y });
+  }
+  for (const n of npcs.filter(n2 => n2.active)) {
+    const fp = poiFallbackPos(n.id, 101);
+    markers.push({ id: n.id, kind: 'npc', name: n.name, i18nKey: n.i18nKey, icon: '🧙', x: n.mapX ?? fp.x, y: n.mapY ?? fp.y });
+  }
+  for (const tr of treasures.filter(t2 => t2.active)) {
+    const fp = poiFallbackPos(tr.id, 102);
+    markers.push({ id: tr.id, kind: 'treasure', name: tr.name, i18nKey: tr.i18nKey, icon: '🎁', x: tr.mapX ?? fp.x, y: tr.mapY ?? fp.y });
+  }
+  for (const f of familiars) {
+    const fp = poiFallbackPos(f.id, 103);
+    markers.push({ id: f.id, kind: 'familiar', name: f.label, i18nKey: f.i18nKey, icon: '🐾', x: f.mapX ?? fp.x, y: f.mapY ?? fp.y });
+  }
+  for (const q of quests.filter(q2 => q2.active && q2.npcGiver)) {
+    const fp = poiFallbackPos(q.id, 104);
+    markers.push({ id: q.id, kind: 'quest', name: q.label, i18nKey: q.i18nKey, icon: '❓', x: q.mapX ?? fp.x, y: q.mapY ?? fp.y });
+  }
+  return markers;
 }
 
 export interface PlayerMapPos { mapId: string; x: number; y: number; updatedAt: number }
@@ -1875,6 +1961,9 @@ export interface FamiliarDef {
   // et computeEquipmentCombatBonus(). Paramétrable dans le menu Administration (FamiliarsAdminPanel).
   combatDamage?: number;
   combatDefense?: number;
+  // ─── Positionnement sur la mapmonde/plateforme isométrique — voir QuestDef.mapX/mapY plus haut.
+  mapX?: number;
+  mapY?: number;
 }
 
 /** Préfixe du id transporté par `dataTransfer` lors du glisser-déposer d'un familier (les
