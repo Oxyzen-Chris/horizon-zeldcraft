@@ -113,6 +113,13 @@ export function RepRulesPanel() {
     { key: 'capeInvisibilityMaxMinutes', labelKey: 'admin.repRules.capeInvisibilityMaxMinutes' },
   ];
 
+  const mapFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'mapPoiDiscoveryXp',             labelKey: 'admin.repRules.mapPoiDiscoveryXp' },
+    { key: 'travelWalkDurationSec',         labelKey: 'admin.repRules.travelWalkDurationSec' },
+    { key: 'travelNightEncounterChancePct', labelKey: 'admin.repRules.travelNightEncounterChancePct' },
+    { key: 'travelNightMonsterDamage',      labelKey: 'admin.repRules.travelNightMonsterDamage' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -159,6 +166,19 @@ export function RepRulesPanel() {
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.moodDescription')}</p>
         <div className="grid md:grid-cols-2 gap-3">
           {moodFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🗺️ {t('admin.repRules.mapTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.mapDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {mapFields.map(f => (
             <label key={f.key} className="text-sm">
               <span className="text-slate-300">{t(f.labelKey)}</span>
               <input type="number" className="input mt-1 w-full"

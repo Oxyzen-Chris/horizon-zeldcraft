@@ -10,7 +10,8 @@ import { HORIZON_ABI, FEED_TYPES, WEATHER, WEATHER_KEYS, normalizeAnswer } from 
 import { addQuestDef, getQuestDefs, questIdOf, seedQuestAnswer, getAllQuestAnswers, hashAnswer, type QuestDef } from '@/lib/gameState';
 import {
   addNpcDef, getNpcDefs, addTreasureDef, getTreasureDefs, addWorldDef, getWorldDefs,
-  getRepRules, setNpcMaxPerDay, type NpcDef, type TreasureDef, type WorldDef,
+  getRepRules, setNpcMaxPerDay, addMapPoiDef, getMapPoiDefs, removeMapPoiDef, addMapDef, getMapDefs,
+  DEFAULT_MAP_ID, type NpcDef, type TreasureDef, type WorldDef, type MapPoiDef, type MapPoiType,
 } from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
@@ -94,10 +95,36 @@ export default function AdminPage() {
   const [wldKey, setWldKey] = useState('');
   const [wldName, setWldName] = useState('');
   const [wldXp, setWldXp] = useState('500');
+  const [wldMapX, setWldMapX] = useState('50');
+  const [wldMapY, setWldMapY] = useState('50');
+  const [wldVehicle, setWldVehicle] = useState('');
   const [wldSaving, setWldSaving] = useState(false);
   const [allWorlds, setAllWorlds] = useState<WorldDef[] | null>(null);
   const refreshWorlds = () => { getWorldDefs().then(setAllWorlds).catch(() => setAllWorlds([])); };
   useEffect(() => { refreshWorlds(); }, []);
+
+  // Carte (mapmonde) — POI (terrain/décor) paramétrables, voir WorldMapWidget.tsx
+  const [poiKey, setPoiKey] = useState('');
+  const [poiType, setPoiType] = useState<MapPoiType>('plain');
+  const [poiName, setPoiName] = useState('');
+  const [poiIcon, setPoiIcon] = useState('');
+  const [poiX, setPoiX] = useState('50');
+  const [poiY, setPoiY] = useState('50');
+  const [poiSaving, setPoiSaving] = useState(false);
+  const [allPois, setAllPois] = useState<MapPoiDef[] | null>(null);
+  const refreshPois = () => { getMapPoiDefs(DEFAULT_MAP_ID).then(setAllPois).catch(() => setAllPois([])); };
+  useEffect(() => {
+    refreshPois();
+    // S'assure que la carte par défaut existe (idempotent) — évolutif : d'autres cartes pourront
+    // être créées plus tard via cette même fonction.
+    getMapDefs().then(maps => {
+      if (!maps.some(m => m.id === DEFAULT_MAP_ID)) {
+        addMapDef({ id: DEFAULT_MAP_ID, name: 'Territoire de Synk', active: true, createdAt: Date.now(), order: 0 }).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
+  const POI_TYPES: MapPoiType[] = ['plain', 'stream', 'lake', 'mountain', 'forest', 'cave', 'beach', 'waterfall',
+    'village_ally', 'village_enemy', 'path', 'bridge', 'tavern', 'stable', 'hut'];
 
   const [difficulty, setDifficulty] = useState('50');
   const [weather, setWeather] = useState('0');
@@ -364,6 +391,9 @@ export default function AdminPage() {
               <input className="input" placeholder={t('admin.world.id')}         value={wldKey}  onChange={e => setWldKey(e.target.value)} />
               <input className="input" placeholder={t('admin.world.name')}       value={wldName} onChange={e => setWldName(e.target.value)} />
               <input className="input" placeholder={t('admin.world.xpRequired')} value={wldXp}   onChange={e => setWldXp(e.target.value)} />
+              <input className="input" placeholder={t('admin.world.mapX')}       value={wldMapX} onChange={e => setWldMapX(e.target.value)} />
+              <input className="input" placeholder={t('admin.world.mapY')}       value={wldMapY} onChange={e => setWldMapY(e.target.value)} />
+              <input className="input" placeholder={t('admin.world.vehicleItemId')} value={wldVehicle} onChange={e => setWldVehicle(e.target.value)} />
             </div>
             <button className="btn-primary" disabled={wldSaving || !wldKey || !wldName}
               onClick={async () => {
@@ -374,8 +404,10 @@ export default function AdminPage() {
                   await addWorldDef({
                     id: wldKey.trim(), name: wldName.trim(), xpRequired: Number(wldXp) || 0,
                     active: true, createdAt: Date.now(), order: nextOrder,
+                    mapId: DEFAULT_MAP_ID, mapX: Number(wldMapX) || 50, mapY: Number(wldMapY) || 50,
+                    ...(wldVehicle.trim() ? { vehicleItemId: wldVehicle.trim() } : {}),
                   });
-                  setWldKey(''); setWldName(''); setWldXp('500');
+                  setWldKey(''); setWldName(''); setWldXp('500'); setWldMapX('50'); setWldMapY('50'); setWldVehicle('');
                   refreshWorlds();
                 } finally {
                   setWldSaving(false);
@@ -383,11 +415,57 @@ export default function AdminPage() {
               }}
             >{wldSaving ? '⏳' : t('admin.actions.add')}</button>
 
+
             {allWorlds && (
               <div className="mt-5 pt-4 border-t border-slate-700">
                 <h3 className="text-sm font-semibold mb-3">{t('admin.world.list.title')}</h3>
                 <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
                   {allWorlds.map((w) => <WorldRow key={w.id} world={w} onSaved={refreshWorlds} />)}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="card">
+            <h2 className="text-xl font-semibold mb-3">🗺️ {t('admin.map.title')}</h2>
+            <p className="text-xs text-slate-400 mb-3">{t('admin.map.hint')}</p>
+            <div className="grid md:grid-cols-3 gap-3 mb-3">
+              <input className="input" placeholder={t('admin.map.id')}     value={poiKey}  onChange={e => setPoiKey(e.target.value)} />
+              <input className="input" placeholder={t('admin.map.name')}   value={poiName} onChange={e => setPoiName(e.target.value)} />
+              <input className="input" placeholder={t('admin.map.icon')}   value={poiIcon} onChange={e => setPoiIcon(e.target.value)} />
+              <select className="input" value={poiType} onChange={e => setPoiType(e.target.value as MapPoiType)}>
+                {POI_TYPES.map(pt => <option key={pt} value={pt}>{t(`admin.map.type.${pt}`)}</option>)}
+              </select>
+              <input className="input" placeholder={t('admin.map.x')} value={poiX} onChange={e => setPoiX(e.target.value)} />
+              <input className="input" placeholder={t('admin.map.y')} value={poiY} onChange={e => setPoiY(e.target.value)} />
+            </div>
+            <button className="btn-primary" disabled={poiSaving || !poiKey || !poiName}
+              onClick={async () => {
+                setPoiSaving(true);
+                try {
+                  const existing = await getMapPoiDefs(DEFAULT_MAP_ID);
+                  const nextOrder = existing.reduce((mx, p) => Math.max(mx, p.order ?? -1), -1) + 1;
+                  await addMapPoiDef({
+                    id: poiKey.trim(), mapId: DEFAULT_MAP_ID, type: poiType, name: poiName.trim(),
+                    icon: poiIcon.trim(), x: Number(poiX) || 50, y: Number(poiY) || 50,
+                    active: true, createdAt: Date.now(), order: nextOrder,
+                  });
+                  setPoiKey(''); setPoiName(''); setPoiIcon(''); setPoiX('50'); setPoiY('50');
+                  refreshPois();
+                } finally {
+                  setPoiSaving(false);
+                }
+              }}
+            >{poiSaving ? '⏳' : t('admin.actions.add')}</button>
+
+            {allPois && (
+              <div className="mt-5 pt-4 border-t border-slate-700">
+                <h3 className="text-sm font-semibold mb-3">{t('admin.map.list.title')}</h3>
+                <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                  {allPois.map((p) => (
+                    <MapPoiRow key={p.id} poi={p} poiTypes={POI_TYPES} onSaved={refreshPois}
+                      onDeleted={() => { removeMapPoiDef(p.id).then(refreshPois); }} />
+                  ))}
                 </div>
               </div>
             )}
@@ -770,9 +848,16 @@ function WorldRow({ world, onSaved }: { world: WorldDef; onSaved: () => void }) 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(world.name);
   const [xpReq, setXpReq] = useState(String(world.xpRequired));
+  const [mapX, setMapX] = useState(String(world.mapX ?? 50));
+  const [mapY, setMapY] = useState(String(world.mapY ?? 50));
+  const [vehicle, setVehicle] = useState(world.vehicleItemId ?? '');
   const [saving, setSaving] = useState(false);
 
-  const startEdit = () => { setName(world.name); setXpReq(String(world.xpRequired)); setEditing(true); };
+  const startEdit = () => {
+    setName(world.name); setXpReq(String(world.xpRequired));
+    setMapX(String(world.mapX ?? 50)); setMapY(String(world.mapY ?? 50)); setVehicle(world.vehicleItemId ?? '');
+    setEditing(true);
+  };
 
   const save = async () => {
     if (!name.trim() || saving) return;
@@ -782,6 +867,8 @@ function WorldRow({ world, onSaved }: { world: WorldDef; onSaved: () => void }) 
         id: world.id, name: name.trim(), xpRequired: Number(xpReq) || 0,
         active: world.active, createdAt: world.createdAt, order: world.order,
         ...(world.i18nKey ? { i18nKey: world.i18nKey } : {}),
+        mapId: world.mapId ?? DEFAULT_MAP_ID, mapX: Number(mapX) || 50, mapY: Number(mapY) || 50,
+        ...(vehicle.trim() ? { vehicleItemId: vehicle.trim() } : {}),
       });
       setEditing(false);
       onSaved();
@@ -794,7 +881,12 @@ function WorldRow({ world, onSaved }: { world: WorldDef; onSaved: () => void }) 
     return (
       <div className="bg-slate-900/80 rounded px-2 py-2 text-xs border border-emerald-700 space-y-2">
         <input className="input w-full" placeholder={t('admin.world.name')} value={name} onChange={e => setName(e.target.value)} />
-        <input className="input w-full" placeholder={t('admin.world.xpRequired')} value={xpReq} onChange={e => setXpReq(e.target.value)} />
+        <div className="grid grid-cols-2 gap-2">
+          <input className="input" placeholder={t('admin.world.xpRequired')} value={xpReq} onChange={e => setXpReq(e.target.value)} />
+          <input className="input" placeholder={t('admin.world.vehicleItemId')} value={vehicle} onChange={e => setVehicle(e.target.value)} />
+          <input className="input" placeholder={t('admin.world.mapX')} value={mapX} onChange={e => setMapX(e.target.value)} />
+          <input className="input" placeholder={t('admin.world.mapY')} value={mapY} onChange={e => setMapY(e.target.value)} />
+        </div>
         <div className="flex gap-2">
           <button className="btn-primary text-xs px-3 py-1" disabled={saving || !name.trim()} onClick={save}>
             {saving ? '⏳' : t('admin.quest.list.save')}
@@ -812,10 +904,88 @@ function WorldRow({ world, onSaved }: { world: WorldDef; onSaved: () => void }) 
       <div className="flex items-center gap-2">
         <span className="flex-1 truncate">{localizeName(t, world.i18nKey, world.name)}</span>
         <span className="shrink-0 text-slate-500">{t('admin.world.xpRequired')} {world.xpRequired}</span>
+        {world.vehicleItemId && <span className="shrink-0 text-cyan-400">🚗 {world.vehicleItemId}</span>}
         {!world.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
         <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>
           {t('admin.quest.list.edit')}
         </button>
+      </div>
+      <p className="mt-1 text-slate-500">📍 x:{world.mapX ?? 50}% y:{world.mapY ?? 50}%</p>
+    </div>
+  );
+}
+
+/**
+ * Ligne éditable de la liste "Carte existants" (Administration) : type, nom, icône, position (%).
+ * 100% hors-chaîne — voir MapPoiDef/addMapPoiDef dans gameState.ts.
+ */
+function MapPoiRow({ poi, poiTypes, onSaved, onDeleted }: {
+  poi: MapPoiDef; poiTypes: MapPoiType[]; onSaved: () => void; onDeleted: () => void;
+}) {
+  const { t } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const [type, setType] = useState<MapPoiType>(poi.type);
+  const [name, setName] = useState(poi.name);
+  const [icon, setIcon] = useState(poi.icon);
+  const [x, setX] = useState(String(poi.x));
+  const [y, setY] = useState(String(poi.y));
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setType(poi.type); setName(poi.name); setIcon(poi.icon); setX(String(poi.x)); setY(String(poi.y));
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      await addMapPoiDef({
+        id: poi.id, mapId: poi.mapId, type, name: name.trim(), icon: icon.trim(),
+        x: Number(x) || 0, y: Number(y) || 0, active: poi.active, createdAt: poi.createdAt, order: poi.order,
+      });
+      setEditing(false);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="bg-slate-900/80 rounded px-2 py-2 text-xs border border-emerald-700 space-y-2">
+        <input className="input w-full" placeholder={t('admin.map.name')} value={name} onChange={e => setName(e.target.value)} />
+        <div className="grid grid-cols-2 gap-2">
+          <input className="input" placeholder={t('admin.map.icon')} value={icon} onChange={e => setIcon(e.target.value)} />
+          <select className="input" value={type} onChange={e => setType(e.target.value as MapPoiType)}>
+            {poiTypes.map(pt => <option key={pt} value={pt}>{t(`admin.map.type.${pt}`)}</option>)}
+          </select>
+          <input className="input" placeholder={t('admin.map.x')} value={x} onChange={e => setX(e.target.value)} />
+          <input className="input" placeholder={t('admin.map.y')} value={y} onChange={e => setY(e.target.value)} />
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-primary text-xs px-3 py-1" disabled={saving || !name.trim()} onClick={save}>
+            {saving ? '⏳' : t('admin.quest.list.save')}
+          </button>
+          <button className="btn-secondary text-xs px-3 py-1" disabled={saving} onClick={() => setEditing(false)}>
+            {t('admin.quest.list.cancel')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-slate-900/60 rounded px-2 py-1.5 text-xs">
+      <div className="flex items-center gap-2">
+        <span className="shrink-0">{poi.icon}</span>
+        <span className="flex-1 truncate">{poi.name}</span>
+        <span className="shrink-0 text-slate-500">{t(`admin.map.type.${poi.type}`)}</span>
+        <span className="shrink-0 text-slate-500">x:{poi.x}% y:{poi.y}%</span>
+        <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>
+          {t('admin.quest.list.edit')}
+        </button>
+        <button className="shrink-0 btn-secondary text-xs px-2 py-0.5 text-red-400" onClick={onDeleted} title="Supprimer">✕</button>
       </div>
     </div>
   );

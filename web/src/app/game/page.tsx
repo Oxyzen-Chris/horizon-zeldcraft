@@ -25,6 +25,8 @@ import { DiceRollWidget } from '@/components/DiceRollWidget';
 import { TeamChatWidget } from '@/components/TeamChatWidget';
 import { CustomWidgetsRenderer } from '@/components/CustomWidgetsRenderer';
 import { EquipmentWidget } from '@/components/EquipmentWidget';
+import { WorldMapWidget } from '@/components/WorldMapWidget';
+import { GameCanvas2D } from '@/components/GameCanvas2D';
 import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
@@ -389,6 +391,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <TeamChatWidget contract={contract} defaultName={name} />
       {/* Fenêtre flottante "homme de Vitruve" pour équiper armes/protections par drag-and-drop */}
       <EquipmentWidget stage={Number(stage)} />
+      {/* Mapmonde du territoire de Synk — carte parchemin zoomable, POI, mondes, voyage libre */}
+      <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
+      {/* Socle évolutif de plateforme de jeu 2D isométrique (déplacements, PNJ, dragon, décor) */}
+      <GameCanvas2D stage={Number(stage)} />
       {/* Widgets flottants personnalisés définis par l'admin (menu Administration) */}
       <CustomWidgetsRenderer playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}

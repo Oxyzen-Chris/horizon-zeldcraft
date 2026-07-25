@@ -27,6 +27,10 @@
  *   players/{addr}/npcsMet/{id}        → { metAt } (PNJ officiel rencontré)
  *   players/{addr}/treasuresFound/{id} → { foundAt } (trésor ouvert)
  *   players/{addr}/worldsUnlocked/{id} → { unlockedAt } (monde débloqué)
+ *   catalog/maps/{id}                  → MapDef (carte mapmonde, paramétrable par admin — évolutif, multi-cartes)
+ *   catalog/mapPois/{id}               → MapPoiDef (point d'intérêt terrain/décor sur une carte — voir WorldMapWidget.tsx)
+ *   players/{addr}/mapPos              → { mapId, x, y, updatedAt } (position libre de Synk sur la carte, déplacement libre)
+ *   players/{addr}/mapPoisVisited/{id} → { visitedAt } (POI découvert par hasard en explorant — XP de découverte, une fois)
  */
 import {
   ref, get, set, update, onValue, off, push, serverTimestamp, DataSnapshot,
@@ -1060,7 +1064,54 @@ export interface WorldDef {
   active: boolean;
   createdAt: number;
   order?: number;
+  // ─── Positionnement sur la mapmonde (voir WorldMapWidget.tsx) ───
+  mapId?: string;        // carte sur laquelle ce monde apparaît (défaut "map.synk_territory")
+  mapX?: number;         // position horizontale en % (0-100) du portail d'accès à ce monde
+  mapY?: number;         // position verticale en % (0-100)
+  // Engin requis en besace pour un voyage rapide/instantané et sans risque vers ce monde (voir
+  // travelToWorld ci-dessous). Toujours possible d'y aller à pied sans engin, mais plus long et
+  // avec un risque de rencontre nocturne hostile (voir RepRules.travelNightEncounterChancePct).
+  vehicleItemId?: string;
 }
+
+/**
+ * Type de point d'intérêt (décor/terrain) affiché sur la mapmonde — voir MapPoiDef ci-dessous.
+ * Volontairement large pour couvrir tous les éléments demandés (plaines, cours d'eau, reliefs,
+ * villages amis/ennemis, structures de halte...) tout en restant simple à étendre depuis l'admin.
+ */
+export type MapPoiType =
+  | 'plain' | 'stream' | 'lake' | 'mountain' | 'forest' | 'cave' | 'beach' | 'waterfall'
+  | 'village_ally' | 'village_enemy' | 'path' | 'bridge' | 'tavern' | 'stable' | 'hut';
+
+/** Carte mapmonde — évolutif : plusieurs cartes pourront coexister (territoire de Synk, futures
+ * extensions saisonnières ou nouveaux continents), chacune avec son propre jeu de POI. */
+export interface MapDef {
+  id: string;            // ex. "map.synk_territory"
+  name: string;
+  i18nKey?: string;
+  active: boolean;
+  createdAt: number;
+  order?: number;
+}
+
+/** Point d'intérêt décoratif/terrain positionné sur une carte (style vieux parchemin — voir
+ * WorldMapWidget.tsx). Purement visuel/narratif (contrairement aux mondes, PNJ, trésors et quêtes
+ * qui restent les vraies mécaniques de jeu) mais entièrement paramétrable par l'admin pour étendre
+ * ou redessiner le territoire au fil des saisons/évolutions. */
+export interface MapPoiDef {
+  id: string;
+  mapId: string;         // carte parente (voir MapDef.id)
+  type: MapPoiType;
+  name: string;
+  icon: string;          // emoji affiché sur la carte
+  x: number;             // position horizontale en % (0-100)
+  y: number;             // position verticale en % (0-100)
+  active: boolean;
+  createdAt: number;
+  order?: number;
+}
+
+export const DEFAULT_MAP_ID = 'map.synk_territory';
 
 function sortDefsByOrder<T extends { order?: number; createdAt: number }>(list: T[]): T[] {
   return list.sort((a, b) => {
@@ -1223,6 +1274,105 @@ export async function discoverWorldOffchain(address: string, world: WorldDef): P
   await ensureAnonSignIn();
   await set(ref(db, `players/${KEY(address)}/worldsUnlocked/${key}`), { unlockedAt: Date.now() });
   return 'unlocked';
+}
+
+// ───────────────────────── Mapmonde (carte, POI, position libre, voyage) ─────────────────────────
+// Socle évolutif : le territoire de Synk est découpé en une (ou plusieurs, à terme) carte(s) style
+// vieux parchemin, peuplée(s) de points d'intérêt (terrain/décor) et des portails des 10 mondes
+// (voir WorldDef.mapX/mapY ci-dessus). Le joueur s'y déplace librement (voir setPlayerMapPos),
+// tombant par hasard sur des POI non encore découverts (petit bonus d'XP unique, voir visitMapPoi).
+
+/** Crée/modifie une carte (admin). */
+export async function addMapDef(def: MapDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/maps/${RKEY(def.id)}`), def);
+}
+
+export async function getMapDefs(): Promise<MapDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/maps'));
+  const v = snap.val() as Record<string, MapDef> | null;
+  return v ? sortDefsByOrder(Object.values(v)) : [];
+}
+
+/** Crée/modifie un point d'intérêt (admin) — voir MapPoiDef. */
+export async function addMapPoiDef(def: MapPoiDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/mapPois/${RKEY(def.id)}`), def);
+}
+
+export async function removeMapPoiDef(id: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/mapPois/${RKEY(id)}`), null);
+}
+
+/** Tous les POI, ou uniquement ceux d'une carte donnée si `mapId` est fourni. */
+export async function getMapPoiDefs(mapId?: string): Promise<MapPoiDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/mapPois'));
+  const v = snap.val() as Record<string, MapPoiDef> | null;
+  const all = v ? sortDefsByOrder(Object.values(v)) : [];
+  return mapId ? all.filter(p => p.mapId === mapId) : all;
+}
+
+export interface PlayerMapPos { mapId: string; x: number; y: number; updatedAt: number }
+
+export async function getPlayerMapPos(address: string): Promise<PlayerMapPos | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+  const snap = await get(ref(db, `players/${KEY(address)}/mapPos`));
+  return snap.val();
+}
+
+/** Déplacement libre de Synk sur la carte (clic/drag) — position en % (0-100), bornée. */
+export async function setPlayerMapPos(address: string, mapId: string, x: number, y: number): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `players/${KEY(address)}/mapPos`), {
+    mapId, x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)), updatedAt: Date.now(),
+  });
+}
+
+export async function getVisitedMapPoiIds(address: string): Promise<Set<string>> {
+  const db = getFirebaseDb();
+  if (!db) return new Set();
+  const snap = await get(ref(db, `players/${KEY(address)}/mapPoisVisited`));
+  const v = snap.val() as Record<string, unknown> | null;
+  return new Set(v ? Object.keys(v) : []);
+}
+
+/** Découverte fortuite d'un POI en explorant librement (première visite seulement) — petit bonus
+ * d'XP paramétrable (RepRules.mapPoiDiscoveryXp), voir WorldMapWidget.tsx. */
+export async function visitMapPoi(address: string, poi: MapPoiDef, xpReward: number): Promise<'discovered' | 'already'> {
+  const db = getFirebaseDb();
+  if (!db) return 'already';
+  const key = RKEY(poi.id);
+  const path = `players/${KEY(address)}/mapPoisVisited/${key}`;
+  const already = (await get(ref(db, path))).val();
+  if (already) return 'already';
+  if (xpReward) await applyEffect(address, { xpBonus: xpReward });
+  await ensureAnonSignIn();
+  await set(ref(db, path), { visitedAt: Date.now() });
+  return 'discovered';
+}
+
+/** Instantané de la besace (contrairement à `subscribeInventory`, ne garde aucun écouteur ouvert)
+ * — utilisé pour vérifier si le joueur possède l'engin requis pour un voyage rapide vers un monde. */
+export async function getInventoryOnce(address: string): Promise<InventoryItem[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, `players/${KEY(address)}/inventory`));
+  const v = snap.val() as Record<string, InventoryItem> | null;
+  return v ? Object.values(v) : [];
 }
 
 // ─────────────────────────────────────── Player index ───────────────────────────────────────
@@ -1470,6 +1620,11 @@ export interface RepRules {
   // paramétrable uniquement via une transaction on-chain (`setNpcMaxPerDay`) ; désormais 100%
   // hors-chaîne (voir setNpcMaxPerDay ci-dessous), donc gratuit à modifier depuis l'Administration.
   npcMaxPerDay: number; // Nombre max de rencontres PNJ (popup) par jour (défaut 4)
+  // ─── Mapmonde / voyage (voir WorldMapWidget.tsx) ───
+  mapPoiDiscoveryXp: number;            // XP gagné (une fois) en découvrant un POI en explorant librement (défaut 5)
+  travelWalkDurationSec: number;        // Durée simulée d'un voyage à pied vers un monde, en secondes (défaut 6)
+  travelNightEncounterChancePct: number;// % de chance de croiser une créature hostile pendant un voyage à pied (défaut 30)
+  travelNightMonsterDamage: number;     // Dégâts (Vie) subis en cas de défaite contre cette créature (défaut 15)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -1535,6 +1690,10 @@ export const DEFAULT_REP_RULES: RepRules = {
   capeInvisibilityMinMinutes: 10,
   capeInvisibilityMaxMinutes: 15,
   npcMaxPerDay: 4,
+  mapPoiDiscoveryXp: 5,
+  travelWalkDurationSec: 6,
+  travelNightEncounterChancePct: 30,
+  travelNightMonsterDamage: 15,
 };
 
 export async function getRepRules(): Promise<RepRules> {
