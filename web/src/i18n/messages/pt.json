@@ -799,5 +799,11 @@
   "canvas2d.biasHint": "Cenário inspirado em: {poi}",
   "canvas2d.engineNote": "Base extensível pensada para uma futura exportação Godot/Unity",
   "canvas2d.npcLabel": "PNJ errante",
-  "canvas2d.dragonLabel": "Dragão errante"
+  "canvas2d.dragonLabel": "Dragão errante",
+  "canvas2d.moveHint": "⌨️ Setas ou o direcional virtual para mover",
+  "canvas2d.dpadTitle": "Direcional virtual",
+  "canvas2d.dpadUp": "Cima",
+  "canvas2d.dpadDown": "Baixo",
+  "canvas2d.dpadLeft": "Esquerda",
+  "canvas2d.dpadRight": "Direita"
 }

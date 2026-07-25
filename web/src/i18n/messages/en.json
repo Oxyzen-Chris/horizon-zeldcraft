@@ -799,5 +799,11 @@
   "canvas2d.biasHint": "Scenery inspired by: {poi}",
   "canvas2d.engineNote": "Extensible foundation designed for a future Godot/Unity export",
   "canvas2d.npcLabel": "Wandering NPC",
-  "canvas2d.dragonLabel": "Wandering Dragon"
+  "canvas2d.dragonLabel": "Wandering Dragon",
+  "canvas2d.moveHint": "⌨️ Arrow keys or the D-pad to move",
+  "canvas2d.dpadTitle": "D-pad",
+  "canvas2d.dpadUp": "Up",
+  "canvas2d.dpadDown": "Down",
+  "canvas2d.dpadLeft": "Left",
+  "canvas2d.dpadRight": "Right"
 }

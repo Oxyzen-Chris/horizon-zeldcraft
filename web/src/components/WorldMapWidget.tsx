@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import {
-  getMapPoiDefs, getWorldDefs, getPlayerMapPos, setPlayerMapPos, getUnlockedWorldIds,
+  getMapPoiDefs, getWorldDefs, setPlayerMapPos, subscribePlayerMapPos, getUnlockedWorldIds,
   getVisitedMapPoiIds, visitMapPoi, discoverWorldOffchain, getInventoryOnce, getRepRules,
   getOrCreatePlayer, computePlayerDiceBonus, rollD20, applyEffect, getCurrentSeason, RKEY, DEFAULT_MAP_ID,
   type MapPoiDef, type WorldDef, type RepRules, type Season,
@@ -69,6 +69,17 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
   const [travelConfirm, setTravelConfirm] = useState<WorldDef | null>(null);
   const [traveling, setTraveling] = useState<{ world: WorldDef; progress: number } | null>(null);
 
+  // Refs miroir des états ci-dessus — utilisés dans le scan de découverte (voir runDiscoveryScan)
+  // pour éviter les fermetures (closures) obsolètes dans l'écouteur temps réel de position.
+  const poisRef = useRef<MapPoiDef[]>([]);
+  const visitedRef = useRef<Set<string>>(new Set());
+  const rulesRef = useRef<RepRules | null>(null);
+  const seasonRef = useRef<Season | null>(null);
+  useEffect(() => { poisRef.current = pois; }, [pois]);
+  useEffect(() => { visitedRef.current = visitedPois; }, [visitedPois]);
+  useEffect(() => { rulesRef.current = rules; }, [rules]);
+  useEffect(() => { seasonRef.current = season; }, [season]);
+
   useEffect(() => {
     setCollapsed((localStorage.getItem(COLLAPSED_KEY) ?? '1') === '1');
     const savedPos = localStorage.getItem(POS_KEY);
@@ -89,7 +100,6 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
     if (!address) return;
     getUnlockedWorldIds(address).then(setUnlockedWorlds).catch(() => {});
     getVisitedMapPoiIds(address).then(setVisitedPois).catch(() => {});
-    getPlayerMapPos(address).then(p => { if (p && p.mapId === DEFAULT_MAP_ID) setMapPos({ x: p.x, y: p.y }); }).catch(() => {});
   }, [address]);
   useEffect(() => { refreshPlayerBits(); }, [refreshPlayerBits]);
 
@@ -98,6 +108,43 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
   // Un POI tagué `season` reste masqué/non-découvrable hors de sa saison tant qu'il n'a pas déjà
   // été découvert par ce joueur (voir gameState.ts::MapPoiDef.season).
   const visiblePois = pois.filter(p => !p.season || p.season === season || visitedPois.has(RKEY(p.id)));
+
+  // Découverte fortuite d'un POI proche (rayon 6%) — appelée à chaque changement de position,
+  // quelle que soit son origine (clic sur la carte ICI, ou flèches/pavé directionnel dans le
+  // widget Plateforme 2D isométrique — voir subscribePlayerMapPos ci-dessous). `visitMapPoi` est
+  // idempotent côté serveur (vérifie « déjà visité » avant d'attribuer l'XP), donc sans risque
+  // même si le scan tourne plusieurs fois pour la même position.
+  const runDiscoveryScan = useCallback(async (xPct: number, yPct: number) => {
+    if (!address) return;
+    const visible = poisRef.current.filter(p => !p.season || p.season === seasonRef.current || visitedRef.current.has(RKEY(p.id)));
+    for (const poi of visible) {
+      if (visitedRef.current.has(RKEY(poi.id))) continue;
+      const d = Math.hypot(poi.x - xPct, poi.y - yPct);
+      if (d <= 6) {
+        const res = await visitMapPoi(address, poi, rulesRef.current?.mapPoiDiscoveryXp ?? 5);
+        if (res === 'discovered') {
+          visitedRef.current = new Set(visitedRef.current).add(RKEY(poi.id));
+          setVisitedPois(new Set(visitedRef.current));
+          showToast(`🧭 ${t('map.discovered')} : ${poi.icon} ${poi.name} (+${rulesRef.current?.mapPoiDiscoveryXp ?? 5} XP)`);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, t]);
+
+  // Écoute temps réel de la position de Synk (voir gameState.ts::subscribePlayerMapPos) : se
+  // synchronise instantanément avec les déplacements effectués depuis le widget Plateforme 2D
+  // isométrique (flèches clavier ou pavé directionnel virtuel — voir GameCanvas2D.tsx), et
+  // réciproquement les clics sur cette carte s'y reflètent en direct.
+  useEffect(() => {
+    if (!address) return;
+    return subscribePlayerMapPos(address, p => {
+      if (p && p.mapId === DEFAULT_MAP_ID) {
+        setMapPos({ x: p.x, y: p.y });
+        runDiscoveryScan(p.x, p.y);
+      }
+    });
+  }, [address, runDiscoveryScan]);
 
   // ─── Drag (déplacement de la fenêtre) ───
   const onHeaderPointerDown = (e: React.PointerEvent) => {
@@ -143,22 +190,13 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
   };
 
   // ─── Déplacement libre de Synk (clic sur la carte) ───
+  // Le scan de découverte de POI proches est désormais géré par l'écouteur temps réel
+  // subscribePlayerMapPos (voir plus haut), déclenché par cette écriture elle-même — ainsi le
+  // même code de découverte s'applique quel que soit le widget à l'origine du déplacement.
   const moveSynkTo = async (xPct: number, yPct: number) => {
     if (!address) return;
     setMapPos({ x: xPct, y: yPct });
     await setPlayerMapPos(address, DEFAULT_MAP_ID, xPct, yPct);
-    // Découverte fortuite : tout POI non visité à moins de 6% de distance devient découvert.
-    for (const poi of visiblePois) {
-      if (visitedPois.has(RKEY(poi.id))) continue;
-      const d = Math.hypot(poi.x - xPct, poi.y - yPct);
-      if (d <= 6) {
-        const res = await visitMapPoi(address, poi, rules?.mapPoiDiscoveryXp ?? 5);
-        if (res === 'discovered') {
-          setVisitedPois(prev => new Set(prev).add(RKEY(poi.id)));
-          showToast(`🧭 ${t('map.discovered')} : ${poi.icon} ${poi.name} (+${rules?.mapPoiDiscoveryXp ?? 5} XP)`);
-        }
-      }
-    }
   };
 
   const onCanvasClick = (e: React.MouseEvent) => {

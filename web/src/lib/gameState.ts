@@ -1365,6 +1365,19 @@ export async function setPlayerMapPos(address: string, mapId: string, x: number,
   });
 }
 
+/** Écoute temps réel de la position de Synk sur la mapmonde (voir setPlayerMapPos) — permet de
+ * synchroniser en direct le widget Mapmonde (WorldMapWidget) et le widget Plateforme 2D
+ * isométrique (GameCanvas2D) : un déplacement (clic carte, flèches clavier ou pavé virtuel dans
+ * l'un des deux widgets) se reflète immédiatement dans l'autre. Retourne la fonction unsubscribe. */
+export function subscribePlayerMapPos(address: string, cb: (p: PlayerMapPos | null) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(null); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/mapPos`);
+  const handler = (snap: DataSnapshot) => cb(snap.exists() ? snap.val() as PlayerMapPos : null);
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
 export async function getVisitedMapPoiIds(address: string): Promise<Set<string>> {
   const db = getFirebaseDb();
   if (!db) return new Set();

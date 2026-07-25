@@ -799,5 +799,11 @@
   "canvas2d.biasHint": "Décor inspiré de : {poi}",
   "canvas2d.engineNote": "Fondation extensible pensée pour un futur export Godot/Unity",
   "canvas2d.npcLabel": "PNJ errant",
-  "canvas2d.dragonLabel": "Dragon errant"
+  "canvas2d.dragonLabel": "Dragon errant",
+  "canvas2d.moveHint": "⌨️ Flèches ou pavé directionnel pour se déplacer",
+  "canvas2d.dpadTitle": "Pavé directionnel",
+  "canvas2d.dpadUp": "Haut",
+  "canvas2d.dpadDown": "Bas",
+  "canvas2d.dpadLeft": "Gauche",
+  "canvas2d.dpadRight": "Droite"
 }
