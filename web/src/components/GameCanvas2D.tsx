@@ -186,6 +186,13 @@ export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?
   const [npc, setNpc] = useState<Actor>({ id: 'npc', col: 4, row: 3, icon: '🧙', label: t('canvas2d.npcLabel') });
   const [dragon, setDragon] = useState<Actor>({ id: 'dragon', col: 7, row: 5, icon: '🐉', label: t('canvas2d.dragonLabel') });
 
+  // Identité catalogue (PNJ/familier-dragon réel) attribuée une fois au PNJ/Dragon errant, pour que
+  // leur clic ouvre le VRAI pop-up d'interaction (discussion/quête ou apprivoisement) au lieu de ne
+  // rien faire — voir onActorClick() plus bas. Choisie aléatoirement dès que le catalogue est chargé
+  // puis figée (ne change plus tant que le widget reste monté).
+  const [roamingNpcId, setRoamingNpcId] = useState<string | null>(null);
+  const [roamingDragonId, setRoamingDragonId] = useState<string | null>(null);
+
   useEffect(() => {
     setCollapsed((localStorage.getItem(COLLAPSED_KEY) ?? '1') === '1');
     const savedPos = localStorage.getItem(POS_KEY);
@@ -198,6 +205,33 @@ export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?
   // Tous les marqueurs de la mapmonde (une fois) — décor pour le biais de terrain local (voir
   // worldTileAt) ET affichage direct dans la fenêtre de la caméra (voir rendu plus bas).
   useEffect(() => { getAllMapMarkers(DEFAULT_MAP_ID).then(setMarkers).catch(() => {}); }, []);
+
+  // Attribue au PNJ errant et au Dragon errant une véritable entrée du catalogue (dès que les
+  // marqueurs sont chargés), pour que cliquer sur eux ouvre le vrai pop-up (discussion/quête pour le
+  // PNJ, apprivoisement pour le dragon) — voir onActorClick(). Le dragon préfère un familier de type
+  // "dragon.*" (voir DragonSkin.tsx::dragonKindFromId) s'il en existe un dans le catalogue.
+  useEffect(() => {
+    if (!roamingNpcId) {
+      const pool = markers.filter(m => m.kind === 'npc');
+      if (pool.length) setRoamingNpcId(pool[Math.floor(Math.random() * pool.length)].id);
+    }
+    if (!roamingDragonId) {
+      const familiars = markers.filter(m => m.kind === 'familiar');
+      const dragons = familiars.filter(m => /^dragon\./i.test(m.id));
+      const pool = dragons.length ? dragons : familiars;
+      if (pool.length) setRoamingDragonId(pool[Math.floor(Math.random() * pool.length)].id);
+    }
+  }, [markers, roamingNpcId, roamingDragonId]);
+
+  const roamingNpcMarker = useMemo(
+    () => markers.find(m => m.kind === 'npc' && m.id === roamingNpcId) ?? null,
+    [markers, roamingNpcId],
+  );
+  const roamingDragonMarker = useMemo(
+    () => markers.find(m => m.kind === 'familiar' && m.id === roamingDragonId) ?? null,
+    [markers, roamingDragonId],
+  );
+  const worldMarkers = useMemo(() => markers.filter(m => m.kind === 'world'), [markers]);
 
   // Écoute temps réel de la position de Synk — synchronise instantanément avec WorldMapWidget.tsx,
   // quel que soit le widget à l'origine du déplacement (clic carte, flèches, pavé virtuel).
@@ -292,6 +326,35 @@ export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?
     if (dist <= 1) setInteractionMarker(m);
     else moveTo(m.x, m.y);
   }, [moveTo]);
+
+  // ─── Clic sur le PNJ errant ou le Dragon errant (icônes qui se déplacent seules dans la grille) ───
+  // Contrairement aux marqueurs catalogue ci-dessus, ces acteurs n'existent qu'en coordonnées LOCALES
+  // (col/row dans la fenêtre de caméra) : l'adjacence se calcule donc contre `playerCell` (lui aussi
+  // local), et « se rapprocher » convertit leur position locale en coordonnées mapmonde absolues
+  // (origin + col/row) pour réutiliser moveTo(). `marker` est la véritable entrée catalogue (PNJ ou
+  // familier-dragon) attribuée plus haut : sans elle (catalogue vide), le clic ne fait rien.
+  const onActorClick = useCallback((actor: Actor, marker: MapMarker | null) => {
+    if (!marker) return;
+    const dist = Math.max(Math.abs(actor.col - playerCell.col), Math.abs(actor.row - playerCell.row));
+    if (dist <= 1) setInteractionMarker(marker);
+    else moveTo(origin.col + actor.col, origin.row + actor.row);
+  }, [moveTo, origin, playerCell]);
+
+  // ─── Clic sur une tuile portant un portail décoratif (🌀 généré aléatoirement par worldTileAt) ───
+  // Chaque portail décoratif est associé de façon déterministe (même case ⇒ toujours le même monde)
+  // à l'un des vrais mondes du catalogue, afin d'ouvrir le même pop-up « Monde » que les portes de
+  // monde officielles (visibleMarkers ci-dessus) plutôt que de rester muet. S'il n'y a Adjacence
+  // (≤ 1 case), on rapproche Synk comme pour une tuile normale.
+  const onPortalTileClick = useCallback((wc: number, wr: number) => {
+    const cur = worldPosRef.current;
+    const dist = Math.max(Math.abs(wc - Math.round(cur.x)), Math.abs(wr - Math.round(cur.y)));
+    if (dist <= 1 && worldMarkers.length) {
+      const idx = Math.floor(hashRand(wc, wr, 5) * worldMarkers.length);
+      setInteractionMarker(worldMarkers[Math.min(worldMarkers.length - 1, idx)]);
+    } else {
+      moveTo(wc, wr);
+    }
+  }, [moveTo, worldMarkers]);
 
   // Déplacement au clavier (flèches directionnelles) — actif seulement widget déplié, et ignoré
   // si le focus est dans un champ de saisie (chat, admin, etc.) pour ne pas interférer.
@@ -407,7 +470,9 @@ export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?
                     clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
                     border: '1px solid rgba(0,0,0,0.15)',
                   }}
-                  onClick={() => moveTo(origin.col + c, origin.row + r)}
+                  onClick={() => (tile.prop === 'portal'
+                    ? onPortalTileClick(origin.col + c, origin.row + r)
+                    : moveTo(origin.col + c, origin.row + r))}
                   title={tile.prop ? `${PROP_ICON[tile.prop]} ${t(PROP_I18N_KEY[tile.prop])}` : t(TERRAIN_I18N_KEY[tile.terrain])}
                 />
                 {tile.prop && (
@@ -440,14 +505,22 @@ export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?
             );
           })}
 
-          {/* PNJ errant */}
-          <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto cursor-help"
-            style={{ left: projX(npc.col, npc.row), top: projY(npc.col, npc.row) - 22, zIndex: npc.col + npc.row + 2 }} title={npc.label}>
+          {/* PNJ errant — cliquable dès qu'un PNJ du catalogue lui a été attribué (voir roamingNpcId) */}
+          <div
+            className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingNpcMarker ? 'cursor-pointer' : 'cursor-help'}`}
+            style={{ left: projX(npc.col, npc.row), top: projY(npc.col, npc.row) - 22, zIndex: npc.col + npc.row + 2 }}
+            title={roamingNpcMarker ? `${npc.icon} ${localizeName(t, roamingNpcMarker.i18nKey, roamingNpcMarker.name)}` : npc.label}
+            onClick={() => onActorClick(npc, roamingNpcMarker)}
+          >
             <span className="text-lg">{npc.icon}</span>
           </div>
-          {/* Dragon errant */}
-          <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto cursor-help"
-            style={{ left: projX(dragon.col, dragon.row), top: projY(dragon.col, dragon.row) - 22, zIndex: dragon.col + dragon.row + 2 }} title={dragon.label}>
+          {/* Dragon errant — cliquable dès qu'un familier-dragon du catalogue lui a été attribué */}
+          <div
+            className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingDragonMarker ? 'cursor-pointer' : 'cursor-help'}`}
+            style={{ left: projX(dragon.col, dragon.row), top: projY(dragon.col, dragon.row) - 22, zIndex: dragon.col + dragon.row + 2 }}
+            title={roamingDragonMarker ? `${dragon.icon} ${localizeName(t, roamingDragonMarker.i18nKey, roamingDragonMarker.name)}` : dragon.label}
+            onClick={() => onActorClick(dragon, roamingDragonMarker)}
+          >
             <span className="text-xl">{dragon.icon}</span>
           </div>
           {/* Synk (joueur) */}
