@@ -120,6 +120,12 @@ export function RepRulesPanel() {
     { key: 'travelNightMonsterDamage',      labelKey: 'admin.repRules.travelNightMonsterDamage' },
   ];
 
+  const hutFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'hutRestHp',             labelKey: 'admin.repRules.hutRestHp' },
+    { key: 'hutRestCooldownHours',  labelKey: 'admin.repRules.hutRestCooldownHours' },
+    { key: 'hutRestDurationSec',    labelKey: 'admin.repRules.hutRestDurationSec' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -179,6 +185,19 @@ export function RepRulesPanel() {
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.mapDescription')}</p>
         <div className="grid md:grid-cols-2 gap-3">
           {mapFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🛖 {t('admin.repRules.hutTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.hutDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {hutFields.map(f => (
             <label key={f.key} className="text-sm">
               <span className="text-slate-300">{t(f.labelKey)}</span>
               <input type="number" className="input mt-1 w-full"

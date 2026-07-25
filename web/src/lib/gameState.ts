@@ -1487,6 +1487,36 @@ export async function visitMapPoi(address: string, poi: MapPoiDef, xpReward: num
   return 'discovered';
 }
 
+/**
+ * Temps restant (ms) avant qu'un joueur puisse à nouveau se reposer dans une hutte (voir
+ * RepRules.hutRestCooldownHours) — 0 si le repos est disponible immédiatement. Utilisé par le
+ * pop-up d'interaction de GameCanvas2D.tsx pour afficher/masquer le bouton "Se reposer".
+ */
+export async function getHutRestRemainingMs(address: string, rules: RepRules): Promise<number> {
+  const db = getFirebaseDb();
+  if (!db) return 0;
+  const snap = await get(ref(db, `players/${KEY(address)}/lastHutRestAt`));
+  const lastAt = (snap.val() as number) ?? 0;
+  const cooldownMs = Math.max(1, rules.hutRestCooldownHours) * 3600_000;
+  return Math.max(0, cooldownMs - (Date.now() - lastAt));
+}
+
+/**
+ * Repos dans une hutte (clic sur une hutte adjacente à Synk, voir GameCanvas2D.tsx) : restaure
+ * `rules.hutRestHp` points de vie (plafonnés à hpMax par applyEffect) si le délai de
+ * `rules.hutRestCooldownHours` heures est écoulé depuis le dernier repos. Retourne 'ok' | 'cooldown'.
+ */
+export async function restAtHut(address: string, rules: RepRules): Promise<'ok' | 'cooldown'> {
+  const db = getFirebaseDb();
+  if (!db) return 'cooldown';
+  const remaining = await getHutRestRemainingMs(address, rules);
+  if (remaining > 0) return 'cooldown';
+  await ensureAnonSignIn();
+  await applyEffect(address, { hp: rules.hutRestHp });
+  await set(ref(db, `players/${KEY(address)}/lastHutRestAt`), Date.now());
+  return 'ok';
+}
+
 /** Instantané de la besace (contrairement à `subscribeInventory`, ne garde aucun écouteur ouvert)
  * — utilisé pour vérifier si le joueur possède l'engin requis pour un voyage rapide vers un monde. */
 export async function getInventoryOnce(address: string): Promise<InventoryItem[]> {
@@ -1796,6 +1826,13 @@ export interface RepRules {
   travelWalkDurationSec: number;        // Durée simulée d'un voyage à pied vers un monde, en secondes (défaut 6)
   travelNightEncounterChancePct: number;// % de chance de croiser une créature hostile pendant un voyage à pied (défaut 30)
   travelNightMonsterDamage: number;     // Dégâts (Vie) subis en cas de défaite contre cette créature (défaut 15)
+  // ─── Repos en hutte (voir GameCanvas2D.tsx / HutRestModal.tsx) — clic sur une hutte adjacente à
+  // Synk sur la plateforme 2D isométrique : ouvre une pause (même mécanique que le sommeil forcé
+  // de SleepModal.tsx) qui restaure des points de vie, plafonnée à une utilisation toutes les N
+  // heures (voir restAtHut()/getHutRestRemainingMs() ci-dessous).
+  hutRestHp: number;             // Points de vie restaurés par un repos en hutte (défaut 40)
+  hutRestCooldownHours: number;  // Délai minimum entre deux repos en hutte, en heures (défaut 4)
+  hutRestDurationSec: number;    // Durée de la pause simulée, en secondes (défaut 50, comme SleepModal)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -1865,6 +1902,9 @@ export const DEFAULT_REP_RULES: RepRules = {
   travelWalkDurationSec: 6,
   travelNightEncounterChancePct: 30,
   travelNightMonsterDamage: 15,
+  hutRestHp: 40,
+  hutRestCooldownHours: 4,
+  hutRestDurationSec: 50,
 };
 
 export async function getRepRules(): Promise<RepRules> {

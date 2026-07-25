@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import {
-  getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID,
-  type MapMarker, type MapPoiType,
+  getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
+  type MapMarker, type MapPoiType, type RepRules,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { SynkSkin } from './SynkSkin';
+import { PoiInteractionModal } from './PoiInteractionModal';
+import { HutRestModal } from './HutRestModal';
 
 const POS_KEY = 'zc.iso2dWidgetPos';
 const SIZE_KEY = 'zc.iso2dWidgetSize';
@@ -139,7 +141,7 @@ const clamp100 = (v: number) => Math.max(0, Math.min(WORLD_SIZE, v));
  * Quand Synk approche du bord de la fenêtre COLSxROWS affichée, la caméra recadre (pan) le décor
  * dans la direction du déplacement pour continuer à explorer tout l'espace de la mapmonde.
  */
-export function GameCanvas2D({ stage }: { stage: number }) {
+export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?: number }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -151,6 +153,18 @@ export function GameCanvas2D({ stage }: { stage: number }) {
   const [resizing, setResizing] = useState(false);
   const dragOffset = useRef<Pos>({ x: 0, y: 0 });
   const resizeStart = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
+
+  // Règles admin (voir gameState.ts::RepRules) — récupérées une fois pour les interactions POI
+  // (repos en hutte notamment : hutRestHp/hutRestCooldownHours/hutRestDurationSec).
+  const [rules, setRules] = useState<RepRules | null>(null);
+  useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
+
+  // Marqueur cliqué (PNJ/familier/trésor/quête/monde/hutte) alors que Synk est sur sa case ou une
+  // case adjacente — voir handleMarkerClick() plus bas. `hutResting` bascule sur la fenêtre plein
+  // écran de repos (voir HutRestModal.tsx) une fois le pop-up d'interaction refermé.
+  const [interactionMarker, setInteractionMarker] = useState<MapMarker | null>(null);
+  const [hutResting, setHutResting] = useState(false);
+  const [hutFeedback, setHutFeedback] = useState<string | null>(null);
 
   const [biasLabel, setBiasLabel] = useState<string>('');
   // Tous les marqueurs de la mapmonde (décor/terrain, mondes, PNJ, trésors, familiers, quêtes PNJ —
@@ -261,6 +275,22 @@ export function GameCanvas2D({ stage }: { stage: number }) {
   const move = useCallback((dx: number, dy: number) => {
     const cur = worldPosRef.current;
     moveTo(cur.x + dx * STEP_PCT, cur.y + dy * STEP_PCT);
+  }, [moveTo]);
+
+  // ─── Clic sur un marqueur (PNJ, familier/dragon, trésor, quête, monde, hutte) ───
+  // Si Synk est déjà sur sa case ou une case adjacente (distance ≤ 1 cellule) : ouvre le pop-up
+  // d'interaction adéquat (voir PoiInteractionModal.tsx). Sinon, déplace Synk vers ce marqueur
+  // (comme un clic sur la tuile sous-jacente) — un second clic une fois arrivé ouvrira le pop-up.
+  // Les POI purement décoratifs (montagne, lac, sentier...) ne déclenchent aucun pop-up : leur
+  // découverte fortuite (petit bonus d'XP) est déjà gérée par WorldMapWidget.tsx::runDiscoveryScan.
+  const onMarkerClick = useCallback((m: MapMarker) => {
+    const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure'
+      || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && m.poiType === 'hut');
+    if (!interactable) return;
+    const cur = worldPosRef.current;
+    const dist = Math.max(Math.abs(Math.round(m.x) - Math.round(cur.x)), Math.abs(Math.round(m.y) - Math.round(cur.y)));
+    if (dist <= 1) setInteractionMarker(m);
+    else moveTo(m.x, m.y);
   }, [moveTo]);
 
   // Déplacement au clavier (flèches directionnelles) — actif seulement widget déplié, et ignoré
@@ -395,12 +425,15 @@ export function GameCanvas2D({ stage }: { stage: number }) {
           {visibleMarkers.map(m => {
             const x = projX(m.col, m.row), y = projY(m.col, m.row);
             const zIdx = m.col + m.row + 1;
+            const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure'
+              || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && m.poiType === 'hut');
             return (
               <div
                 key={`m-${m.kind}-${m.id}`}
-                className="absolute -translate-x-1/2 cursor-help pointer-events-auto select-none"
+                className={`absolute -translate-x-1/2 pointer-events-auto select-none ${interactable ? 'cursor-pointer' : 'cursor-help'}`}
                 style={{ left: x, top: y - 18, zIndex: zIdx }}
                 title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
+                onClick={() => onMarkerClick(m)}
               >
                 <span className="text-base drop-shadow" style={{ filter: 'drop-shadow(0 0 2px #000)' }}>{m.icon}</span>
               </div>
@@ -443,6 +476,33 @@ export function GameCanvas2D({ stage }: { stage: number }) {
         className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize text-emerald-400/70 flex items-center justify-center text-[10px]"
         onPointerDown={onResizePointerDown} onPointerMove={onResizePointerMove} onPointerUp={onResizePointerUp}
       >⤡</div>
+
+      <PoiInteractionModal
+        marker={interactionMarker}
+        address={address}
+        playerXp={playerXp}
+        rules={rules}
+        onClose={() => setInteractionMarker(null)}
+        onRequestHutRest={() => setHutResting(true)}
+      />
+      {rules && (
+        <HutRestModal
+          active={hutResting}
+          rules={rules}
+          onDone={(result) => {
+            setHutResting(false);
+            setHutFeedback(result === 'ok' ? t('hutRest.done.ok', { hp: rules.hutRestHp }) : t('hutRest.done.cooldown'));
+            setTimeout(() => setHutFeedback(null), 4000);
+          }}
+        />
+      )}
+      {hutFeedback && (
+        <div className="fixed inset-x-0 bottom-6 flex justify-center z-[101] pointer-events-none">
+          <span className="bg-slate-900 border border-amber-500 text-amber-200 text-sm rounded-full px-4 py-2 shadow-xl">
+            {hutFeedback}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

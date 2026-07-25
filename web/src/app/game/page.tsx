@@ -396,7 +396,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       {/* Mapmonde du territoire de Synk — carte parchemin zoomable, POI, mondes, voyage libre */}
       <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Socle évolutif de plateforme de jeu 2D isométrique (déplacements, PNJ, dragon, décor) */}
-      <GameCanvas2D stage={Number(stage)} />
+      <GameCanvas2D stage={Number(stage)} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Widgets flottants personnalisés définis par l'admin (menu Administration) */}
       <CustomWidgetsRenderer playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}
