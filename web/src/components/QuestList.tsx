@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import {
-  getQuestDefs, getSolvedQuest, submitQuestAnswerOffchain, getUnlockedQuestIds,
+  getQuestDefs, getSolvedQuest, submitQuestAnswerOffchain, subscribeUnlockedQuestIds,
   getRepRules, getCurrentSeason, type QuestDef, type Season,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
@@ -29,7 +29,10 @@ export function QuestList({ playerXp }: { playerXp: number }) {
   useEffect(() => { getQuestDefs().then(setQuests).catch(() => setQuests([])); }, []);
   useEffect(() => {
     if (!address) { setUnlocked(new Set()); return; }
-    getUnlockedQuestIds(address).then(setUnlocked).catch(() => setUnlocked(new Set()));
+    // Abonnement temps réel (au lieu d'un fetch ponctuel) : une "Quête PNJ" acceptée dans
+    // NpcEncounterPopup/PoiInteractionModal doit apparaître débloquée immédiatement ici, sans
+    // recharger la page (voir subscribeUnlockedQuestIds()).
+    return subscribeUnlockedQuestIds(address, setUnlocked);
   }, [address]);
   useEffect(() => { getCurrentSeason().then(setSeason).catch(() => {}); }, []);
 

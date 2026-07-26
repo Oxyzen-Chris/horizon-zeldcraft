@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { getTreasureDefs, getFoundTreasureIds, openTreasureOffchain, claimMissingTreasureItem, getCurrentSeason, RKEY, type TreasureDef, type Season } from '@/lib/gameState';
+import { getTreasureDefs, subscribeFoundTreasureIds, openTreasureOffchain, claimMissingTreasureItem, getCurrentSeason, RKEY, type TreasureDef, type Season } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /**
@@ -27,7 +27,12 @@ export function TreasureList({ playerXp }: { playerXp: number }) {
       // correction du bug de clé RTDB avec points) n'avaient jamais reçu leur objet en besace.
       if (address) all.forEach((tr) => claimMissingTreasureItem(address, tr).catch(() => {}));
     }).catch(() => setDefs([]));
-    if (address) getFoundTreasureIds(address).then(setFound).catch(() => setFound(new Set()));
+  }, [address]);
+  useEffect(() => {
+    if (!address) { setFound(new Set()); return; }
+    // Abonnement temps réel : un coffre ouvert depuis la plateforme isométrique
+    // (PoiInteractionModal) doit se refléter ici sans recharger la page.
+    return subscribeFoundTreasureIds(address, setFound);
   }, [address]);
   useEffect(() => { getCurrentSeason().then(setSeason).catch(() => {}); }, []);
 

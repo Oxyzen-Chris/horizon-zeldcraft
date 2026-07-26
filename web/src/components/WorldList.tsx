@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { getWorldDefs, getUnlockedWorldIds, discoverWorldOffchain, RKEY, type WorldDef } from '@/lib/gameState';
+import { getWorldDefs, subscribeUnlockedWorldIds, discoverWorldOffchain, RKEY, type WorldDef } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /**
@@ -19,7 +19,12 @@ export function WorldList({ playerXp }: { playerXp: number }) {
 
   useEffect(() => {
     getWorldDefs().then(setDefs).catch(() => setDefs([]));
-    if (address) getUnlockedWorldIds(address).then(setUnlocked).catch(() => setUnlocked(new Set()));
+  }, []);
+  useEffect(() => {
+    if (!address) { setUnlocked(new Set()); return; }
+    // Abonnement temps réel : un monde découvert via PoiInteractionModal (plateforme isométrique)
+    // doit apparaître débloqué ici sans recharger la page (même bug que celui des quêtes PNJ).
+    return subscribeUnlockedWorldIds(address, setUnlocked);
   }, [address]);
 
   const active = (defs ?? []).filter((w) => w.active);

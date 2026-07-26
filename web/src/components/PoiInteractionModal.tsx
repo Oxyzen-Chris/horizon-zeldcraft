@@ -7,7 +7,7 @@ import {
   getFamiliarDefs, tameFamiliar, subscribeFamiliars, familiarKeyOf, getInventoryOnce,
   getTreasureDefs, openTreasureOffchain, getFoundTreasureIds,
   getQuestDefs, submitQuestAnswerOffchain, getUnlockedQuestIds, unlockQuestForPlayer, getSolvedQuest,
-  getWorldDefs, discoverWorldOffchain, getUnlockedWorldIds,
+  getWorldDefs, discoverWorldOffchain, subscribeUnlockedWorldIds,
   getHutRestRemainingMs, RKEY,
   type MapMarker, type RepRules, type NpcDef, type FamiliarDef, type TreasureDef, type QuestDef, type WorldDef,
 } from '@/lib/gameState';
@@ -337,7 +337,10 @@ function WorldBody({ marker, address, playerXp }: { marker: Marker; address?: st
 
   useEffect(() => {
     getWorldDefs().then((all) => setDef(all.find((w) => w.id === marker.id) ?? null)).catch(() => setDef(null));
-    if (address) getUnlockedWorldIds(address).then((ids) => setUnlocked(ids.has(RKEY(marker.id)))).catch(() => {});
+  }, [marker.id]);
+  useEffect(() => {
+    if (!address) { setUnlocked(false); return; }
+    return subscribeUnlockedWorldIds(address, (ids) => setUnlocked(ids.has(RKEY(marker.id))));
   }, [marker.id, address]);
 
   if (!def) return <p className="text-sm text-slate-400">⏳</p>;

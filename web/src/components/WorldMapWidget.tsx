@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import {
-  getMapPoiDefs, getWorldDefs, setPlayerMapPos, subscribePlayerMapPos, getUnlockedWorldIds,
+  getMapPoiDefs, getWorldDefs, setPlayerMapPos, subscribePlayerMapPos, subscribeUnlockedWorldIds,
   getVisitedMapPoiIds, visitMapPoi, discoverWorldOffchain, getInventoryOnce, getRepRules,
   getOrCreatePlayer, computePlayerDiceBonus, rollD20, applyEffect, getCurrentSeason, RKEY, DEFAULT_MAP_ID,
   getAllMapMarkers,
@@ -103,10 +103,15 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
 
   const refreshPlayerBits = useCallback(() => {
     if (!address) return;
-    getUnlockedWorldIds(address).then(setUnlockedWorlds).catch(() => {});
     getVisitedMapPoiIds(address).then(setVisitedPois).catch(() => {});
   }, [address]);
   useEffect(() => { refreshPlayerBits(); }, [refreshPlayerBits]);
+  useEffect(() => {
+    if (!address) { setUnlockedWorlds(new Set()); return; }
+    // Abonnement temps réel : un monde découvert depuis PoiInteractionModal (plateforme
+    // isométrique) doit apparaître débloqué ici sans recharger la page.
+    return subscribeUnlockedWorldIds(address, setUnlockedWorlds);
+  }, [address]);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 5000); };
 

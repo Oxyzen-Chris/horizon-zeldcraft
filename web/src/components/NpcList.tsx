@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { getNpcDefs, getMetNpcIds, meetNpcOffchain, getCurrentSeason, RKEY, type NpcDef, type Season } from '@/lib/gameState';
+import { getNpcDefs, subscribeMetNpcIds, meetNpcOffchain, getCurrentSeason, RKEY, type NpcDef, type Season } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /**
@@ -21,9 +21,14 @@ export function NpcList() {
 
   const refresh = () => {
     getNpcDefs().then(setDefs).catch(() => setDefs([]));
-    if (address) getMetNpcIds(address).then(setMet).catch(() => setMet(new Set()));
   };
-  useEffect(refresh, [address]);
+  useEffect(refresh, []);
+  useEffect(() => {
+    if (!address) { setMet(new Set()); return; }
+    // Abonnement temps réel : une rencontre effectuée depuis la plateforme isométrique
+    // (PoiInteractionModal) doit se refléter ici sans recharger la page.
+    return subscribeMetNpcIds(address, setMet);
+  }, [address]);
   useEffect(() => { getCurrentSeason().then(setSeason).catch(() => {}); }, []);
 
   // Un PNJ officiel tagué `season` n'apparaît que pendant la saison effective (voir gameState.ts).

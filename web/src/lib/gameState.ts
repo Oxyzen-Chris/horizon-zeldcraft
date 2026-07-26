@@ -1041,6 +1041,23 @@ export async function getUnlockedQuestIds(address: string): Promise<Set<string>>
 }
 
 /**
+ * Abonnement temps réel aux quêtes `npcGiver` débloquées (voir `subscribeEquipment` pour le même
+ * principe) — permet à `QuestList.tsx` de refléter instantanément une acceptation de "Quête PNJ"
+ * (NpcEncounterPopup / PoiInteractionModal) sans nécessiter un rechargement de la page.
+ */
+export function subscribeUnlockedQuestIds(address: string, cb: (ids: Set<string>) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(new Set()); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/unlockedQuests`);
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, unknown> | null;
+    cb(new Set(v ? Object.keys(v) : []));
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/**
  * Choisit, parmi le catalogue des quêtes `npcGiver` actives, une énigme non encore débloquée ni
  * résolue par ce joueur (tirage aléatoire) — appelée quand un PNJ "quête" est accepté dans
  * `NpcEncounterPopup`. Renvoie `null` si le joueur a déjà débloqué/résolu les 20 énigmes du pool.
@@ -1229,6 +1246,21 @@ export async function getMetNpcIds(address: string): Promise<Set<string>> {
   return new Set(v ? Object.keys(v) : []);
 }
 
+/** Abonnement temps réel (même principe que subscribeUnlockedQuestIds) — une rencontre effectuée
+ * depuis PoiInteractionModal (plateforme isométrique) doit se refléter instantanément dans
+ * NpcList.tsx (besace/onglet PNJ) sans recharger la page. */
+export function subscribeMetNpcIds(address: string, cb: (ids: Set<string>) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(new Set()); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/npcsMet`);
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, unknown> | null;
+    cb(new Set(v ? Object.keys(v) : []));
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
 /** Rencontre un PNJ officiel (hors-chaîne) : XP octroyé + déblocage éventuel d'une quête liée. */
 export async function meetNpcOffchain(address: string, npc: NpcDef): Promise<'met' | 'already'> {
   const db = getFirebaseDb();
@@ -1267,6 +1299,21 @@ export async function getFoundTreasureIds(address: string): Promise<Set<string>>
   const snap = await get(ref(db, `players/${KEY(address)}/treasuresFound`));
   const v = snap.val() as Record<string, unknown> | null;
   return new Set(v ? Object.keys(v) : []);
+}
+
+/** Abonnement temps réel (même principe que subscribeUnlockedQuestIds) — un coffre ouvert depuis
+ * PoiInteractionModal (plateforme isométrique) doit se refléter instantanément dans
+ * TreasureList.tsx (besace/onglet Trésors) sans recharger la page. */
+export function subscribeFoundTreasureIds(address: string, cb: (ids: Set<string>) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(new Set()); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/treasuresFound`);
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, unknown> | null;
+    cb(new Set(v ? Object.keys(v) : []));
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
 }
 
 /** Objet de récompense d'un trésor formaté pour addToInventory() — factorisé pour être appelé à la
@@ -1343,6 +1390,23 @@ export async function getUnlockedWorldIds(address: string): Promise<Set<string>>
   const snap = await get(ref(db, `players/${KEY(address)}/worldsUnlocked`));
   const v = snap.val() as Record<string, unknown> | null;
   return new Set(v ? Object.keys(v) : []);
+}
+
+/**
+ * Abonnement temps réel aux mondes débloqués (même principe que subscribeUnlockedQuestIds) —
+ * un monde découvert via PoiInteractionModal (isométrique) doit apparaître débloqué instantanément
+ * dans WorldList.tsx (besace/onglet Mondes) sans recharger la page.
+ */
+export function subscribeUnlockedWorldIds(address: string, cb: (ids: Set<string>) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(new Set()); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/worldsUnlocked`);
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, unknown> | null;
+    cb(new Set(v ? Object.keys(v) : []));
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
 }
 
 export async function discoverWorldOffchain(address: string, world: WorldDef): Promise<'unlocked' | 'already'> {
