@@ -2,18 +2,22 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
-import { updatePlayer, applyEffect, type PlayerState } from '@/lib/gameState';
+import { updatePlayer, applyEffect, DEFAULT_REP_RULES, type PlayerState, type RepRules } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 
 /**
- * Popup de repos forcé : quand HP ≤ 20, verrouille l'interface pendant 50 s puis
- * ramène HP à 75 (ou hpMax si inférieur à 75). Aucun coût en gas — pur off-chain.
+ * Popup de repos forcé : quand HP ≤ `rules.sleepHpThreshold`, verrouille l'interface pendant
+ * `rules.sleepDurationSec` puis ramène HP à `rules.sleepWakeHp` (ou hpMax si inférieur) et accorde
+ * `rules.sleepHappinessBonus` de Bonheur. Aucun coût en gas — pur off-chain. Tous ces réglages sont
+ * paramétrables dans le menu Administration (voir RepRulesPanel.tsx).
  */
-export function SleepModal({ player }: { player: PlayerState | null }) {
+export function SleepModal({ player, rules }: { player: PlayerState | null; rules?: RepRules | null }) {
   const { t } = useI18n();
   const { address } = useAccount();
+  const r = rules ?? DEFAULT_REP_RULES;
+  const durationSec = Math.max(1, r.sleepDurationSec ?? 50);
   const [asleep, setAsleep] = useState(false);
-  const [remaining, setRemaining] = useState(50);
+  const [remaining, setRemaining] = useState(durationSec);
   const timerRef = useRef<any>(null);
   // Anti-boucle : si HP remonté juste après un réveil, ne relance pas immédiatement
   const lastWakeAt = useRef<number>(0);
@@ -21,25 +25,27 @@ export function SleepModal({ player }: { player: PlayerState | null }) {
   useEffect(() => {
     if (!player || !address) return;
     if (asleep) return;
-    if (Date.now() - lastWakeAt.current < 5000) return; // 5s de grâce
-    if (player.hp > 20) return;
+    const graceMs = Math.max(0, r.sleepGraceSec ?? 5) * 1000;
+    if (Date.now() - lastWakeAt.current < graceMs) return;
+    if (player.hp > (r.sleepHpThreshold ?? 20)) return;
     // Déclenchement automatique
     setAsleep(true);
-    setRemaining(50);
+    setRemaining(durationSec);
     updatePlayer(address, { sleeping: true }).catch(() => {});
-  }, [player?.hp, address, asleep]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [player?.hp, address, asleep, r.sleepGraceSec, r.sleepHpThreshold, durationSec]);
 
-  // Compte à rebours 50 → 0
+  // Compte à rebours durationSec → 0
   useEffect(() => {
     if (!asleep) return;
     timerRef.current = setInterval(() => {
-      setRemaining((r) => {
-        if (r <= 1) {
+      setRemaining((rem) => {
+        if (rem <= 1) {
           clearInterval(timerRef.current);
           wake();
           return 0;
         }
-        return r - 1;
+        return rem - 1;
       });
     }, 1000);
     return () => clearInterval(timerRef.current);
@@ -48,10 +54,10 @@ export function SleepModal({ player }: { player: PlayerState | null }) {
 
   const wake = async () => {
     if (!address || !player) return;
-    // Ramène HP à 75 (ou hpMax si joueur pauvre en cap)
-    const target = Math.min(75, player.hpMax ?? 100);
+    // Ramène HP à sleepWakeHp (ou hpMax si joueur pauvre en cap)
+    const target = Math.min(r.sleepWakeHp ?? 75, player.hpMax ?? 100);
     const deltaHp = Math.max(0, target - player.hp);
-    await applyEffect(address, { hp: deltaHp, happiness: 5 });
+    await applyEffect(address, { hp: deltaHp, happiness: r.sleepHappinessBonus ?? 5 });
     await updatePlayer(address, { sleeping: false });
     lastWakeAt.current = Date.now();
     setAsleep(false);
@@ -69,7 +75,7 @@ export function SleepModal({ player }: { player: PlayerState | null }) {
           <p className="text-5xl font-mono text-cyan-300">{remaining}s</p>
           <div className="w-full bg-slate-700 rounded-full h-2 mt-3">
             <div className="bg-indigo-500 h-2 rounded-full transition-all"
-              style={{ width: `${((50 - remaining) / 50) * 100}%` }} />
+              style={{ width: `${((durationSec - remaining) / durationSec) * 100}%` }} />
           </div>
         </div>
         <p className="text-xs text-slate-500">{t('sleep.hint')}</p>

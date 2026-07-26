@@ -126,6 +126,14 @@ export function RepRulesPanel() {
     { key: 'hutRestDurationSec',    labelKey: 'admin.repRules.hutRestDurationSec' },
   ];
 
+  const sleepFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'sleepHpThreshold',    labelKey: 'admin.repRules.sleepHpThreshold' },
+    { key: 'sleepDurationSec',    labelKey: 'admin.repRules.sleepDurationSec' },
+    { key: 'sleepWakeHp',         labelKey: 'admin.repRules.sleepWakeHp' },
+    { key: 'sleepHappinessBonus', labelKey: 'admin.repRules.sleepHappinessBonus' },
+    { key: 'sleepGraceSec',       labelKey: 'admin.repRules.sleepGraceSec' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -198,6 +206,19 @@ export function RepRulesPanel() {
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.hutDescription')}</p>
         <div className="grid md:grid-cols-2 gap-3">
           {hutFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🛌 {t('admin.repRules.sleepTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.sleepDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {sleepFields.map(f => (
             <label key={f.key} className="text-sm">
               <span className="text-slate-300">{t(f.labelKey)}</span>
               <input type="number" className="input mt-1 w-full"

@@ -1856,6 +1856,16 @@ export interface RepRules {
   hutRestHp: number;             // Points de vie restaurés par un repos en hutte (défaut 40)
   hutRestCooldownHours: number;  // Délai minimum entre deux repos en hutte, en heures (défaut 4)
   hutRestDurationSec: number;    // Durée de la pause simulée, en secondes (défaut 50, comme SleepModal)
+  // ─── Repos forcé par épuisement (voir SleepModal.tsx) — se déclenche automatiquement, sans
+  // action du joueur, dès que la Vie (HP) descend au/sous le seuil ci-dessous : verrouille
+  // l'interface pendant `sleepDurationSec`, restaure la Vie à `sleepWakeHp` (ou hpMax si inférieur)
+  // et accorde un petit bonus de Bonheur. `sleepGraceSec` évite un redéclenchement immédiat juste
+  // après un réveil si la Vie remonte lentement.
+  sleepHpThreshold: number;    // Seuil de Vie déclenchant le repos forcé (défaut 20)
+  sleepDurationSec: number;    // Durée de la pause simulée, en secondes (défaut 50)
+  sleepWakeHp: number;         // Vie restaurée au réveil, plafonnée à hpMax (défaut 75)
+  sleepHappinessBonus: number; // Bonheur gagné au réveil (défaut 5)
+  sleepGraceSec: number;       // Délai de grâce après réveil avant un nouveau déclenchement possible, en secondes (défaut 5)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -1928,6 +1938,11 @@ export const DEFAULT_REP_RULES: RepRules = {
   hutRestHp: 40,
   hutRestCooldownHours: 4,
   hutRestDurationSec: 50,
+  sleepHpThreshold: 20,
+  sleepDurationSec: 50,
+  sleepWakeHp: 75,
+  sleepHappinessBonus: 5,
+  sleepGraceSec: 5,
 };
 
 export async function getRepRules(): Promise<RepRules> {
