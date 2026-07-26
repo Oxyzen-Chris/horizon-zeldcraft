@@ -11,8 +11,9 @@ import {
   computeEquipmentCombatBonus, applyEquipmentWear, getShopCatalog, rarityForXp,
   subscribeEquipment,
   type EncounterRecord, type RepRules, type ChatScript, type ChatResponseId, type ChatReaction, type QuestDef,
-  type EquipSlot, type EquippedItem, type ItemRarity, type ShopItem, type Season,
+  type EquipSlot, type EquippedItem, type ItemRarity, type ShopItem, type Season, type InventoryItem,
 } from '@/lib/gameState';
+import { ITEM_TAB_ICON, ITEM_TAB_CATEGORIES, type ItemTab } from '@/lib/itemTabs';
 import { getFirebaseDb } from '@/lib/firebase';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { FightResultModal, type FightResultData } from './FightResultModal';
@@ -46,6 +47,24 @@ type PopupNpc = {
 const ALIGN_ICONS = { friendly: '😇', neutral: '🙂', hostile: '👿', unknown: '❓' };
 const OFFER_ICONS = { trade: '💰', quest: '📜', fight: '⚔️', chat: '💬' };
 const OFFER_KEYS  = { trade: 'trade', quest: 'quest', fight: 'fight', chat: 'chat' };
+
+/** Onglet de la besace (InventoryPanel.tsx) correspondant à une catégorie d'objet — utilisé par
+ * le pop-up de résultat de troc pour indiquer où l'objet échangé/dérobé est rangé. */
+function tabForCategory(category?: InventoryItem['category']): ItemTab | undefined {
+  if (!category) return undefined;
+  return (Object.keys(ITEM_TAB_CATEGORIES) as Exclude<ItemTab, 'familiars'>[])
+    .find((tab) => ITEM_TAB_CATEGORIES[tab].includes(category));
+}
+
+/** Résultat d'un troc/échange PNJ affiché dans un second pop-up après acceptation (voir runAccept). */
+type TradeResultData = {
+  npcDisplayName: string;
+  lost: boolean; // true = vol subi (PNJ hostile), false = don reçu (PNJ amical/neutre)
+  itemName?: string;
+  itemQty?: number;
+  tab?: ItemTab;
+  coinsDelta?: number;
+};
 
 // Archétypes de PNJ (nom base ; skin choisi aléatoirement). `key` = clé i18n stable
 // (voir t(`npc.archetype.${key}`)), `base` = texte FR brut de repli. Les 4 archétypes saisonniers
@@ -267,8 +286,9 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   const [chatFlow, setChatFlow] = useState<ChatFlowState | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
   const [questGranted, setQuestGranted] = useState<{ quest: QuestDef | null; npcDisplayName: string } | null>(null);
+  const [tradeResult, setTradeResult] = useState<TradeResultData | null>(null);
   const [equipPromptNpc, setEquipPromptNpc] = useState<PopupNpc | null>(null);
-  const close = () => { setCurrent(null); setErrorMsg(null); setChatFlow(null); setQuestGranted(null); };
+  const close = () => { setCurrent(null); setErrorMsg(null); setChatFlow(null); setQuestGranted(null); setTradeResult(null); };
 
   /** Vrai si le joueur porte au moins une arme/protection en état de marche (durabilité > 0),
    * utilisable pour un bonus de combat — voir computeEquipmentCombatBonus(). Un arc sans flèche
@@ -410,6 +430,8 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
       let itemId: string | undefined;
       let itemQty: number | undefined;
       let itemDirection: EncounterRecord['itemDirection'];
+      let itemCategory: InventoryItem['category'] | undefined;
+      let itemBaseName: string | undefined; // nom localisé sans préfixe +/- ni suffixe ×qty (pour tradeResult)
 
       if (npc.offer === 'fight') {
         const p = await getOrCreatePlayer(address);
@@ -506,7 +528,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
             const db = getFirebaseDb();
             if (db) {
               const invSnap = await get(ref(db, `players/${address.toLowerCase()}/inventory`));
-              const inv = invSnap.val() as Record<string, { name: string; qty: number }> | null;
+              const inv = invSnap.val() as Record<string, { name: string; qty: number; category?: InventoryItem['category'] }> | null;
               const stealable = inv ? Object.entries(inv).filter(([, it]) => it.qty > 0) : [];
               if (stealable.length > 0) {
                 const [stolenId, it] = stealable[Math.floor(Math.random() * stealable.length)];
@@ -515,7 +537,8 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
                 await removeFromInventory(address, stolenId, qtyStolen);
                 const localizedItName = itemLabel(t, stolenId, it.name);
                 stolenItemName = qtyStolen > 1 ? `${localizedItName} ×${qtyStolen}` : localizedItName;
-                itemId = stolenId; itemQty = qtyStolen; itemDirection = 'loss';
+                itemId = stolenId; itemQty = qtyStolen; itemDirection = 'loss'; itemCategory = it.category;
+                itemBaseName = localizedItName;
               }
             }
           }
@@ -541,7 +564,8 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
           xpDelta = -cost;
           await addToInventory(address, { ...gift, qty: 1 });
           itemName = gift.name;
-          itemId = gift.itemId; itemQty = 1; itemDirection = 'gain';
+          itemId = gift.itemId; itemQty = 1; itemDirection = 'gain'; itemCategory = gift.category;
+          itemBaseName = itemLabel(t, gift.itemId, gift.name);
           walletDelta = 5;
           repDelta = npc.alignment === 'friendly' ? r.tradeFriendly : r.tradeNeutral;
         }
@@ -575,6 +599,17 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         // Affiche un résultat dédié (quête ajoutée à "Quêtes à énigmes", ou repli si le pool
         // des 20 énigmes PNJ est déjà épuisé pour ce joueur) au lieu de fermer immédiatement.
         setQuestGranted({ quest: grantedQuest, npcDisplayName });
+      } else if (npc.offer === 'trade') {
+        // Second pop-up dédié indiquant précisément ce qui a été échangé/dérobé et dans quel
+        // compartiment de la besace l'objet est déposé (ou retiré) — voir tabForCategory().
+        setTradeResult({
+          npcDisplayName,
+          lost: outcome === 'lost',
+          itemName: itemBaseName,
+          itemQty,
+          tab: tabForCategory(itemCategory),
+          coinsDelta: walletDelta,
+        });
       } else {
         close();
       }
@@ -642,6 +677,34 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
                 ) : (
                   <p className="text-sm text-slate-300 mt-4 text-center">
                     {t('npc.quest.granted.none', { name: questGranted.npcDisplayName })}
+                  </p>
+                )}
+                <div className="mt-5">
+                  <button className="btn-primary w-full" onClick={close}>{t('npc.chat.close')}</button>
+                </div>
+              </>
+            ) : tradeResult ? (
+              <>
+                <p className="text-sm text-slate-300 mt-4 text-center">
+                  {tradeResult.lost
+                    ? t('npc.trade.result.lostIntro', { name: tradeResult.npcDisplayName })
+                    : t('npc.trade.result.gainIntro', { name: tradeResult.npcDisplayName })}
+                </p>
+                {tradeResult.itemName && (
+                  <>
+                    <p className={`text-sm font-semibold mt-3 text-center rounded p-2 ${tradeResult.lost ? 'text-rose-300 bg-rose-900/20' : 'text-amber-300 bg-amber-900/20'}`}>
+                      {tradeResult.lost ? '➖' : '➕'} {tradeResult.itemName}{(tradeResult.itemQty ?? 1) > 1 ? ` ×${tradeResult.itemQty}` : ''}
+                    </p>
+                    {tradeResult.tab && (
+                      <p className="text-xs text-emerald-400 mt-2 text-center">
+                        {ITEM_TAB_ICON[tradeResult.tab]} {t(tradeResult.lost ? 'npc.trade.result.removedFrom' : 'npc.trade.result.storedIn', { tab: t(`game.inventory.tab.${tradeResult.tab}`) })}
+                      </p>
+                    )}
+                  </>
+                )}
+                {!!tradeResult.coinsDelta && (
+                  <p className={`text-xs mt-2 text-center ${tradeResult.coinsDelta < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    🪙 {tradeResult.coinsDelta > 0 ? '+' : ''}{tradeResult.coinsDelta} {t('npc.trade.result.coins')}
                   </p>
                 )}
                 <div className="mt-5">
