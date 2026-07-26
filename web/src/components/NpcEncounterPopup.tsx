@@ -614,7 +614,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   return (
     <>
       {current && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => !busy && !chatBusy && close()}>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[95] p-4" onClick={() => !busy && !chatBusy && close()}>
           <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
             <div className="text-center">
               <div className="text-6xl mb-3">{NPC_SKINS[current.skin]}</div>
@@ -695,7 +695,7 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
         <FightResultModal data={fightResult} onClose={() => setFightResult(null)} />
       )}
       {equipPromptNpc && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[96] p-4">
           <div className="bg-slate-900 border-2 border-amber-500 rounded-xl p-6 max-w-sm w-full text-center">
             <div className="text-4xl mb-2">⚔️🛡️</div>
             <p className="text-sm text-slate-200 mb-1 font-semibold">{t('equip.useForFight.title')}</p>
