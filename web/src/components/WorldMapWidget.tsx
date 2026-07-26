@@ -13,6 +13,8 @@ import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { ConfirmDialog } from './ConfirmDialog';
 import { SynkSkin } from './SynkSkin';
+import { NPC_SKINS } from '@/lib/contract';
+import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 
 const POS_KEY = 'zc.mapWidgetPos';
 const SIZE_KEY = 'zc.mapWidgetSize';
@@ -43,7 +45,7 @@ const POI_TYPE_FALLBACK_ICON: Record<string, string> = {
  * RepRules.travel*). Évolutif : `mapId` fixé sur DEFAULT_MAP_ID pour l'instant, mais toute
  * l'infrastructure (MapDef/MapPoiDef) supporte déjà plusieurs cartes à l'avenir.
  */
-export function WorldMapWidget({ playerXp }: { playerXp: number }) {
+export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; encounterNpc?: EncounterMarkerInfo }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -378,6 +380,19 @@ export function WorldMapWidget({ playerXp }: { playerXp: number }) {
               </button>
             );
           })}
+
+          {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) juste au
+              nord de Synk, tant que le pop-up reste affiché (voir encounterNpc/onEncounterChange) */}
+          {encounterNpc && (
+            <div
+              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center animate-bounce"
+              style={{ left: `${mapPos.x}%`, top: `${Math.max(0, mapPos.y - 1)}%` }}
+              title={`${NPC_SKINS[encounterNpc.skin]} ${localizeName(t, `npc.archetype.${encounterNpc.baseKey}`, encounterNpc.baseKey)} · ${localizeName(t, `npc.offer.${encounterNpc.offer}`, encounterNpc.offer)}`}
+            >
+              <span className="text-[10px] leading-none">❗</span>
+              <span style={{ fontSize: 14 + zoom * 6 }}>{NPC_SKINS[encounterNpc.skin]}</span>
+            </div>
+          )}
 
           {/* Position de Synk */}
           <div

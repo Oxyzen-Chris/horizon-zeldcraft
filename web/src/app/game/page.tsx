@@ -2,7 +2,7 @@
 
 import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -21,7 +21,7 @@ import { TreasureList } from '@/components/TreasureList';
 import { WorldList } from '@/components/WorldList';
 import { TeamsPanel } from '@/components/TeamsPanel';
 import { FamiliarsList } from '@/components/FamiliarsList';
-import { NpcEncounterPopup } from '@/components/NpcEncounterPopup';
+import { NpcEncounterPopup, type EncounterMarkerInfo } from '@/components/NpcEncounterPopup';
 import { DiceRollWidget } from '@/components/DiceRollWidget';
 import { TeamChatWidget } from '@/components/TeamChatWidget';
 import { CustomWidgetsRenderer } from '@/components/CustomWidgetsRenderer';
@@ -176,6 +176,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const [xpCap, setXpCap] = useState(100000);
   const [repRules, setRepRules] = useState<RepRules | null>(null);
   const [activity, setActivity] = useState<PlayerActivityStats | null>(null);
+  // PNJ actuellement "en approche" (pop-up de rencontre ouvert) — remonté par NpcEncounterPopup
+  // pour être matérialisé à côté de Synk dans WorldMapWidget et GameCanvas2D (voir EncounterMarkerInfo).
+  const [encounterNpc, setEncounterNpc] = useState<EncounterMarkerInfo>(null);
+  const handleEncounterChange = useCallback((info: EncounterMarkerInfo) => setEncounterNpc(info), []);
 
   // Charge le plafond XP + le barème complet (mood, etc.) paramétrable (admin) — voir RepRulesPanel
   useEffect(() => {
@@ -387,7 +391,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       </div>
 
       {/* Popup de rencontres PNJ aléatoires (3-5×/jour, réglable) */}
-      <NpcEncounterPopup contract={contract} tokenId={tokenId} />
+      <NpcEncounterPopup contract={contract} tokenId={tokenId} onEncounterChange={handleEncounterChange} />
       {/* Fenêtre flottante et déplaçable de lancer de dés (infra générique + destin quotidien) */}
       <DiceRollWidget />
       {/* Fenêtre flottante et déplaçable du chat d'équipe multi-joueurs */}
@@ -395,9 +399,9 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       {/* Fenêtre flottante "homme de Vitruve" pour équiper armes/protections par drag-and-drop */}
       <EquipmentWidget stage={Number(stage)} />
       {/* Mapmonde du territoire de Synk — carte parchemin zoomable, POI, mondes, voyage libre */}
-      <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
+      <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} />
       {/* Socle évolutif de plateforme de jeu 2D isométrique (déplacements, PNJ, dragon, décor) */}
-      <GameCanvas2D stage={Number(stage)} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
+      <GameCanvas2D stage={Number(stage)} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} />
       {/* Widgets flottants personnalisés définis par l'admin (menu Administration) */}
       <CustomWidgetsRenderer playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}

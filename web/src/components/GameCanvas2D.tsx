@@ -11,6 +11,8 @@ import { useWindowZIndex } from '@/lib/windowZOrder';
 import { SynkSkin } from './SynkSkin';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
+import { NPC_SKINS } from '@/lib/contract';
+import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 
 const POS_KEY = 'zc.iso2dWidgetPos';
 const SIZE_KEY = 'zc.iso2dWidgetSize';
@@ -141,7 +143,7 @@ const clamp100 = (v: number) => Math.max(0, Math.min(WORLD_SIZE, v));
  * Quand Synk approche du bord de la fenêtre COLSxROWS affichée, la caméra recadre (pan) le décor
  * dans la direction du déplacement pour continuer à explorer tout l'espace de la mapmonde.
  */
-export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?: number }) {
+export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: number; playerXp?: number; encounterNpc?: EncounterMarkerInfo }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -293,6 +295,12 @@ export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?
   const playerCell = {
     col: Math.max(0, Math.min(COLS - 1, worldCol - origin.col)),
     row: Math.max(0, Math.min(ROWS - 1, worldRow - origin.row)),
+  };
+  // Cellule adjacente à Synk où matérialiser le PNJ "en approche" (voir encounterNpc) — juste au
+  // nord de Synk, ou au sud si Synk est déjà collé au bord haut de la fenêtre de caméra.
+  const encounterCell = {
+    col: playerCell.col,
+    row: playerCell.row > 0 ? playerCell.row - 1 : Math.min(ROWS - 1, playerCell.row + 1),
   };
 
   // ─── Déplacement de Synk (flèches clavier, pavé directionnel virtuel, clic sur une tuile) ───
@@ -545,6 +553,19 @@ export function GameCanvas2D({ stage, playerXp = 0 }: { stage: number; playerXp?
           >
             <span className="text-xl">{dragon.icon}</span>
           </div>
+          {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) juste à
+              côté de Synk, tant que le pop-up reste affiché (voir encounterNpc/onEncounterChange).
+              Purement informatif (pointer-events-none) : l'interaction se fait dans le pop-up lui-même. */}
+          {encounterNpc && (
+            <div
+              className="absolute -translate-x-1/2 flex flex-col items-center pointer-events-none animate-bounce"
+              style={{ left: projX(encounterCell.col, encounterCell.row), top: projY(encounterCell.col, encounterCell.row) - 22, zIndex: encounterCell.col + encounterCell.row + 2 }}
+              title={`${NPC_SKINS[encounterNpc.skin]} ${localizeName(t, `npc.archetype.${encounterNpc.baseKey}`, encounterNpc.baseKey)} · ${localizeName(t, `npc.offer.${encounterNpc.offer}`, encounterNpc.offer)}`}
+            >
+              <span className="text-[10px] leading-none">❗</span>
+              <span className="text-xl drop-shadow" style={{ filter: 'drop-shadow(0 0 2px #000)' }}>{NPC_SKINS[encounterNpc.skin]}</span>
+            </div>
+          )}
           {/* Synk (joueur) */}
           <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-500 pointer-events-auto cursor-help"
             style={{ left: projX(playerCell.col, playerCell.row), top: projY(playerCell.col, playerCell.row) - 26, zIndex: playerCell.col + playerCell.row + 3 }}

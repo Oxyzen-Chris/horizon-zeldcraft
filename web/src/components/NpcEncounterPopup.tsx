@@ -48,6 +48,21 @@ const ALIGN_ICONS = { friendly: '😇', neutral: '🙂', hostile: '👿', unknow
 const OFFER_ICONS = { trade: '💰', quest: '📜', fight: '⚔️', chat: '💬' };
 const OFFER_KEYS  = { trade: 'trade', quest: 'quest', fight: 'fight', chat: 'chat' };
 
+/**
+ * Infos minimales du PNJ actuellement "en approche" (pop-up de rencontre ouvert) — remontées au
+ * parent (game/page.tsx) via `onEncounterChange` pour matérialiser visuellement ce PNJ à côté de
+ * Synk dans WorldMapWidget.tsx ET GameCanvas2D.tsx (voir demande : « c'est le PNJ qui vient à la
+ * rencontre de Synk, donc c'est à lui de venir sur la case ou à une case de Synk »). Volontairement
+ * minimal (pas de position propre) : chaque widget positionne ce marqueur juste à côté de la
+ * position RÉELLE de Synk (déjà synchronisée via subscribePlayerMapPos), garantissant que les deux
+ * vues restent cohérentes entre elles sans avoir à synchroniser une position dédiée.
+ */
+export type EncounterMarkerInfo = {
+  baseKey: string; skin: number;
+  alignment: 'friendly' | 'neutral' | 'hostile' | 'unknown';
+  offer: 'trade' | 'quest' | 'fight' | 'chat';
+} | null;
+
 /** Onglet de la besace (InventoryPanel.tsx) correspondant à une catégorie d'objet — utilisé par
  * le pop-up de résultat de troc pour indiquer où l'objet échangé/dérobé est rangé. */
 function tabForCategory(category?: InventoryItem['category']): ItemTab | undefined {
@@ -193,7 +208,12 @@ const CHAT_FALLBACK_REACTIONS: Record<ChatResponseId, ChatReaction> = {
   moreHints: { line: 'Cherche du côté de tes énigmes non résolues...', i18nKey: 'npc.chat.fallback.morehints', revealHint: true },
 };
 
-export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string}`; tokenId: bigint }) {
+export function NpcEncounterPopup({ contract, tokenId, onEncounterChange }: {
+  contract: `0x${string}`; tokenId: bigint;
+  /** Notifie le parent (game/page.tsx) dès qu'un PNJ approche/quitte, pour matérialiser sa
+   * présence à côté de Synk sur la mapmonde et la plateforme isométrique (voir EncounterMarkerInfo). */
+  onEncounterChange?: (info: EncounterMarkerInfo) => void;
+}) {
   const { t } = useI18n();
   const { address } = useAccount();
   const chainId = useChainId();
@@ -225,6 +245,19 @@ export function NpcEncounterPopup({ contract, tokenId }: { contract: `0x${string
   // figurer dans son tableau de dépendances (ce qui provoquait l'ancien bug de replanification).
   const currentRef = useRef<PopupNpc | null>(null);
   useEffect(() => { currentRef.current = current; }, [current]);
+
+  // Répercute l'ouverture/fermeture de la popup au parent (voir onEncounterChange) : c'est ce qui
+  // permet à WorldMapWidget.tsx et GameCanvas2D.tsx de matérialiser le PNJ à côté de Synk pendant
+  // toute la durée de la rencontre (jusqu'à acceptation/refus, ou fermeture du résultat).
+  useEffect(() => {
+    if (!onEncounterChange) return;
+    onEncounterChange(current
+      ? { baseKey: current.baseKey, skin: current.skin, alignment: current.alignment, offer: current.offer }
+      : null);
+  }, [current, onEncounterChange]);
+  // Filet de sécurité : si le composant est démonté pendant qu'une rencontre est affichée
+  // (changement de page), efface le marqueur pour ne jamais le laisser figé côté parent.
+  useEffect(() => () => { if (currentRef.current && onEncounterChange) onEncounterChange(null); }, [onEncounterChange]);
 
   // Saison effective (voir gameState.ts::getCurrentSeason) — lue dans un ref (pas de re-render
   // requis) pour filtrer les archétypes saisonniers tirés par rollNpc(). Rafraîchie de temps en
