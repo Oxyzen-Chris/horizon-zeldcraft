@@ -17,6 +17,7 @@ import { ITEM_TAB_ICON, ITEM_TAB_CATEGORIES, type ItemTab } from '@/lib/itemTabs
 import { getFirebaseDb } from '@/lib/firebase';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { FightResultModal, type FightResultData } from './FightResultModal';
+import type { DiceEventKind, DiceEventOutcome } from './DiceRollWidget';
 
 /**
  * Popup de rencontres PNJ aléatoires — 3 à 5×/jour selon le réglage admin (`RepRules.npcMaxPerDay`,
@@ -208,11 +209,18 @@ const CHAT_FALLBACK_REACTIONS: Record<ChatResponseId, ChatReaction> = {
   moreHints: { line: 'Cherche du côté de tes énigmes non résolues...', i18nKey: 'npc.chat.fallback.morehints', revealHint: true },
 };
 
-export function NpcEncounterPopup({ contract, tokenId, onEncounterChange }: {
+export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequestDiceRoll, onCombatActiveChange }: {
   contract: `0x${string}`; tokenId: bigint;
   /** Notifie le parent (game/page.tsx) dès qu'un PNJ approche/quitte, pour matérialiser sa
    * présence à côté de Synk sur la mapmonde et la plateforme isométrique (voir EncounterMarkerInfo). */
   onEncounterChange?: (info: EncounterMarkerInfo) => void;
+  /** Déclenche un lancer de dés OBLIGATOIRE dans le widget "Lancer de dès" (bouton "Lancer...") —
+   * voir beginFightWithDiceRoll(). Renvoie une promesse résolue dès que le joueur a cliqué sur ce
+   * bouton, avec le résultat (bonus/malus) à appliquer au combat en cours. */
+  onRequestDiceRoll?: (kind: DiceEventKind) => Promise<DiceEventOutcome>;
+  /** Notifie le parent tant qu'un combat PNJ est en cours (du lancer de dés requis jusqu'à la
+   * fermeture du résultat), pour griser "Test rapide"/"Destin quotidien" dans le widget de dés. */
+  onCombatActiveChange?: (active: boolean) => void;
 }) {
   const { t } = useI18n();
   const { address } = useAccount();
@@ -321,7 +329,24 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange }: {
   const [questGranted, setQuestGranted] = useState<{ quest: QuestDef | null; npcDisplayName: string } | null>(null);
   const [tradeResult, setTradeResult] = useState<TradeResultData | null>(null);
   const [equipPromptNpc, setEquipPromptNpc] = useState<PopupNpc | null>(null);
+  // Combat en attente du lancer de dés OBLIGATOIRE (bouton "Lancer..." du widget "Lancer de dès")
+  // et combat en cours de résolution (entre la fin de ce lancer et l'affichage du résultat) — voir
+  // beginFightWithDiceRoll(). `combatActive` (dérivé, jamais mis à jour à la main) reste vrai sans
+  // interruption tant que l'une des trois étapes est en cours, ce qui évite tout risque de laisser
+  // le widget de dés grisé indéfiniment si une erreur survient (voir effet ci-dessous).
+  const [awaitingDice, setAwaitingDice] = useState<{ npc: PopupNpc; useEquip: boolean } | null>(null);
+  const [fightPending, setFightPending] = useState(false);
   const close = () => { setCurrent(null); setErrorMsg(null); setChatFlow(null); setQuestGranted(null); setTradeResult(null); };
+
+  // Répercute au parent (game/page.tsx → DiceRollWidget) qu'un combat PNJ mobilise le widget de
+  // dés, pour qu'il grise "Test rapide"/"Destin quotidien" pendant toute la durée du combat. Purement
+  // dérivé de l'état local : jamais de risque de rester grisé après une erreur (voir commentaire ci-dessus).
+  useEffect(() => {
+    onCombatActiveChange?.(!!awaitingDice || fightPending || !!fightResult);
+  }, [awaitingDice, fightPending, fightResult, onCombatActiveChange]);
+  // Filet de sécurité au démontage (changement de page en pleine partie) : ne jamais laisser le
+  // widget de dés grisé pour la session suivante.
+  useEffect(() => () => { onCombatActiveChange?.(false); }, [onCombatActiveChange]);
 
   /** Vrai si le joueur porte au moins une arme/protection en état de marche (durabilité > 0),
    * utilisable pour un bonus de combat — voir computeEquipmentCombatBonus(). Un arc sans flèche
@@ -429,9 +454,13 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange }: {
   const accept = async () => {
     if (!current || !address || busy) return;
     if (current.offer === 'chat') { startChat(current); return; }
-    if (current.offer === 'fight' && hasUsableEquipment()) {
-      // Propose d'utiliser l'équipement porté pour un bonus avant de résoudre le combat.
-      setEquipPromptNpc(current);
+    if (current.offer === 'fight') {
+      if (hasUsableEquipment()) {
+        // Propose d'utiliser l'équipement porté pour un bonus avant de résoudre le combat.
+        setEquipPromptNpc(current);
+        return;
+      }
+      await beginFightWithDiceRoll(current, false);
       return;
     }
     await runAccept(current, false);
@@ -441,10 +470,34 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange }: {
   const answerEquipPrompt = async (useEquip: boolean) => {
     const npc = equipPromptNpc;
     setEquipPromptNpc(null);
-    if (npc) await runAccept(npc, useEquip);
+    if (npc) await beginFightWithDiceRoll(npc, useEquip);
   };
 
-  const runAccept = async (npc: PopupNpc, useEquip: boolean) => {
+  /**
+   * Combat PNJ : réclame désormais un lancer de dés OBLIGATOIRE via le widget "Lancer de dès"
+   * (bouton "Lancer...") avant de résoudre l'issue. Ce jet ajoute une condition supplémentaire de
+   * bonus/malus (voir DiceEventOutcome/classifyEventRoll) en plus du tirage de combat existant
+   * (resolveFight, inchangé) — purement additif, aucune régression sur la stratégie de combat déjà
+   * en place. Si `onRequestDiceRoll` n'est pas câblé (garde-fou), le combat se résout normalement
+   * avec un modificateur neutre, pour ne jamais bloquer le joueur.
+   */
+  const beginFightWithDiceRoll = async (npc: PopupNpc, useEquip: boolean) => {
+    setAwaitingDice({ npc, useEquip });
+    let diceOutcome: DiceEventOutcome = { roll: 0, modifier: 0, tier: 'neutral' };
+    try {
+      if (onRequestDiceRoll) diceOutcome = await onRequestDiceRoll('fight');
+    } finally {
+      setAwaitingDice(null);
+    }
+    setFightPending(true);
+    try {
+      await runAccept(npc, useEquip, diceOutcome);
+    } finally {
+      setFightPending(false);
+    }
+  };
+
+  const runAccept = async (npc: PopupNpc, useEquip: boolean, diceOutcome?: DiceEventOutcome) => {
     if (!address || busy) return;
     setBusy(true);
     setErrorMsg(null);
@@ -471,7 +524,7 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange }: {
         const equipInfo = useEquip
           ? computeEquipmentCombatBonus(equipment, r)
           : { bonus: 0, usedSlots: [] as EquipSlot[], arrowsExhausted: false };
-        const roll = resolveFight(p, npc, r, equipInfo.bonus);
+        const roll = resolveFight(p, npc, r, equipInfo.bonus + (diceOutcome?.modifier ?? 0));
         const win = roll.win;
         outcome = win ? 'won' : 'lost';
         xpDelta = win ? npc.xp : Math.floor(npc.xp / 3);
@@ -552,6 +605,7 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange }: {
           npcName: npcDisplayName, xpDelta, hpDelta, coinsDelta: walletDelta,
           lootItemName, stolenItemName,
           equipBonus: equipInfo.bonus || undefined, brokenItemNames,
+          diceEventRoll: diceOutcome?.roll, diceEventModifier: diceOutcome?.modifier,
         });
       } else if (npc.offer === 'trade') {
         if (npc.alignment === 'hostile') {
@@ -681,7 +735,7 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange }: {
 
   return (
     <>
-      {current && (
+      {current && !awaitingDice && !fightPending && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[95] p-4" onClick={() => !busy && !chatBusy && close()}>
           <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
             <div className="text-center">
@@ -783,6 +837,23 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange }: {
                   </button>
                 </div>
               </>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Lancer de dés OBLIGATOIRE en attente (voir beginFightWithDiceRoll) : pas de fond assombri
+          ni de zone bloquante (pointer-events-none) afin que le widget "Lancer de dès" (DiceRollWidget,
+          bouton "Lancer...") reste pleinement cliquable pendant que ce bandeau reste affiché. */}
+      {current && (awaitingDice || fightPending) && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[95] pointer-events-none px-4 w-full flex justify-center">
+          <div className="bg-slate-900/95 border-2 border-cyan-400 rounded-xl px-4 py-3 shadow-xl text-center max-w-xs animate-pulse">
+            {awaitingDice ? (
+              <>
+                <p className="text-sm font-semibold text-cyan-300">🎲 {t('npc.fight.awaitingDice.title')}</p>
+                <p className="text-xs text-slate-400 mt-1">{t('npc.fight.awaitingDice.hint')}</p>
+              </>
+            ) : (
+              <p className="text-sm font-semibold text-cyan-300">⏳ {t('npc.fight.resolving')}</p>
             )}
           </div>
         </div>

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import {
   getRepRules, getOrCreatePlayer, computePlayerDiceBonus, rollD20,
-  hasRolledDailyLuck, markDailyLuckRolled, applyEffect, type RepRules,
+  hasRolledDailyLuck, markDailyLuckRolled, applyEffect, DEFAULT_REP_RULES, type RepRules,
 } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
@@ -47,18 +47,54 @@ function rollQuickTest(playerBonus: number): { playerRoll: number; npcRoll: numb
 }
 
 /**
+ * Type d'événement du jeu pouvant réclamer un lancer de dés obligatoire via le bouton "Lancer..."
+ * (voir `pendingEvent`/`onEventResolved` ci-dessous). `'fight'` est le premier cas concret (combat
+ * PNJ — voir NpcEncounterPopup.tsx::beginFightWithDiceRoll) ; volontairement une union extensible
+ * pour de futurs événements (annoncé par l'utilisateur) sans casser la signature existante.
+ */
+export type DiceEventKind = 'fight';
+
+/** Résultat d'un lancer d'événement obligatoire ("Lancer...") : jet brut + bonus/malus classé
+ * selon RepRules.fightDiceEvent* (paramétrable admin), à ajouter (purement additif) au tirage
+ * de résolution propre à l'événement (ex. resolveFight() dans NpcEncounterPopup.tsx). */
+export interface DiceEventOutcome {
+  roll: number;
+  modifier: number; // positif = bonus, négatif = malus, 0 = neutre
+  tier: 'bonus' | 'malus' | 'neutral';
+}
+
+/** Classe un jet 1d20 en bonus/malus/neutre selon les seuils paramétrables (menu Administration). */
+function classifyEventRoll(roll: number, rules: RepRules | null): { modifier: number; tier: DiceEventOutcome['tier'] } {
+  const r = rules ?? DEFAULT_REP_RULES;
+  if (roll >= (r.fightDiceEventBonusMin ?? 15)) return { modifier: r.fightDiceEventBonusAmount ?? 3, tier: 'bonus' };
+  if (roll <= (r.fightDiceEventMalusMax ?? 5)) return { modifier: -(r.fightDiceEventMalusAmount ?? 3), tier: 'malus' };
+  return { modifier: 0, tier: 'neutral' };
+}
+
+/**
  * Fenêtre flottante et déplaçable, toujours montée sur `/game`, sans arrière-plan bloquant
  * (le joueur reste libre d'interagir avec le reste du jeu en dessous). Réutilise le même tirage
  * 1d20 pondéré (Force/Vie/Faim/Sortilèges) que les combats PNJ (`computePlayerDiceBonus`,
  * partagé via gameState.ts) — pensé comme une brique générique pour de futurs événements
  * déclenchés par un lancer de dés (voir commentaire sur `rollDaily` ci-dessous).
  *
- * Deux usages concrets déjà câblés :
+ * Trois usages concrets déjà câblés :
  *  - "Test rapide" : lancer sans enjeu, pour s'entraîner/s'amuser (aucun effet sur le joueur).
  *  - "Destin quotidien" : 1x/jour, seuil/récompenses paramétrables (menu Administration → RepRules
  *    dailyLuckThreshold/dailyLuckWalletReward/dailyLuckRepReward/dailyLuckXpConsolation).
+ *  - "Lancer..." (`pendingEvent`/`onEventResolved`) : lancer OBLIGATOIRE réclamé par un événement
+ *    du jeu (premier cas : combat PNJ — voir NpcEncounterPopup.tsx). Ce bouton reste désactivé en
+ *    dehors de tout événement en attente ; les deux autres se désactivent (grisés) tant qu'un
+ *    combat est en cours (`otherRollsLocked`), pour matérialiser le caractère obligatoire du jet.
  */
-export function DiceRollWidget() {
+export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked }: {
+  /** Événement en attente d'un lancer obligatoire (ex. `'fight'`), ou `null`/`undefined` si aucun. */
+  pendingEvent?: DiceEventKind | null;
+  /** Reçoit le résultat dès que le joueur clique sur "Lancer..." pour un événement en attente. */
+  onEventResolved?: (outcome: DiceEventOutcome) => void;
+  /** Vrai pendant toute la durée d'un combat PNJ : grise "Test rapide" et "Destin quotidien". */
+  otherRollsLocked?: boolean;
+} = {}) {
   const { t } = useI18n();
   const { address } = useAccount();
   const [rules, setRules] = useState<RepRules | null>(null);
@@ -71,7 +107,7 @@ export function DiceRollWidget() {
   const [bonus, setBonus] = useState(0);
   const [dailyDone, setDailyDone] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [rolling, setRolling] = useState<'quick' | 'daily' | null>(null);
+  const [rolling, setRolling] = useState<'quick' | 'daily' | 'event' | null>(null);
   const [spinPlayer, setSpinPlayer] = useState(1);
   const [spinNpc, setSpinNpc] = useState(1);
   const [landKey, setLandKey] = useState(0);
@@ -79,8 +115,18 @@ export function DiceRollWidget() {
   const [result, setResult] = useState<
     | { kind: 'quick'; playerRoll: number; npcRoll: number; playerBonus: number; npcBonus: number; win: boolean }
     | { kind: 'daily'; playerRoll: number; total: number; threshold: number; win: boolean; reward: string }
+    | { kind: 'event'; playerRoll: number; modifier: number; tier: DiceEventOutcome['tier'] }
     | null
   >(null);
+
+  // Un lancer obligatoire vient d'être réclamé (ex. combat PNJ) : ouvre automatiquement le widget
+  // s'il était réduit, pour que le bouton "Lancer..." soit visible et cliquable immédiatement.
+  useEffect(() => {
+    if (pendingEvent) {
+      setCollapsed(false);
+      try { localStorage.setItem(COLLAPSED_KEY, '0'); } catch { /* ignore */ }
+    }
+  }, [pendingEvent]);
 
   useEffect(() => {
     getRepRules().then(setRules).catch(() => {});
@@ -191,24 +237,48 @@ export function DiceRollWidget() {
     }
   };
 
+  /**
+   * Lancer OBLIGATOIRE réclamé par un événement du jeu (`pendingEvent`, ex. `'fight'`) : ajoute une
+   * condition supplémentaire de bonus/malus (voir classifyEventRoll/RepRules.fightDiceEvent*) sans
+   * remplacer le tirage propre à l'événement (ex. resolveFight() reste inchangé, ce jet vient
+   * s'additionner à son bonus). Le résultat est renvoyé à l'appelant via `onEventResolved`.
+   */
+  const rollEvent = async () => {
+    if (!pendingEvent || rolling || busy) return;
+    setRolling('event');
+    startTumble(false);
+    const playerRoll = rollD20();
+    await sleep(TUMBLE_MS);
+    stopTumble();
+    setSpinPlayer(playerRoll);
+    const { modifier, tier } = classifyEventRoll(playerRoll, rules);
+    setResult({ kind: 'event', playerRoll, modifier, tier });
+    setLandKey(k => k + 1);
+    setRolling(null);
+    onEventResolved?.({ roll: playerRoll, modifier, tier });
+  };
+
   if (!address || !pos) return null;
 
   if (collapsed) {
     return (
       <button
-        className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-amber-500 text-2xl shadow-lg flex items-center justify-center"
+        className={`fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 text-2xl shadow-lg flex items-center justify-center relative ${pendingEvent ? 'border-cyan-400 animate-pulse' : 'border-amber-500'}`}
         style={{ left: pos.x, top: pos.y, zIndex: z }}
         onPointerDownCapture={bringToFront}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onClick={() => !dragging && toggleCollapsed()}
         title={t('dice.title')}
-      >🎲</button>
+      >
+        🎲
+        {pendingEvent && <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full animate-ping" />}
+      </button>
     );
   }
 
   return (
     <div
-      className="fixed z-40 w-64 bg-slate-900 border-2 border-amber-500 rounded-xl shadow-xl select-none"
+      className={`fixed z-40 w-64 bg-slate-900 border-2 rounded-xl shadow-xl select-none ${pendingEvent ? 'border-cyan-400' : 'border-amber-500'}`}
       style={{ left: pos.x, top: pos.y, zIndex: z }}
       onPointerDownCapture={bringToFront}
     >
@@ -255,12 +325,29 @@ export function DiceRollWidget() {
             />
           </div>
         )}
+        {(rolling === 'event' || result?.kind === 'event') && (
+          <div className="flex items-center justify-center py-2">
+            <Die
+              value={spinPlayer}
+              rolling={rolling === 'event'}
+              landKey={landKey}
+              tone={rolling === 'event' || !result || result.kind !== 'event' ? 'neutral' : (result.tier === 'bonus' ? 'win' : result.tier === 'malus' ? 'lose' : 'neutral')}
+            />
+          </div>
+        )}
 
-        <button className="btn-secondary text-xs w-full disabled:opacity-40" disabled={!!rolling || busy} onClick={rollQuick}>
+        <button className="btn-secondary text-xs w-full disabled:opacity-40" disabled={!!rolling || busy || !!otherRollsLocked} onClick={rollQuick}>
           {rolling === 'quick' ? '🎲…' : `🎲 ${t('dice.quickTest')}`}
         </button>
-        <button className="btn-primary text-xs w-full disabled:opacity-40" disabled={busy || !!rolling || dailyDone} onClick={rollDaily}>
+        <button className="btn-primary text-xs w-full disabled:opacity-40" disabled={busy || !!rolling || dailyDone || !!otherRollsLocked} onClick={rollDaily}>
           {rolling === 'daily' ? '🎲…' : busy ? '⏳' : dailyDone ? t('dice.alreadyRolled') : t('dice.dailyLuck')}
+        </button>
+        <button
+          className={`btn-secondary text-xs w-full disabled:opacity-40 ${pendingEvent ? 'border border-cyan-400 ring-1 ring-cyan-400 animate-pulse' : ''}`}
+          disabled={!pendingEvent || !!rolling || busy}
+          onClick={rollEvent}
+        >
+          {rolling === 'event' ? '🎲…' : `🎲 ${t('dice.launchEvent')}`}
         </button>
 
         {result && result.kind === 'quick' && (
@@ -281,7 +368,17 @@ export function DiceRollWidget() {
             <p className="text-slate-400">{result.reward}</p>
           </div>
         )}
-        <p className="text-slate-500">{t('dice.hint')}</p>
+        {result && result.kind === 'event' && (
+          <div className="bg-slate-800/60 rounded p-2 mt-1">
+            <p className={result.tier === 'bonus' ? 'text-emerald-400' : result.tier === 'malus' ? 'text-rose-400' : 'text-slate-300'}>
+              {result.tier === 'bonus' ? `⭐ ${t('dice.eventBonus')}` : result.tier === 'malus' ? `☠️ ${t('dice.eventMalus')}` : `➖ ${t('dice.eventNeutral')}`}
+            </p>
+            <p className="text-slate-400">
+              {t('dice.you')} {result.playerRoll}{result.modifier !== 0 ? ` (${result.modifier > 0 ? '+' : ''}${result.modifier})` : ''}
+            </p>
+          </div>
+        )}
+        <p className="text-slate-500">{pendingEvent ? t('dice.eventHint') : t('dice.hint')}</p>
       </div>
     </div>
   );

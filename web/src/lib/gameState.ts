@@ -1857,6 +1857,16 @@ export interface RepRules {
   fightSpellsWeight: number; // Poids des Sortilèges dans le bonus joueur (défaut 3)
   fightNpcBonusMax: number;  // Bonus max du PNJ, dérivé de sa Force (défaut 12)
   fightNpcForceRef: number;  // Force de référence du PNJ pour atteindre le bonus max (défaut 45)
+  // Jet de dés complémentaire OBLIGATOIRE (bouton "Lancer..." du widget de dés persistant —
+  // DiceRollWidget.tsx) requis avant de résoudre tout combat PNJ (voir NpcEncounterPopup.tsx::
+  // beginFightWithDiceRoll). Vient s'ajouter (purement additif) au bonus déjà calculé par
+  // resolveFight() : n'affecte ni le tirage 1d20 du joueur/PNJ, ni la pondération Force/Vie/Faim/
+  // Sortilèges existante. Conçu pour être réutilisé plus tard par d'autres événements du jeu
+  // (voir DiceEventKind, extensible).
+  fightDiceEventMalusMax: number;    // Jet ≤ ce seuil = malus (défaut 5)
+  fightDiceEventBonusMin: number;    // Jet ≥ ce seuil = bonus (défaut 15)
+  fightDiceEventBonusAmount: number; // Bonus additionnel appliqué au combat (défaut 3)
+  fightDiceEventMalusAmount: number; // Malus additionnel appliqué au combat, soustrait (défaut 3)
   xpCap: number;             // Plafond d'expérience affiché dans la barre "Statistiques" (défaut 100000)
   // Lancer du destin quotidien (widget de dés persistant — 1x/jour, indépendant des combats PNJ)
   dailyLuckThreshold: number;    // Total (1d20+bonus) à atteindre pour gagner (défaut 15)
@@ -1957,6 +1967,10 @@ export const DEFAULT_REP_RULES: RepRules = {
   fightSpellsWeight: 3,
   fightNpcBonusMax: 12,
   fightNpcForceRef: 45,
+  fightDiceEventMalusMax: 5,
+  fightDiceEventBonusMin: 15,
+  fightDiceEventBonusAmount: 3,
+  fightDiceEventMalusAmount: 3,
   xpCap: 100000,
   dailyLuckThreshold: 15,
   dailyLuckWalletReward: 25,

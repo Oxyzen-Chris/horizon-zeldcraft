@@ -19,6 +19,8 @@ export interface FightResultData {
   stolenItemName?: string; // objet perdu (le PNJ te l'a pris)
   equipBonus?: number;         // bonus de dés apporté par l'équipement utilisé (voir computeEquipmentCombatBonus)
   brokenItemNames?: string[]; // armes/protections cassées lors de ce combat (usure → 0)
+  diceEventRoll?: number;      // jet complémentaire OBLIGATOIRE du widget "Lancer de dès" (bouton "Lancer...")
+  diceEventModifier?: number; // bonus (+) ou malus (-) qui en découle, 0 si neutre — voir DiceRollWidget.tsx
 }
 
 /** Pop-up de résultat de combat façon jet de dés (D&D-like) — affiché après un combat PNJ. */
@@ -67,6 +69,14 @@ export function FightResultModal({ data, onClose }: { data: FightResultData | nu
           )}
           {!!data.equipBonus && (
             <p className="text-indigo-300">🧝 {t('fight.equipBonus', { v: data.equipBonus })}</p>
+          )}
+          {data.diceEventRoll !== undefined && (
+            <p className={data.diceEventModifier ? (data.diceEventModifier > 0 ? 'text-cyan-300' : 'text-orange-300') : 'text-slate-400'}>
+              🎲 {t('fight.diceEvent', { roll: data.diceEventRoll })}
+              {data.diceEventModifier
+                ? ` (${data.diceEventModifier > 0 ? '+' : ''}${data.diceEventModifier})`
+                : ` (${t('fight.diceEventNeutral')})`}
+            </p>
           )}
           {!!data.brokenItemNames?.length && (
             <p className="text-rose-400">💥 {t('fight.equipBroken', { names: data.brokenItemNames.join(', ') })}</p>

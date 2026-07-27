@@ -2,7 +2,7 @@
 
 import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -22,7 +22,7 @@ import { WorldList } from '@/components/WorldList';
 import { TeamsPanel } from '@/components/TeamsPanel';
 import { FamiliarsList } from '@/components/FamiliarsList';
 import { NpcEncounterPopup, type EncounterMarkerInfo } from '@/components/NpcEncounterPopup';
-import { DiceRollWidget } from '@/components/DiceRollWidget';
+import { DiceRollWidget, type DiceEventKind, type DiceEventOutcome } from '@/components/DiceRollWidget';
 import { TeamChatWidget } from '@/components/TeamChatWidget';
 import { CustomWidgetsRenderer } from '@/components/CustomWidgetsRenderer';
 import { EquipmentWidget } from '@/components/EquipmentWidget';
@@ -180,6 +180,26 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   // pour être matérialisé à côté de Synk dans WorldMapWidget et GameCanvas2D (voir EncounterMarkerInfo).
   const [encounterNpc, setEncounterNpc] = useState<EncounterMarkerInfo>(null);
   const handleEncounterChange = useCallback((info: EncounterMarkerInfo) => setEncounterNpc(info), []);
+
+  // ─── Pont "lancer de dés obligatoire" entre NpcEncounterPopup (combat PNJ) et DiceRollWidget ───
+  // Un combat PNJ réclame désormais un jet du widget "Lancer de dès" (bouton "Lancer...") avant de
+  // se résoudre : `pendingDiceEvent` active ce bouton, `combatDiceActive` grise "Test rapide"/
+  // "Destin quotidien" pendant toute la durée du combat. `requestDiceRoll` renvoie une promesse
+  // résolue par `handleDiceEventResolved` dès que le joueur clique sur "Lancer...".
+  const [pendingDiceEvent, setPendingDiceEvent] = useState<DiceEventKind | null>(null);
+  const [combatDiceActive, setCombatDiceActive] = useState(false);
+  const diceResolverRef = useRef<((outcome: DiceEventOutcome) => void) | null>(null);
+  const requestDiceRoll = useCallback((kind: DiceEventKind): Promise<DiceEventOutcome> => {
+    return new Promise<DiceEventOutcome>((resolve) => {
+      diceResolverRef.current = resolve;
+      setPendingDiceEvent(kind);
+    });
+  }, []);
+  const handleDiceEventResolved = useCallback((outcome: DiceEventOutcome) => {
+    setPendingDiceEvent(null);
+    diceResolverRef.current?.(outcome);
+    diceResolverRef.current = null;
+  }, []);
 
   // Charge le plafond XP + le barème complet (mood, etc.) paramétrable (admin) — voir RepRulesPanel
   useEffect(() => {
@@ -391,9 +411,11 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       </div>
 
       {/* Popup de rencontres PNJ aléatoires (3-5×/jour, réglable) */}
-      <NpcEncounterPopup contract={contract} tokenId={tokenId} onEncounterChange={handleEncounterChange} />
-      {/* Fenêtre flottante et déplaçable de lancer de dés (infra générique + destin quotidien) */}
-      <DiceRollWidget />
+      <NpcEncounterPopup contract={contract} tokenId={tokenId} onEncounterChange={handleEncounterChange}
+        onRequestDiceRoll={requestDiceRoll} onCombatActiveChange={setCombatDiceActive} />
+      {/* Fenêtre flottante et déplaçable de lancer de dés (infra générique + destin quotidien +
+          "Lancer..." obligatoire pour les combats PNJ, voir le pont ci-dessus) */}
+      <DiceRollWidget pendingEvent={pendingDiceEvent} onEventResolved={handleDiceEventResolved} otherRollsLocked={combatDiceActive} />
       {/* Fenêtre flottante et déplaçable du chat d'équipe multi-joueurs */}
       <TeamChatWidget contract={contract} defaultName={name} />
       {/* Fenêtre flottante "homme de Vitruve" pour équiper armes/protections par drag-and-drop */}
