@@ -27,6 +27,8 @@ import { DiceRollWidget, type DiceEventKind, type DiceEventOutcome } from '@/com
 import { TeamChatWidget } from '@/components/TeamChatWidget';
 import { CustomWidgetsRenderer } from '@/components/CustomWidgetsRenderer';
 import { EquipmentWidget } from '@/components/EquipmentWidget';
+import { InventoryWidget } from '@/components/InventoryWidget';
+import { ShopWidget } from '@/components/ShopWidget';
 import { WorldMapWidget } from '@/components/WorldMapWidget';
 import { GameCanvas2D } from '@/components/GameCanvas2D';
 import { StatsWidget } from '@/components/StatsWidget';
@@ -425,6 +427,12 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <TeamChatWidget contract={contract} defaultName={name} />
       {/* Fenêtre flottante "homme de Vitruve" pour équiper armes/protections par drag-and-drop */}
       <EquipmentWidget stage={Number(stage)} />
+      {/* Fenêtre flottante et déplaçable "Sac / Besace" — duplique InventoryPanel.tsx ci-dessus,
+          permet le glisser-déposer direct vers EquipmentWidget sans défiler la page */}
+      <InventoryWidget />
+      {/* Fenêtre flottante et déplaçable "Boutique des terres de ZeldCraft" — duplique ShopPanel.tsx
+          ci-dessus dans une fenêtre repositionnable */}
+      <ShopWidget />
       {/* Mapmonde du territoire de Synk — carte parchemin zoomable, POI, mondes, voyage libre */}
       <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} />
       {/* Socle évolutif de plateforme de jeu 2D isométrique (déplacements, PNJ, dragon, décor) */}

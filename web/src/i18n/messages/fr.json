@@ -80,6 +80,7 @@
   "game.inventory.use": "Utiliser",
   "game.inventory.hint": "Les objets sont stockés hors-chaîne (Firebase) — aucun gas requis.",
   "game.shop.title": "Boutique",
+  "game.shop.widgetTitle": "Boutique des terres de ZeldCraft",
   "game.shop.buy": "Acheter",
   "game.shop.sell": "Vendre",
   "game.shop.sellOne": "Vendre 1",

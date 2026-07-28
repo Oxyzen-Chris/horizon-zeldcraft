@@ -443,6 +443,7 @@
   "game.inventory.use": "Usar",
   "game.inventory.hint": "Los objetos se almacenan fuera de la cadena (Firebase): no se requiere gas.",
   "game.shop.title": "Tienda",
+  "game.shop.widgetTitle": "Tienda de las Tierras de ZeldCraft",
   "game.shop.buy": "Comprar",
   "game.shop.sell": "Vender",
   "game.shop.sellOne": "Vender 1",

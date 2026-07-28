@@ -443,6 +443,7 @@
   "game.inventory.use": "Use",
   "game.inventory.hint": "Items are stored off-chain (Firebase) — no gas required.",
   "game.shop.title": "Shop",
+  "game.shop.widgetTitle": "Shop of the Lands of ZeldCraft",
   "game.shop.buy": "Buy",
   "game.shop.sell": "Sell",
   "game.shop.sellOne": "Sell 1",
