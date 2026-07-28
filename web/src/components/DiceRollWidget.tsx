@@ -13,6 +13,12 @@ const POS_KEY = 'zc.diceWidgetPos';
 const COLLAPSED_KEY = 'zc.diceWidgetCollapsed';
 const TUMBLE_MS = 900;    // durée de l'animation de tirage avant révélation du résultat
 const TUMBLE_TICK = 70;   // fréquence de rafraîchissement du chiffre pendant le tumbling
+/** Z-index utilisé UNIQUEMENT pendant un lancer d'événement en attente (`pendingEvent`), pour que
+ * ce widget passe au-dessus du fond bloquant affiché par NpcEncounterPopup pendant ce lancer
+ * obligatoire (voir son commentaire sur le bandeau awaitingDice/fightPending) — seule exception
+ * volontaire au plafond MAX_Z de windowZOrder.ts (qui garde sinon tous les widgets flottants sous
+ * la moindre pop-up plein écran). En dehors de ce cas, le z-index normal (`z`, partagé) s'applique. */
+const EVENT_Z = 97;
 
 interface Pos { x: number; y: number }
 
@@ -274,7 +280,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
     return (
       <button
         className={`fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 text-2xl shadow-lg flex items-center justify-center relative ${pendingEvent ? 'border-cyan-400 animate-pulse' : 'border-amber-500'}`}
-        style={{ left: pos.x, top: pos.y, zIndex: z }}
+        style={{ left: pos.x, top: pos.y, zIndex: pendingEvent ? EVENT_Z : z }}
         onPointerDownCapture={bringToFront}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onClick={() => !dragging && toggleCollapsed()}
@@ -289,7 +295,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
   return (
     <div
       className={`fixed z-40 w-64 bg-slate-900 border-2 rounded-xl shadow-xl select-none ${pendingEvent ? 'border-cyan-400' : 'border-amber-500'}`}
-      style={{ left: pos.x, top: pos.y, zIndex: z }}
+      style={{ left: pos.x, top: pos.y, zIndex: pendingEvent ? EVENT_Z : z }}
       onPointerDownCapture={bringToFront}
     >
       <div

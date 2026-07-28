@@ -841,11 +841,14 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
           </div>
         </div>
       )}
-      {/* Lancer de dés OBLIGATOIRE en attente (voir beginFightWithDiceRoll) : pas de fond assombri
-          ni de zone bloquante (pointer-events-none) afin que le widget "Lancer de dès" (DiceRollWidget,
-          bouton "Lancer...") reste pleinement cliquable pendant que ce bandeau reste affiché. */}
+      {/* Lancer de dés OBLIGATOIRE en attente (voir beginFightWithDiceRoll) : fond assombri et
+          bloquant (comme une pop-up classique — SleepModal/HutRestModal) pour empêcher tout clic
+          ailleurs dans le jeu ; seul le widget "Lancer de dès" (DiceRollWidget) reste actif, car
+          il s'élève au-dessus de ce fond via son propre z-index quand `pendingEvent` est défini
+          (voir EVENT_Z dans DiceRollWidget.tsx — seule exception volontaire au plafond de
+          windowZOrder.ts, le temps de ce lancer forcé). */}
       {current && (awaitingDice || fightPending) && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[95] pointer-events-none px-4 w-full flex justify-center">
+        <div className="fixed inset-0 bg-black/70 z-[95] flex items-start justify-center pt-6 px-4">
           <div className="bg-slate-900/95 border-2 border-cyan-400 rounded-xl px-4 py-3 shadow-xl text-center max-w-xs animate-pulse">
             {awaitingDice ? (
               <>
