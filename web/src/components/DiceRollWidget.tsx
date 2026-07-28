@@ -54,20 +54,24 @@ function rollQuickTest(playerBonus: number): { playerRoll: number; npcRoll: numb
  */
 export type DiceEventKind = 'fight';
 
-/** Résultat d'un lancer d'événement obligatoire ("Lancer...") : jet brut + bonus/malus classé
- * selon RepRules.fightDiceEvent* (paramétrable admin), à ajouter (purement additif) au tirage
- * de résolution propre à l'événement (ex. resolveFight() dans NpcEncounterPopup.tsx). */
+/** Résultat d'un lancer d'événement obligatoire ("Lancer...") : 2d20 (comme "Test rapide" et
+ * "Destin quotidien") + bonus/malus classé selon RepRules.fightDiceEvent* (paramétrable admin),
+ * à ajouter (purement additif) au tirage de résolution propre à l'événement (ex. resolveFight()
+ * dans NpcEncounterPopup.tsx). */
 export interface DiceEventOutcome {
-  roll: number;
+  roll: number; // somme des 2 dés (2-40)
+  rolls: [number, number]; // détail des 2 dés, pour affichage
   modifier: number; // positif = bonus, négatif = malus, 0 = neutre
   tier: 'bonus' | 'malus' | 'neutral';
 }
 
-/** Classe un jet 1d20 en bonus/malus/neutre selon les seuils paramétrables (menu Administration). */
-function classifyEventRoll(roll: number, rules: RepRules | null): { modifier: number; tier: DiceEventOutcome['tier'] } {
+/** Classe une somme de 2d20 (2-40) en bonus/malus/neutre selon les seuils paramétrables (menu
+ * Administration). Deux dés (et non un seul) pour rester cohérent avec "Test rapide" et
+ * "Destin quotidien", qui utilisent déjà ce même widget de dés à deux dés. */
+function classifyEventRoll(sum: number, rules: RepRules | null): { modifier: number; tier: DiceEventOutcome['tier'] } {
   const r = rules ?? DEFAULT_REP_RULES;
-  if (roll >= (r.fightDiceEventBonusMin ?? 15)) return { modifier: r.fightDiceEventBonusAmount ?? 3, tier: 'bonus' };
-  if (roll <= (r.fightDiceEventMalusMax ?? 5)) return { modifier: -(r.fightDiceEventMalusAmount ?? 3), tier: 'malus' };
+  if (sum >= (r.fightDiceEventBonusMin ?? 26)) return { modifier: r.fightDiceEventBonusAmount ?? 3, tier: 'bonus' };
+  if (sum <= (r.fightDiceEventMalusMax ?? 14)) return { modifier: -(r.fightDiceEventMalusAmount ?? 3), tier: 'malus' };
   return { modifier: 0, tier: 'neutral' };
 }
 
@@ -83,9 +87,11 @@ function classifyEventRoll(roll: number, rules: RepRules | null): { modifier: nu
  *  - "Destin quotidien" : 1x/jour, seuil/récompenses paramétrables (menu Administration → RepRules
  *    dailyLuckThreshold/dailyLuckWalletReward/dailyLuckRepReward/dailyLuckXpConsolation).
  *  - "Lancer..." (`pendingEvent`/`onEventResolved`) : lancer OBLIGATOIRE réclamé par un événement
- *    du jeu (premier cas : combat PNJ — voir NpcEncounterPopup.tsx). Ce bouton reste désactivé en
- *    dehors de tout événement en attente ; les deux autres se désactivent (grisés) tant qu'un
- *    combat est en cours (`otherRollsLocked`), pour matérialiser le caractère obligatoire du jet.
+ *    du jeu (premier cas : combat PNJ — voir NpcEncounterPopup.tsx). 2d20 (comme "Test rapide" et
+ *    "Destin quotidien" — jamais un seul dé), somme classée en bonus/malus (seuils paramétrables,
+ *    voir classifyEventRoll). Ce bouton reste désactivé en dehors de tout événement en attente ;
+ *    les deux autres se désactivent (grisés) tant qu'un combat est en cours (`otherRollsLocked`),
+ *    pour matérialiser le caractère obligatoire du jet.
  */
 export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked }: {
   /** Événement en attente d'un lancer obligatoire (ex. `'fight'`), ou `null`/`undefined` si aucun. */
@@ -115,7 +121,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
   const [result, setResult] = useState<
     | { kind: 'quick'; playerRoll: number; npcRoll: number; playerBonus: number; npcBonus: number; win: boolean }
     | { kind: 'daily'; playerRoll: number; total: number; threshold: number; win: boolean; reward: string }
-    | { kind: 'event'; playerRoll: number; modifier: number; tier: DiceEventOutcome['tier'] }
+    | { kind: 'event'; roll1: number; roll2: number; total: number; modifier: number; tier: DiceEventOutcome['tier'] }
     | null
   >(null);
 
@@ -238,24 +244,28 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
   };
 
   /**
-   * Lancer OBLIGATOIRE réclamé par un événement du jeu (`pendingEvent`, ex. `'fight'`) : ajoute une
-   * condition supplémentaire de bonus/malus (voir classifyEventRoll/RepRules.fightDiceEvent*) sans
-   * remplacer le tirage propre à l'événement (ex. resolveFight() reste inchangé, ce jet vient
-   * s'additionner à son bonus). Le résultat est renvoyé à l'appelant via `onEventResolved`.
+   * Lancer OBLIGATOIRE réclamé par un événement du jeu (`pendingEvent`, ex. `'fight'`) : 2d20 (comme
+   * "Test rapide"/"Destin quotidien"), somme classée en bonus/malus/neutre (voir
+   * classifyEventRoll/RepRules.fightDiceEvent*) sans remplacer le tirage propre à l'événement (ex.
+   * resolveFight() reste inchangé, ce jet vient s'additionner à son bonus). Le résultat est renvoyé
+   * à l'appelant via `onEventResolved`.
    */
   const rollEvent = async () => {
     if (!pendingEvent || rolling || busy) return;
     setRolling('event');
-    startTumble(false);
-    const playerRoll = rollD20();
+    startTumble(true);
+    const roll1 = rollD20();
+    const roll2 = rollD20();
     await sleep(TUMBLE_MS);
     stopTumble();
-    setSpinPlayer(playerRoll);
-    const { modifier, tier } = classifyEventRoll(playerRoll, rules);
-    setResult({ kind: 'event', playerRoll, modifier, tier });
+    setSpinPlayer(roll1);
+    setSpinNpc(roll2);
+    const total = roll1 + roll2;
+    const { modifier, tier } = classifyEventRoll(total, rules);
+    setResult({ kind: 'event', roll1, roll2, total, modifier, tier });
     setLandKey(k => k + 1);
     setRolling(null);
-    onEventResolved?.({ roll: playerRoll, modifier, tier });
+    onEventResolved?.({ roll: total, rolls: [roll1, roll2], modifier, tier });
   };
 
   if (!address || !pos) return null;
@@ -326,9 +336,15 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
           </div>
         )}
         {(rolling === 'event' || result?.kind === 'event') && (
-          <div className="flex items-center justify-center py-2">
+          <div className="flex items-center justify-center gap-4 py-2">
             <Die
               value={spinPlayer}
+              rolling={rolling === 'event'}
+              landKey={landKey}
+              tone={rolling === 'event' || !result || result.kind !== 'event' ? 'neutral' : (result.tier === 'bonus' ? 'win' : result.tier === 'malus' ? 'lose' : 'neutral')}
+            />
+            <Die
+              value={spinNpc}
               rolling={rolling === 'event'}
               landKey={landKey}
               tone={rolling === 'event' || !result || result.kind !== 'event' ? 'neutral' : (result.tier === 'bonus' ? 'win' : result.tier === 'malus' ? 'lose' : 'neutral')}
@@ -374,7 +390,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
               {result.tier === 'bonus' ? `⭐ ${t('dice.eventBonus')}` : result.tier === 'malus' ? `☠️ ${t('dice.eventMalus')}` : `➖ ${t('dice.eventNeutral')}`}
             </p>
             <p className="text-slate-400">
-              {t('dice.you')} {result.playerRoll}{result.modifier !== 0 ? ` (${result.modifier > 0 ? '+' : ''}${result.modifier})` : ''}
+              {result.roll1} + {result.roll2} = {result.total}{result.modifier !== 0 ? ` (${result.modifier > 0 ? '+' : ''}${result.modifier})` : ''}
             </p>
           </div>
         )}

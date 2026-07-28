@@ -1863,8 +1863,8 @@ export interface RepRules {
   // resolveFight() : n'affecte ni le tirage 1d20 du joueur/PNJ, ni la pondération Force/Vie/Faim/
   // Sortilèges existante. Conçu pour être réutilisé plus tard par d'autres événements du jeu
   // (voir DiceEventKind, extensible).
-  fightDiceEventMalusMax: number;    // Jet ≤ ce seuil = malus (défaut 5)
-  fightDiceEventBonusMin: number;    // Jet ≥ ce seuil = bonus (défaut 15)
+  fightDiceEventMalusMax: number;    // Somme des 2 dés (2-40) ≤ ce seuil = malus (défaut 14)
+  fightDiceEventBonusMin: number;    // Somme des 2 dés (2-40) ≥ ce seuil = bonus (défaut 26)
   fightDiceEventBonusAmount: number; // Bonus additionnel appliqué au combat (défaut 3)
   fightDiceEventMalusAmount: number; // Malus additionnel appliqué au combat, soustrait (défaut 3)
   xpCap: number;             // Plafond d'expérience affiché dans la barre "Statistiques" (défaut 100000)
@@ -1967,8 +1967,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   fightSpellsWeight: 3,
   fightNpcBonusMax: 12,
   fightNpcForceRef: 45,
-  fightDiceEventMalusMax: 5,
-  fightDiceEventBonusMin: 15,
+  fightDiceEventMalusMax: 14,
+  fightDiceEventBonusMin: 26,
   fightDiceEventBonusAmount: 3,
   fightDiceEventMalusAmount: 3,
   xpCap: 100000,

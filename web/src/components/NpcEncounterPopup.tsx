@@ -483,7 +483,7 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
    */
   const beginFightWithDiceRoll = async (npc: PopupNpc, useEquip: boolean) => {
     setAwaitingDice({ npc, useEquip });
-    let diceOutcome: DiceEventOutcome = { roll: 0, modifier: 0, tier: 'neutral' };
+    let diceOutcome: DiceEventOutcome = { roll: 0, rolls: [0, 0], modifier: 0, tier: 'neutral' };
     try {
       if (onRequestDiceRoll) diceOutcome = await onRequestDiceRoll('fight');
     } finally {
@@ -605,7 +605,7 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
           npcName: npcDisplayName, xpDelta, hpDelta, coinsDelta: walletDelta,
           lootItemName, stolenItemName,
           equipBonus: equipInfo.bonus || undefined, brokenItemNames,
-          diceEventRoll: diceOutcome?.roll, diceEventModifier: diceOutcome?.modifier,
+          diceEventRoll: diceOutcome?.roll, diceEventRolls: diceOutcome?.rolls, diceEventModifier: diceOutcome?.modifier,
         });
       } else if (npc.offer === 'trade') {
         if (npc.alignment === 'hostile') {
