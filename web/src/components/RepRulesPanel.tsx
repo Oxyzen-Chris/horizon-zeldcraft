@@ -147,6 +147,8 @@ export function RepRulesPanel() {
     { key: 'oxygenFaintDurationSec',  labelKey: 'admin.repRules.oxygenFaintDurationSec' },
     { key: 'oxygenFaintXpLoss',       labelKey: 'admin.repRules.oxygenFaintXpLoss' },
     { key: 'oxygenFaintHpLoss',       labelKey: 'admin.repRules.oxygenFaintHpLoss' },
+    { key: 'oxygenRecoveryIntervalSec', labelKey: 'admin.repRules.oxygenRecoveryIntervalSec' },
+    { key: 'oxygenRecoveryPct',         labelKey: 'admin.repRules.oxygenRecoveryPct' },
   ];
 
   return (

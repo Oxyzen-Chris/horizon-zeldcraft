@@ -1957,22 +1957,27 @@ export interface RepRules {
   sleepWakeHp: number;         // Vie restaurée au réveil, plafonnée à hpMax (défaut 75)
   sleepHappinessBonus: number; // Bonheur gagné au réveil (défaut 5)
   sleepGraceSec: number;       // Délai de grâce après réveil avant un nouveau déclenchement possible, en secondes (défaut 5)
-  // ─── Oxygène en eau (voir GameCanvas2D.tsx) — la jauge "Oxygène" (Statistiques) décroît par
-  // intervalles tant que Synk reste sur une dalle d'eau de la plateforme 2D isométrique. Un petit
-  // pop-up non bloquant (sablier + jauge + décompte numérique) reste affiché pendant ce temps. À
-  // chaque intervalle écoulé SANS que Synk n'ait rejoint une dalle verte (terre) : Oxygène
-  // -oxygenDrainPct, XP -oxygenPenaltyXp, Force -oxygenPenaltyForce. Sous oxygenFaintThresholdPct,
-  // Synk s'évanouit : interface bloquée pendant oxygenFaintDurationSec (comme SleepModal), Oxygène
-  // restauré à 100% et pertes XP/Vie/un objet aléatoire de la besace, puis Synk est repositionné
-  // automatiquement sur la dalle verte la plus proche — un pop-up de résultat détaille les pertes.
-  oxygenDrainIntervalSec: number;  // Intervalle (s) de décroissance sur l'eau (défaut 50)
+  // ─── Oxygène en eau et en montagne/roche (voir GameCanvas2D.tsx) — la jauge "Oxygène"
+  // (Statistiques) décroît par intervalles tant que Synk reste sur une dalle d'eau OU de
+  // montagne/roche de la plateforme 2D isométrique. Un petit pop-up non bloquant (sablier + jauge +
+  // décompte numérique) reste affiché pendant ce temps. À chaque intervalle écoulé SANS que Synk
+  // n'ait rejoint une dalle verte (terre) : Oxygène -oxygenDrainPct, XP -oxygenPenaltyXp, Force
+  // -oxygenPenaltyForce. Sous oxygenFaintThresholdPct, Synk s'évanouit : interface bloquée pendant
+  // oxygenFaintDurationSec (comme SleepModal), Oxygène restauré à 100% et pertes XP/Vie/un objet
+  // aléatoire de la besace, puis Synk est repositionné automatiquement sur la dalle verte la plus
+  // proche — un pop-up de résultat détaille les pertes. Dès que Synk rejoint une dalle de terre
+  // (verte), l'oxygène se restaure par palier de oxygenRecoveryPct toutes les
+  // oxygenRecoveryIntervalSec jusqu'à 100%, avec un pop-up non bloquant "Récupération d'oxygène".
+  oxygenDrainIntervalSec: number;  // Intervalle (s) de décroissance sur l'eau/montagne (défaut 50)
   oxygenDrainPct: number;          // % d'oxygène perdu par intervalle (défaut 30)
-  oxygenPenaltyXp: number;         // XP perdus par intervalle passé sur l'eau (défaut 10)
-  oxygenPenaltyForce: number;      // Force perdue par intervalle passé sur l'eau (défaut 10)
+  oxygenPenaltyXp: number;         // XP perdus par intervalle passé sur l'eau/montagne (défaut 10)
+  oxygenPenaltyForce: number;      // Force perdue par intervalle passé sur l'eau/montagne (défaut 10)
   oxygenFaintThresholdPct: number; // Seuil d'oxygène déclenchant l'évanouissement (défaut 20)
   oxygenFaintDurationSec: number;  // Durée du blocage / récupération à 100% (défaut 30)
   oxygenFaintXpLoss: number;       // XP perdus lors de l'évanouissement (défaut 50)
   oxygenFaintHpLoss: number;       // Vie perdue lors de l'évanouissement (défaut 10)
+  oxygenRecoveryIntervalSec: number; // Intervalle (s) de récupération sur la terre ferme (défaut 1)
+  oxygenRecoveryPct: number;         // % d'oxygène regagné par intervalle sur la terre ferme (défaut 10)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -2062,6 +2067,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   oxygenFaintDurationSec: 30,
   oxygenFaintXpLoss: 50,
   oxygenFaintHpLoss: 10,
+  oxygenRecoveryIntervalSec: 1,
+  oxygenRecoveryPct: 10,
 };
 
 export async function getRepRules(): Promise<RepRules> {

@@ -7,6 +7,10 @@ import {
   getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState,
 } from '@/lib/gameState';
+import {
+  TERRAIN_COLOR, PROP_ICON, TERRAIN_I18N_KEY, PROP_I18N_KEY, worldTileAt, clamp100, WORLD_SIZE, hashRand,
+  type Tile,
+} from '@/lib/worldTerrain';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { SynkSkin } from './SynkSkin';
@@ -28,83 +32,10 @@ const TILE_W = 56, TILE_H = 28;
 // (0-100 en x/y, même échelle en % que WorldMapWidget.tsx) — un pas de flèche/pavé directionnel
 // déplace Synk de STEP_PCT sur cette échelle, ce qui garde les deux widgets parfaitement cohérents
 // (même source de vérité : players/{addr}/mapPos, voir gameState.ts::setPlayerMapPos).
-const WORLD_SIZE = 100;
 const STEP_PCT = 1; // Synk avance d'une case (= 1 unité mapmonde) à chaque pression/clic — voir move()
 const MARGIN = 1; // marge (en cellules) avant que la caméra ne recadre le décor
-const POI_BIAS_RADIUS = 9; // rayon (en unités mapmonde) dans lequel un POI influence le terrain local
 
-type Terrain = 'grass' | 'water' | 'rock' | 'sand' | 'path';
-type PropKind = 'tree' | 'castle' | 'hut' | 'portal' | null;
-
-const TERRAIN_COLOR: Record<Terrain, string> = {
-  grass: '#4d8a3f', water: '#3b7fb0', rock: '#8a8577', sand: '#d8c07a', path: '#a9865a',
-};
-const PROP_ICON: Record<Exclude<PropKind, null>, string> = {
-  tree: '🌲', castle: '🏰', hut: '🛖', portal: '🌀',
-};
-const TERRAIN_I18N_KEY: Record<Terrain, string> = {
-  grass: 'canvas2d.terrainGrass', water: 'canvas2d.terrainWater', rock: 'canvas2d.terrainRock',
-  sand: 'canvas2d.terrainSand', path: 'canvas2d.terrainPath',
-};
-const PROP_I18N_KEY: Record<Exclude<PropKind, null>, string> = {
-  tree: 'canvas2d.propTree', castle: 'canvas2d.propCastle', hut: 'canvas2d.propHut', portal: 'canvas2d.propPortal',
-};
-
-interface Tile { terrain: Terrain; prop: PropKind }
 interface Actor { id: string; col: number; row: number; icon: string; label: string }
-
-/** Petit PRNG déterministe (hash entier) — deux appels avec les mêmes (wc, wr, salt) renvoient
- * toujours la même valeur 0..1. Sert à générer un terrain STABLE par coordonnée absolue de la
- * mapmonde (wc, wr en %), pour que le décor défile de façon cohérente quand la caméra panote
- * (et non ré-aléatoire à chaque déplacement) — voir buildViewportGrid() ci-dessous. */
-function hashRand(wc: number, wr: number, salt: number): number {
-  let h = (wc * 374761393 + wr * 668265263 + salt * 2246822519) | 0;
-  h = (h ^ (h >>> 13)) * 1274126177;
-  h = h ^ (h >>> 16);
-  return ((h >>> 0) % 100000) / 100000;
-}
-
-/** Terrain déterministe d'une cellule absolue (wc, wr) de la mapmonde, biaisé par le POI-décor le
- * PLUS PROCHE dans un rayon de POI_BIAS_RADIUS unités (et non plus par un biais global unique) —
- * ainsi un lac/une montagne/un sentier de la mapmonde apparaît bien À SA VRAIE POSITION dans la
- * vue isométrique (cohérence carte ↔ plateforme demandée), et pas de façon uniforme sur toute la
- * fenêtre affichée. */
-function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: number; poiType?: MapPoiType }[]): Tile {
-  let bias: MapPoiType | null = null;
-  let bestD = POI_BIAS_RADIUS;
-  for (const p of poiPoints) {
-    if (!p.poiType) continue;
-    const d = Math.hypot(p.x - wc, p.y - wr);
-    if (d <= bestD) { bestD = d; bias = p.poiType; }
-  }
-
-  const waterBias = bias === 'lake' || bias === 'stream' || bias === 'waterfall';
-  const sandBias = bias === 'beach';
-  const rockBias = bias === 'mountain' || bias === 'cave';
-  const forestBias = bias === 'forest';
-  const pathBias = bias === 'path' || bias === 'bridge';
-  const buildingBias = bias === 'village_ally' || bias === 'village_enemy' || bias === 'tavern' || bias === 'stable' || bias === 'hut';
-
-  let terrain: Terrain = 'grass';
-  const r0 = hashRand(wc, wr, 1);
-  if (waterBias && r0 < 0.32) terrain = 'water';
-  else if (sandBias && r0 < 0.35) terrain = 'sand';
-  else if (rockBias && r0 < 0.35) terrain = 'rock';
-  else if (pathBias && r0 < 0.5) terrain = 'path';
-  else if (r0 < 0.04) terrain = 'water'; // petit point d'eau ambiant même hors biais
-
-  let prop: PropKind = null;
-  const treeChance = forestBias ? 0.28 : 0.08;
-  if (terrain === 'grass' && hashRand(wc, wr, 2) < treeChance) prop = 'tree';
-  // Bâtisse éparse (rare) si biais village/taverne/étable/hutte
-  if (buildingBias && terrain === 'grass' && !prop && hashRand(wc, wr, 3) < 0.05) {
-    prop = (bias === 'village_ally' || bias === 'village_enemy') ? 'castle' : 'hut';
-  }
-  // Portail temporel rare et stable, dispersé sur toute la mapmonde
-  if (!prop && hashRand(wc, wr, 4) < 0.01) prop = 'portal';
-
-  return { terrain, prop };
-}
 
 /** Construit la grille COLSxROWS visible à partir du coin (originCol, originRow) de la caméra. */
 function buildViewportGrid(originCol: number, originRow: number, poiPoints: { x: number; y: number; poiType?: MapPoiType }[]): Tile[][] {
@@ -119,7 +50,6 @@ function buildViewportGrid(originCol: number, originRow: number, poiPoints: { x:
 
 const projX = (col: number, row: number) => (col - row) * (TILE_W / 2);
 const projY = (col: number, row: number) => (col + row) * (TILE_H / 2);
-const clamp100 = (v: number) => Math.max(0, Math.min(WORLD_SIZE, v));
 
 /** Cherche la dalle verte (terre) la plus proche de (wc, wr) par anneaux concentriques croissants
  * (les cases immédiatement voisines pouvant elles-mêmes être de l'eau) — utilisé pour reposer Synk
@@ -192,16 +122,26 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     if (!address) { setPlayer(null); return; }
     return subscribePlayer(address, setPlayer);
   }, [address]);
+  // Miroir de `player` en ref (comme worldPosRef) pour lire l'oxygène/oxygenMax LIVE depuis
+  // l'intérieur d'un setInterval (récupération d'oxygène ci-dessous) SANS dépendre de `player` dans
+  // le tableau de dépendances de l'effet — sinon l'intervalle serait relancé (et donc réinitialisé)
+  // à chaque palier de récupération puisque celui-ci modifie justement `player.oxygen`.
+  const playerRef = useRef(player);
+  useEffect(() => { playerRef.current = player; }, [player]);
 
   // ─── Mécanique Oxygène (voir RepRules::oxygen*) ───────────────────────────────────────────────
   // `oxygenTimer` = secondes restantes avant le prochain palier de décroissance tant que Synk reste
-  // sur une dalle d'eau (null = pas sur l'eau). `fainting` = évanouissement en cours (compteur de
-  // récupération, interface bloquée comme SleepModal/HutRestModal). `faintResult` = résumé des
-  // pertes affiché une fois Synk réveillé.
+  // sur une dalle d'eau OU de montagne/roche (null = ni l'un ni l'autre). `oxygenRecovering` = true
+  // tant que Synk est sur une dalle de terre (verte) ET que son oxygène n'est pas encore au maximum
+  // (palier de récupération en cours, voir effet dédié plus bas). `fainting` = évanouissement en
+  // cours (compteur de récupération, interface bloquée comme SleepModal/HutRestModal). `faintResult`
+  // = résumé des pertes affiché une fois Synk réveillé.
   const [oxygenTimer, setOxygenTimer] = useState<number | null>(null);
+  const [oxygenRecovering, setOxygenRecovering] = useState(false);
   const [fainting, setFainting] = useState<{ remaining: number } | null>(null);
   const [faintResult, setFaintResult] = useState<{ xp: number; hp: number; itemName: string | null } | null>(null);
   const oxygenIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const oxygenRecoverIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const faintIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const faintingRef = useRef(false); // anti double-déclenchement pendant qu'un évanouissement est déjà en cours
 
@@ -365,14 +305,15 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     moveTo(cur.x + dx * STEP_PCT, cur.y + dy * STEP_PCT);
   }, [moveTo]);
 
-  // ─── Décroissance d'oxygène sur l'eau ─────────────────────────────────────────────────────────
-  // Tant que Synk reste sur une dalle d'eau, un décompte de `oxygenDrainIntervalSec` (défaut 50 s,
-  // paramétrable) tourne en continu (traverser plusieurs dalles d'eau à la suite ne le réinitialise
-  // PAS, seul un retour sur la terre ferme l'arrête) ; à chaque palier atteint tant que Synk est
-  // toujours sur l'eau, on applique la pénalité (oxygène/XP/Force) et on relance un décompte complet.
+  // ─── Décroissance d'oxygène sur l'eau et la montagne/roche ────────────────────────────────────
+  // Tant que Synk reste sur une dalle d'eau OU de montagne/roche (raréfaction de l'air en
+  // altitude), un décompte de `oxygenDrainIntervalSec` (défaut 50 s, paramétrable) tourne en continu
+  // (traverser plusieurs dalles à la suite ne le réinitialise PAS, seul un retour sur la terre
+  // ferme l'arrête) ; à chaque palier atteint tant que Synk est toujours sur l'une de ces dalles,
+  // on applique la pénalité (oxygène/XP/Force) et on relance un décompte complet.
   useEffect(() => {
     if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; }
-    if (currentTerrain !== 'water' || !address || !rules || fainting) {
+    if ((currentTerrain !== 'water' && currentTerrain !== 'rock') || !address || !rules || fainting) {
       setOxygenTimer(null);
       return;
     }
@@ -394,6 +335,41 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     }, 1000);
     return () => { if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; } };
   }, [currentTerrain, address, rules, fainting]);
+
+  // ─── Récupération d'oxygène sur la terre ferme ────────────────────────────────────────────────
+  // Dès que Synk se retrouve sur une dalle de terre (verte), restaure l'oxygène par palier de
+  // `oxygenRecoveryPct` (défaut 10 %) toutes les `oxygenRecoveryIntervalSec` (défaut 1 s) jusqu'à
+  // 100 %. Lit l'oxygène courant via `playerRef` (et non `player` en dépendance) pour ne PAS
+  // relancer l'intervalle à chaque palier — seul un changement de terrain/adresse/règles doit le
+  // faire. S'arrête automatiquement dès que le maximum est atteint ou si Synk quitte la terre ferme.
+  useEffect(() => {
+    if (oxygenRecoverIntervalRef.current) { clearInterval(oxygenRecoverIntervalRef.current); oxygenRecoverIntervalRef.current = null; }
+    if (currentTerrain !== 'grass' || !address || !rules || fainting) {
+      setOxygenRecovering(false);
+      return;
+    }
+    const already = playerRef.current;
+    if (already && (already.oxygen ?? 100) >= (already.oxygenMax ?? 100)) {
+      setOxygenRecovering(false);
+      return;
+    }
+    const intervalSec = Math.max(1, Math.round(rules.oxygenRecoveryIntervalSec ?? 1));
+    const pct = Math.max(0, rules.oxygenRecoveryPct ?? 10);
+    setOxygenRecovering(true);
+    oxygenRecoverIntervalRef.current = setInterval(() => {
+      const cur = playerRef.current;
+      const oxy = cur?.oxygen ?? 100;
+      const oxyMax = cur?.oxygenMax ?? 100;
+      if (oxy >= oxyMax) {
+        setOxygenRecovering(false);
+        if (oxygenRecoverIntervalRef.current) { clearInterval(oxygenRecoverIntervalRef.current); oxygenRecoverIntervalRef.current = null; }
+        return;
+      }
+      applyEffect(address, { oxygen: Math.min(pct, oxyMax - oxy) }).catch(() => {});
+    }, intervalSec * 1000);
+    return () => { if (oxygenRecoverIntervalRef.current) { clearInterval(oxygenRecoverIntervalRef.current); oxygenRecoverIntervalRef.current = null; } };
+  }, [currentTerrain, address, rules, fainting]);
+
 
   // ─── Évanouissement par manque d'oxygène ──────────────────────────────────────────────────────
   // Déclenché dès que l'oxygène (mis à jour en temps réel via subscribePlayer) passe sous le seuil
@@ -602,6 +578,16 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           <p className="text-[10px] text-slate-400 mt-1">{t('oxygen.warning.title')}</p>
           <div className="w-full bg-slate-700 rounded-full h-2 mt-2">
             <div className="bg-sky-400 h-2 rounded-full transition-all" style={{ width: `${oxygenPct}%` }} />
+          </div>
+          <p className="text-[10px] text-slate-500 mt-1">🫧 {Math.round(player?.oxygen ?? 100)}/{player?.oxygenMax ?? 100}</p>
+        </div>
+      )}
+      {oxygenRecovering && !fainting && (
+        <div className="fixed bottom-24 right-4 z-[90] bg-slate-900/95 border-2 border-emerald-500 rounded-xl px-4 py-3 shadow-xl text-center w-40 pointer-events-none">
+          <p className="text-2xl animate-pulse">🌿</p>
+          <p className="text-[10px] text-slate-400 mt-1">{t('oxygen.recovery.title')}</p>
+          <div className="w-full bg-slate-700 rounded-full h-2 mt-2">
+            <div className="bg-emerald-400 h-2 rounded-full transition-all" style={{ width: `${oxygenPct}%` }} />
           </div>
           <p className="text-[10px] text-slate-500 mt-1">🫧 {Math.round(player?.oxygen ?? 100)}/{player?.oxygenMax ?? 100}</p>
         </div>

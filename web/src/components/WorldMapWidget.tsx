@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useAccount } from 'wagmi';
 import {
   getMapPoiDefs, getWorldDefs, setPlayerMapPos, subscribePlayerMapPos, subscribeUnlockedWorldIds,
@@ -15,6 +15,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { SynkSkin } from './SynkSkin';
 import { NPC_SKINS } from '@/lib/contract';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
+import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
 
 const POS_KEY = 'zc.mapWidgetPos';
 const SIZE_KEY = 'zc.mapWidgetSize';
@@ -120,6 +121,33 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   // Un POI tagué `season` reste masqué/non-découvrable hors de sa saison tant qu'il n'a pas déjà
   // été découvert par ce joueur (voir gameState.ts::MapPoiDef.season).
   const visiblePois = pois.filter(p => !p.season || p.season === season || visitedPois.has(RKEY(p.id)));
+
+  // ─── Calque de terrain (arrière-plan) ─────────────────────────────────────────────────────────
+  // Réutilise EXACTEMENT le même générateur déterministe (worldTerrain.ts) que la plateforme 2D
+  // isométrique (GameCanvas2D.tsx), biaisé par les mêmes POI-décor actifs, afin que les lacs,
+  // montagnes, sentiers, plages, etc. affichés ici correspondent PIXEL POUR PIXEL (même position
+  // relative) à ce que le joueur retrouve en vue isométrique — répond à la demande de « replacer
+  // les petits sentiers, montagnes, lacs, etc. de la mapmonde que je retrouve sur la plateforme 2D
+  // isométrique ». Échantillonné à une résolution plus grossière (48×32) qu'en vue isométrique
+  // (tuile par tuile visible) car ici toute la carte 0-100% est affichée d'un coup.
+  const terrainPoiPoints = useMemo(
+    () => pois.filter(p => p.active !== false).map(p => ({ x: p.x, y: p.y, poiType: p.type })),
+    [pois],
+  );
+  const TERRAIN_COLS = 48, TERRAIN_ROWS = 32;
+  const terrainGrid = useMemo(() => {
+    const grid: string[][] = [];
+    for (let r = 0; r < TERRAIN_ROWS; r++) {
+      const row: string[] = [];
+      for (let c = 0; c < TERRAIN_COLS; c++) {
+        const wc = (c + 0.5) * (WORLD_SIZE / TERRAIN_COLS);
+        const wr = (r + 0.5) * (WORLD_SIZE / TERRAIN_ROWS);
+        row.push(TERRAIN_COLOR[worldTileAt(wc, wr, terrainPoiPoints).terrain]);
+      }
+      grid.push(row);
+    }
+    return grid;
+  }, [terrainPoiPoints]);
 
   // Découverte fortuite d'un POI proche (rayon 6%) — appelée à chaque changement de position,
   // quelle que soit son origine (clic sur la carte ICI, ou flèches/pavé directionnel dans le
@@ -339,6 +367,22 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
           <p className="absolute top-1 left-2 text-[10px] italic text-amber-900/60 pointer-events-none" style={{ fontFamily: 'serif' }}>
             {t('map.parchmentCaption')}
           </p>
+
+          {/* Calque de terrain (lacs, montagnes, sentiers, plages…) — même générateur déterministe
+              que la plateforme 2D isométrique, en arrière-plan et sans interférer avec les clics. */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${TERRAIN_COLS}, 1fr)`,
+              gridTemplateRows: `repeat(${TERRAIN_ROWS}, 1fr)`,
+              opacity: 0.45,
+            }}
+          >
+            {terrainGrid.map((row, r) => row.map((color, c) => (
+              <div key={`${r}-${c}`} style={{ backgroundColor: color }} />
+            )))}
+          </div>
 
           {/* Points d'intérêt (terrain/décor) */}
           {visiblePois.map(poi => (
