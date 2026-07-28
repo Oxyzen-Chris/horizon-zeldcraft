@@ -138,6 +138,17 @@ export function RepRulesPanel() {
     { key: 'sleepGraceSec',       labelKey: 'admin.repRules.sleepGraceSec' },
   ];
 
+  const oxygenFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'oxygenDrainIntervalSec',  labelKey: 'admin.repRules.oxygenDrainIntervalSec' },
+    { key: 'oxygenDrainPct',          labelKey: 'admin.repRules.oxygenDrainPct' },
+    { key: 'oxygenPenaltyXp',         labelKey: 'admin.repRules.oxygenPenaltyXp' },
+    { key: 'oxygenPenaltyForce',      labelKey: 'admin.repRules.oxygenPenaltyForce' },
+    { key: 'oxygenFaintThresholdPct', labelKey: 'admin.repRules.oxygenFaintThresholdPct' },
+    { key: 'oxygenFaintDurationSec',  labelKey: 'admin.repRules.oxygenFaintDurationSec' },
+    { key: 'oxygenFaintXpLoss',       labelKey: 'admin.repRules.oxygenFaintXpLoss' },
+    { key: 'oxygenFaintHpLoss',       labelKey: 'admin.repRules.oxygenFaintHpLoss' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -223,6 +234,19 @@ export function RepRulesPanel() {
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.sleepDescription')}</p>
         <div className="grid md:grid-cols-2 gap-3">
           {sleepFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🫧 {t('admin.repRules.oxygenTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.oxygenDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {oxygenFields.map(f => (
             <label key={f.key} className="text-sm">
               <span className="text-slate-300">{t(f.labelKey)}</span>
               <input type="number" className="input mt-1 w-full"

@@ -55,11 +55,13 @@ export interface PlayerState {
   forceMax: number;        // 100 → 200 → 300 selon super-fioles
   spells: number;
   spellsMax: number;
+  oxygen: number;          // niveau d'oxygène (0-100) — décroît sur les dalles d'eau (voir GameCanvas2D.tsx)
+  oxygenMax: number;       // plafond (100 par défaut)
   reputation: number;      // positif = notoriété (rencontres bienveillantes), négatif = mauvaise réputation (combats perdus, vol)
   wallet: number;
   xpBonus?: number;        // XP off-chain accumulé (peut être négatif après un troc coûteux)
   score?: number;          // score off-chain accumulé (quêtes résolues hors-chaîne — voir QuestDef)
-  sleeping?: boolean;      // vrai pendant le sommeil forcé (HP ≤ 20)
+  sleeping?: boolean;      // vrai pendant le sommeil forcé (HP ≤ 20) OU l'évanouissement par manque d'oxygène
   lastTick?: number;
   lastFeedCheckAt?: number; // début de la fenêtre glissante de 24h en cours pour la pénalité "non nourri" (voir applyFeedPenalties)
   invisibleUntil?: number; // horodatage de fin d'invisibilité (cape d'invisibilité — voir activateInvisibility)
@@ -229,6 +231,7 @@ export async function getOrCreatePlayer(address: string, displayName?: string): 
     happiness: 60, happinessMax: 100,
     force: 10, forceMax: 100,
     spells: 5, spellsMax: 100,
+    oxygen: 100, oxygenMax: 100,
     reputation: 0, wallet: 100,
     score: 0,
     lastTick: now, createdAt: now, updatedAt: now,
@@ -347,6 +350,7 @@ export async function applyEffect(address: string, delta: Partial<PlayerState> &
   const spellsMax    = (cur.spellsMax    ?? 100) + (delta.maxSpells ?? 0);
   const hungerMax    = cur.hungerMax    ?? 100;
   const happinessMax = cur.happinessMax ?? 100;
+  const oxygenMax    = cur.oxygenMax    ?? 100;
   const clamped: PlayerState = {
     ...cur,
     hp:         clamp((cur.hp        ?? 100) + (delta.hp        ?? 0), 0, hpMax),
@@ -359,6 +363,8 @@ export async function applyEffect(address: string, delta: Partial<PlayerState> &
     forceMax,
     spells:     clamp((cur.spells    ?? 5)   + (delta.spells    ?? 0), 0, spellsMax),
     spellsMax,
+    oxygen:     clamp((cur.oxygen    ?? 100) + (delta.oxygen    ?? 0), 0, oxygenMax),
+    oxygenMax,
     reputation: (cur.reputation ?? 0) + (delta.reputation ?? 0),
     wallet:     Math.max(0, (cur.wallet ?? 100) + (delta.wallet ?? 0)),
     xpBonus:    (cur.xpBonus ?? 0) + (delta.xpBonus ?? 0),
@@ -1614,6 +1620,17 @@ export async function getInventoryOnce(address: string): Promise<InventoryItem[]
   return v ? Object.values(v) : [];
 }
 
+/** Retire 1 exemplaire d'un objet TIRÉ AU HASARD dans la besace (ex. pénalité d'évanouissement par
+ * manque d'oxygène — voir GameCanvas2D.tsx). Renvoie l'objet perdu (itemId/name) pour affichage
+ * dans le pop-up de résultat, ou `null` si la besace est vide (aucune perte dans ce cas). */
+export async function removeRandomInventoryItem(address: string): Promise<{ itemId: string; name: string } | null> {
+  const items = await getInventoryOnce(address);
+  if (!items.length) return null;
+  const picked = items[Math.floor(Math.random() * items.length)];
+  await removeFromInventory(address, picked.itemId, 1);
+  return { itemId: picked.itemId, name: picked.name };
+}
+
 // ───────────────────────────── Saisons (gestion tournante, admin) ─────────────────────────────
 // Par défaut la saison courante est calculée depuis la date réelle (hémisphère nord), pour donner
 // vie au monde sans aucune intervention manuelle. L'admin peut à tout moment forcer une saison
@@ -1940,6 +1957,22 @@ export interface RepRules {
   sleepWakeHp: number;         // Vie restaurée au réveil, plafonnée à hpMax (défaut 75)
   sleepHappinessBonus: number; // Bonheur gagné au réveil (défaut 5)
   sleepGraceSec: number;       // Délai de grâce après réveil avant un nouveau déclenchement possible, en secondes (défaut 5)
+  // ─── Oxygène en eau (voir GameCanvas2D.tsx) — la jauge "Oxygène" (Statistiques) décroît par
+  // intervalles tant que Synk reste sur une dalle d'eau de la plateforme 2D isométrique. Un petit
+  // pop-up non bloquant (sablier + jauge + décompte numérique) reste affiché pendant ce temps. À
+  // chaque intervalle écoulé SANS que Synk n'ait rejoint une dalle verte (terre) : Oxygène
+  // -oxygenDrainPct, XP -oxygenPenaltyXp, Force -oxygenPenaltyForce. Sous oxygenFaintThresholdPct,
+  // Synk s'évanouit : interface bloquée pendant oxygenFaintDurationSec (comme SleepModal), Oxygène
+  // restauré à 100% et pertes XP/Vie/un objet aléatoire de la besace, puis Synk est repositionné
+  // automatiquement sur la dalle verte la plus proche — un pop-up de résultat détaille les pertes.
+  oxygenDrainIntervalSec: number;  // Intervalle (s) de décroissance sur l'eau (défaut 50)
+  oxygenDrainPct: number;          // % d'oxygène perdu par intervalle (défaut 30)
+  oxygenPenaltyXp: number;         // XP perdus par intervalle passé sur l'eau (défaut 10)
+  oxygenPenaltyForce: number;      // Force perdue par intervalle passé sur l'eau (défaut 10)
+  oxygenFaintThresholdPct: number; // Seuil d'oxygène déclenchant l'évanouissement (défaut 20)
+  oxygenFaintDurationSec: number;  // Durée du blocage / récupération à 100% (défaut 30)
+  oxygenFaintXpLoss: number;       // XP perdus lors de l'évanouissement (défaut 50)
+  oxygenFaintHpLoss: number;       // Vie perdue lors de l'évanouissement (défaut 10)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -2021,6 +2054,14 @@ export const DEFAULT_REP_RULES: RepRules = {
   sleepWakeHp: 75,
   sleepHappinessBonus: 5,
   sleepGraceSec: 5,
+  oxygenDrainIntervalSec: 50,
+  oxygenDrainPct: 30,
+  oxygenPenaltyXp: 10,
+  oxygenPenaltyForce: 10,
+  oxygenFaintThresholdPct: 20,
+  oxygenFaintDurationSec: 30,
+  oxygenFaintXpLoss: 50,
+  oxygenFaintHpLoss: 10,
 };
 
 export async function getRepRules(): Promise<RepRules> {

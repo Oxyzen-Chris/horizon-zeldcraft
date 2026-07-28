@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
-  type MapMarker, type MapPoiType, type RepRules,
+  getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem,
+  type MapMarker, type MapPoiType, type RepRules, type PlayerState,
 } from '@/lib/gameState';
-import { useI18n, localizeName } from '@/lib/i18n';
+import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { SynkSkin } from './SynkSkin';
 import { PoiInteractionModal } from './PoiInteractionModal';
@@ -120,6 +121,22 @@ const projX = (col: number, row: number) => (col - row) * (TILE_W / 2);
 const projY = (col: number, row: number) => (col + row) * (TILE_H / 2);
 const clamp100 = (v: number) => Math.max(0, Math.min(WORLD_SIZE, v));
 
+/** Cherche la dalle verte (terre) la plus proche de (wc, wr) par anneaux concentriques croissants
+ * (les cases immédiatement voisines pouvant elles-mêmes être de l'eau) — utilisé pour reposer Synk
+ * sur la terre ferme après un évanouissement par noyade (voir mécanique Oxygène). */
+function findNearestGrassTile(wc: number, wr: number, poiPoints: { x: number; y: number; poiType?: MapPoiType }[]): Pos | null {
+  for (let radius = 0; radius <= 12; radius++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue; // ne parcourt que l'anneau
+        const x = clamp100(wc + dx), y = clamp100(wr + dy);
+        if (worldTileAt(x, y, poiPoints).terrain === 'grass') return { x, y };
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Plateforme de jeu 2D en vue isométrique — fenêtre widget permanente, redimensionnable (glisser
  * le coin ⤡). Conçue comme le SOCLE ÉVOLUTIF de gestion des déplacements/rencontres/décor de Synk,
@@ -167,6 +184,26 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const [interactionMarker, setInteractionMarker] = useState<MapMarker | null>(null);
   const [hutResting, setHutResting] = useState(false);
   const [hutFeedback, setHutFeedback] = useState<string | null>(null);
+
+  // Fiche joueur (HP/oxygène/…) — abonnement dédié à ce widget (comme WorldMapWidget/DiceRollWidget
+  // le font déjà chacun de leur côté) pour ne pas coupler GameCanvas2D à game/page.tsx via des props.
+  const [player, setPlayer] = useState<PlayerState | null>(null);
+  useEffect(() => {
+    if (!address) { setPlayer(null); return; }
+    return subscribePlayer(address, setPlayer);
+  }, [address]);
+
+  // ─── Mécanique Oxygène (voir RepRules::oxygen*) ───────────────────────────────────────────────
+  // `oxygenTimer` = secondes restantes avant le prochain palier de décroissance tant que Synk reste
+  // sur une dalle d'eau (null = pas sur l'eau). `fainting` = évanouissement en cours (compteur de
+  // récupération, interface bloquée comme SleepModal/HutRestModal). `faintResult` = résumé des
+  // pertes affiché une fois Synk réveillé.
+  const [oxygenTimer, setOxygenTimer] = useState<number | null>(null);
+  const [fainting, setFainting] = useState<{ remaining: number } | null>(null);
+  const [faintResult, setFaintResult] = useState<{ xp: number; hp: number; itemName: string | null } | null>(null);
+  const oxygenIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const faintIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const faintingRef = useRef(false); // anti double-déclenchement pendant qu'un évanouissement est déjà en cours
 
   const [biasLabel, setBiasLabel] = useState<string>('');
   // Tous les marqueurs de la mapmonde (décor/terrain, mondes, PNJ, trésors, familiers, quêtes PNJ —
@@ -303,6 +340,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     row: playerCell.row > 0 ? playerCell.row - 1 : Math.min(ROWS - 1, playerCell.row + 1),
   };
 
+  // Terrain actuellement sous Synk (voir worldTileAt) — sert uniquement à détecter les dalles d'eau
+  // pour la mécanique Oxygène ci-dessous ; ne change de valeur que lorsque Synk change réellement de
+  // TYPE de dalle (entrée/sortie d'eau), pas à chaque pas sur un même type de terrain.
+  const currentTerrain = useMemo(
+    () => worldTileAt(worldCol, worldRow, poiPoints).terrain,
+    [worldCol, worldRow, poiPoints],
+  );
+
   // ─── Déplacement de Synk (flèches clavier, pavé directionnel virtuel, clic sur une tuile) ───
   // Écrit directement dans `players/{addr}/mapPos` (même donnée que WorldMapWidget.tsx) : la
   // caméra isométrique ET la carte se mettent à jour en temps réel via subscribePlayerMapPos.
@@ -315,9 +360,103 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   }, [address]);
 
   const move = useCallback((dx: number, dy: number) => {
+    if (faintingRef.current) return; // Synk évanoui : déplacement bloqué (voir mécanique Oxygène)
     const cur = worldPosRef.current;
     moveTo(cur.x + dx * STEP_PCT, cur.y + dy * STEP_PCT);
   }, [moveTo]);
+
+  // ─── Décroissance d'oxygène sur l'eau ─────────────────────────────────────────────────────────
+  // Tant que Synk reste sur une dalle d'eau, un décompte de `oxygenDrainIntervalSec` (défaut 50 s,
+  // paramétrable) tourne en continu (traverser plusieurs dalles d'eau à la suite ne le réinitialise
+  // PAS, seul un retour sur la terre ferme l'arrête) ; à chaque palier atteint tant que Synk est
+  // toujours sur l'eau, on applique la pénalité (oxygène/XP/Force) et on relance un décompte complet.
+  useEffect(() => {
+    if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; }
+    if (currentTerrain !== 'water' || !address || !rules || fainting) {
+      setOxygenTimer(null);
+      return;
+    }
+    const intervalSec = Math.max(1, Math.round(rules.oxygenDrainIntervalSec ?? 50));
+    setOxygenTimer(intervalSec);
+    oxygenIntervalRef.current = setInterval(() => {
+      setOxygenTimer((prev) => {
+        if (prev === null) return prev;
+        if (prev <= 1) {
+          applyEffect(address, {
+            oxygen: -(rules.oxygenDrainPct ?? 30),
+            xpBonus: -(rules.oxygenPenaltyXp ?? 10),
+            force: -(rules.oxygenPenaltyForce ?? 10),
+          }).catch(() => {});
+          return intervalSec;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => { if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; } };
+  }, [currentTerrain, address, rules, fainting]);
+
+  // ─── Évanouissement par manque d'oxygène ──────────────────────────────────────────────────────
+  // Déclenché dès que l'oxygène (mis à jour en temps réel via subscribePlayer) passe sous le seuil
+  // `oxygenFaintThresholdPct` (défaut 20 %). Applique immédiatement les pertes XP/Vie/objet, bloque
+  // l'interface `oxygenFaintDurationSec` secondes (comme SleepModal), puis restaure l'oxygène à
+  // 100 % et repositionne Synk sur la terre ferme la plus proche (voir finishFainting ci-dessous).
+  useEffect(() => {
+    if (!address || !rules || !player) return;
+    const threshold = rules.oxygenFaintThresholdPct ?? 20;
+    if ((player.oxygen ?? 100) > threshold) return;
+    if (faintingRef.current) return;
+    faintingRef.current = true;
+    if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; }
+    setOxygenTimer(null);
+    const durationSec = Math.max(1, Math.round(rules.oxygenFaintDurationSec ?? 30));
+    setFainting({ remaining: durationSec });
+    const xpLoss = Math.max(0, Math.round(rules.oxygenFaintXpLoss ?? 50));
+    const hpLoss = Math.max(0, Math.round(rules.oxygenFaintHpLoss ?? 10));
+    (async () => {
+      await applyEffect(address, { xpBonus: -xpLoss, hp: -hpLoss }).catch(() => {});
+      const lost = await removeRandomInventoryItem(address).catch(() => null);
+      setFaintResult({ xp: xpLoss, hp: hpLoss, itemName: lost ? itemLabel(t, lost.itemId, lost.name) : null });
+    })();
+  }, [address, rules, player, t]);
+
+  // Restaure l'oxygène à 100 % et téléporte Synk sur la dalle verte la plus proche — appelé une
+  // seule fois, à la fin du compte à rebours d'évanouissement (voir effet suivant). Passe par
+  // `finishFaintingRef` (et non directement dans le setInterval) pour toujours utiliser la version
+  // la plus à jour de la fonction sans avoir à relancer l'intervalle à chaque rendu.
+  const finishFainting = useCallback(async () => {
+    try {
+      if (!address) return;
+      const fresh = await getOrCreatePlayer(address);
+      const missing = Math.max(0, (fresh.oxygenMax ?? 100) - (fresh.oxygen ?? 0));
+      if (missing > 0) await applyEffect(address, { oxygen: missing }).catch(() => {});
+      const cur = worldPosRef.current;
+      const landSpot = findNearestGrassTile(Math.round(cur.x), Math.round(cur.y), poiPoints);
+      if (landSpot) {
+        setWorldPos(landSpot);
+        worldPosRef.current = landSpot;
+        setPlayerMapPos(address, DEFAULT_MAP_ID, landSpot.x, landSpot.y).catch(() => {});
+      }
+    } finally {
+      faintingRef.current = false;
+    }
+  }, [address, poiPoints]);
+  const finishFaintingRef = useRef(finishFainting);
+  useEffect(() => { finishFaintingRef.current = finishFainting; }, [finishFainting]);
+
+  // Compte à rebours de l'évanouissement en cours, puis appelle finishFainting() à échéance.
+  useEffect(() => {
+    if (!fainting) return;
+    faintIntervalRef.current = setInterval(() => {
+      setFainting((prev) => {
+        if (!prev) return prev;
+        if (prev.remaining <= 1) { finishFaintingRef.current(); return null; }
+        return { remaining: prev.remaining - 1 };
+      });
+    }, 1000);
+    return () => { if (faintIntervalRef.current) { clearInterval(faintIntervalRef.current); faintIntervalRef.current = null; } };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!fainting]);
+
 
   // ─── Clic sur un marqueur (PNJ, familier/dragon, trésor, quête, monde, hutte) ───
   // Si Synk est déjà sur sa case ou une case adjacente (distance ≤ 1 cellule) : ouvre le pop-up
@@ -449,18 +588,72 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     setCollapsed(prev => { localStorage.setItem(COLLAPSED_KEY, prev ? '0' : '1'); return !prev; });
   };
 
+  // Éléments d'interface de la mécanique Oxygène — rendus dans les DEUX branches (widget replié ou
+  // déplié) puisque Synk peut se déplacer (ex. depuis WorldMapWidget) même widget replié, et que le
+  // joueur doit toujours voir le compte à rebours/l'évanouissement quel que soit l'état du widget.
+  const faintDurationSec = Math.max(1, Math.round(rules?.oxygenFaintDurationSec ?? 30));
+  const oxygenPct = Math.max(0, Math.min(100, ((player?.oxygen ?? 100) / (player?.oxygenMax ?? 100)) * 100));
+  const oxygenUi = (
+    <>
+      {oxygenTimer !== null && !fainting && (
+        <div className="fixed bottom-24 right-4 z-[90] bg-slate-900/95 border-2 border-sky-500 rounded-xl px-4 py-3 shadow-xl text-center w-40 pointer-events-none">
+          <p className="text-2xl animate-pulse">⏳</p>
+          <p className="text-lg font-mono text-sky-300">{oxygenTimer}s</p>
+          <p className="text-[10px] text-slate-400 mt-1">{t('oxygen.warning.title')}</p>
+          <div className="w-full bg-slate-700 rounded-full h-2 mt-2">
+            <div className="bg-sky-400 h-2 rounded-full transition-all" style={{ width: `${oxygenPct}%` }} />
+          </div>
+          <p className="text-[10px] text-slate-500 mt-1">🫧 {Math.round(player?.oxygen ?? 100)}/{player?.oxygenMax ?? 100}</p>
+        </div>
+      )}
+      {fainting && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-4">
+          <div className="bg-slate-900 border-2 border-sky-500 rounded-xl p-8 max-w-md w-full text-center">
+            <div className="text-7xl mb-4 animate-pulse">🫧</div>
+            <h3 className="text-2xl font-bold text-sky-300 mb-2">{t('oxygen.faint.title')}</h3>
+            <p className="text-sm text-slate-400 mb-6">{t('oxygen.faint.description')}</p>
+            <div className="bg-slate-800/60 rounded-lg p-4 mb-4">
+              <p className="text-5xl font-mono text-sky-300">{fainting.remaining}s</p>
+              <div className="w-full bg-slate-700 rounded-full h-2 mt-3">
+                <div className="bg-sky-500 h-2 rounded-full transition-all" style={{ width: `${((faintDurationSec - fainting.remaining) / faintDurationSec) * 100}%` }} />
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">{t('oxygen.faint.hint')}</p>
+          </div>
+        </div>
+      )}
+      {faintResult && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4" onClick={() => setFaintResult(null)}>
+          <div className="bg-slate-900 border-2 border-sky-500 rounded-xl p-6 max-w-sm w-full text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="text-5xl mb-3">😵‍💫</div>
+            <h3 className="text-lg font-bold text-sky-300 mb-3">{t('oxygen.faintResult.title')}</h3>
+            <p className="text-sm text-rose-300">✨ -{faintResult.xp} XP</p>
+            <p className="text-sm text-rose-300">❤️ -{faintResult.hp} {t('game.stats.hp')}</p>
+            <p className="text-sm text-rose-300">🎒 {faintResult.itemName ? t('oxygen.faintResult.itemLost', { name: faintResult.itemName }) : t('oxygen.faintResult.noItem')}</p>
+            <button className="mt-4 w-full bg-sky-700 hover:bg-sky-600 text-white rounded-lg py-2 text-sm" onClick={() => setFaintResult(null)}>
+              {t('oxygen.faintResult.close')}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   if (!pos) return null;
 
   if (collapsed) {
     return (
-      <button
-        className="fixed z-40 w-14 h-14 rounded-full bg-emerald-950 border-2 border-emerald-600 text-2xl shadow-lg flex items-center justify-center"
-        style={{ left: pos.x, top: pos.y, zIndex: z }}
-        onPointerDownCapture={bringToFront}
-        onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
-        onClick={() => !dragging && toggleCollapsed()}
-        title={t('canvas2d.title')}
-      >🧩</button>
+      <>
+        <button
+          className="fixed z-40 w-14 h-14 rounded-full bg-emerald-950 border-2 border-emerald-600 text-2xl shadow-lg flex items-center justify-center"
+          style={{ left: pos.x, top: pos.y, zIndex: z }}
+          onPointerDownCapture={bringToFront}
+          onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
+          onClick={() => !dragging && toggleCollapsed()}
+          title={t('canvas2d.title')}
+        >🧩</button>
+        {oxygenUi}
+      </>
     );
   }
 
@@ -619,6 +812,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           </span>
         </div>
       )}
+      {oxygenUi}
     </div>
   );
 }

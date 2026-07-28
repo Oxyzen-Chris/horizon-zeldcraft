@@ -28,6 +28,7 @@ import { CustomWidgetsRenderer } from '@/components/CustomWidgetsRenderer';
 import { EquipmentWidget } from '@/components/EquipmentWidget';
 import { WorldMapWidget } from '@/components/WorldMapWidget';
 import { GameCanvas2D } from '@/components/GameCanvas2D';
+import { StatsWidget } from '@/components/StatsWidget';
 import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
@@ -325,6 +326,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         <Stat label={t('game.stats.happiness')} value={dispHappiness}       max={happinessMax} color="bg-yellow-400" hint={moodHint} />
         <Stat label={t('game.stats.force')}     value={player?.force  ?? 10} max={player?.forceMax    ?? 100} color="bg-red-500" />
         <Stat label={t('game.stats.spells')}    value={player?.spells ?? 5}  max={player?.spellsMax   ?? 100} color="bg-indigo-500" />
+        <Stat label={t('game.stats.oxygen')}    value={player?.oxygen ?? 100} max={player?.oxygenMax  ?? 100} color="bg-sky-500" />
         <div className="flex justify-between text-sm mt-3 pt-3 border-t border-slate-700">
           <span>💰 {t('game.stats.wallet')} : <b className="text-amber-400">{player?.wallet ?? 0}</b></span>
           <span>⭐ {t('game.stats.reputation')} : <b className={((player?.reputation ?? 0) >= 0) ? 'text-emerald-400' : 'text-rose-400'}>{player?.reputation ?? 0}</b></span>
@@ -424,6 +426,17 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} />
       {/* Socle évolutif de plateforme de jeu 2D isométrique (déplacements, PNJ, dragon, décor) */}
       <GameCanvas2D stage={Number(stage)} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} />
+      {/* Fenêtre flottante et déplaçable "Statistiques" — duplique le tableau fixe ci-dessus */}
+      <StatsWidget
+        xp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} xpCap={xpCap}
+        hp={dispHp} hpMax={player?.hpMax ?? 100}
+        hunger={dispHunger} hungerMax={player?.hungerMax ?? 100}
+        happiness={dispHappiness} happinessMax={happinessMax} moodHint={moodHint}
+        force={player?.force ?? 10} forceMax={player?.forceMax ?? 100}
+        spells={player?.spells ?? 5} spellsMax={player?.spellsMax ?? 100}
+        oxygen={player?.oxygen ?? 100} oxygenMax={player?.oxygenMax ?? 100}
+        wallet={player?.wallet ?? 0} reputation={player?.reputation ?? 0}
+      />
       {/* Widgets flottants personnalisés définis par l'admin (menu Administration) */}
       <CustomWidgetsRenderer playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}
