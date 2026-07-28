@@ -14,6 +14,7 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { WeatherWidget } from '@/components/WeatherWidget';
 import { SeasonWidget } from '@/components/SeasonWidget';
+import { MoonWidget } from '@/components/MoonWidget';
 import { Scoreboard } from '@/components/Scoreboard';
 import { QuestList } from '@/components/QuestList';
 import { NpcList } from '@/components/NpcList';
@@ -119,6 +120,7 @@ export default function GamePage() {
         <div className="flex flex-wrap gap-3 items-center">
           {contract && <WeatherWidget contract={contract} />}
           <SeasonWidget />
+          <MoonWidget />
           <LanguageSwitcher />
           <NetworkSwitcher />
           {isOwner && <Link href="/admin" className="btn-secondary text-sm">⚙️ {t('admin.title')}</Link>}

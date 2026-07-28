@@ -878,6 +878,11 @@ export interface QuestDef {
   fullMoonOnly?: boolean;  // true = quête masquée (widget Quêtes, Mapmonde, Plateforme 2D isométrique
                            // et pop-up) tant que ce n'est pas un jour de pleine lune (voir MoonState/
                            // isFullMoonToday() ci-dessous) — réservé à 40 des 400 Quêtes du Royaume.
+  fullMoonDate?: string;   // "AAAA-MM-JJ" optionnel (admin, panneau "Quêtes existantes" → calendrier) :
+                           // si renseigné, cette quête (fullMoonOnly) n'exige PAS la pleine lune du
+                           // calendrier global mais UNIQUEMENT cette date précise (permet d'assigner
+                           // à chaque quête son propre jour de pleine lune choisi dans le calendrier
+                           // admin plutôt que de partager le même jour global — voir getMoonCalendar()).
   // ─── Positionnement sur la mapmonde/plateforme isométrique (voir WorldMapWidget.tsx et
   // GameCanvas2D.tsx) — facultatif : sans valeur explicite, une position stable est dérivée de
   // l'id (voir poiFallbackPos()) pour que chaque quête ait tout de même un point fixe sur la carte.
@@ -1162,8 +1167,16 @@ export const KINGDOM_CHAPTERS: KingdomChapterDef[] = [
 // Par défaut ("auto"), la pleine lune effective du mois est calculée astronomiquement (cycle
 // synodique moyen ≈ 29.53059 jours depuis une pleine lune de référence connue) : un seul jour par
 // mois est ainsi "jour de pleine lune", sans aucune intervention admin. L'admin peut forcer un jour
-// fixe du mois (1-31, "manual") pour un contrôle total (démo, événement) — voir setMoonState.
-export interface MoonState { mode: 'auto' | 'manual'; manualDay?: number; updatedAt: number }
+// fixe DÉFAUT du mois (1-31, "manual") pour un contrôle global — voir setMoonState — ET/OU forcer,
+// mois par mois (mois en cours ou à venir), un jour PRÉCIS via le calendrier admin (`overrides`,
+// clé "AAAA-MM" → jour du mois) qui prévaut toujours sur le mode auto/manuel — voir
+// setMoonOverrideForMonth()/getMoonCalendar() (panneau Administration → "Pleine lune").
+export interface MoonState {
+  mode: 'auto' | 'manual';
+  manualDay?: number;
+  overrides?: Record<string, number>; // clé "AAAA-MM" (mois 1-12) → jour du mois forcé pour CE mois précis
+  updatedAt: number;
+}
 const DEFAULT_MOON_STATE: MoonState = { mode: 'auto', updatedAt: 0 };
 const SYNODIC_MONTH_DAYS = 29.530588853;
 const KNOWN_FULL_MOON_MS = Date.UTC(2000, 0, 21, 4, 41); // pleine lune de référence (21 janv. 2000, 04:41 UTC)
@@ -1188,6 +1201,50 @@ export function getNextFullMoonDate(from: Date = new Date()): Date {
   return new Date(ms);
 }
 
+/** Jour du mois (1-31) de la pleine lune astronomique dont la date tombe dans le mois calendaire
+ * `year`/`month0` (mois 0-indexé) — ancrée sur le 15 du mois pour cibler la pleine lune la plus
+ * proche du milieu du mois (chaque mois calendaire compte pour ainsi dire une seule pleine lune). */
+export function computeAutoFullMoonDateInMonth(year: number, month0: number): Date {
+  return new Date(nearestFullMoonMs(new Date(year, month0, 15)));
+}
+
+/** Clé de calendrier "AAAA-MM" (mois 1-12, zero-paddé) utilisée par `MoonState.overrides`. */
+export function moonMonthKey(year: number, month0: number): string {
+  return `${year}-${String(month0 + 1).padStart(2, '0')}`;
+}
+
+/** Jour du mois (1-31) de pleine lune EFFECTIF pour `year`/`month0` donné, dans l'ordre de
+ * priorité : 1) override calendrier précis pour ce mois (admin), 2) jour manuel par défaut (mode
+ * "manual"), 3) calcul astronomique. Fonction pure/synchrone, réutilisée par isFullMoonOnDate,
+ * nextFullMoonDateFromState et le calendrier admin (getMoonCalendar). */
+export function resolveFullMoonDayForMonth(state: MoonState, year: number, month0: number): number {
+  const override = state.overrides?.[moonMonthKey(year, month0)];
+  if (override) return Math.min(31, Math.max(1, override));
+  if (state.mode === 'manual' && state.manualDay) return Math.min(31, Math.max(1, state.manualDay));
+  return computeAutoFullMoonDateInMonth(year, month0).getDate();
+}
+
+/** true si `date` est le jour de pleine lune effectif de son mois (voir resolveFullMoonDayForMonth). */
+export function isFullMoonOnDate(state: MoonState, date: Date = new Date()): boolean {
+  return date.getDate() === resolveFullMoonDayForMonth(state, date.getFullYear(), date.getMonth());
+}
+
+/** Prochaine date de pleine lune EFFECTIVE à partir de `from` (mois en cours si pas encore passé,
+ * sinon mois suivant), en tenant compte des overrides calendrier/mode manuel/calcul astronomique. */
+export function nextFullMoonDateFromState(state: MoonState, from: Date = new Date()): Date {
+  let year = from.getFullYear();
+  let month0 = from.getMonth();
+  let day = resolveFullMoonDayForMonth(state, year, month0);
+  let candidate = new Date(year, month0, day);
+  const startOfToday = new Date(year, month0, from.getDate()).getTime();
+  if (candidate.getTime() < startOfToday) {
+    month0 += 1; if (month0 > 11) { month0 = 0; year += 1; }
+    day = resolveFullMoonDayForMonth(state, year, month0);
+    candidate = new Date(year, month0, day);
+  }
+  return candidate;
+}
+
 export async function getMoonState(): Promise<MoonState> {
   const db = getFirebaseDb();
   if (!db) return DEFAULT_MOON_STATE;
@@ -1196,39 +1253,64 @@ export async function getMoonState(): Promise<MoonState> {
   return v ? { ...DEFAULT_MOON_STATE, ...v } : DEFAULT_MOON_STATE;
 }
 
-/** Force (ou remet en automatique) le jour de pleine lune — admin uniquement. */
+/** Force (ou remet en automatique) le jour de pleine lune par défaut — admin uniquement. Ne touche
+ * pas aux overrides calendrier mois-par-mois (voir setMoonOverrideForMonth), qui restent prioritaires. */
 export async function setMoonState(mode: 'auto' | 'manual', manualDay?: number): Promise<void> {
   const db = getFirebaseDb();
   if (!db) return;
   await ensureAnonSignIn();
+  const current = await getMoonState();
   await set(ref(db, 'catalog/moonState'), {
-    mode, ...(mode === 'manual' && manualDay ? { manualDay } : {}), updatedAt: Date.now(),
+    mode, ...(mode === 'manual' && manualDay ? { manualDay } : {}),
+    ...(current.overrides ? { overrides: current.overrides } : {}), updatedAt: Date.now(),
   });
 }
 
-/** true si aujourd'hui est le jour de pleine lune effectif (mode auto → calcul astronomique,
- * mode manuel → jour du mois fixé par l'admin, se reproduisant chaque mois). */
-export async function isFullMoonToday(): Promise<boolean> {
-  const state = await getMoonState();
-  const now = new Date();
-  if (state.mode === 'manual' && state.manualDay) return now.getDate() === state.manualDay;
-  return computeAutoFullMoon(now);
+/** Force (ou efface, si `day` est `null`) le jour précis de pleine lune d'un mois calendaire donné
+ * (mois en cours ou à venir) — panneau Administration → "Pleine lune" → calendrier. Prioritaire sur
+ * `mode`/`manualDay` pour ce mois précis uniquement ; les autres mois restent inchangés. */
+export async function setMoonOverrideForMonth(year: number, month0: number, day: number | null): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const current = await getMoonState();
+  const overrides = { ...(current.overrides ?? {}) };
+  const key = moonMonthKey(year, month0);
+  if (day === null) delete overrides[key]; else overrides[key] = Math.min(31, Math.max(1, day));
+  await set(ref(db, 'catalog/moonState'), { ...current, overrides, updatedAt: Date.now() });
 }
 
-/** Prochaine date de pleine lune EFFECTIVE (respecte le mode manuel de l'admin, sinon calcul
- * astronomique) — purement informatif, pour afficher un compte à rebours dans le widget "Quêtes
- * du Royaume" quand une quête `fullMoonOnly` est verrouillée (voir KingdomQuestsWidget.tsx). */
+/** Calendrier des `monthsAhead` prochains mois (mois en cours inclus) avec, pour chacun, le jour de
+ * pleine lune effectif et si celui-ci provient d'un override admin explicite pour ce mois précis —
+ * alimente le sélecteur "calendrier" du panneau Administration → "Pleine lune". */
+export interface MoonMonthEntry { year: number; month0: number; day: number; date: Date; overridden: boolean }
+export async function getMoonCalendar(monthsAhead = 12, from: Date = new Date()): Promise<MoonMonthEntry[]> {
+  const state = await getMoonState();
+  const out: MoonMonthEntry[] = [];
+  let year = from.getFullYear();
+  let month0 = from.getMonth();
+  for (let i = 0; i < monthsAhead; i++) {
+    const day = resolveFullMoonDayForMonth(state, year, month0);
+    out.push({ year, month0, day, date: new Date(year, month0, day), overridden: !!state.overrides?.[moonMonthKey(year, month0)] });
+    month0 += 1; if (month0 > 11) { month0 = 0; year += 1; }
+  }
+  return out;
+}
+
+/** true si aujourd'hui est le jour de pleine lune effectif (overrides calendrier > mode manuel >
+ * calcul astronomique — voir resolveFullMoonDayForMonth). */
+export async function isFullMoonToday(): Promise<boolean> {
+  const state = await getMoonState();
+  return isFullMoonOnDate(state, new Date());
+}
+
+/** Prochaine date de pleine lune EFFECTIVE (respecte les overrides calendrier et le mode manuel de
+ * l'admin, sinon calcul astronomique) — affichée au même niveau que la météo/saison dans le jeu
+ * (voir MoonWidget.tsx) et utilisée pour le compte à rebours du widget "Quêtes du Royaume" quand
+ * une quête `fullMoonOnly` est verrouillée (voir KingdomQuestsWidget.tsx). */
 export async function getNextFullMoonDisplayDate(from: Date = new Date()): Promise<Date> {
   const state = await getMoonState();
-  if (state.mode === 'manual' && state.manualDay) {
-    const day = Math.min(31, Math.max(1, state.manualDay));
-    let candidate = new Date(from.getFullYear(), from.getMonth(), day);
-    if (candidate.getTime() < new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime()) {
-      candidate = new Date(from.getFullYear(), from.getMonth() + 1, day);
-    }
-    return candidate;
-  }
-  return getNextFullMoonDate(from);
+  return nextFullMoonDateFromState(state, from);
 }
 
 /** Lit en un seul accès Firebase l'ensemble des ids de quêtes résolues par ce joueur (clé =
@@ -1287,6 +1369,17 @@ export interface KingdomProgress {
  * la prochaine quête à afficher. Utilisée par le widget "Quêtes" (progression détaillée) ainsi que
  * par getKingdomQuestMarker() (matérialisation sur Mapmonde/Plateforme 2D isométrique).
  */
+/** true si la condition "pleine lune" d'une quête est satisfaite aujourd'hui : si `fullMoonDate`
+ * est renseigné (admin, calendrier par quête), exige cette date calendaire précise (AAAA-MM-JJ) ;
+ * sinon retombe sur le jour de pleine lune global (`moonFull`, voir isFullMoonToday()). */
+function questFullMoonSatisfied(q: QuestDef, moonFull: boolean, today: Date = new Date()): boolean {
+  if (q.fullMoonDate) {
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    return iso === q.fullMoonDate;
+  }
+  return moonFull;
+}
+
 export async function computeKingdomProgress(address: string): Promise<KingdomProgress> {
   const [quests, solved, intermediateCount, moonFull, rules] = await Promise.all([
     getQuestDefs(), getAllSolvedQuestIds(address), getSolvedIntermediateCount(address), isFullMoonToday(), getRepRules(),
@@ -1302,7 +1395,7 @@ export async function computeKingdomProgress(address: string): Promise<KingdomPr
     let status: KingdomQuestStatus;
     if (isSolved) status = 'solved';
     else if (!previousSolved) status = kingdomQuests.indexOf(q) === 0 ? 'locked-intermediate' : 'locked-previous';
-    else if (q.fullMoonOnly && !moonFull) status = 'locked-moon';
+    else if (q.fullMoonOnly && !questFullMoonSatisfied(q, moonFull)) status = 'locked-moon';
     else status = 'unlocked';
     chain.push({ quest: q, status });
     previousSolved = isSolved; // la quête suivante n'exige que CELLE-CI résolue (chaîne stricte)

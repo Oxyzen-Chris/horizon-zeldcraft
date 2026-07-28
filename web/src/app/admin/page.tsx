@@ -12,9 +12,9 @@ import {
   addNpcDef, getNpcDefs, addTreasureDef, getTreasureDefs, addWorldDef, getWorldDefs,
   getRepRules, setNpcMaxPerDay, addMapPoiDef, getMapPoiDefs, removeMapPoiDef, addMapDef, getMapDefs,
   getSeasonState, setSeasonState, computeAutoSeason, SEASONS, SEASON_ICONS,
-  getMoonState, setMoonState, computeAutoFullMoon,
+  getMoonState, setMoonState, isFullMoonOnDate, nextFullMoonDateFromState, getMoonCalendar, setMoonOverrideForMonth,
   DEFAULT_MAP_ID, type NpcDef, type TreasureDef, type WorldDef, type MapPoiDef, type MapPoiType,
-  type Season, type SeasonState, type MoonState,
+  type Season, type SeasonState, type MoonState, type MoonMonthEntry,
 } from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
@@ -28,6 +28,12 @@ import { CustomWidgetsAdminPanel } from '@/components/CustomWidgetsAdminPanel';
 import { EquipmentAdminPanel } from '@/components/EquipmentAdminPanel';
 import { useI18n, localizeName } from '@/lib/i18n';
 
+/** Formate une `Date` en "AAAA-MM-JJ" en heure LOCALE (contrairement à `Date.toISOString()`, qui
+ * bascule en UTC et peut décaler d'un jour) — utilisé par les sélecteurs `<input type="date">` du
+ * calendrier "Pleine lune" et de la date précise par quête (voir plus bas, section "Quêtes existantes"). */
+function toLocalISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 export default function AdminPage() {
   const { address, isConnected } = useAccount();
@@ -161,23 +167,36 @@ export default function AdminPage() {
   const [moonManualDay, setMoonManualDay] = useState('15');
   const [moonSaving, setMoonSaving] = useState(false);
   const [moonSaved, setMoonSaved] = useState(false);
-  useEffect(() => {
+  const [moonCalendar, setMoonCalendar] = useState<MoonMonthEntry[]>([]);
+  const reloadMoon = () => {
     getMoonState().then(s => {
       setMoonStateLocal(s);
       setMoonMode(s.mode);
       setMoonManualDay(String(s.manualDay ?? 15));
     }).catch(() => {});
-  }, []);
-  const isFullMoonNow = moonState?.mode === 'manual' && moonState.manualDay
-    ? new Date().getDate() === moonState.manualDay : computeAutoFullMoon();
+    getMoonCalendar(12).then(setMoonCalendar).catch(() => {});
+  };
+  useEffect(reloadMoon, []);
+  const isFullMoonNow = moonState ? isFullMoonOnDate(moonState) : false;
+  const nextFullMoonDate = moonState ? nextFullMoonDateFromState(moonState) : null;
   const saveMoon = async () => {
     setMoonSaving(true);
     try {
       await setMoonState(moonMode, moonMode === 'manual' ? parseInt(moonManualDay, 10) : undefined);
-      setMoonStateLocal(await getMoonState());
+      reloadMoon();
       setMoonSaved(true);
       setTimeout(() => setMoonSaved(false), 2000);
     } finally { setMoonSaving(false); }
+  };
+  const setMoonCalendarDay = async (entry: MoonMonthEntry, isoDate: string) => {
+    if (!isoDate) return;
+    const day = new Date(isoDate + 'T00:00:00').getDate();
+    await setMoonOverrideForMonth(entry.year, entry.month0, day);
+    reloadMoon();
+  };
+  const resetMoonCalendarDay = async (entry: MoonMonthEntry) => {
+    await setMoonOverrideForMonth(entry.year, entry.month0, null);
+    reloadMoon();
   };
 
   const [difficulty, setDifficulty] = useState('50');
@@ -590,12 +609,17 @@ export default function AdminPage() {
           <section className="card">
             <h2 className="text-xl font-semibold mb-3">{t('admin.moon.title')}</h2>
             <p className="text-xs text-slate-400 mb-3">{t('admin.moon.hint')}</p>
-            <p className="text-sm mb-3">
+            <p className="text-sm mb-1">
               {t('admin.moon.effective')} : <span className={`font-bold ${isFullMoonNow ? 'text-emerald-400' : 'text-slate-400'}`}>
                 {isFullMoonNow ? `🌕 ${t('admin.moon.yes')}` : `🌑 ${t('admin.moon.no')}`}
               </span>
             </p>
-            <div className="flex flex-wrap gap-3 items-center mb-2">
+            <p className="text-sm mb-3">
+              {t('admin.moon.next')} : <span className="font-bold text-sky-300">
+                🌕 {nextFullMoonDate ? nextFullMoonDate.toLocaleDateString() : '…'}
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-3 items-center mb-4">
               <select className="input" value={moonMode} onChange={e => setMoonMode(e.target.value as 'auto' | 'manual')}>
                 <option value="auto">{t('admin.season.auto')}</option>
                 <option value="manual">{t('admin.season.manual')}</option>
@@ -607,6 +631,31 @@ export default function AdminPage() {
               <button className="btn-primary" disabled={moonSaving} onClick={saveMoon}>
                 {moonSaving ? '⏳' : moonSaved ? '✅' : t('admin.actions.apply')}
               </button>
+            </div>
+            <h3 className="text-sm font-semibold mb-1">📅 {t('admin.moon.calendarTitle')}</h3>
+            <p className="text-xs text-slate-400 mb-2">{t('admin.moon.calendarHint')}</p>
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {moonCalendar.map(entry => {
+                const first = new Date(entry.year, entry.month0, 1);
+                const last = new Date(entry.year, entry.month0 + 1, 0);
+                return (
+                  <div key={`${entry.year}-${entry.month0}`} className="flex items-center gap-2 bg-slate-900/60 rounded px-2 py-1.5 text-xs">
+                    <span className="w-32 shrink-0 capitalize">{entry.date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+                    <span className={`shrink-0 ${entry.overridden ? 'text-amber-400' : 'text-slate-400'}`}>
+                      {entry.overridden ? '🔒' : '🔄'} {entry.date.toLocaleDateString()}
+                    </span>
+                    <input type="date" className="input py-0.5 px-1.5"
+                      min={toLocalISODate(first)} max={toLocalISODate(last)}
+                      value={toLocalISODate(entry.date)}
+                      onChange={e => setMoonCalendarDay(entry, e.target.value)} />
+                    {entry.overridden && (
+                      <button className="btn-secondary text-xs px-2 py-0.5" onClick={() => resetMoonCalendarDay(entry)}>
+                        ↺ {t('admin.moon.reset')}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -711,6 +760,8 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
   const [xpRew, setXpRew] = useState(String(quest.xpReward));
   const [hint, setHint] = useState(quest.hint ?? '');
   const [season, setSeason] = useState<Season | ''>(quest.season ?? '');
+  const [fullMoonOnly, setFullMoonOnly] = useState(!!quest.fullMoonOnly);
+  const [fullMoonDate, setFullMoonDate] = useState(quest.fullMoonDate ?? '');
   const [saving, setSaving] = useState(false);
 
   const startEdit = () => {
@@ -721,6 +772,8 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
     setXpRew(String(quest.xpReward));
     setHint(quest.hint ?? '');
     setSeason(quest.season ?? '');
+    setFullMoonOnly(!!quest.fullMoonOnly);
+    setFullMoonDate(quest.fullMoonDate ?? '');
     setEditing(true);
   };
 
@@ -741,6 +794,19 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
         ...(hint.trim() ? { hint: hint.trim() } : {}),
         ...(npcGiver ? { npcGiver: true } : {}),
         ...(season ? { season } : {}),
+        // Champs "Quêtes du Royaume" NON édités par ce formulaire (kingdomQuest/kingdomChapter/
+        // kingdomOrder/mapX/mapY/itemReward) : reportés tels quels depuis `quest` pour éviter que
+        // la sauvegarde d'un simple champ (ex. pleine lune ci-dessous) n'efface la position sur la
+        // Mapmonde, la récompense en objet ou la place dans la chaîne narrative (voir addQuestDef,
+        // qui ré-écrit intégralement le nœud Firebase — `set()`, pas de fusion partielle).
+        ...(quest.kingdomQuest ? { kingdomQuest: true } : {}),
+        ...(quest.kingdomChapter !== undefined ? { kingdomChapter: quest.kingdomChapter } : {}),
+        ...(quest.kingdomOrder !== undefined ? { kingdomOrder: quest.kingdomOrder } : {}),
+        ...(quest.mapX !== undefined ? { mapX: quest.mapX } : {}),
+        ...(quest.mapY !== undefined ? { mapY: quest.mapY } : {}),
+        ...(quest.itemReward ? { itemReward: quest.itemReward } : {}),
+        ...(fullMoonOnly ? { fullMoonOnly: true } : {}),
+        ...(fullMoonOnly && fullMoonDate ? { fullMoonDate } : {}),
       });
       await seedQuestAnswer(quest.id, normalizeAnswer(ans));
       setEditing(false);
@@ -768,6 +834,16 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
           <option value="">{t('admin.season.allYear')}</option>
           {SEASONS.map(s => <option key={s} value={s}>{SEASON_ICONS[s]} {t(`season.${s}`)}</option>)}
         </select>
+        <label className="flex items-center gap-2 text-slate-300">
+          <input type="checkbox" checked={fullMoonOnly} onChange={e => { setFullMoonOnly(e.target.checked); if (!e.target.checked) setFullMoonDate(''); }} />
+          🌕 {t('admin.quest.fullMoonOnly')}
+        </label>
+        {fullMoonOnly && (
+          <div className="flex items-center gap-2">
+            <input type="date" className="input" value={fullMoonDate} onChange={e => setFullMoonDate(e.target.value)} />
+            <span className="text-slate-500">{t('admin.quest.fullMoonDateHint')}</span>
+          </div>
+        )}
         <div className="flex gap-2">
           <button className="btn-primary text-xs px-3 py-1" disabled={saving || !label.trim() || !ans.trim()} onClick={save}>
             {saving ? '⏳' : t('admin.quest.list.save')}
@@ -793,6 +869,11 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
         </span>
         <span className="flex-1 truncate">{localizeName(t, quest.i18nKey, quest.label)}</span>
         {quest.season && <span className="shrink-0" title={t(`season.${quest.season}`)}>{SEASON_ICONS[quest.season]}</span>}
+        {quest.fullMoonOnly && (
+          <span className="shrink-0" title={quest.fullMoonDate ? `🌕 ${quest.fullMoonDate}` : t('admin.quest.fullMoonOnly')}>
+            🌕{quest.fullMoonDate ? ` ${quest.fullMoonDate}` : ''}
+          </span>
+        )}
         <span className="shrink-0 text-slate-500">
           {t('admin.quest.xpRequired')} {quest.xpRequired} · +{quest.xpReward} XP
         </span>

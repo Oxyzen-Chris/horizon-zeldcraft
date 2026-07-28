@@ -188,7 +188,9 @@ export function KingdomQuestsWidget() {
                   {lockStatus === 'locked-intermediate' && t('game.kingdom.lockedIntermediate', { v: minIntermediate })}
                   {lockStatus === 'locked-previous' && t('game.kingdom.lockedPrevious')}
                   {lockStatus === 'locked-moon' && t('game.kingdom.lockedMoon', {
-                    date: nextMoonDate ? nextMoonDate.toLocaleDateString() : '…',
+                    // Une quête peut avoir sa propre date de pleine lune précise (admin, "Quêtes
+                    // existantes" → calendrier) au lieu de la prochaine pleine lune globale.
+                    date: lockedEntry.quest.fullMoonDate ?? (nextMoonDate ? nextMoonDate.toLocaleDateString() : '…'),
                   })}
                 </p>
               </div>
