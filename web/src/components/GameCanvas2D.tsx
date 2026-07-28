@@ -5,6 +5,7 @@ import { useAccount } from 'wagmi';
 import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
   getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem,
+  getKingdomQuestMarker, subscribeSolvedQuestIds,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState,
 } from '@/lib/gameState';
 import {
@@ -185,6 +186,17 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // worldTileAt) ET affichage direct dans la fenêtre de la caméra (voir rendu plus bas).
   useEffect(() => { getAllMapMarkers(DEFAULT_MAP_ID).then(setMarkers).catch(() => {}); }, []);
 
+  // Marqueur unique de la Quête du Royaume en cours (👑, voir getKingdomQuestMarker) — fusionné
+  // dans visibleMarkers ci-dessous (kind: 'quest', réutilise le même clic → PoiInteractionModal
+  // que les quêtes PNJ classiques), sans toucher à getAllMapMarkers()/`markers` (zéro régression).
+  const [kingdomMarker, setKingdomMarker] = useState<MapMarker | null>(null);
+  useEffect(() => {
+    if (!address) { setKingdomMarker(null); return; }
+    const refreshKingdomMarker = () => getKingdomQuestMarker(address).then(setKingdomMarker).catch(() => {});
+    refreshKingdomMarker();
+    return subscribeSolvedQuestIds(address, refreshKingdomMarker);
+  }, [address]);
+
   // Attribue au PNJ errant et au Dragon errant une véritable entrée du catalogue (dès que les
   // marqueurs sont chargés), pour que cliquer sur eux ouvre le vrai pop-up (discussion/quête pour le
   // PNJ, apprivoisement pour le dragon) — voir onActorClick(). Le dragon préfère un familier de type
@@ -257,15 +269,17 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
 
   // Marqueurs visibles dans la fenêtre de caméra actuelle (COLSxROWS), convertis en cellule locale —
   // c'est ce qui « repositionne tous les POI de la mapmonde sur la plateforme 2D isométrique ».
+  // Inclut le marqueur 👑 Quête du Royaume (kingdomMarker) en plus des marqueurs du catalogue.
   const visibleMarkers = useMemo(() => {
     const out: (MapMarker & { col: number; row: number })[] = [];
-    for (const m of markers) {
+    const all = kingdomMarker ? [...markers, kingdomMarker] : markers;
+    for (const m of all) {
       const wc = Math.round(m.x), wr = Math.round(m.y);
       const col = wc - origin.col, row = wr - origin.row;
       if (col >= 0 && col < COLS && row >= 0 && row < ROWS) out.push({ ...m, col, row });
     }
     return out;
-  }, [markers, origin]);
+  }, [markers, kingdomMarker, origin]);
 
   const worldCol = Math.round(clamp100(worldPos.x));
   const worldRow = Math.round(clamp100(worldPos.y));
@@ -704,7 +718,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
             return (
               <div
                 key={`m-${m.kind}-${m.id}`}
-                className={`absolute -translate-x-1/2 pointer-events-auto select-none ${interactable ? 'cursor-pointer' : 'cursor-help'}`}
+                className={`absolute -translate-x-1/2 pointer-events-auto select-none ${interactable ? 'cursor-pointer' : 'cursor-help'} ${m.isKingdom ? 'animate-pulse' : ''}`}
                 style={{ left: x, top: y - 18, zIndex: zIdx }}
                 title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
                 onClick={() => onMarkerClick(m)}

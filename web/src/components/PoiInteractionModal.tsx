@@ -300,6 +300,11 @@ function QuestBody({ marker, address, playerXp, rules }: { marker: Marker; addre
 
   return (
     <div className="text-sm">
+      {def.kingdomQuest && (
+        <p className="text-[10px] uppercase tracking-wide text-amber-400 font-bold mb-2">
+          👑 {t('game.kingdom.badge')}{def.fullMoonOnly && <span className="ml-1">🌕 {t('game.kingdom.moonBadge')}</span>}
+        </p>
+      )}
       {autoUnlocked && !solved && <p className="text-fuchsia-300 text-xs mb-2">🗺️ {t('canvas2d.popup.questAutoUnlocked')}</p>}
       {solved ? (
         <p className="text-emerald-300 text-xs">✅ {t('game.quests.answerWas')} : <b>{solved}</b></p>

@@ -864,6 +864,20 @@ export interface QuestDef {
   season?: Season;       // si renseigné, quête offerte par PNJ uniquement pendant cette saison (voir
                          // pickNpcQuestForPlayer()) — une fois débloquée/résolue elle reste visible
                          // toute l'année (voir QuestList.tsx). undefined = disponible toute l'année.
+  // ─── Quêtes du Royaume (voir section dédiée plus bas, ~KINGDOM_CHAPTERS/computeKingdomProgress) ─
+  // 400 quêtes à énigmes formant le fil narratif principal (délivrer la Princesse PocaPoka et son
+  // fidèle El Pipo de l'emprise de Zorghon), débloquées PROGRESSIVEMENT par la résolution des
+  // quêtes intermédiaires (classiques + PNJ, ci-dessus) puis les unes après les autres dans l'ordre
+  // `kingdomOrder`. Totalement indépendant du système classique/PNJ existant : une quête du Royaume
+  // n'est JAMAIS un npcGiver et n'affecte pas pickNpcQuestForPlayer()/getUnlockedQuestIds().
+  kingdomQuest?: boolean;  // true = fait partie des 400 "Quêtes du Royaume"
+  kingdomChapter?: number; // 1-40 : chapitre/région du Royaume (voir KINGDOM_CHAPTERS) — regroupement
+                           // d'affichage dans le widget "Quêtes", 10 quêtes par chapitre.
+  kingdomOrder?: number;   // 1-400 : rang global dans la chaîne narrative — la quête `kingdomOrder`
+                           // N+1 ne se débloque que lorsque la quête `kingdomOrder` N est résolue.
+  fullMoonOnly?: boolean;  // true = quête masquée (widget Quêtes, Mapmonde, Plateforme 2D isométrique
+                           // et pop-up) tant que ce n'est pas un jour de pleine lune (voir MoonState/
+                           // isFullMoonToday() ci-dessous) — réservé à 40 des 400 Quêtes du Royaume.
   // ─── Positionnement sur la mapmonde/plateforme isométrique (voir WorldMapWidget.tsx et
   // GameCanvas2D.tsx) — facultatif : sans valeur explicite, une position stable est dérivée de
   // l'id (voir poiFallbackPos()) pour que chaque quête ait tout de même un point fixe sur la carte.
@@ -1082,6 +1096,237 @@ export async function pickNpcQuestForPlayer(address: string): Promise<QuestDef |
   }
   const candidates = notSolved.length ? notSolved : pool;
   return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+// ────────────────────────────── Quêtes du Royaume (400 énigmes, fil narratif) ──────────────────────────────
+// Chaîne narrative principale de Horizon ZeldCraft, inspirée de Donjons & Dragons, Tolkien/Le
+// Seigneur des Anneaux, la trilogie Zelda et Warcraft : délivrer la Princesse PocaPoka et son
+// fidèle lutin des sables El Pipo de l'emprise de Zorghon le Maléfique. 400 quêtes (`QuestDef` avec
+// `kingdomQuest: true`), réparties en 40 chapitres (`kingdomChapter` 1-40, voir KINGDOM_CHAPTERS) de
+// 10 quêtes chacun (`kingdomOrder` 1-400 déterminant l'ordre STRICT de déblocage : la quête N+1 ne
+// se débloque que lorsque la quête N est résolue par le joueur). La toute première (kingdomOrder=1)
+// se débloque après que le joueur ait résolu `RepRules.kingdomMinIntermediateSolved` quêtes
+// intermédiaires (classiques + PNJ, voir getSolvedIntermediateCount ci-dessous) — ce qui garantit
+// que la progression classique existante (5 quêtes classiques + 20 quêtes PNJ, XP requis) reste
+// INCHANGÉE et continue de faire foi pour l'accès initial au Royaume, sans aucune régression.
+// 40 des 400 quêtes (`fullMoonOnly: true`, une par chapitre) restent en plus masquées tant que ce
+// n'est pas un jour de pleine lune (voir MoonState/isFullMoonToday ci-dessous).
+
+/** Métadonnées d'affichage des 40 chapitres du Royaume — regroupement dans le widget "Quêtes"
+ * uniquement (aucune donnée de jeu, purement descriptif). L'ordre du tableau = ordre narratif. */
+export interface KingdomChapterDef { chapter: number; title: string; i18nKey: string; icon: string }
+export const KINGDOM_CHAPTERS: KingdomChapterDef[] = [
+  { chapter: 1,  icon: '🏘️', title: "Vallée d'Emberrune",        i18nKey: 'kingdom.chapter.1' },
+  { chapter: 2,  icon: '🌲', title: 'Forêt de Sylvaltide',        i18nKey: 'kingdom.chapter.2' },
+  { chapter: 3,  icon: '🐸', title: 'Marais de Fangrouille',      i18nKey: 'kingdom.chapter.3' },
+  { chapter: 4,  icon: '⛰️', title: 'Collines de Pierreflamme',   i18nKey: 'kingdom.chapter.4' },
+  { chapter: 5,  icon: '🕳️', title: 'Grottes de Kragmoor',        i18nKey: 'kingdom.chapter.5' },
+  { chapter: 6,  icon: '🌉', title: 'Pont Brisé de Ravenoire',    i18nKey: 'kingdom.chapter.6' },
+  { chapter: 7,  icon: '🌾', title: 'Plaines de Corenlie',        i18nKey: 'kingdom.chapter.7' },
+  { chapter: 8,  icon: '🏛️', title: "Ruines d'Anvieil",           i18nKey: 'kingdom.chapter.8' },
+  { chapter: 9,  icon: '🧊', title: 'Lac Glacial de Mirevent',    i18nKey: 'kingdom.chapter.9' },
+  { chapter: 10, icon: '🏜️', title: 'Village des Sables',         i18nKey: 'kingdom.chapter.10' },
+  { chapter: 11, icon: '🐫', title: 'Désert de Sarrakoth',        i18nKey: 'kingdom.chapter.11' },
+  { chapter: 12, icon: '🌴', title: 'Oasis Perdue de Zayira',     i18nKey: 'kingdom.chapter.12' },
+  { chapter: 13, icon: '🏞️', title: 'Canyon des Échos',           i18nKey: 'kingdom.chapter.13' },
+  { chapter: 14, icon: '🗿', title: 'Temple Enseveli de Nourah',  i18nKey: 'kingdom.chapter.14' },
+  { chapter: 15, icon: '🪨', title: 'Forêt Pétrifiée',            i18nKey: 'kingdom.chapter.15' },
+  { chapter: 16, icon: '🌊', title: 'Cité Engloutie de Valmoria', i18nKey: 'kingdom.chapter.16' },
+  { chapter: 17, icon: '🐴', title: 'Steppe de Khardûn',          i18nKey: 'kingdom.chapter.17' },
+  { chapter: 18, icon: '⛺', title: 'Camp des Nomades du Vent',   i18nKey: 'kingdom.chapter.18' },
+  { chapter: 19, icon: '🌫️', title: 'Passage des Brumes',         i18nKey: 'kingdom.chapter.19' },
+  { chapter: 20, icon: '🏔️', title: 'Sommet de Grisemont',        i18nKey: 'kingdom.chapter.20' },
+  { chapter: 21, icon: '🔥', title: 'Terres Calcinées',           i18nKey: 'kingdom.chapter.21' },
+  { chapter: 22, icon: '💀', title: 'Champ des Cendres',          i18nKey: 'kingdom.chapter.22' },
+  { chapter: 23, icon: '🏚️', title: 'Fort Abandonné de Nathrek',  i18nKey: 'kingdom.chapter.23' },
+  { chapter: 24, icon: '🌋', title: 'Rivière de Magma',           i18nKey: 'kingdom.chapter.24' },
+  { chapter: 25, icon: '🐲', title: 'Antre du Wyrm Noir',         i18nKey: 'kingdom.chapter.25' },
+  { chapter: 26, icon: '⚰️', title: 'Nécropole de Kaldrith',      i18nKey: 'kingdom.chapter.26' },
+  { chapter: 27, icon: '🌀', title: 'Labyrinthe de Voss',         i18nKey: 'kingdom.chapter.27' },
+  { chapter: 28, icon: '🗼', title: 'Tour des Murmures',          i18nKey: 'kingdom.chapter.28' },
+  { chapter: 29, icon: '👻', title: 'Pont des Âmes',              i18nKey: 'kingdom.chapter.29' },
+  { chapter: 30, icon: '⛩️', title: 'Sanctuaire Oublié',          i18nKey: 'kingdom.chapter.30' },
+  { chapter: 31, icon: '🏰', title: 'Bastion de Zorghon',         i18nKey: 'kingdom.chapter.31' },
+  { chapter: 32, icon: '⛓️', title: 'Prison des Cendres',         i18nKey: 'kingdom.chapter.32' },
+  { chapter: 33, icon: '🕯️', title: 'Cour des Ombres',            i18nKey: 'kingdom.chapter.33' },
+  { chapter: 34, icon: '🗡️', title: 'Salle des Lieutenants',      i18nKey: 'kingdom.chapter.34' },
+  { chapter: 35, icon: '⚒️', title: 'Forge Infernale',            i18nKey: 'kingdom.chapter.35' },
+  { chapter: 36, icon: '🥀', title: 'Jardins Calcinés',           i18nKey: 'kingdom.chapter.36' },
+  { chapter: 37, icon: '🖤', title: 'Grand Escalier Noir',        i18nKey: 'kingdom.chapter.37' },
+  { chapter: 38, icon: '👑', title: 'Salle du Trône Déchu',       i18nKey: 'kingdom.chapter.38' },
+  { chapter: 39, icon: '🌑', title: 'Cœur de la Citadelle',       i18nKey: 'kingdom.chapter.39' },
+  { chapter: 40, icon: '☀️', title: 'La Chute de Zorghon',        i18nKey: 'kingdom.chapter.40' },
+];
+
+// ─── Pleine lune (calendrier tournant, admin) — même principe que SeasonState ─────────────────
+// Par défaut ("auto"), la pleine lune effective du mois est calculée astronomiquement (cycle
+// synodique moyen ≈ 29.53059 jours depuis une pleine lune de référence connue) : un seul jour par
+// mois est ainsi "jour de pleine lune", sans aucune intervention admin. L'admin peut forcer un jour
+// fixe du mois (1-31, "manual") pour un contrôle total (démo, événement) — voir setMoonState.
+export interface MoonState { mode: 'auto' | 'manual'; manualDay?: number; updatedAt: number }
+const DEFAULT_MOON_STATE: MoonState = { mode: 'auto', updatedAt: 0 };
+const SYNODIC_MONTH_DAYS = 29.530588853;
+const KNOWN_FULL_MOON_MS = Date.UTC(2000, 0, 21, 4, 41); // pleine lune de référence (21 janv. 2000, 04:41 UTC)
+
+/** Horodatage (ms) de la pleine lune exacte la plus proche de `date` — pur/synchrone. */
+function nearestFullMoonMs(date: Date = new Date()): number {
+  const cycles = (date.getTime() - KNOWN_FULL_MOON_MS) / (SYNODIC_MONTH_DAYS * 86400000);
+  return KNOWN_FULL_MOON_MS + Math.round(cycles) * SYNODIC_MONTH_DAYS * 86400000;
+}
+
+/** true si `date` (jour civil local) est le jour de la pleine lune astronomique la plus proche. */
+export function computeAutoFullMoon(date: Date = new Date()): boolean {
+  const exact = new Date(nearestFullMoonMs(date));
+  return exact.getFullYear() === date.getFullYear() && exact.getMonth() === date.getMonth() && exact.getDate() === date.getDate();
+}
+
+/** Prochaine pleine lune astronomique à partir de `from` (toujours dans le futur ou aujourd'hui). */
+export function getNextFullMoonDate(from: Date = new Date()): Date {
+  let ms = nearestFullMoonMs(from);
+  const startOfToday = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  if (ms < startOfToday) ms += SYNODIC_MONTH_DAYS * 86400000;
+  return new Date(ms);
+}
+
+export async function getMoonState(): Promise<MoonState> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_MOON_STATE;
+  const snap = await get(ref(db, 'catalog/moonState'));
+  const v = snap.val() as MoonState | null;
+  return v ? { ...DEFAULT_MOON_STATE, ...v } : DEFAULT_MOON_STATE;
+}
+
+/** Force (ou remet en automatique) le jour de pleine lune — admin uniquement. */
+export async function setMoonState(mode: 'auto' | 'manual', manualDay?: number): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/moonState'), {
+    mode, ...(mode === 'manual' && manualDay ? { manualDay } : {}), updatedAt: Date.now(),
+  });
+}
+
+/** true si aujourd'hui est le jour de pleine lune effectif (mode auto → calcul astronomique,
+ * mode manuel → jour du mois fixé par l'admin, se reproduisant chaque mois). */
+export async function isFullMoonToday(): Promise<boolean> {
+  const state = await getMoonState();
+  const now = new Date();
+  if (state.mode === 'manual' && state.manualDay) return now.getDate() === state.manualDay;
+  return computeAutoFullMoon(now);
+}
+
+/** Prochaine date de pleine lune EFFECTIVE (respecte le mode manuel de l'admin, sinon calcul
+ * astronomique) — purement informatif, pour afficher un compte à rebours dans le widget "Quêtes
+ * du Royaume" quand une quête `fullMoonOnly` est verrouillée (voir KingdomQuestsWidget.tsx). */
+export async function getNextFullMoonDisplayDate(from: Date = new Date()): Promise<Date> {
+  const state = await getMoonState();
+  if (state.mode === 'manual' && state.manualDay) {
+    const day = Math.min(31, Math.max(1, state.manualDay));
+    let candidate = new Date(from.getFullYear(), from.getMonth(), day);
+    if (candidate.getTime() < new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime()) {
+      candidate = new Date(from.getFullYear(), from.getMonth() + 1, day);
+    }
+    return candidate;
+  }
+  return getNextFullMoonDate(from);
+}
+
+/** Lit en un seul accès Firebase l'ensemble des ids de quêtes résolues par ce joueur (clé =
+ * questId en minuscules) — bien plus efficace qu'un `getSolvedQuest` par quête (voir
+ * getSolvedIntermediateCount/computeKingdomProgress ci-dessous qui en ont besoin en masse). */
+export async function getAllSolvedQuestIds(address: string): Promise<Set<string>> {
+  const db = getFirebaseDb();
+  if (!db) return new Set();
+  const snap = await get(ref(db, `players/${KEY(address)}/quests`));
+  const v = snap.val() as Record<string, unknown> | null;
+  return new Set(v ? Object.keys(v) : []);
+}
+
+/**
+ * Abonnement temps réel aux quêtes résolues (même principe que subscribeUnlockedQuestIds) —
+ * permet au widget "Quêtes du Royaume" et au marqueur 👑 (getKingdomQuestMarker) de refléter
+ * instantanément la résolution d'une énigme (classique, PNJ ou Royaume) sans rechargement de page.
+ */
+export function subscribeSolvedQuestIds(address: string, cb: (ids: Set<string>) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(new Set()); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/quests`);
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, unknown> | null;
+    cb(new Set(v ? Object.keys(v) : []));
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/** Nombre de quêtes INTERMÉDIAIRES (classiques + PNJ, `kingdomQuest` absent/false) déjà résolues
+ * par ce joueur — condition de déblocage de la toute première Quête du Royaume (voir
+ * RepRules.kingdomMinIntermediateSolved). */
+export async function getSolvedIntermediateCount(address: string): Promise<number> {
+  const [quests, solved] = await Promise.all([getQuestDefs(), getAllSolvedQuestIds(address)]);
+  let n = 0;
+  for (const q of quests) if (!q.kingdomQuest && solved.has(q.id.toLowerCase())) n += 1;
+  return n;
+}
+
+export type KingdomQuestStatus = 'solved' | 'unlocked' | 'locked-intermediate' | 'locked-previous' | 'locked-moon';
+
+export interface KingdomProgressEntry { quest: QuestDef; status: KingdomQuestStatus }
+
+export interface KingdomProgress {
+  chain: KingdomProgressEntry[];       // triées par kingdomOrder croissant
+  solvedCount: number;
+  totalCount: number;
+  nextQuest: QuestDef | null;          // prochaine quête 'unlocked' non résolue (à afficher/résoudre)
+  nextLockedQuest: QuestDef | null;    // sinon, prochaine quête verrouillée (indice de progression)
+}
+
+/**
+ * Calcule l'état complet de la chaîne des 400 Quêtes du Royaume pour un joueur donné : quêtes
+ * actives triées par `kingdomOrder`, statut de chacune (résolue/débloquée/verrouillée + raison), et
+ * la prochaine quête à afficher. Utilisée par le widget "Quêtes" (progression détaillée) ainsi que
+ * par getKingdomQuestMarker() (matérialisation sur Mapmonde/Plateforme 2D isométrique).
+ */
+export async function computeKingdomProgress(address: string): Promise<KingdomProgress> {
+  const [quests, solved, intermediateCount, moonFull, rules] = await Promise.all([
+    getQuestDefs(), getAllSolvedQuestIds(address), getSolvedIntermediateCount(address), isFullMoonToday(), getRepRules(),
+  ]);
+  const kingdomQuests = quests
+    .filter(q => q.active && q.kingdomQuest)
+    .sort((a, b) => (a.kingdomOrder ?? Number.MAX_SAFE_INTEGER) - (b.kingdomOrder ?? Number.MAX_SAFE_INTEGER));
+
+  const chain: KingdomProgressEntry[] = [];
+  let previousSolved = intermediateCount >= (rules.kingdomMinIntermediateSolved ?? 3);
+  for (const q of kingdomQuests) {
+    const isSolved = solved.has(q.id.toLowerCase());
+    let status: KingdomQuestStatus;
+    if (isSolved) status = 'solved';
+    else if (!previousSolved) status = kingdomQuests.indexOf(q) === 0 ? 'locked-intermediate' : 'locked-previous';
+    else if (q.fullMoonOnly && !moonFull) status = 'locked-moon';
+    else status = 'unlocked';
+    chain.push({ quest: q, status });
+    previousSolved = isSolved; // la quête suivante n'exige que CELLE-CI résolue (chaîne stricte)
+  }
+
+  const solvedCount = chain.filter(e => e.status === 'solved').length;
+  const nextQuest = chain.find(e => e.status === 'unlocked')?.quest ?? null;
+  const nextLockedQuest = nextQuest ? null : (chain.find(e => e.status !== 'solved')?.quest ?? null);
+  return { chain, solvedCount, totalCount: chain.length, nextQuest, nextLockedQuest };
+}
+
+/**
+ * Marqueur de la Quête du Royaume actuellement débloquée-et-non-résolue pour ce joueur (ou `null`
+ * si aucune, ex. condition intermédiaire pas encore remplie, ou quête suivante réservée à la pleine
+ * lune hors de sa date) — à fusionner avec `getAllMapMarkers()` par WorldMapWidget.tsx et
+ * GameCanvas2D.tsx pour matérialiser visuellement la Quête du Royaume en cours (icône 👑, réutilise
+ * le même pop-up d'interaction que les quêtes PNJ classiques — voir PoiInteractionModal::QuestBody).
+ */
+export async function getKingdomQuestMarker(address: string): Promise<MapMarker | null> {
+  const progress = await computeKingdomProgress(address);
+  const q = progress.nextQuest;
+  if (!q) return null;
+  const fp = poiFallbackPos(q.id, 105);
+  return { id: q.id, kind: 'quest', name: q.label, i18nKey: q.i18nKey, icon: '👑', x: q.mapX ?? fp.x, y: q.mapY ?? fp.y, isKingdom: true };
 }
 
 // ─────────────────────── PNJ officiels / Trésors / Mondes (100% hors-chaîne) ───────────────────────
@@ -1487,6 +1732,7 @@ export type MapMarkerKind = 'poi' | 'world' | 'npc' | 'treasure' | 'familiar' | 
 export interface MapMarker {
   id: string; kind: MapMarkerKind; name: string; i18nKey?: string; icon: string; x: number; y: number;
   poiType?: MapPoiType;
+  isKingdom?: boolean; // true = quête du Royaume (voir getKingdomQuestMarker) — badge/icône dédiée
 }
 
 /** Construit la liste unifiée des marqueurs d'une carte (voir MapMarker). `season`/`unlockedWorlds`
@@ -1978,6 +2224,9 @@ export interface RepRules {
   oxygenFaintHpLoss: number;       // Vie perdue lors de l'évanouissement (défaut 10)
   oxygenRecoveryIntervalSec: number; // Intervalle (s) de récupération sur la terre ferme (défaut 1)
   oxygenRecoveryPct: number;         // % d'oxygène regagné par intervalle sur la terre ferme (défaut 10)
+  // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
+  kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
+                                         // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -2069,6 +2318,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   oxygenFaintHpLoss: 10,
   oxygenRecoveryIntervalSec: 1,
   oxygenRecoveryPct: 10,
+  kingdomMinIntermediateSolved: 3,
 };
 
 export async function getRepRules(): Promise<RepRules> {

@@ -151,6 +151,10 @@ export function RepRulesPanel() {
     { key: 'oxygenRecoveryPct',         labelKey: 'admin.repRules.oxygenRecoveryPct' },
   ];
 
+  const kingdomFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'kingdomMinIntermediateSolved', labelKey: 'admin.repRules.kingdomMinIntermediateSolved' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -249,6 +253,19 @@ export function RepRulesPanel() {
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.oxygenDescription')}</p>
         <div className="grid md:grid-cols-2 gap-3">
           {oxygenFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">👑 {t('admin.repRules.kingdomTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.kingdomDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {kingdomFields.map(f => (
             <label key={f.key} className="text-sm">
               <span className="text-slate-300">{t(f.labelKey)}</span>
               <input type="number" className="input mt-1 w-full"

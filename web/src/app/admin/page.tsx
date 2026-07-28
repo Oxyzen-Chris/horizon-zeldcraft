@@ -12,8 +12,9 @@ import {
   addNpcDef, getNpcDefs, addTreasureDef, getTreasureDefs, addWorldDef, getWorldDefs,
   getRepRules, setNpcMaxPerDay, addMapPoiDef, getMapPoiDefs, removeMapPoiDef, addMapDef, getMapDefs,
   getSeasonState, setSeasonState, computeAutoSeason, SEASONS, SEASON_ICONS,
+  getMoonState, setMoonState, computeAutoFullMoon,
   DEFAULT_MAP_ID, type NpcDef, type TreasureDef, type WorldDef, type MapPoiDef, type MapPoiType,
-  type Season, type SeasonState,
+  type Season, type SeasonState, type MoonState,
 } from '@/lib/gameState';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
@@ -152,6 +153,31 @@ export default function AdminPage() {
       setSeasonSaved(true);
       setTimeout(() => setSeasonSaved(false), 2000);
     } finally { setSeasonSaving(false); }
+  };
+
+  // Pleine lune (calendrier tournant, une par mois) — voir gameState.ts::MoonState/isFullMoonToday.
+  const [moonState, setMoonStateLocal] = useState<MoonState | null>(null);
+  const [moonMode, setMoonMode] = useState<'auto' | 'manual'>('auto');
+  const [moonManualDay, setMoonManualDay] = useState('15');
+  const [moonSaving, setMoonSaving] = useState(false);
+  const [moonSaved, setMoonSaved] = useState(false);
+  useEffect(() => {
+    getMoonState().then(s => {
+      setMoonStateLocal(s);
+      setMoonMode(s.mode);
+      setMoonManualDay(String(s.manualDay ?? 15));
+    }).catch(() => {});
+  }, []);
+  const isFullMoonNow = moonState?.mode === 'manual' && moonState.manualDay
+    ? new Date().getDate() === moonState.manualDay : computeAutoFullMoon();
+  const saveMoon = async () => {
+    setMoonSaving(true);
+    try {
+      await setMoonState(moonMode, moonMode === 'manual' ? parseInt(moonManualDay, 10) : undefined);
+      setMoonStateLocal(await getMoonState());
+      setMoonSaved(true);
+      setTimeout(() => setMoonSaved(false), 2000);
+    } finally { setMoonSaving(false); }
   };
 
   const [difficulty, setDifficulty] = useState('50');
@@ -557,6 +583,29 @@ export default function AdminPage() {
               )}
               <button className="btn-primary" disabled={seasonSaving} onClick={saveSeason}>
                 {seasonSaving ? '⏳' : seasonSaved ? '✅' : t('admin.actions.apply')}
+              </button>
+            </div>
+          </section>
+
+          <section className="card">
+            <h2 className="text-xl font-semibold mb-3">{t('admin.moon.title')}</h2>
+            <p className="text-xs text-slate-400 mb-3">{t('admin.moon.hint')}</p>
+            <p className="text-sm mb-3">
+              {t('admin.moon.effective')} : <span className={`font-bold ${isFullMoonNow ? 'text-emerald-400' : 'text-slate-400'}`}>
+                {isFullMoonNow ? `🌕 ${t('admin.moon.yes')}` : `🌑 ${t('admin.moon.no')}`}
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-3 items-center mb-2">
+              <select className="input" value={moonMode} onChange={e => setMoonMode(e.target.value as 'auto' | 'manual')}>
+                <option value="auto">{t('admin.season.auto')}</option>
+                <option value="manual">{t('admin.season.manual')}</option>
+              </select>
+              {moonMode === 'manual' && (
+                <input type="number" min="1" max="31" className="input w-24" value={moonManualDay}
+                  onChange={e => setMoonManualDay(e.target.value)} placeholder={t('admin.moon.dayOfMonth')} />
+              )}
+              <button className="btn-primary" disabled={moonSaving} onClick={saveMoon}>
+                {moonSaving ? '⏳' : moonSaved ? '✅' : t('admin.actions.apply')}
               </button>
             </div>
           </section>

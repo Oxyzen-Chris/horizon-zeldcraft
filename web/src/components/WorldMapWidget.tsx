@@ -7,6 +7,7 @@ import {
   getVisitedMapPoiIds, visitMapPoi, discoverWorldOffchain, getInventoryOnce, getRepRules,
   getOrCreatePlayer, computePlayerDiceBonus, rollD20, applyEffect, getCurrentSeason, RKEY, DEFAULT_MAP_ID,
   getAllMapMarkers,
+  getKingdomQuestMarker, subscribeSolvedQuestIds,
   type MapPoiDef, type WorldDef, type RepRules, type Season, type MapMarker,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
@@ -71,6 +72,9 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   // Marqueurs PNJ/trésors/familiers/quêtes localisés (voir gameState.ts::getAllMapMarkers) — POI
   // terrain et mondes restent gérés séparément ci-dessus (logique de découverte/déverrouillage).
   const [entityMarkers, setEntityMarkers] = useState<MapMarker[]>([]);
+  // Marqueur unique de la Quête du Royaume en cours (👑, voir getKingdomQuestMarker) — fusionné
+  // avec entityMarkers au rendu ci-dessous, sans modifier getAllMapMarkers() (zéro régression).
+  const [kingdomMarker, setKingdomMarker] = useState<MapMarker | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
   const [travelConfirm, setTravelConfirm] = useState<WorldDef | null>(null);
@@ -109,6 +113,14 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
     getVisitedMapPoiIds(address).then(setVisitedPois).catch(() => {});
   }, [address]);
   useEffect(() => { refreshPlayerBits(); }, [refreshPlayerBits]);
+  useEffect(() => {
+    if (!address) { setKingdomMarker(null); return; }
+    const refreshKingdomMarker = () => getKingdomQuestMarker(address).then(setKingdomMarker).catch(() => {});
+    refreshKingdomMarker();
+    // Temps réel : dès qu'une quête (classique/PNJ/Royaume) est résolue ailleurs, la Quête du
+    // Royaume affichée ici avance automatiquement — voir subscribeSolvedQuestIds.
+    return subscribeSolvedQuestIds(address, refreshKingdomMarker);
+  }, [address]);
   useEffect(() => {
     if (!address) { setUnlockedWorlds(new Set()); return; }
     // Abonnement temps réel : un monde découvert depuis PoiInteractionModal (plateforme
@@ -398,12 +410,14 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
           ))}
 
           {/* PNJ, trésors, familiers et quêtes révélées par PNJ, localisés sur la carte (voir
-              gameState.ts::getAllMapMarkers/poiFallbackPos) — informatif seulement (survol = nom). */}
-          {entityMarkers.map(m => (
+              gameState.ts::getAllMapMarkers/poiFallbackPos) — informatif seulement (survol = nom).
+              La Quête du Royaume en cours (👑, getKingdomQuestMarker) est fusionnée ici avec un
+              léger effet pulsant pour bien la distinguer des marqueurs classiques. */}
+          {[...entityMarkers, ...(kingdomMarker ? [kingdomMarker] : [])].map(m => (
             <div key={`${m.kind}-${m.id}`} title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
-              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none"
+              className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none ${m.isKingdom ? 'animate-pulse' : ''}`}
               style={{ left: `${m.x}%`, top: `${m.y}%` }}>
-              <span style={{ fontSize: 13 + zoom * 5 }}>{m.icon}</span>
+              <span style={{ fontSize: (m.isKingdom ? 16 : 13) + zoom * 5 }}>{m.icon}</span>
             </div>
           ))}
 

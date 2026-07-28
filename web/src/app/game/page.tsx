@@ -29,6 +29,7 @@ import { EquipmentWidget } from '@/components/EquipmentWidget';
 import { WorldMapWidget } from '@/components/WorldMapWidget';
 import { GameCanvas2D } from '@/components/GameCanvas2D';
 import { StatsWidget } from '@/components/StatsWidget';
+import { KingdomQuestsWidget } from '@/components/KingdomQuestsWidget';
 import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
@@ -437,6 +438,9 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         oxygen={player?.oxygen ?? 100} oxygenMax={player?.oxygenMax ?? 100}
         wallet={player?.wallet ?? 0} reputation={player?.reputation ?? 0}
       />
+      {/* Fenêtre flottante et déplaçable "Quêtes du Royaume" — 400 énigmes, 40 chapitres, fil
+          narratif principal (libérer PocaPoka et El Pipo de Zorghon) — voir gameState.ts */}
+      <KingdomQuestsWidget />
       {/* Widgets flottants personnalisés définis par l'admin (menu Administration) */}
       <CustomWidgetsRenderer playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}

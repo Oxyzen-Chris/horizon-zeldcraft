@@ -39,7 +39,10 @@ export function QuestList({ playerXp }: { playerXp: number }) {
   // Une quête tagué `season` reste masquée hors de sa saison tant qu'elle n'a pas déjà été
   // proposée/débloquée par un PNJ (voir pickNpcQuestForPlayer()) — une fois débloquée, elle reste
   // visible toute l'année pour que le joueur ne perde jamais l'accès à une énigme en cours.
-  const visible = (quests ?? []).filter(q => q.active
+  // Les Quêtes du Royaume (kingdomQuest: true) ont leur propre widget dédié ("Quêtes de
+  // Royaume"/progression) et ne doivent PAS polluer cette liste classique/PNJ — voir
+  // KingdomQuestsWidget.tsx et computeKingdomProgress() dans gameState.ts.
+  const visible = (quests ?? []).filter(q => q.active && !q.kingdomQuest
     && (!q.season || q.season === season || (unlocked?.has(q.id.toLowerCase()) ?? false)));
   const npcCount = visible.filter(q => q.npcGiver).length;
   const classicCount = visible.length - npcCount;
