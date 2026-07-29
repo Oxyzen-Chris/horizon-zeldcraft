@@ -14,6 +14,7 @@ import {
 } from '@/lib/worldTerrain';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
 import { SynkSkin } from './SynkSkin';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
@@ -280,6 +281,17 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     }
     return out;
   }, [markers, kingdomMarker, origin]);
+
+  // Filtres d'affichage par catégorie (boutons de WorldMapWidget.tsx, voir lib/mapFilters.ts) —
+  // se synchronise EN TEMPS RÉEL avec la Mapmonde (même état partagé, portée module). Appliqué
+  // UNIQUEMENT à la liste rendue ci-dessous : `markers`/`worldMarkers`/pools PNJ-dragon errants et
+  // le biais de terrain (poiPoints) restent INTACTS et non filtrés (zéro régression fonctionnelle,
+  // seul l'affichage change — voir commentaire de markerMatchesFilters()).
+  const [mapFilters] = useMapFilters();
+  const renderedMarkers = useMemo(
+    () => visibleMarkers.filter(m => markerMatchesFilters(m, mapFilters)),
+    [visibleMarkers, mapFilters],
+  );
 
   const worldCol = Math.round(clamp100(worldPos.x));
   const worldRow = Math.round(clamp100(worldPos.y));
@@ -710,7 +722,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           {/* POI/mondes/PNJ/trésors/familiers/quêtes de la mapmonde, repositionnés à leur vraie
               position dans la fenêtre de caméra (voir gameState.ts::getAllMapMarkers) — survol =
               info-bulle avec le nom du POI. */}
-          {visibleMarkers.map(m => {
+          {renderedMarkers.map(m => {
             const x = projX(m.col, m.row), y = projY(m.col, m.row);
             const zIdx = m.col + m.row + 1;
             const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure'

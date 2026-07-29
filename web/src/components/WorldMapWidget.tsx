@@ -6,12 +6,16 @@ import {
   getMapPoiDefs, getWorldDefs, setPlayerMapPos, subscribePlayerMapPos, subscribeUnlockedWorldIds,
   getVisitedMapPoiIds, visitMapPoi, discoverWorldOffchain, getInventoryOnce, getRepRules,
   getOrCreatePlayer, computePlayerDiceBonus, rollD20, applyEffect, getCurrentSeason, RKEY, DEFAULT_MAP_ID,
-  getAllMapMarkers,
+  getAllMapMarkers, getMapFilterDefaults, KINGDOM_CHAPTERS,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
   type MapPoiDef, type WorldDef, type RepRules, type Season, type MapMarker,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
+import {
+  useMapFilters, markerMatchesFilters, resetMapFilters, applyAdminMapFilterDefaults,
+  MAP_FILTER_CATEGORIES,
+} from '@/lib/mapFilters';
 import { ConfirmDialog } from './ConfirmDialog';
 import { SynkSkin } from './SynkSkin';
 import { NPC_SKINS } from '@/lib/contract';
@@ -79,6 +83,17 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   const [toast, setToast] = useState<string | null>(null);
   const [travelConfirm, setTravelConfirm] = useState<WorldDef | null>(null);
   const [traveling, setTraveling] = useState<{ world: WorldDef; progress: number } | null>(null);
+
+  // Filtres d'affichage par catégorie (boutons "afficher/masquer", voir demande utilisateur et
+  // lib/mapFilters.ts) — état partagé en temps réel avec GameCanvas2D.tsx (même module). Les
+  // valeurs par défaut de l'admin ne sont appliquées qu'une fois, et seulement si ce joueur n'a
+  // encore jamais personnalisé ses filtres dans ce navigateur (voir applyAdminMapFilterDefaults).
+  const [mapFilters, setMapFilters] = useMapFilters();
+  const [filtersBarOpen, setFiltersBarOpen] = useState(false);
+  const [kingdomFilterOpen, setKingdomFilterOpen] = useState(false);
+  useEffect(() => {
+    getMapFilterDefaults().then(applyAdminMapFilterDefaults).catch(() => {});
+  }, []);
 
   // Refs miroir des états ci-dessus — utilisés dans le scan de découverte (voir runDiscoveryScan)
   // pour éviter les fermetures (closures) obsolètes dans l'écouteur temps réel de position.
@@ -355,12 +370,89 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
       >
         <span className="text-sm font-semibold text-amber-100">🗺️ {t('map.title')}</span>
         <div className="flex items-center gap-1">
+          <button
+            className={`text-xs px-1.5 py-0.5 rounded hover:bg-amber-700 ${filtersBarOpen ? 'bg-amber-600' : 'bg-amber-800/60'}`}
+            title={t('map.filters.title')}
+            onClick={(e) => { e.stopPropagation(); setFiltersBarOpen(o => !o); }}
+          >🔧</button>
           <button className="text-xs px-1.5 py-0.5 bg-amber-800/60 rounded hover:bg-amber-700" onClick={() => setZoom(z2 => Math.max(0.6, +(z2 - 0.2).toFixed(1)))}>🔍-</button>
           <span className="text-[10px] text-amber-300 w-8 text-center">{Math.round(zoom * 100)}%</span>
           <button className="text-xs px-1.5 py-0.5 bg-amber-800/60 rounded hover:bg-amber-700" onClick={() => setZoom(z2 => Math.min(2.6, +(z2 + 0.2).toFixed(1)))}>🔍+</button>
           <button className="text-xs opacity-70 hover:opacity-100 ml-1" onClick={toggleCollapsed}>✕</button>
         </div>
       </div>
+
+      {/* Barre de filtres d'affichage par catégorie (voir demande utilisateur : boutons pour
+          afficher/masquer décors, mondes, PNJ, trésors, familiers, quêtes classiques/PNJ/Royaume)
+          — synchronisée en temps réel avec GameCanvas2D.tsx via lib/mapFilters.ts. */}
+      {filtersBarOpen && (
+        <div className="px-2 py-1.5 bg-amber-950/80 border-b border-amber-800/60 shrink-0 flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-1">
+            {MAP_FILTER_CATEGORIES.map(cat => (
+              <button
+                key={cat.key}
+                onClick={() => setMapFilters({ [cat.key]: !mapFilters[cat.key] } as Partial<typeof mapFilters>)}
+                title={t(cat.i18nKey)}
+                className={`text-xs px-1.5 py-0.5 rounded border ${
+                  mapFilters[cat.key] ? 'bg-emerald-800/70 border-emerald-500 text-emerald-100' : 'bg-slate-800/60 border-slate-600 text-slate-400 opacity-60'
+                }`}
+              >{cat.icon}</button>
+            ))}
+            <button
+              className="text-[10px] px-1.5 py-0.5 rounded bg-amber-700/70 hover:bg-amber-600 text-amber-50 ml-1"
+              onClick={() => resetMapFilters()}
+            >{t('map.filters.all')}</button>
+            {mapFilters.showQuestsKingdom && (
+              <button
+                className={`text-[10px] px-1.5 py-0.5 rounded border ml-1 ${kingdomFilterOpen ? 'bg-amber-600 border-amber-400' : 'bg-amber-800/60 border-amber-700'}`}
+                onClick={() => setKingdomFilterOpen(o => !o)}
+              >👑⚙️</button>
+            )}
+          </div>
+          {mapFilters.showQuestsKingdom && kingdomFilterOpen && (
+            <div className="flex flex-col gap-1 border-t border-amber-800/50 pt-1">
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-[10px] text-amber-300">{t('map.filters.kingdomFullMoon')}:</span>
+                {(['all', 'onlyFullMoon', 'onlyNormal'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setMapFilters({ kingdomFullMoonMode: mode })}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                      mapFilters.kingdomFullMoonMode === mode ? 'bg-fuchsia-800/70 border-fuchsia-500 text-fuchsia-100' : 'bg-slate-800/60 border-slate-600 text-slate-400'
+                    }`}
+                  >{t(mode === 'all' ? 'map.filters.kingdomFullMoonAll' : mode === 'onlyFullMoon' ? 'map.filters.kingdomFullMoonOnly' : 'map.filters.kingdomFullMoonNormal')}</button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1 flex-wrap max-h-20 overflow-y-auto">
+                <span className="text-[10px] text-amber-300 shrink-0">{t('map.filters.kingdomChapters')}:</span>
+                <button
+                  onClick={() => setMapFilters({ kingdomChapters: null })}
+                  className={`text-[9px] px-1 py-0.5 rounded border ${
+                    mapFilters.kingdomChapters == null ? 'bg-fuchsia-800/70 border-fuchsia-500 text-fuchsia-100' : 'bg-slate-800/60 border-slate-600 text-slate-400'
+                  }`}
+                >{t('map.filters.kingdomChaptersAll')}</button>
+                {KINGDOM_CHAPTERS.map(ch => {
+                  const active = mapFilters.kingdomChapters?.includes(ch.chapter) ?? false;
+                  return (
+                    <button
+                      key={ch.chapter}
+                      title={localizeName(t, ch.i18nKey, ch.title)}
+                      onClick={() => {
+                        const cur = mapFilters.kingdomChapters ?? [];
+                        const next = active ? cur.filter(c => c !== ch.chapter) : [...cur, ch.chapter];
+                        setMapFilters({ kingdomChapters: next.length ? next : null });
+                      }}
+                      className={`text-[9px] px-1 py-0.5 rounded border ${
+                        active ? 'bg-fuchsia-800/70 border-fuchsia-500 text-fuchsia-100' : 'bg-slate-800/60 border-slate-600 text-slate-400'
+                      }`}
+                    >{ch.chapter}</button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Zone défilable/zoomable de la carte — style vieux parchemin */}
       <div className="relative flex-1 overflow-auto rounded-b-xl" style={{
@@ -396,8 +488,9 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
             )))}
           </div>
 
-          {/* Points d'intérêt (terrain/décor) */}
-          {visiblePois.map(poi => (
+          {/* Points d'intérêt (terrain/décor) — masqués si le bouton "Décors" est désactivé (voir
+              lib/mapFilters.ts) */}
+          {mapFilters.showPois && visiblePois.map(poi => (
             <div
               key={poi.id}
               title={poi.name}
@@ -412,8 +505,10 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
           {/* PNJ, trésors, familiers et quêtes révélées par PNJ, localisés sur la carte (voir
               gameState.ts::getAllMapMarkers/poiFallbackPos) — informatif seulement (survol = nom).
               La Quête du Royaume en cours (👑, getKingdomQuestMarker) est fusionnée ici avec un
-              léger effet pulsant pour bien la distinguer des marqueurs classiques. */}
-          {[...entityMarkers, ...(kingdomMarker ? [kingdomMarker] : [])].map(m => (
+              léger effet pulsant pour bien la distinguer des marqueurs classiques. Filtré par
+              catégorie (PNJ/trésors/familiers/quêtes classiques-PNJ-Royaume) selon les boutons de
+              filtre — voir markerMatchesFilters(). */}
+          {[...entityMarkers, ...(kingdomMarker ? [kingdomMarker] : [])].filter(m => markerMatchesFilters(m, mapFilters)).map(m => (
             <div key={`${m.kind}-${m.id}`} title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
               className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none ${m.isKingdom ? 'animate-pulse' : ''}`}
               style={{ left: `${m.x}%`, top: `${m.y}%` }}>
@@ -421,8 +516,8 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
             </div>
           ))}
 
-          {/* Mondes (portails) */}
-          {worlds.map(w => {
+          {/* Mondes (portails) — masqués si le bouton "Mondes" est désactivé */}
+          {mapFilters.showWorlds && worlds.map(w => {
             const locked = playerXp < w.xpRequired;
             return (
               <button

@@ -1419,7 +1419,10 @@ export async function getKingdomQuestMarker(address: string): Promise<MapMarker 
   const q = progress.nextQuest;
   if (!q) return null;
   const fp = poiFallbackPos(q.id, 105);
-  return { id: q.id, kind: 'quest', name: q.label, i18nKey: q.i18nKey, icon: '👑', x: q.mapX ?? fp.x, y: q.mapY ?? fp.y, isKingdom: true };
+  return {
+    id: q.id, kind: 'quest', name: q.label, i18nKey: q.i18nKey, icon: '👑', x: q.mapX ?? fp.x, y: q.mapY ?? fp.y,
+    isKingdom: true, questCategory: 'kingdom', kingdomChapter: q.kingdomChapter, fullMoonOnly: q.fullMoonOnly,
+  };
 }
 
 // ─────────────────────── PNJ officiels / Trésors / Mondes (100% hors-chaîne) ───────────────────────
@@ -1826,6 +1829,14 @@ export interface MapMarker {
   id: string; kind: MapMarkerKind; name: string; i18nKey?: string; icon: string; x: number; y: number;
   poiType?: MapPoiType;
   isKingdom?: boolean; // true = quête du Royaume (voir getKingdomQuestMarker) — badge/icône dédiée
+  // ─── Métadonnées de filtrage (voir lib/mapFilters.ts) — uniquement pour kind==='quest' : distingue
+  // les 3 familles de quêtes affichables/masquables indépendamment sur la Mapmonde/Plateforme 2D
+  // isométrique (boutons "Quêtes classiques"/"Quêtes PNJ"/"Quêtes du Royaume", voir demande
+  // utilisateur). `kingdomChapter`/`fullMoonOnly` ne sont renseignés que pour questCategory==='kingdom'
+  // (repris de QuestDef) afin de permettre le filtre fin par chapitre / par quêtes de pleine lune.
+  questCategory?: 'classic' | 'npc' | 'kingdom';
+  kingdomChapter?: number;
+  fullMoonOnly?: boolean;
 }
 
 /** Construit la liste unifiée des marqueurs d'une carte (voir MapMarker). `season`/`unlockedWorlds`
@@ -1859,9 +1870,49 @@ export async function getAllMapMarkers(
   }
   for (const q of quests.filter(q2 => q2.active && q2.npcGiver)) {
     const fp = poiFallbackPos(q.id, 104);
-    markers.push({ id: q.id, kind: 'quest', name: q.label, i18nKey: q.i18nKey, icon: '❓', x: q.mapX ?? fp.x, y: q.mapY ?? fp.y });
+    markers.push({ id: q.id, kind: 'quest', name: q.label, i18nKey: q.i18nKey, icon: '❓', x: q.mapX ?? fp.x, y: q.mapY ?? fp.y, questCategory: 'npc' });
+  }
+  // Quêtes CLASSIQUES (sans PNJ ni Royaume) : historiquement absentes de la carte (seules les
+  // quêtes PNJ y apparaissaient) — ajoutées ici pour permettre le bouton "Quêtes classiques" (voir
+  // demande utilisateur) de réellement filtrer quelque chose. Purement additif : ces marqueurs sont
+  // nouveaux, aucune autre logique (npcGiver, déblocage) n'est modifiée. Icône dédiée (📜) pour les
+  // distinguer visuellement des quêtes révélées par un PNJ (❓).
+  for (const q of quests.filter(q2 => q2.active && !q2.npcGiver && !q2.kingdomQuest)) {
+    const fp = poiFallbackPos(q.id, 106);
+    markers.push({ id: q.id, kind: 'quest', name: q.label, i18nKey: q.i18nKey, icon: '📜', x: q.mapX ?? fp.x, y: q.mapY ?? fp.y, questCategory: 'classic' });
   }
   return markers;
+}
+
+// ─── Filtres d'affichage Mapmonde/Plateforme 2D isométrique (boutons "afficher/masquer" par
+// catégorie — voir demande utilisateur) — l'ÉTAT courant (quel joueur a coché quoi) reste une
+// préférence 100% côté client (localStorage, voir lib/mapFilters.ts) puisqu'il n'affecte que
+// l'affichage, jamais la logique de jeu. Seule la valeur PAR DÉFAUT proposée à un nouveau joueur
+// (avant tout choix personnel) est paramétrable ici par l'admin (Firebase), pour permettre par
+// exemple de désactiver par défaut une catégorie qui deviendrait trop envahissante sans empêcher un
+// joueur de la réactiver lui-même à tout moment.
+export interface MapFilterDefaults {
+  showPois: boolean; showWorlds: boolean; showNpcs: boolean; showTreasures: boolean; showFamiliars: boolean;
+  showQuestsClassic: boolean; showQuestsNpc: boolean; showQuestsKingdom: boolean;
+  kingdomFullMoonMode: 'all' | 'onlyFullMoon' | 'onlyNormal';
+  updatedAt: number;
+}
+export const DEFAULT_MAP_FILTER_DEFAULTS: MapFilterDefaults = {
+  showPois: true, showWorlds: true, showNpcs: true, showTreasures: true, showFamiliars: true,
+  showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true, kingdomFullMoonMode: 'all', updatedAt: 0,
+};
+export async function getMapFilterDefaults(): Promise<MapFilterDefaults> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_MAP_FILTER_DEFAULTS;
+  const snap = await get(ref(db, 'catalog/mapFilterDefaults'));
+  const v = snap.val() as MapFilterDefaults | null;
+  return v ? { ...DEFAULT_MAP_FILTER_DEFAULTS, ...v } : DEFAULT_MAP_FILTER_DEFAULTS;
+}
+export async function setMapFilterDefaults(defaults: Omit<MapFilterDefaults, 'updatedAt'>): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/mapFilterDefaults'), { ...defaults, updatedAt: Date.now() });
 }
 
 export interface PlayerMapPos { mapId: string; x: number; y: number; updatedAt: number }

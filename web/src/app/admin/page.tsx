@@ -28,6 +28,7 @@ import { CustomWidgetsAdminPanel } from '@/components/CustomWidgetsAdminPanel';
 import { EquipmentAdminPanel } from '@/components/EquipmentAdminPanel';
 import { FoodAdminPanel } from '@/components/FoodAdminPanel';
 import { PotionsSpellsAdminPanel } from '@/components/PotionsSpellsAdminPanel';
+import { MapFiltersAdminPanel } from '@/components/MapFiltersAdminPanel';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /** Formate une `Date` en "AAAA-MM-JJ" en heure LOCALE (contrairement à `Date.toISOString()`, qui
@@ -283,6 +284,7 @@ export default function AdminPage() {
           <EquipmentAdminPanel />
           <FoodAdminPanel />
           <PotionsSpellsAdminPanel />
+          <MapFiltersAdminPanel />
           <ChatScriptsAdminPanel />
           <CustomWidgetsAdminPanel />
 
