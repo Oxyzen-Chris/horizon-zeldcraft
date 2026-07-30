@@ -958,6 +958,8 @@ export interface QuestDef {
   // champ se comporte EXACTEMENT comme avant (zéro régression). `name` est ré-affiché tel quel
   // (repli) dans le message d'objets manquants — voir game.quests.missingItems.
   requiresItems?: { itemId: string; qty: number; name: string }[];
+  // ─── Extensions (DLC) — voir ContentPackDef plus bas. undefined = jeu de base (toujours visible).
+  contentPack?: string;
 }
 
 /** Recalcule un id stable `bytes32`-like à partir d'un identifiant texte (ex. "riddle.ice"). */
@@ -1164,8 +1166,8 @@ export function subscribeUnlockedQuestIds(address: string, cb: (ids: Set<string>
  * getCurrentSeason()) — une quête sans `season` reste toujours proposable.
  */
 export async function pickNpcQuestForPlayer(address: string): Promise<QuestDef | null> {
-  const [quests, unlocked, season] = await Promise.all([getQuestDefs(), getUnlockedQuestIds(address), getCurrentSeason()]);
-  const pool = quests.filter(q => q.active && q.npcGiver && !unlocked.has(q.id.toLowerCase()) && (!q.season || q.season === season));
+  const [quests, unlocked, season, packs] = await Promise.all([getQuestDefs(), getUnlockedQuestIds(address), getCurrentSeason(), getContentPackDefs()]);
+  const pool = quests.filter(q => q.active && q.npcGiver && !unlocked.has(q.id.toLowerCase()) && (!q.season || q.season === season) && isContentPackVisible(q.contentPack, packs));
   if (pool.length === 0) return null;
   // Filtre en plus les quêtes déjà résolues (filet de sécurité si `unlockedQuests` a été perdu).
   const notSolved: QuestDef[] = [];
@@ -1455,11 +1457,11 @@ function questFullMoonSatisfied(q: QuestDef, moonFull: boolean, today: Date = ne
 }
 
 export async function computeKingdomProgress(address: string): Promise<KingdomProgress> {
-  const [quests, solved, intermediateCount, moonFull, rules] = await Promise.all([
-    getQuestDefs(), getAllSolvedQuestIds(address), getSolvedIntermediateCount(address), isFullMoonToday(), getRepRules(),
+  const [quests, solved, intermediateCount, moonFull, rules, packs] = await Promise.all([
+    getQuestDefs(), getAllSolvedQuestIds(address), getSolvedIntermediateCount(address), isFullMoonToday(), getRepRules(), getContentPackDefs(),
   ]);
   const kingdomQuests = quests
-    .filter(q => q.active && q.kingdomQuest)
+    .filter(q => q.active && q.kingdomQuest && isContentPackVisible(q.contentPack, packs))
     .sort((a, b) => (a.kingdomOrder ?? Number.MAX_SAFE_INTEGER) - (b.kingdomOrder ?? Number.MAX_SAFE_INTEGER));
 
   const chain: KingdomProgressEntry[] = [];
@@ -1642,6 +1644,8 @@ export interface NpcDef {
   // ─── Positionnement sur la mapmonde/plateforme isométrique — voir QuestDef.mapX/mapY ci-dessus.
   mapX?: number;
   mapY?: number;
+  // ─── Extensions (DLC) — voir ContentPackDef plus bas. undefined = jeu de base (toujours visible).
+  contentPack?: string;
 }
 export interface TreasureDef {
   id: string;            // ex. "treasure.master_sword"
@@ -1666,6 +1670,8 @@ export interface TreasureDef {
     slot?: EquipSlot; rarity?: ItemRarity; damage?: number; defense?: number; durabilityMax?: number;
     requiresArrow?: boolean; requiresFamiliarId?: string;
   };
+  // ─── Extensions (DLC) — voir ContentPackDef plus bas. undefined = jeu de base (toujours visible).
+  contentPack?: string;
 }
 export interface WorldDef {
   id: string;            // ex. "world.zephyria"
@@ -1683,6 +1689,8 @@ export interface WorldDef {
   // travelToWorld ci-dessous). Toujours possible d'y aller à pied sans engin, mais plus long et
   // avec un risque de rencontre nocturne hostile (voir RepRules.travelNightEncounterChancePct).
   vehicleItemId?: string;
+  // ─── Extensions (DLC) — voir ContentPackDef plus bas. undefined = jeu de base (toujours visible).
+  contentPack?: string;
 }
 
 /**
@@ -1734,9 +1742,67 @@ export interface MapPoiDef {
                          // (petite/moyenne/grande) ou des lacs/étangs/mers de gabarits variés sans
                          // changer WORLD_SIZE ni ajouter de nouveaux types. undefined = comportement
                          // historique inchangé (rayon uniforme par type — aucune régression).
+  contentPack?: string;  // voir ContentPackDef ci-dessous — undefined = jeu de base (toujours visible).
 }
 
 export const DEFAULT_MAP_ID = 'map.synk_territory';
+
+// ─── Extensions (DLC) — packs de contenu additionnel (voir demande utilisateur : « prévois cette
+// évolution pour l'extensibilité du jeu (…) une nouvelle histoire, de nouvelles missions, quêtes,
+// énigmes, boss (…) objets ou éléments cosmétiques (…) nouvelles terres, territoires, cartes,
+// mondes ») ──────────────────────────────────────────────────────────────────────────────────
+// Un `ContentPackDef` est un simple conteneur nommé/activable (façon "saison narrative"/DLC) : les
+// quêtes (`QuestDef`), PNJ (`NpcDef`), décors de carte (`MapPoiDef`), mondes (`WorldDef`) et trésors
+// (`TreasureDef`) peuvent référencer un pack via leur champ optionnel `contentPack`. TOUT contenu
+// sans `contentPack` (les 400 Quêtes du Royaume, PNJ officiels, POI, mondes et trésors existants)
+// reste `contentPack: undefined` ⇒ TOUJOURS visible, exactement comme avant : zéro régression. Un
+// pack désactivé (`active: false`) masque instantanément tout le contenu qui lui est rattaché, dans
+// getAllMapMarkers()/pickNpcQuestForPlayer()/computeKingdomProgress, sans supprimer aucune donnée
+// (permet de préparer un DLC en coulisses puis de l'activer d'un coup en admin, ou de le retirer
+// temporairement). Une seule instance de jeu couvre donc le jeu de base + un nombre illimité de
+// packs additionnels, sans dupliquer de code ni de collection Firebase.
+export interface ContentPackDef {
+  id: string;            // ex. "dlc.saison2_ombres_renaissantes"
+  name: string;
+  i18nKey?: string;      // clé i18n (ex. "contentpack.saison2") — voir localizeName()
+  description?: string;  // résumé narratif court affiché en admin (mono-langue, repli)
+  active: boolean;       // false = masqué pour tous les joueurs, sans rien supprimer
+  createdAt: number;
+  order?: number;
+}
+
+/** Crée/modifie un pack de contenu (admin). Aucune transaction blockchain. */
+export async function addContentPackDef(def: ContentPackDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/contentPacks/${RKEY(def.id)}`), def);
+}
+
+export async function removeContentPackDef(id: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/contentPacks/${RKEY(id)}`), null);
+}
+
+export async function getContentPackDefs(): Promise<ContentPackDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/contentPacks'));
+  const v = snap.val() as Record<string, ContentPackDef> | null;
+  return v ? sortDefsByOrder(Object.values(v)) : [];
+}
+
+/** true si ce contenu doit être visible/jouable : jeu de base (`contentPack` non renseigné) =
+ * toujours oui ; sinon dépend du pack correspondant dans `packs` (actif par défaut si le pack a été
+ * supprimé entre-temps — comportement permissif pour ne jamais faire disparaître du contenu par
+ * accident lors d'une simple erreur de configuration). */
+export function isContentPackVisible(contentPack: string | undefined, packs: ContentPackDef[]): boolean {
+  if (!contentPack) return true;
+  const pack = packs.find(p => p.id === contentPack);
+  return pack ? pack.active !== false : true;
+}
 
 /**
  * Position (x, y en %, 0-100) déterministe et STABLE dérivée d'un id texte — sert de repli quand
@@ -2054,23 +2120,24 @@ export interface MapMarker {
 export async function getAllMapMarkers(
   mapId: string = DEFAULT_MAP_ID, season?: Season | null,
 ): Promise<MapMarker[]> {
-  const [pois, worlds, npcs, treasures, familiars, quests] = await Promise.all([
-    getMapPoiDefs(mapId), getWorldDefs(), getNpcDefs(), getTreasureDefs(), getFamiliarDefs(), getQuestDefs(),
+  const [pois, worlds, npcs, treasures, familiars, quests, packs] = await Promise.all([
+    getMapPoiDefs(mapId), getWorldDefs(), getNpcDefs(), getTreasureDefs(), getFamiliarDefs(), getQuestDefs(), getContentPackDefs(),
   ]);
   const markers: MapMarker[] = [];
   for (const p of pois) {
     if (p.season && season !== undefined && p.season !== season) continue; // filtré finement par appelant si besoin (visité)
+    if (!isContentPackVisible(p.contentPack, packs)) continue; // voir ContentPackDef (Extensions/DLC)
     markers.push({ id: p.id, kind: 'poi', name: p.name, icon: p.icon || '📍', x: p.x, y: p.y, poiType: p.type, radius: p.radius });
   }
-  for (const w of worlds.filter(w2 => w2.active !== false)) {
+  for (const w of worlds.filter(w2 => w2.active !== false && isContentPackVisible(w2.contentPack, packs))) {
     const x = w.mapX ?? 50, y = w.mapY ?? 50;
     markers.push({ id: w.id, kind: 'world', name: w.name, i18nKey: w.i18nKey, icon: '🌀', x, y });
   }
-  for (const n of npcs.filter(n2 => n2.active)) {
+  for (const n of npcs.filter(n2 => n2.active && isContentPackVisible(n2.contentPack, packs))) {
     const fp = poiFallbackPos(n.id, 101);
     markers.push({ id: n.id, kind: 'npc', name: n.name, i18nKey: n.i18nKey, icon: '🧙', x: n.mapX ?? fp.x, y: n.mapY ?? fp.y });
   }
-  for (const tr of treasures.filter(t2 => t2.active)) {
+  for (const tr of treasures.filter(t2 => t2.active && isContentPackVisible(t2.contentPack, packs))) {
     const fp = poiFallbackPos(tr.id, 102);
     markers.push({ id: tr.id, kind: 'treasure', name: tr.name, i18nKey: tr.i18nKey, icon: '🎁', x: tr.mapX ?? fp.x, y: tr.mapY ?? fp.y });
   }
@@ -2078,7 +2145,7 @@ export async function getAllMapMarkers(
     const fp = poiFallbackPos(f.id, 103);
     markers.push({ id: f.id, kind: 'familiar', name: f.label, i18nKey: f.i18nKey, icon: '🐾', x: f.mapX ?? fp.x, y: f.mapY ?? fp.y });
   }
-  for (const q of quests.filter(q2 => q2.active && q2.npcGiver)) {
+  for (const q of quests.filter(q2 => q2.active && q2.npcGiver && isContentPackVisible(q2.contentPack, packs))) {
     const fp = poiFallbackPos(q.id, 104);
     markers.push({ id: q.id, kind: 'quest', name: q.label, i18nKey: q.i18nKey, icon: '❓', x: q.mapX ?? fp.x, y: q.mapY ?? fp.y, questCategory: 'npc' });
   }
@@ -2087,7 +2154,7 @@ export async function getAllMapMarkers(
   // demande utilisateur) de réellement filtrer quelque chose. Purement additif : ces marqueurs sont
   // nouveaux, aucune autre logique (npcGiver, déblocage) n'est modifiée. Icône dédiée (📜) pour les
   // distinguer visuellement des quêtes révélées par un PNJ (❓).
-  for (const q of quests.filter(q2 => q2.active && !q2.npcGiver && !q2.kingdomQuest)) {
+  for (const q of quests.filter(q2 => q2.active && !q2.npcGiver && !q2.kingdomQuest && isContentPackVisible(q2.contentPack, packs))) {
     const fp = poiFallbackPos(q.id, 106);
     markers.push({ id: q.id, kind: 'quest', name: q.label, i18nKey: q.i18nKey, icon: '📜', x: q.mapX ?? fp.x, y: q.mapY ?? fp.y, questCategory: 'classic' });
   }
