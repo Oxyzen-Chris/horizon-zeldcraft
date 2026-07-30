@@ -1915,6 +1915,37 @@ export async function setMapFilterDefaults(defaults: Omit<MapFilterDefaults, 'up
   await set(ref(db, 'catalog/mapFilterDefaults'), { ...defaults, updatedAt: Date.now() });
 }
 
+// ─── Navigation de la Mapmonde (clic droit + glisser pour scroller, molette pour zoomer — voir
+// demande utilisateur) — paramétrable en Administration : permet de désactiver l'une ou l'autre
+// fonction, et d'ajuster les bornes/vitesse de zoom ainsi que la sensibilité du glisser. Purement
+// une préférence d'ergonomie (aucun impact sur la logique de jeu : le clic gauche continue de
+// déplacer Synk exactement comme avant, voir WorldMapWidget.tsx::onCanvasClick, inchangé).
+export interface MapNavigationSettings {
+  rightClickPanEnabled: boolean;
+  wheelZoomEnabled: boolean;
+  zoomMin: number;
+  zoomMax: number;
+  zoomStep: number;
+  panSpeed: number;
+  updatedAt: number;
+}
+export const DEFAULT_MAP_NAVIGATION_SETTINGS: MapNavigationSettings = {
+  rightClickPanEnabled: true, wheelZoomEnabled: true, zoomMin: 0.6, zoomMax: 2.6, zoomStep: 0.1, panSpeed: 1, updatedAt: 0,
+};
+export async function getMapNavigationSettings(): Promise<MapNavigationSettings> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_MAP_NAVIGATION_SETTINGS;
+  const snap = await get(ref(db, 'catalog/mapNavigationSettings'));
+  const v = snap.val() as MapNavigationSettings | null;
+  return v ? { ...DEFAULT_MAP_NAVIGATION_SETTINGS, ...v } : DEFAULT_MAP_NAVIGATION_SETTINGS;
+}
+export async function setMapNavigationSettings(settings: Omit<MapNavigationSettings, 'updatedAt'>): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/mapNavigationSettings'), { ...settings, updatedAt: Date.now() });
+}
+
 export interface PlayerMapPos { mapId: string; x: number; y: number; updatedAt: number }
 
 export async function getPlayerMapPos(address: string): Promise<PlayerMapPos | null> {

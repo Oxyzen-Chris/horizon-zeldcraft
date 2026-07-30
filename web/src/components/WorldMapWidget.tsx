@@ -8,7 +8,8 @@ import {
   getOrCreatePlayer, computePlayerDiceBonus, rollD20, applyEffect, getCurrentSeason, RKEY, DEFAULT_MAP_ID,
   getAllMapMarkers, getMapFilterDefaults, KINGDOM_CHAPTERS,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
-  type MapPoiDef, type WorldDef, type RepRules, type Season, type MapMarker,
+  getMapNavigationSettings, DEFAULT_MAP_NAVIGATION_SETTINGS,
+  type MapPoiDef, type WorldDef, type RepRules, type Season, type MapMarker, type MapNavigationSettings,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
@@ -65,6 +66,9 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   const resizeStart = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
   const [zoom, setZoom] = useState(1);
   const canvasRef = useRef<HTMLDivElement>(null);
+  // Zone défilable (overflow-auto) — utilisée pour le glisser (clic droit + déplacement) et pour
+  // recentrer le zoom molette sur la position du curseur (voir onMapWheel/onMapMouseDown ci-dessous).
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const [pois, setPois] = useState<MapPoiDef[]>([]);
   const [worlds, setWorlds] = useState<WorldDef[]>([]);
@@ -93,6 +97,18 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   const [kingdomFilterOpen, setKingdomFilterOpen] = useState(false);
   useEffect(() => {
     getMapFilterDefaults().then(applyAdminMapFilterDefaults).catch(() => {});
+  }, []);
+
+  // Navigation de la carte (clic droit + glisser pour scroller, molette pour zoomer — voir demande
+  // utilisateur) — paramétrable en Administration (voir lib/gameState.ts::MapNavigationSettings).
+  // N'affecte que le confort de navigation : le clic gauche continue de déplacer Synk exactement
+  // comme avant (onCanvasClick, inchangé) — zéro régression de jeu.
+  const [navSettings, setNavSettings] = useState<MapNavigationSettings>(DEFAULT_MAP_NAVIGATION_SETTINGS);
+  const [panning, setPanning] = useState(false);
+  const panRef = useRef<{ startX: number; startY: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const zoomAnchorRef = useRef<{ clientX: number; clientY: number; contentX: number; contentY: number; oldZoom: number } | null>(null);
+  useEffect(() => {
+    getMapNavigationSettings().then(setNavSettings).catch(() => {});
   }, []);
 
   // Refs miroir des états ci-dessus — utilisés dans le scan de découverte (voir runDiscoveryScan)
@@ -275,6 +291,63 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
     moveSynkTo(xPct, yPct);
   };
 
+  // ─── Navigation carte : clic droit + glisser pour scroller, molette pour zoomer ───
+  // Empêche le menu contextuel natif du clic droit uniquement si l'option est active (Administration).
+  const onMapContextMenu = (e: React.MouseEvent) => {
+    if (navSettings.rightClickPanEnabled) e.preventDefault();
+  };
+  const onMapMouseDown = (e: React.MouseEvent) => {
+    if (!navSettings.rightClickPanEnabled || e.button !== 2 || !scrollRef.current) return;
+    e.preventDefault();
+    panRef.current = {
+      startX: e.clientX, startY: e.clientY,
+      scrollLeft: scrollRef.current.scrollLeft, scrollTop: scrollRef.current.scrollTop,
+    };
+    setPanning(true);
+  };
+  // Écouteurs globaux (window) pour continuer/arrêter le glisser même si le curseur quitte la
+  // zone de la carte pendant le déplacement (comportement standard d'un glisser-déposer).
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const p = panRef.current;
+      if (!p || !scrollRef.current) return;
+      scrollRef.current.scrollLeft = p.scrollLeft - (e.clientX - p.startX) * navSettings.panSpeed;
+      scrollRef.current.scrollTop = p.scrollTop - (e.clientY - p.startY) * navSettings.panSpeed;
+    };
+    const onUp = () => {
+      if (panRef.current) { panRef.current = null; setPanning(false); }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [navSettings.panSpeed]);
+  // Molette : zoome/dézoome en recentrant sur la position du curseur (voir effet ci-dessous, qui
+  // ajuste le scroll une fois le nouveau `zoom` appliqué) — n'affecte pas les boutons 🔍-/🔍+.
+  const onMapWheel = (e: React.WheelEvent) => {
+    if (!navSettings.wheelZoomEnabled || !scrollRef.current) return;
+    e.preventDefault();
+    const rect = scrollRef.current.getBoundingClientRect();
+    const clientX = e.clientX - rect.left, clientY = e.clientY - rect.top;
+    zoomAnchorRef.current = {
+      clientX, clientY,
+      contentX: clientX + scrollRef.current.scrollLeft, contentY: clientY + scrollRef.current.scrollTop,
+      oldZoom: zoom,
+    };
+    const delta = e.deltaY < 0 ? navSettings.zoomStep : -navSettings.zoomStep;
+    setZoom(z2 => Math.max(navSettings.zoomMin, Math.min(navSettings.zoomMax, +(z2 + delta).toFixed(2))));
+  };
+  useEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    if (!anchor || !scrollRef.current) return;
+    const ratio = zoom / anchor.oldZoom;
+    scrollRef.current.scrollLeft = anchor.contentX * ratio - anchor.clientX;
+    scrollRef.current.scrollTop = anchor.contentY * ratio - anchor.clientY;
+    zoomAnchorRef.current = null;
+  }, [zoom]);
+
   // ─── Voyage vers un monde ───
   const instantTravel = async (w: WorldDef, vehicleName: string) => {
     await discoverWorldOffchain(address!, w);
@@ -454,10 +527,18 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
         </div>
       )}
 
-      {/* Zone défilable/zoomable de la carte — style vieux parchemin */}
-      <div className="relative flex-1 overflow-auto rounded-b-xl" style={{
-        background: 'radial-gradient(ellipse at 30% 20%, #e8d3a0 0%, #d8bd82 35%, #c4a465 65%, #a9884f 100%)',
-      }}>
+      {/* Zone défilable/zoomable de la carte — style vieux parchemin. Clic droit + glisser pour
+          scroller dans toutes les directions, molette pour zoomer/dézoomer (paramétrable en
+          Administration → « Navigation de la carte », voir MapNavigationSettings). */}
+      <div
+        ref={scrollRef}
+        onContextMenu={onMapContextMenu}
+        onMouseDown={onMapMouseDown}
+        onWheel={onMapWheel}
+        className={`relative flex-1 overflow-auto rounded-b-xl ${panning ? 'cursor-grabbing select-none' : ''}`}
+        style={{
+          background: 'radial-gradient(ellipse at 30% 20%, #e8d3a0 0%, #d8bd82 35%, #c4a465 65%, #a9884f 100%)',
+        }}>
         <div
           ref={canvasRef}
           onClick={onCanvasClick}
