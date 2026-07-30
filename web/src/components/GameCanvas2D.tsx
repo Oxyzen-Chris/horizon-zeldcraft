@@ -69,6 +69,28 @@ function findNearestGrassTile(wc: number, wr: number, poiPoints: { x: number; y:
   return null;
 }
 
+/** Calcule le pourcentage de Fatigue à retirer au prochain palier de décroissance, en tenant
+ * compte de la pondération "moins d'énergie" (RepRules::fatigueLowStats*) : Synk se fatigue un peu
+ * plus vite en se déplaçant quand sa Vie, sa Faim, sa Force OU son Oxygène sont sous
+ * `fatigueLowStatsThresholdPct` (% de leur plafond respectif) — chaque statistique basse ajoute
+ * `fatigueLowStatsExtraDrainPerStat` au drain de base `fatigueDrainPct`, le tout plafonné à
+ * `fatigueLowStatsMaxExtraPct` pour que la pénalité reste toujours raisonnable. */
+function computeFatigueDrainPct(rules: RepRules, player: PlayerState | null): number {
+  const base = Math.max(0, rules.fatigueDrainPct ?? 2);
+  if (!player || rules.fatigueLowStatsPenaltyEnabled === false) return base;
+  const thresholdPct = rules.fatigueLowStatsThresholdPct ?? 30;
+  const pctOf = (v: number | undefined, max: number | undefined) =>
+    Math.max(0, Math.min(100, ((v ?? 0) / (max || 100)) * 100));
+  let lowCount = 0;
+  if (pctOf(player.hp, player.hpMax) < thresholdPct) lowCount++;
+  if (pctOf(player.hunger, player.hungerMax) < thresholdPct) lowCount++;
+  if (pctOf(player.force, player.forceMax) < thresholdPct) lowCount++;
+  if (pctOf(player.oxygen, player.oxygenMax) < thresholdPct) lowCount++;
+  const extraPerStat = Math.max(0, rules.fatigueLowStatsExtraDrainPerStat ?? 1);
+  const maxExtra = Math.max(0, rules.fatigueLowStatsMaxExtraPct ?? 4);
+  return base + Math.min(lowCount * extraPerStat, maxExtra);
+}
+
 /**
  * Plateforme de jeu 2D en vue isométrique — fenêtre widget permanente, redimensionnable (glisser
  * le coin ⤡). Conçue comme le SOCLE ÉVOLUTIF de gestion des déplacements/rencontres/décor de Synk,
@@ -160,6 +182,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const moveStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fatigueIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fatigueRecoverIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // `fatigueFainting` = évanouissement d'épuisement en cours (compteur de blocage, comme `fainting`
+  // pour l'oxygène mais SÉPARÉ : perte de Vie uniquement, pas de XP/objet, pas de téléportation —
+  // l'épuisement est lié au mouvement, pas au terrain). `fatigueFaintResult` = résumé de la perte de
+  // Vie affiché une fois Synk réveillé (pop-up désactivable via RepRules::fatigueFaintResultPopupEnabled).
+  const [fatigueFainting, setFatigueFainting] = useState<{ remaining: number } | null>(null);
+  const [fatigueFaintResult, setFatigueFaintResult] = useState<{ hp: number } | null>(null);
+  const fatigueFaintIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fatigueFaintingRef = useRef(false); // anti double-déclenchement pendant qu'un évanouissement d'épuisement est déjà en cours
 
   const [biasLabel, setBiasLabel] = useState<string>('');
   // Tous les marqueurs de la mapmonde (décor/terrain, mondes, PNJ, trésors, familiers, quêtes PNJ —
@@ -358,7 +388,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   }, [address]);
 
   const move = useCallback((dx: number, dy: number) => {
-    if (faintingRef.current) return; // Synk évanoui : déplacement bloqué (voir mécanique Oxygène)
+    if (faintingRef.current || fatigueFaintingRef.current) return; // Synk évanoui (noyade OU épuisement) : déplacement bloqué
     const cur = worldPosRef.current;
     moveTo(cur.x + dx * STEP_PCT, cur.y + dy * STEP_PCT);
   }, [moveTo]);
@@ -371,7 +401,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // on applique la pénalité (oxygène/XP/Force) et on relance un décompte complet.
   useEffect(() => {
     if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; }
-    if ((currentTerrain !== 'water' && currentTerrain !== 'rock') || !address || !rules || fainting) {
+    if ((currentTerrain !== 'water' && currentTerrain !== 'rock') || !address || !rules || fainting || fatigueFainting) {
       setOxygenTimer(null);
       return;
     }
@@ -392,7 +422,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       });
     }, 1000);
     return () => { if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; } };
-  }, [currentTerrain, address, rules, fainting]);
+  }, [currentTerrain, address, rules, fainting, fatigueFainting]);
 
   // ─── Récupération d'oxygène sur la terre ferme ────────────────────────────────────────────────
   // Dès que Synk se retrouve sur une dalle de terre (verte), restaure l'oxygène par palier de
@@ -402,7 +432,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // faire. S'arrête automatiquement dès que le maximum est atteint ou si Synk quitte la terre ferme.
   useEffect(() => {
     if (oxygenRecoverIntervalRef.current) { clearInterval(oxygenRecoverIntervalRef.current); oxygenRecoverIntervalRef.current = null; }
-    if (currentTerrain !== 'grass' || !address || !rules || fainting) {
+    if (currentTerrain !== 'grass' || !address || !rules || fainting || fatigueFainting) {
       setOxygenRecovering(false);
       return;
     }
@@ -426,16 +456,18 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       applyEffect(address, { oxygen: Math.min(pct, oxyMax - oxy) }).catch(() => {});
     }, intervalSec * 1000);
     return () => { if (oxygenRecoverIntervalRef.current) { clearInterval(oxygenRecoverIntervalRef.current); oxygenRecoverIntervalRef.current = null; } };
-  }, [currentTerrain, address, rules, fainting]);
+  }, [currentTerrain, address, rules, fainting, fatigueFainting]);
 
   // ─── Décroissance de fatigue en mouvement continu ─────────────────────────────────────────────
   // Tant que Synk enchaîne les déplacements sans pause d'au moins `fatigueStopGraceSec` (voir
   // `isMoving` ci-dessus), un décompte de `fatigueDrainIntervalSec` (défaut 3 s) tourne en continu ;
-  // à chaque palier atteint tant que `isMoving` reste vrai, on applique la perte de Fatigue et on
-  // relance un décompte complet. Désactivable entièrement via `rules.fatigueEnabled` (Administration).
+  // à chaque palier atteint tant que `isMoving` reste vrai, on applique la perte de Fatigue (voir
+  // `computeFatigueDrainPct` ci-dessus : la perte de base `fatigueDrainPct` est pondérée à la hausse
+  // quand Vie/Faim/Force/Oxygène sont bas — moins d'énergie, fatigue plus rapide) et on relance un
+  // décompte complet. Désactivable entièrement via `rules.fatigueEnabled` (Administration).
   useEffect(() => {
     if (fatigueIntervalRef.current) { clearInterval(fatigueIntervalRef.current); fatigueIntervalRef.current = null; }
-    if (!isMoving || !address || !rules || fainting || rules.fatigueEnabled === false) {
+    if (!isMoving || !address || !rules || fainting || fatigueFainting || rules.fatigueEnabled === false) {
       setFatigueTimer(null);
       return;
     }
@@ -445,14 +477,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       setFatigueTimer((prev) => {
         if (prev === null) return prev;
         if (prev <= 1) {
-          applyEffect(address, { fatigue: -(rules.fatigueDrainPct ?? 2) }).catch(() => {});
+          applyEffect(address, { fatigue: -computeFatigueDrainPct(rules, playerRef.current) }).catch(() => {});
           return intervalSec;
         }
         return prev - 1;
       });
     }, 1000);
     return () => { if (fatigueIntervalRef.current) { clearInterval(fatigueIntervalRef.current); fatigueIntervalRef.current = null; } };
-  }, [isMoving, address, rules, fainting]);
+  }, [isMoving, address, rules, fainting, fatigueFainting]);
 
   // ─── Récupération de fatigue à l'arrêt/ralenti ─────────────────────────────────────────────────
   // Dès que Synk ralentit ou s'arrête (`isMoving` devient faux), restaure la Fatigue par palier de
@@ -461,7 +493,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // relancer l'intervalle à chaque palier.
   useEffect(() => {
     if (fatigueRecoverIntervalRef.current) { clearInterval(fatigueRecoverIntervalRef.current); fatigueRecoverIntervalRef.current = null; }
-    if (isMoving || !address || !rules || fainting || rules.fatigueEnabled === false) {
+    if (isMoving || !address || !rules || fainting || fatigueFainting || rules.fatigueEnabled === false) {
       setFatigueRecovering(false);
       return;
     }
@@ -485,7 +517,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       applyEffect(address, { fatigue: Math.min(pct, fatMax - fat) }).catch(() => {});
     }, intervalSec * 1000);
     return () => { if (fatigueRecoverIntervalRef.current) { clearInterval(fatigueRecoverIntervalRef.current); fatigueRecoverIntervalRef.current = null; } };
-  }, [isMoving, address, rules, fainting]);
+  }, [isMoving, address, rules, fainting, fatigueFainting]);
 
 
   // ─── Évanouissement par manque d'oxygène ──────────────────────────────────────────────────────
@@ -497,7 +529,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     if (!address || !rules || !player) return;
     const threshold = rules.oxygenFaintThresholdPct ?? 20;
     if ((player.oxygen ?? 100) > threshold) return;
-    if (faintingRef.current) return;
+    if (faintingRef.current || fatigueFaintingRef.current) return; // pas deux évanouissements en même temps
     faintingRef.current = true;
     if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; }
     setOxygenTimer(null);
@@ -549,6 +581,61 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     return () => { if (faintIntervalRef.current) { clearInterval(faintIntervalRef.current); faintIntervalRef.current = null; } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!fainting]);
+
+  // ─── Évanouissement par épuisement (manque de Fatigue) ────────────────────────────────────────
+  // Déclenché dès que la Fatigue (mise à jour en temps réel via subscribePlayer) passe sous le
+  // seuil `fatigueFaintThresholdPct` (défaut 10 %). Contrairement à l'évanouissement par noyade, ne
+  // retire QUE de la Vie (pas de XP ni d'objet, pas de téléportation — l'épuisement est lié au
+  // mouvement, pas au terrain) : bloque l'interface `fatigueFaintDurationSec` secondes (défaut 50,
+  // comme SleepModal), puis restaure la Fatigue à 100 % (voir finishFatigueFainting ci-dessous).
+  useEffect(() => {
+    if (!address || !rules || !player || rules.fatigueEnabled === false) return;
+    const threshold = rules.fatigueFaintThresholdPct ?? 10;
+    if ((player.fatigue ?? 100) > threshold) return;
+    if (fatigueFaintingRef.current || faintingRef.current) return; // pas deux évanouissements en même temps
+    fatigueFaintingRef.current = true;
+    if (fatigueIntervalRef.current) { clearInterval(fatigueIntervalRef.current); fatigueIntervalRef.current = null; }
+    if (fatigueRecoverIntervalRef.current) { clearInterval(fatigueRecoverIntervalRef.current); fatigueRecoverIntervalRef.current = null; }
+    setFatigueTimer(null);
+    setFatigueRecovering(false);
+    const durationSec = Math.max(1, Math.round(rules.fatigueFaintDurationSec ?? 50));
+    setFatigueFainting({ remaining: durationSec });
+    const hpLoss = Math.max(0, Math.round(rules.fatigueFaintHpLoss ?? 30));
+    (async () => {
+      await applyEffect(address, { hp: -hpLoss }).catch(() => {});
+      if (rules.fatigueFaintResultPopupEnabled !== false) setFatigueFaintResult({ hp: hpLoss });
+    })();
+  }, [address, rules, player]);
+
+  // Restaure la Fatigue à 100 % — appelé une seule fois, à la fin du compte à rebours d'évanouissement
+  // par épuisement (voir effet suivant). Passe par `finishFatigueFaintingRef` pour toujours utiliser
+  // la version la plus à jour de la fonction sans avoir à relancer l'intervalle à chaque rendu.
+  const finishFatigueFainting = useCallback(async () => {
+    try {
+      if (!address) return;
+      const fresh = await getOrCreatePlayer(address);
+      const missing = Math.max(0, (fresh.fatigueMax ?? 100) - (fresh.fatigue ?? 0));
+      if (missing > 0) await applyEffect(address, { fatigue: missing }).catch(() => {});
+    } finally {
+      fatigueFaintingRef.current = false;
+    }
+  }, [address]);
+  const finishFatigueFaintingRef = useRef(finishFatigueFainting);
+  useEffect(() => { finishFatigueFaintingRef.current = finishFatigueFainting; }, [finishFatigueFainting]);
+
+  // Compte à rebours de l'évanouissement par épuisement en cours, puis appelle finishFatigueFainting() à échéance.
+  useEffect(() => {
+    if (!fatigueFainting) return;
+    fatigueFaintIntervalRef.current = setInterval(() => {
+      setFatigueFainting((prev) => {
+        if (!prev) return prev;
+        if (prev.remaining <= 1) { finishFatigueFaintingRef.current(); return null; }
+        return { remaining: prev.remaining - 1 };
+      });
+    }, 1000);
+    return () => { if (fatigueFaintIntervalRef.current) { clearInterval(fatigueFaintIntervalRef.current); fatigueFaintIntervalRef.current = null; } };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!fatigueFainting]);
 
 
   // ─── Clic sur un marqueur (PNJ, familier/dragon, trésor, quête, monde, hutte) ───
@@ -747,9 +834,10 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // l'oxygène qui restent en bas à droite). Masqués entièrement si `fatigueEnabled` est désactivé
   // par l'admin.
   const fatiguePct = Math.max(0, Math.min(100, ((player?.fatigue ?? 100) / (player?.fatigueMax ?? 100)) * 100));
+  const fatigueFaintDurationSec = Math.max(1, Math.round(rules?.fatigueFaintDurationSec ?? 50));
   const fatigueUi = rules?.fatigueEnabled === false ? null : (
     <>
-      {fatigueTimer !== null && !fainting && (
+      {fatigueTimer !== null && !fainting && !fatigueFainting && (
         <div className="fixed bottom-24 left-4 z-[90] bg-slate-900/95 border-2 border-amber-500 rounded-xl px-4 py-3 shadow-xl text-center w-40 pointer-events-none">
           <p className="text-2xl animate-pulse">⏳</p>
           <p className="text-lg font-mono text-amber-300">{fatigueTimer}s</p>
@@ -760,7 +848,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           <p className="text-[10px] text-slate-500 mt-1">🥵 {Math.round(player?.fatigue ?? 100)}/{player?.fatigueMax ?? 100}</p>
         </div>
       )}
-      {fatigueRecovering && !fainting && (
+      {fatigueRecovering && !fainting && !fatigueFainting && (
         <div className="fixed bottom-24 left-4 z-[90] bg-slate-900/95 border-2 border-emerald-500 rounded-xl px-4 py-3 shadow-xl text-center w-40 pointer-events-none">
           <p className="text-2xl animate-pulse">💤</p>
           <p className="text-[10px] text-slate-400 mt-1">{t('fatigue.recovery.title')}</p>
@@ -768,6 +856,35 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
             <div className="bg-emerald-400 h-2 rounded-full transition-all" style={{ width: `${fatiguePct}%` }} />
           </div>
           <p className="text-[10px] text-slate-500 mt-1">🥵 {Math.round(player?.fatigue ?? 100)}/{player?.fatigueMax ?? 100}</p>
+        </div>
+      )}
+      {fatigueFainting && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-4">
+          <div className="bg-slate-900 border-2 border-amber-500 rounded-xl p-8 max-w-md w-full text-center">
+            <div className="text-7xl mb-4 animate-pulse">🥱</div>
+            <h3 className="text-2xl font-bold text-amber-300 mb-2">{t('fatigue.faint.title')}</h3>
+            <p className="text-sm text-slate-400 mb-6">{t('fatigue.faint.description')}</p>
+            <div className="bg-slate-800/60 rounded-lg p-4 mb-4">
+              <p className="text-5xl font-mono text-amber-300">{fatigueFainting.remaining}s</p>
+              <div className="w-full bg-slate-700 rounded-full h-2 mt-3">
+                <div className="bg-amber-500 h-2 rounded-full transition-all" style={{ width: `${((fatigueFaintDurationSec - fatigueFainting.remaining) / fatigueFaintDurationSec) * 100}%` }} />
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">{t('fatigue.faint.hint')}</p>
+          </div>
+        </div>
+      )}
+      {fatigueFaintResult && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4" onClick={() => setFatigueFaintResult(null)}>
+          <div className="bg-slate-900 border-2 border-amber-500 rounded-xl p-6 max-w-sm w-full text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="text-5xl mb-3">😪</div>
+            <h3 className="text-lg font-bold text-amber-300 mb-3">{t('fatigue.faintResult.title')}</h3>
+            <p className="text-sm text-rose-300">❤️ -{fatigueFaintResult.hp} {t('game.stats.hp')}</p>
+            <p className="text-xs text-slate-400 mt-2">{t('fatigue.faintResult.message', { hp: fatigueFaintResult.hp })}</p>
+            <button className="mt-4 w-full bg-amber-700 hover:bg-amber-600 text-white rounded-lg py-2 text-sm" onClick={() => setFatigueFaintResult(null)}>
+              {t('fatigue.faintResult.close')}
+            </button>
+          </div>
         </div>
       )}
     </>

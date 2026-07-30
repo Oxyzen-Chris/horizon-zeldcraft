@@ -2468,6 +2468,28 @@ export interface RepRules {
   fatigueStopGraceSec: number;       // Délai (s) sans déplacement avant de considérer Synk arrêté/ralenti (défaut 1.5)
   fatigueRecoveryIntervalSec: number; // Intervalle (s) de récupération à l'arrêt (défaut 1)
   fatigueRecoveryPct: number;         // % de fatigue regagné par intervalle à l'arrêt (défaut 20)
+  // ─── Pondération "moins d'énergie" de la décroissance de Fatigue (voir GameCanvas2D.tsx) —
+  // quand Synk se déplace alors que sa Vie, sa Faim, sa Force OU son Oxygène sont sous
+  // `fatigueLowStatsThresholdPct` (% de leur plafond respectif), il se fatigue un peu plus vite :
+  // chaque statistique basse ajoute `fatigueLowStatsExtraDrainPerStat` au pourcentage de Fatigue
+  // perdu à chaque palier (en plus de `fatigueDrainPct`), plafonné au total à
+  // `fatigueLowStatsMaxExtraPct` pour que la pénalité reste toujours raisonnable (au plus +4% par
+  // défaut, même si les 4 statistiques sont basses en même temps). Désactivable indépendamment de
+  // la mécanique de Fatigue globale.
+  fatigueLowStatsPenaltyEnabled: boolean;    // Active/désactive cette pondération (défaut true)
+  fatigueLowStatsThresholdPct: number;       // Seuil (%) sous lequel Vie/Faim/Force/Oxygène comptent comme "bas" (défaut 30)
+  fatigueLowStatsExtraDrainPerStat: number;  // % de Fatigue supplémentaire perdu par statistique basse (défaut 1)
+  fatigueLowStatsMaxExtraPct: number;        // Plafond du cumul de cette pénalité, toutes statistiques basses confondues (défaut 4)
+  // ─── Épuisement par manque de Fatigue (voir GameCanvas2D.tsx) — quand la Fatigue passe sous
+  // `fatigueFaintThresholdPct`, Synk s'évanouit d'épuisement : interface bloquée pendant
+  // `fatigueFaintDurationSec` (comme l'évanouissement par manque d'oxygène), `fatigueFaintHpLoss`
+  // points de Vie retirés immédiatement, puis la Fatigue est restaurée à 100% une fois le décompte
+  // écoulé. `fatigueFaintResultPopupEnabled` permet de désactiver spécifiquement le pop-up
+  // d'information affiché au réveil ("Synk a perdu X points de vie").
+  fatigueFaintThresholdPct: number;        // Seuil de Fatigue déclenchant l'évanouissement d'épuisement (défaut 10)
+  fatigueFaintDurationSec: number;         // Durée du blocage / récupération à 100% (défaut 50)
+  fatigueFaintHpLoss: number;              // Vie perdue lors de l'évanouissement d'épuisement (défaut 30)
+  fatigueFaintResultPopupEnabled: boolean; // Affiche le pop-up d'information des pertes au réveil (défaut true)
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
   kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
                                          // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
@@ -2571,6 +2593,14 @@ export const DEFAULT_REP_RULES: RepRules = {
   fatigueStopGraceSec: 1.5,
   fatigueRecoveryIntervalSec: 1,
   fatigueRecoveryPct: 20,
+  fatigueLowStatsPenaltyEnabled: true,
+  fatigueLowStatsThresholdPct: 30,
+  fatigueLowStatsExtraDrainPerStat: 1,
+  fatigueLowStatsMaxExtraPct: 4,
+  fatigueFaintThresholdPct: 10,
+  fatigueFaintDurationSec: 50,
+  fatigueFaintHpLoss: 30,
+  fatigueFaintResultPopupEnabled: true,
   kingdomMinIntermediateSolved: 3,
 };
 

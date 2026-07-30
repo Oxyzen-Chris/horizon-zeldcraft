@@ -180,6 +180,18 @@ export function RepRulesPanel() {
     { key: 'fatigueRecoveryPct',         labelKey: 'admin.repRules.fatigueRecoveryPct' },
   ];
 
+  const fatigueLowStatsFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'fatigueLowStatsThresholdPct',      labelKey: 'admin.repRules.fatigueLowStatsThresholdPct' },
+    { key: 'fatigueLowStatsExtraDrainPerStat', labelKey: 'admin.repRules.fatigueLowStatsExtraDrainPerStat' },
+    { key: 'fatigueLowStatsMaxExtraPct',       labelKey: 'admin.repRules.fatigueLowStatsMaxExtraPct' },
+  ];
+
+  const fatigueFaintFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'fatigueFaintThresholdPct', labelKey: 'admin.repRules.fatigueFaintThresholdPct' },
+    { key: 'fatigueFaintDurationSec',  labelKey: 'admin.repRules.fatigueFaintDurationSec' },
+    { key: 'fatigueFaintHpLoss',       labelKey: 'admin.repRules.fatigueFaintHpLoss' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -317,6 +329,45 @@ export function RepRulesPanel() {
                 onChange={e => f.key === 'fatigueStopGraceSec' ? setFloat(f.key, e.target.value) : set(f.key, e.target.value)} />
             </label>
           ))}
+        </div>
+        <div className="mt-4 pt-3 border-t border-slate-700/60">
+          <h4 className="text-xs font-semibold mb-1 text-slate-300">⚖️ {t('admin.repRules.fatigueLowStatsTitle')}</h4>
+          <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.fatigueLowStatsDescription')}</p>
+          <label className="flex items-center gap-2 text-sm mb-3">
+            <input type="checkbox" checked={rules.fatigueLowStatsPenaltyEnabled !== false}
+              disabled={rules.fatigueEnabled === false}
+              onChange={e => setBool('fatigueLowStatsPenaltyEnabled', e.target.checked)} />
+            <span className="text-slate-300">{t('admin.repRules.fatigueLowStatsPenaltyEnabled')}</span>
+          </label>
+          <div className="grid md:grid-cols-2 gap-3">
+            {fatigueLowStatsFields.map(f => (
+              <label key={f.key} className="text-sm">
+                <span className="text-slate-300">{t(f.labelKey)}</span>
+                <input type="number" className="input mt-1 w-full"
+                  disabled={rules.fatigueEnabled === false || rules.fatigueLowStatsPenaltyEnabled === false}
+                  value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 pt-3 border-t border-slate-700/60">
+          <h4 className="text-xs font-semibold mb-1 text-slate-300">🥱 {t('admin.repRules.fatigueFaintTitle')}</h4>
+          <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.fatigueFaintDescription')}</p>
+          <div className="grid md:grid-cols-2 gap-3">
+            {fatigueFaintFields.map(f => (
+              <label key={f.key} className="text-sm">
+                <span className="text-slate-300">{t(f.labelKey)}</span>
+                <input type="number" className="input mt-1 w-full" disabled={rules.fatigueEnabled === false}
+                  value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+              </label>
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-sm mt-3">
+            <input type="checkbox" checked={rules.fatigueFaintResultPopupEnabled !== false}
+              disabled={rules.fatigueEnabled === false}
+              onChange={e => setBool('fatigueFaintResultPopupEnabled', e.target.checked)} />
+            <span className="text-slate-300">{t('admin.repRules.fatigueFaintResultPopupEnabled')}</span>
+          </label>
         </div>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
