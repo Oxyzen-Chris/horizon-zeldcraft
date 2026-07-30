@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { HORIZON_ABI, WEATHER, WEATHER_KEYS } from '@/lib/contract';
 import { useI18n } from '@/lib/i18n';
+import { getCurrentSeason, seasonalWeatherIndex, type Season } from '@/lib/gameState';
 
 export function WeatherWidget({ contract }: { contract: `0x${string}` }) {
   const { t } = useI18n();
@@ -14,7 +16,16 @@ export function WeatherWidget({ contract }: { contract: `0x${string}` }) {
     address: contract, abi: HORIZON_ABI, functionName: 'difficulty',
     query: { enabled: !!contract, refetchInterval: 30000 },
   });
-  const idx = Number(w ?? 0);
+  // Saison courante utilisée uniquement pour corriger l'incohérence "Neigeux" hors hiver — voir
+  // seasonalWeatherIndex() dans gameState.ts (la valeur brute on-chain n'est jamais modifiée).
+  const [season, setSeason] = useState<Season | null>(null);
+  useEffect(() => {
+    const refresh = () => getCurrentSeason().then(setSeason).catch(() => {});
+    refresh();
+    const id = setInterval(refresh, 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const idx = seasonalWeatherIndex(Number(w ?? 0), season ?? 'summer');
   const emoji = WEATHER[idx]?.emoji ?? '☀️';
   const key = WEATHER_KEYS[idx] ?? 'sunny';
   return (

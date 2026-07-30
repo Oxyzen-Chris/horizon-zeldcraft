@@ -2147,6 +2147,27 @@ export async function getCurrentSeason(): Promise<Season> {
   return computeAutoSeason();
 }
 
+/**
+ * Corrige l'incohérence saisonnière de la météo du smart contract (`currentWeather`, index WEATHER
+ * 0-5 dans contract.ts) : la météo on-chain est purement aléatoire et peut donc afficher "Neigeux"
+ * (index 5) en plein été, ce qui n'est pas cohérent. Cette fonction PURE (aucun accès réseau, aucune
+ * écriture on-chain — la valeur brute stockée sur la chaîne n'est jamais modifiée) recalcule
+ * uniquement l'index à AFFICHER (et à utiliser pour le calcul d'humeur, voir computeHappinessDelta)
+ * en dehors de l'hiver : remplace "Neigeux" par une météo plausible pour la saison en cours, choisie
+ * de façon déterministe (aucun flicker aléatoire à chaque re-render) à partir du jour de l'année.
+ * En hiver, l'index brut est toujours restitué tel quel (la neige y est toujours cohérente).
+ * L'exception "neige de haute montagne" (>2000m, voir RepRules.mountainSnowAltitudeM et
+ * worldTerrain.ts::Tile.altitudeM) est gérée séparément par GameCanvas2D (décor de dalle, pas la
+ * météo globale) et n'a donc pas besoin d'intervenir ici. */
+export function seasonalWeatherIndex(rawIdx: number, season: Season, date: Date = new Date()): number {
+  const SNOWY_IDX = 5;
+  if (rawIdx !== SNOWY_IDX || season === 'winter') return rawIdx;
+  const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 86_400_000);
+  const pick = (options: number[]) => options[dayOfYear % options.length];
+  if (season === 'summer') return pick([0, 0, 3]); // majoritairement ensoleillé, parfois orageux
+  return pick([1, 2, 2]); // printemps/automne : majoritairement pluvieux/nuageux
+}
+
 // ─────────────────────────────────────── Player index ───────────────────────────────────────
 
 /** Liste tous les joueurs enregistrés (pour dropdown admin). */

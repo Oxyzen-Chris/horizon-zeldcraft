@@ -41,7 +41,8 @@ import { SleepModal } from '@/components/SleepModal';
 import { useI18n } from '@/lib/i18n';
 import {
   getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, getPlayerActivityStats,
-  computeMoodHappiness, type PlayerState, type RepRules, type PlayerActivityStats,
+  computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex,
+  type PlayerState, type RepRules, type PlayerActivityStats, type Season,
 } from '@/lib/gameState';
 
 export default function GamePage() {
@@ -229,8 +230,19 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     address: contract, abi: HORIZON_ABI, functionName: 'currentWeather',
     query: { enabled: !!contract, refetchInterval: 30000 },
   });
-  const weatherKey = WEATHER_KEYS[Number(weatherRaw ?? 0)] ?? 'sunny';
-  const weatherEmoji = WEATHER[Number(weatherRaw ?? 0)]?.emoji ?? '☀️';
+  // Saison courante utilisée uniquement pour corriger l'incohérence "Neigeux" hors hiver — voir
+  // seasonalWeatherIndex() dans gameState.ts (la valeur brute on-chain n'est jamais modifiée, et le
+  // calcul d'humeur ci-dessous reste cohérent avec la météo réellement affichée au joueur).
+  const [weatherSeason, setWeatherSeason] = useState<Season | null>(null);
+  useEffect(() => {
+    const refresh = () => getCurrentSeason().then(setWeatherSeason).catch(() => {});
+    refresh();
+    const id = setInterval(refresh, 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const weatherIdx = seasonalWeatherIndex(Number(weatherRaw ?? 0), weatherSeason ?? 'summer');
+  const weatherKey = WEATHER_KEYS[weatherIdx] ?? 'sunny';
+  const weatherEmoji = WEATHER[weatherIdx]?.emoji ?? '☀️';
 
   // Récupère les cooldowns configurés on-chain pour chaque type de repas
   const cooldowns = FEED_TYPES.map((_, idx) => {

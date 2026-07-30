@@ -9,7 +9,8 @@ import { useI18n } from '@/lib/i18n';
 import { useIdsList } from './useIdsList';
 import {
   listPlayers, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
-  computeMoodHappiness, type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules,
+  computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex,
+  type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules, type Season,
 } from '@/lib/gameState';
 
 const ETHERSCAN_TX: Record<number, string> = {
@@ -106,8 +107,18 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     address: contract, abi: HORIZON_ABI, functionName: 'currentWeather',
     query: { enabled: !!contract, refetchInterval: 30000 },
   });
-  const weatherKey = WEATHER_KEYS[Number(weatherRaw ?? 0)] ?? 'sunny';
-  const weatherEmoji = WEATHER[Number(weatherRaw ?? 0)]?.emoji ?? '☀️';
+  // Saison courante utilisée uniquement pour corriger l'incohérence "Neigeux" hors hiver — voir
+  // seasonalWeatherIndex() dans gameState.ts (la valeur brute on-chain n'est jamais modifiée).
+  const [season, setSeason] = useState<Season | null>(null);
+  useEffect(() => {
+    const refresh = () => getCurrentSeason().then(setSeason).catch(() => {});
+    refresh();
+    const id = setInterval(refresh, 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const weatherIdx = seasonalWeatherIndex(Number(weatherRaw ?? 0), season ?? 'summer');
+  const weatherKey = WEATHER_KEYS[weatherIdx] ?? 'sunny';
+  const weatherEmoji = WEATHER[weatherIdx]?.emoji ?? '☀️';
 
   const { data: tokenId } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'voxlynOf',
