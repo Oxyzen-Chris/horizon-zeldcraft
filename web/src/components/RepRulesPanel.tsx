@@ -21,8 +21,19 @@ export function RepRulesPanel() {
     setRules(prev => ({ ...prev, [k]: isNaN(n) ? 0 : n }));
   };
 
+  /** Champs numériques décimaux (ex. fatigueStopGraceSec = 1.5 s) — parseFloat au lieu de parseInt. */
+  const setFloat = (k: keyof RepRules, v: string) => {
+    const n = parseFloat(v);
+    setRules(prev => ({ ...prev, [k]: isNaN(n) ? 0 : n }));
+  };
+
   /** Champs texte (montants ETH lisibles, ex. "0.00296") — pas de parseInt, valeur brute conservée. */
   const setText = (k: keyof RepRules, v: string) => {
+    setRules(prev => ({ ...prev, [k]: v }));
+  };
+
+  /** Interrupteurs on/off (ex. fatigueEnabled) — valeur booléenne conservée telle quelle. */
+  const setBool = (k: keyof RepRules, v: boolean) => {
     setRules(prev => ({ ...prev, [k]: v }));
   };
 
@@ -155,6 +166,14 @@ export function RepRulesPanel() {
     { key: 'kingdomMinIntermediateSolved', labelKey: 'admin.repRules.kingdomMinIntermediateSolved' },
   ];
 
+  const fatigueFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'fatigueDrainIntervalSec',    labelKey: 'admin.repRules.fatigueDrainIntervalSec' },
+    { key: 'fatigueDrainPct',            labelKey: 'admin.repRules.fatigueDrainPct' },
+    { key: 'fatigueStopGraceSec',        labelKey: 'admin.repRules.fatigueStopGraceSec' },
+    { key: 'fatigueRecoveryIntervalSec', labelKey: 'admin.repRules.fatigueRecoveryIntervalSec' },
+    { key: 'fatigueRecoveryPct',         labelKey: 'admin.repRules.fatigueRecoveryPct' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -164,7 +183,7 @@ export function RepRulesPanel() {
           <label key={f.key} className="text-sm">
             <span className="text-slate-300">{t(f.labelKey)}</span>
             <input type="number" className="input mt-1 w-full"
-              value={rules[f.key]} onChange={e => set(f.key, e.target.value)} />
+              value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
           </label>
         ))}
       </div>
@@ -257,6 +276,25 @@ export function RepRulesPanel() {
               <span className="text-slate-300">{t(f.labelKey)}</span>
               <input type="number" className="input mt-1 w-full"
                 value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🥵 {t('admin.repRules.fatigueTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.fatigueDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.fatigueEnabled !== false}
+            onChange={e => setBool('fatigueEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.fatigueEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3">
+          {fatigueFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" step="0.1" className="input mt-1 w-full" disabled={rules.fatigueEnabled === false}
+                value={rules[f.key] as number}
+                onChange={e => f.key === 'fatigueStopGraceSec' ? setFloat(f.key, e.target.value) : set(f.key, e.target.value)} />
             </label>
           ))}
         </div>

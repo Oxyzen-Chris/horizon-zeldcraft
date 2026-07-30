@@ -16,6 +16,7 @@ export interface StatsWidgetProps {
   force: number; forceMax: number;
   spells: number; spellsMax: number;
   oxygen: number; oxygenMax: number;
+  fatigue: number; fatigueMax: number;
   wallet: number; reputation: number;
 }
 
@@ -114,6 +115,7 @@ export function StatsWidget(props: StatsWidgetProps) {
         <Bar label={t('game.stats.force')}     value={props.force}     max={props.forceMax}      color="bg-red-500" />
         <Bar label={t('game.stats.spells')}    value={props.spells}    max={props.spellsMax}     color="bg-indigo-500" />
         <Bar label={t('game.stats.oxygen')}    value={props.oxygen}    max={props.oxygenMax}     color="bg-sky-500" />
+        <Bar label={t('game.stats.fatigue')}   value={props.fatigue}   max={props.fatigueMax}    color="bg-amber-500" />
         <div className="flex justify-between text-xs mt-3 pt-3 border-t border-slate-700">
           <span>💰 <b className="text-amber-400">{props.wallet}</b></span>
           <span>⭐ <b className={props.reputation >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{props.reputation}</b></span>

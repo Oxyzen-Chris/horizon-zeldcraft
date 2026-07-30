@@ -57,6 +57,9 @@ export interface PlayerState {
   spellsMax: number;
   oxygen: number;          // niveau d'oxygène (0-100) — décroît sur les dalles d'eau (voir GameCanvas2D.tsx)
   oxygenMax: number;       // plafond (100 par défaut)
+  fatigue: number;         // niveau de fatigue (0-100) — décroît en cas de déplacement continu, remonte à
+                           // l'arrêt (voir GameCanvas2D.tsx / RepRules.fatigue*), paramétrable en Administration
+  fatigueMax: number;      // plafond (100 par défaut)
   reputation: number;      // positif = notoriété (rencontres bienveillantes), négatif = mauvaise réputation (combats perdus, vol)
   wallet: number;
   xpBonus?: number;        // XP off-chain accumulé (peut être négatif après un troc coûteux)
@@ -232,6 +235,7 @@ export async function getOrCreatePlayer(address: string, displayName?: string): 
     force: 10, forceMax: 100,
     spells: 5, spellsMax: 100,
     oxygen: 100, oxygenMax: 100,
+    fatigue: 100, fatigueMax: 100,
     reputation: 0, wallet: 100,
     score: 0,
     lastTick: now, createdAt: now, updatedAt: now,
@@ -351,6 +355,7 @@ export async function applyEffect(address: string, delta: Partial<PlayerState> &
   const hungerMax    = cur.hungerMax    ?? 100;
   const happinessMax = cur.happinessMax ?? 100;
   const oxygenMax    = cur.oxygenMax    ?? 100;
+  const fatigueMax   = cur.fatigueMax   ?? 100;
   const clamped: PlayerState = {
     ...cur,
     hp:         clamp((cur.hp        ?? 100) + (delta.hp        ?? 0), 0, hpMax),
@@ -365,6 +370,8 @@ export async function applyEffect(address: string, delta: Partial<PlayerState> &
     spellsMax,
     oxygen:     clamp((cur.oxygen    ?? 100) + (delta.oxygen    ?? 0), 0, oxygenMax),
     oxygenMax,
+    fatigue:    clamp((cur.fatigue   ?? 100) + (delta.fatigue   ?? 0), 0, fatigueMax),
+    fatigueMax,
     reputation: (cur.reputation ?? 0) + (delta.reputation ?? 0),
     wallet:     Math.max(0, (cur.wallet ?? 100) + (delta.wallet ?? 0)),
     xpBonus:    (cur.xpBonus ?? 0) + (delta.xpBonus ?? 0),
@@ -2399,6 +2406,22 @@ export interface RepRules {
   oxygenFaintHpLoss: number;       // Vie perdue lors de l'évanouissement (défaut 10)
   oxygenRecoveryIntervalSec: number; // Intervalle (s) de récupération sur la terre ferme (défaut 1)
   oxygenRecoveryPct: number;         // % d'oxygène regagné par intervalle sur la terre ferme (défaut 10)
+  // ─── Fatigue liée aux déplacements (voir GameCanvas2D.tsx) — la jauge "Fatigue" (Statistiques)
+  // décroît par intervalles tant que Synk reste en mouvement CONTINU (flèches, pavé directionnel,
+  // clic sur la Plateforme 2D isométrique OU sur la Mapmonde — les deux widgets partagent la même
+  // position, voir players/{addr}/mapPos) sans marquer de pause d'au moins `fatigueStopGraceSec`
+  // secondes. Un petit pop-up non bloquant "État de fatigue" (sablier + jauge + décompte numérique)
+  // reste affiché en bas à gauche pendant ce temps. Dès que Synk ralentit ou s'arrête (aucun nouveau
+  // déplacement pendant `fatigueStopGraceSec`), la Fatigue se restaure par palier de
+  // `fatigueRecoveryPct` toutes les `fatigueRecoveryIntervalSec` jusqu'à 100 %, avec un pop-up non
+  // bloquant "Récupération de la fatigue" (barre de progression). `fatigueEnabled` permet de
+  // désactiver entièrement la mécanique depuis le menu Administration.
+  fatigueEnabled: boolean;           // Active/désactive toute la mécanique de Fatigue (défaut true)
+  fatigueDrainIntervalSec: number;   // Intervalle (s) de décroissance en mouvement continu (défaut 3)
+  fatigueDrainPct: number;           // % de fatigue perdu par intervalle en mouvement (défaut 2)
+  fatigueStopGraceSec: number;       // Délai (s) sans déplacement avant de considérer Synk arrêté/ralenti (défaut 1.5)
+  fatigueRecoveryIntervalSec: number; // Intervalle (s) de récupération à l'arrêt (défaut 1)
+  fatigueRecoveryPct: number;         // % de fatigue regagné par intervalle à l'arrêt (défaut 20)
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
   kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
                                          // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
@@ -2493,6 +2516,12 @@ export const DEFAULT_REP_RULES: RepRules = {
   oxygenFaintHpLoss: 10,
   oxygenRecoveryIntervalSec: 1,
   oxygenRecoveryPct: 10,
+  fatigueEnabled: true,
+  fatigueDrainIntervalSec: 3,
+  fatigueDrainPct: 2,
+  fatigueStopGraceSec: 1.5,
+  fatigueRecoveryIntervalSec: 1,
+  fatigueRecoveryPct: 20,
   kingdomMinIntermediateSolved: 3,
 };
 

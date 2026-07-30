@@ -332,6 +332,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         <Stat label={t('game.stats.force')}     value={player?.force  ?? 10} max={player?.forceMax    ?? 100} color="bg-red-500" />
         <Stat label={t('game.stats.spells')}    value={player?.spells ?? 5}  max={player?.spellsMax   ?? 100} color="bg-indigo-500" />
         <Stat label={t('game.stats.oxygen')}    value={player?.oxygen ?? 100} max={player?.oxygenMax  ?? 100} color="bg-sky-500" />
+        <Stat label={t('game.stats.fatigue')}   value={player?.fatigue ?? 100} max={player?.fatigueMax ?? 100} color="bg-amber-500" />
         <div className="flex justify-between text-sm mt-3 pt-3 border-t border-slate-700">
           <span>💰 {t('game.stats.wallet')} : <b className="text-amber-400">{player?.wallet ?? 0}</b></span>
           <span>⭐ {t('game.stats.reputation')} : <b className={((player?.reputation ?? 0) >= 0) ? 'text-emerald-400' : 'text-rose-400'}>{player?.reputation ?? 0}</b></span>
@@ -446,6 +447,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         force={player?.force ?? 10} forceMax={player?.forceMax ?? 100}
         spells={player?.spells ?? 5} spellsMax={player?.spellsMax ?? 100}
         oxygen={player?.oxygen ?? 100} oxygenMax={player?.oxygenMax ?? 100}
+        fatigue={player?.fatigue ?? 100} fatigueMax={player?.fatigueMax ?? 100}
         wallet={player?.wallet ?? 0} reputation={player?.reputation ?? 0}
       />
       {/* Fenêtre flottante et déplaçable "Quêtes du Royaume" — 400 énigmes, 40 chapitres, fil
