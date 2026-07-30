@@ -8,8 +8,9 @@ import {
   getOrCreatePlayer, computePlayerDiceBonus, rollD20, applyEffect, getCurrentSeason, RKEY, DEFAULT_MAP_ID,
   getAllMapMarkers, getMapFilterDefaults, KINGDOM_CHAPTERS,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
+  getZorghonEncounter, subscribeZorghonEncounter,
   getMapNavigationSettings, DEFAULT_MAP_NAVIGATION_SETTINGS,
-  type MapPoiDef, type WorldDef, type RepRules, type Season, type MapMarker, type MapNavigationSettings,
+  type MapPoiDef, type WorldDef, type RepRules, type Season, type MapMarker, type MapNavigationSettings, type ZorghonEncounterState,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
@@ -84,6 +85,11 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   // Marqueur unique de la Quête du Royaume en cours (👑, voir getKingdomQuestMarker) — fusionné
   // avec entityMarkers au rendu ci-dessous, sans modifier getAllMapMarkers() (zéro régression).
   const [kingdomMarker, setKingdomMarker] = useState<MapMarker | null>(null);
+  // État de la traque de Zorghon (voir RepRules::zorghon*, gameState.ts) — purement affiché ici
+  // (survol = nom), la logique de proximité/relocalisation/délivrance vit dans GameCanvas2D.tsx
+  // (seule source de vérité pour la position réelle de Synk) ; ce widget se contente de refléter en
+  // temps réel la position courante de Zorghon/de ses prisonniers.
+  const [zorghonEncounter, setZorghonEncounter] = useState<ZorghonEncounterState | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
   const [travelConfirm, setTravelConfirm] = useState<WorldDef | null>(null);
@@ -153,6 +159,23 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
     // Royaume affichée ici avance automatiquement — voir subscribeSolvedQuestIds.
     return subscribeSolvedQuestIds(address, refreshKingdomMarker);
   }, [address]);
+  useEffect(() => {
+    if (!address) { setZorghonEncounter(null); return; }
+    const refreshZorghon = () => getZorghonEncounter(address).then(s => { if (s) setZorghonEncounter(s); }).catch(() => {});
+    refreshZorghon();
+    const unsubProgress = subscribeSolvedQuestIds(address, refreshZorghon);
+    const unsubLive = subscribeZorghonEncounter(address, s => { if (s) setZorghonEncounter(s); });
+    return () => { unsubProgress(); unsubLive(); };
+  }, [address]);
+  // Marqueurs synthétiques Zorghon/prisonniers (voir zorghonEncounter ci-dessus), fusionnés au
+  // rendu ci-dessous exactement comme kingdomMarker — jamais écrits dans getAllMapMarkers().
+  const zorghonMarkers = useMemo<MapMarker[]>(() => {
+    if (!zorghonEncounter || zorghonEncounter.rescued) return [];
+    return [
+      { id: 'zorghon.boss', kind: 'zorghon', name: t('zorghon.marker.zorghon'), icon: '👹', x: zorghonEncounter.zorghonX, y: zorghonEncounter.zorghonY },
+      { id: 'zorghon.captives', kind: 'captive', name: t('zorghon.marker.captives'), icon: '🧝‍♀️', x: zorghonEncounter.captiveX, y: zorghonEncounter.captiveY },
+    ];
+  }, [zorghonEncounter, t]);
   useEffect(() => {
     if (!address) { setUnlockedWorlds(new Set()); return; }
     // Abonnement temps réel : un monde découvert depuis PoiInteractionModal (plateforme
@@ -590,7 +613,7 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
               léger effet pulsant pour bien la distinguer des marqueurs classiques. Filtré par
               catégorie (PNJ/trésors/familiers/quêtes classiques-PNJ-Royaume) selon les boutons de
               filtre — voir markerMatchesFilters(). */}
-          {[...entityMarkers, ...(kingdomMarker ? [kingdomMarker] : [])].filter(m => markerMatchesFilters(m, mapFilters)).map(m => (
+          {[...entityMarkers, ...(kingdomMarker ? [kingdomMarker] : []), ...zorghonMarkers].filter(m => markerMatchesFilters(m, mapFilters)).map(m => (
             <div key={`${m.kind}-${m.id}`} title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
               className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none ${m.isKingdom ? 'animate-pulse' : ''}`}
               style={{ left: `${m.x}%`, top: `${m.y}%` }}>

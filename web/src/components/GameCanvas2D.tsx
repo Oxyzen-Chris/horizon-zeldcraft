@@ -6,7 +6,8 @@ import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
   getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem, subscribeInventory,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
-  type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
+  getZorghonEncounter, subscribeZorghonEncounter, relocateZorghonCaptives, rescuePocaPoka,
+  type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem, type ZorghonEncounterState,
 } from '@/lib/gameState';
 import {
   TERRAIN_COLOR, PROP_ICON, TERRAIN_I18N_KEY, PROP_I18N_KEY, worldTileAt, clamp100, WORLD_SIZE, hashRand,
@@ -217,6 +218,20 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const fatigueFaintIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fatigueFaintingRef = useRef(false); // anti double-déclenchement pendant qu'un évanouissement d'épuisement est déjà en cours
 
+  // ─── Traque de Zorghon, PocaPoka & El Pipo (voir RepRules::zorghon*, gameState.ts) ────────────
+  // `zorghonEncounter` = état courant (position de Zorghon/des prisonniers, nb de relocalisations,
+  // délivré ou non), abonné en temps réel pour rester synchronisé avec WorldMapWidget.tsx.
+  // `zorghonNotice` = petit bandeau non bloquant affiché quelques secondes lors d'une relocalisation
+  // (« Zorghon a senti Synk approcher… »). `zorghonRescueResult` = pop-up de célébration affiché une
+  // fois PocaPoka et El Pipo délivrés (XP gagnée), fermé manuellement par le joueur.
+  const [zorghonEncounter, setZorghonEncounter] = useState<ZorghonEncounterState | null>(null);
+  const [zorghonNotice, setZorghonNotice] = useState<string | null>(null);
+  const [zorghonRescueResult, setZorghonRescueResult] = useState<{ xp: number } | null>(null);
+  const zorghonEncounterRef = useRef(zorghonEncounter);
+  useEffect(() => { zorghonEncounterRef.current = zorghonEncounter; }, [zorghonEncounter]);
+  const zorghonNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const zorghonRescuingRef = useRef(false); // anti double-déclenchement pendant l'appel rescuePocaPoka()
+
   const [biasLabel, setBiasLabel] = useState<string>('');
   // Tous les marqueurs de la mapmonde (décor/terrain, mondes, PNJ, trésors, familiers, quêtes PNJ —
   // voir gameState.ts::getAllMapMarkers), positionnés IDENTIQUEMENT à WorldMapWidget.tsx (même
@@ -284,6 +299,20 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     const refreshKingdomMarker = () => getKingdomQuestMarker(address).then(setKingdomMarker).catch(() => {});
     refreshKingdomMarker();
     return subscribeSolvedQuestIds(address, refreshKingdomMarker);
+  }, [address]);
+
+  // Traque de Zorghon (voir déclaration d'état plus haut) : (ré)essaie de créer paresseusement
+  // l'état dès qu'une quête est résolue (le seuil zorghonAppearKingdomSolvedCount peut alors venir
+  // d'être atteint — même principe que kingdomMarker ci-dessus) ET reste abonné en temps réel au
+  // nœud Firebase pour refléter instantanément une relocalisation/délivrance déclenchée depuis un
+  // autre widget (WorldMapWidget.tsx) ou un autre onglet.
+  useEffect(() => {
+    if (!address) { setZorghonEncounter(null); return; }
+    const refreshZorghon = () => getZorghonEncounter(address).then(s => { if (s) setZorghonEncounter(s); }).catch(() => {});
+    refreshZorghon();
+    const unsubProgress = subscribeSolvedQuestIds(address, refreshZorghon);
+    const unsubLive = subscribeZorghonEncounter(address, s => { if (s) setZorghonEncounter(s); });
+    return () => { unsubProgress(); unsubLive(); };
   }, [address]);
 
   // Attribue au PNJ errant et au Dragon errant une véritable entrée du catalogue (dès que les
@@ -356,19 +385,31 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
 
   const grid = useMemo(() => buildViewportGrid(origin.col, origin.row, poiPoints), [origin, poiPoints]);
 
+  // Marqueurs de la traque de Zorghon (voir zorghonEncounter ci-dessus) — purement synthétiques
+  // (jamais écrits dans getAllMapMarkers()/`markers`), fusionnés à visibleMarkers exactement comme
+  // kingdomMarker ci-dessous ; absents dès que la mécanique est indisponible ou déjà résolue.
+  const zorghonMarkers = useMemo<MapMarker[]>(() => {
+    if (!zorghonEncounter || zorghonEncounter.rescued) return [];
+    return [
+      { id: 'zorghon.boss', kind: 'zorghon', name: t('zorghon.marker.zorghon'), icon: '👹', x: zorghonEncounter.zorghonX, y: zorghonEncounter.zorghonY },
+      { id: 'zorghon.captives', kind: 'captive', name: t('zorghon.marker.captives'), icon: '🧝‍♀️', x: zorghonEncounter.captiveX, y: zorghonEncounter.captiveY },
+    ];
+  }, [zorghonEncounter, t]);
+
   // Marqueurs visibles dans la fenêtre de caméra actuelle (COLSxROWS), convertis en cellule locale —
   // c'est ce qui « repositionne tous les POI de la mapmonde sur la plateforme 2D isométrique ».
-  // Inclut le marqueur 👑 Quête du Royaume (kingdomMarker) en plus des marqueurs du catalogue.
+  // Inclut le marqueur 👑 Quête du Royaume (kingdomMarker) et les marqueurs Zorghon/prisonniers en
+  // plus des marqueurs du catalogue.
   const visibleMarkers = useMemo(() => {
     const out: (MapMarker & { col: number; row: number })[] = [];
-    const all = kingdomMarker ? [...markers, kingdomMarker] : markers;
+    const all = kingdomMarker ? [...markers, kingdomMarker, ...zorghonMarkers] : [...markers, ...zorghonMarkers];
     for (const m of all) {
       const wc = Math.round(m.x), wr = Math.round(m.y);
       const col = wc - origin.col, row = wr - origin.row;
       if (col >= 0 && col < COLS && row >= 0 && row < ROWS) out.push({ ...m, col, row });
     }
     return out;
-  }, [markers, kingdomMarker, origin]);
+  }, [markers, kingdomMarker, zorghonMarkers, origin]);
 
   // Filtres d'affichage par catégorie (boutons de WorldMapWidget.tsx, voir lib/mapFilters.ts) —
   // se synchronise EN TEMPS RÉEL avec la Mapmonde (même état partagé, portée module). Appliqué
@@ -695,6 +736,55 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!fatigueFainting]);
 
+  // ─── Vérification périodique de proximité avec Zorghon (voir RepRules::zorghonCheckIntervalSec)
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  // Tant que Zorghon est présent sur la carte (zorghonEncounter non nul) et pas encore délivré,
+  // recalcule à intervalle régulier la distance entre Synk et Zorghon (coordonnées mapmonde en %,
+  // lues depuis worldPosRef pour ne jamais relancer l'intervalle à chaque déplacement — même
+  // principe que les intervalles Oxygène/Fatigue ci-dessus). En-deçà de `zorghonProximityPct`, tire
+  // une chance de relocalisation (`zorghonRelocationChancePct`) : si elle réussit, un petit bandeau
+  // non bloquant prévient le joueur (voir zorghonUi plus bas).
+  useEffect(() => {
+    if (!address || !rules?.zorghonEnabled) return;
+    const intervalMs = Math.max(1000, Math.round((rules.zorghonCheckIntervalSec ?? 20) * 1000));
+    const iv = setInterval(() => {
+      const enc = zorghonEncounterRef.current;
+      if (!enc || enc.rescued) return;
+      const cur = worldPosRef.current;
+      const dist = Math.hypot(enc.zorghonX - cur.x, enc.zorghonY - cur.y);
+      if (dist > (rules.zorghonProximityPct ?? 12)) return;
+      if (Math.random() * 100 > (rules.zorghonRelocationChancePct ?? 35)) return;
+      relocateZorghonCaptives(address).then(({ state, relocated }) => {
+        if (state) setZorghonEncounter(state);
+        if (relocated) {
+          if (zorghonNoticeTimerRef.current) clearTimeout(zorghonNoticeTimerRef.current);
+          setZorghonNotice(t('zorghon.notice.relocated'));
+          zorghonNoticeTimerRef.current = setTimeout(() => setZorghonNotice(null), 6000);
+        }
+      }).catch(() => {});
+    }, intervalMs);
+    return () => clearInterval(iv);
+  }, [address, rules?.zorghonEnabled, rules?.zorghonCheckIntervalSec, rules?.zorghonProximityPct, rules?.zorghonRelocationChancePct, t]);
+
+  // ─── Délivrance de PocaPoka & El Pipo à l'arrivée sur leur case (voir rescuePocaPoka) ──────────
+  // Même seuil d'adjacence (≤ 1 cellule) que les autres interactions de proximité de ce widget.
+  useEffect(() => {
+    if (!address) return;
+    const enc = zorghonEncounter;
+    if (!enc || enc.rescued || zorghonRescuingRef.current) return;
+    const dist = Math.max(Math.abs(Math.round(enc.captiveX) - worldCol), Math.abs(Math.round(enc.captiveY) - worldRow));
+    if (dist > 1) return;
+    zorghonRescuingRef.current = true;
+    rescuePocaPoka(address).then((result) => {
+      if (result === 'rescued') {
+        setZorghonEncounter(prev => prev ? { ...prev, rescued: true } : prev);
+        setZorghonRescueResult({ xp: rules?.zorghonRescueXpReward ?? 2000 });
+      }
+    }).catch(() => {}).finally(() => { zorghonRescuingRef.current = false; });
+  }, [address, zorghonEncounter, worldCol, worldRow, rules?.zorghonRescueXpReward]);
+
+  useEffect(() => () => { if (zorghonNoticeTimerRef.current) clearTimeout(zorghonNoticeTimerRef.current); }, []);
+
 
   // ─── Clic sur un marqueur (PNJ, familier/dragon, trésor, quête, monde, hutte) ───
   // Si Synk est déjà sur sa case ou une case adjacente (distance ≤ 1 cellule) : ouvre le pop-up
@@ -953,6 +1043,32 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     </>
   );
 
+  // ─── Éléments d'interface de la traque de Zorghon (voir effets dédiés plus haut) ───────────────
+  // Bandeau non bloquant en haut de l'écran (zone encore libre : oxygène=bas-droite,
+  // fatigue=bas-gauche) lors d'une relocalisation, + pop-up de célébration modal à la délivrance.
+  const zorghonUi = (
+    <>
+      {zorghonNotice && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[90] bg-rose-950/95 border-2 border-rose-500 rounded-xl px-4 py-2 shadow-xl text-center pointer-events-none">
+          <p className="text-sm text-rose-200">👹 {zorghonNotice}</p>
+        </div>
+      )}
+      {zorghonRescueResult && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" onClick={() => setZorghonRescueResult(null)}>
+          <div className="bg-slate-900 border-2 border-amber-400 rounded-xl p-6 max-w-sm w-full text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="text-6xl mb-3">🎉</div>
+            <h3 className="text-lg font-bold text-amber-300 mb-2">{t('zorghon.rescue.title')}</h3>
+            <p className="text-sm text-slate-300 mb-3">{t('zorghon.rescue.message')}</p>
+            <p className="text-sm text-emerald-300">✨ +{zorghonRescueResult.xp} XP</p>
+            <button className="mt-4 w-full bg-amber-700 hover:bg-amber-600 text-white rounded-lg py-2 text-sm" onClick={() => setZorghonRescueResult(null)}>
+              {t('zorghon.rescue.close')}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   if (!pos) return null;
 
   if (collapsed) {
@@ -969,6 +1085,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
         {oxygenUi}
         {fatigueUi}
         {islandBlockedUi}
+        {zorghonUi}
       </>
     );
   }
@@ -1144,6 +1261,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       {oxygenUi}
       {fatigueUi}
       {islandBlockedUi}
+      {zorghonUi}
     </div>
   );
 }

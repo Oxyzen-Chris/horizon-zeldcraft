@@ -202,6 +202,14 @@ export function RepRulesPanel() {
     { key: 'waterDepthMaxM', labelKey: 'admin.repRules.waterDepthMaxM' },
   ];
 
+  const zorghonFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'zorghonAppearKingdomSolvedCount', labelKey: 'admin.repRules.zorghonAppearKingdomSolvedCount' },
+    { key: 'zorghonProximityPct',             labelKey: 'admin.repRules.zorghonProximityPct' },
+    { key: 'zorghonRelocationChancePct',      labelKey: 'admin.repRules.zorghonRelocationChancePct' },
+    { key: 'zorghonCheckIntervalSec',         labelKey: 'admin.repRules.zorghonCheckIntervalSec' },
+    { key: 'zorghonRescueXpReward',           labelKey: 'admin.repRules.zorghonRescueXpReward' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -445,6 +453,24 @@ export function RepRulesPanel() {
             <label key={f.key} className="text-sm">
               <span className="text-slate-300">{t(f.labelKey)}</span>
               <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">👹 {t('admin.repRules.zorghonTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.zorghonDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.zorghonEnabled !== false}
+            onChange={e => setBool('zorghonEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.zorghonEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3">
+          {zorghonFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full" disabled={rules.zorghonEnabled === false}
                 value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
             </label>
           ))}

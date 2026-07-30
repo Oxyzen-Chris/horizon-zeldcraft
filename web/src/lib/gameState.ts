@@ -1477,6 +1477,125 @@ export async function getKingdomQuestMarker(address: string): Promise<MapMarker 
   };
 }
 
+// ─────────────────────────────── Zorghon, PocaPoka & El Pipo ───────────────────────────────────
+// Mécanique narrative de fin de saison (voir RepRules::zorghon*) : une fois
+// `zorghonAppearKingdomSolvedCount` Quêtes du Royaume résolues, Zorghon le maléfique et ses deux
+// prisonniers (PocaPoka + El Pipo, matérialisés par un seul marqueur "captive") apparaissent
+// quelque part sur la carte (îles comprises). Tant que Synk reste à distance de
+// `zorghonProximityPct`, rien ne se passe ; en-deçà, Zorghon a `zorghonRelocationChancePct` % de
+// chance, à chaque vérification périodique (voir GameCanvas2D.tsx), de déplacer ses prisonniers
+// ailleurs. Atteindre la case des prisonniers déclenche `rescuePocaPoka` (délivrance + XP), qui
+// clôt la traque pour la saison en cours. État persistant par joueur (players/{addr}/zorghonEncounter)
+// pour survivre aux rechargements de page, indépendant de la Quête du Royaume finale elle-même (le
+// combat de boss proprement dit reste un développement futur — v1 = traque + délivrance).
+export interface ZorghonEncounterState {
+  zorghonX: number; zorghonY: number;   // position (fixe pour la saison) de Zorghon
+  captiveX: number; captiveY: number;   // position courante de PocaPoka & El Pipo
+  relocations: number;                  // nb de fois où Zorghon a déjà déplacé ses prisonniers
+  rescued: boolean;                     // true une fois la délivrance effectuée
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Types de POI considérés comme "terre ferme" (jamais l'eau profonde) pour tirer une position
+ * plausible de Zorghon/ses prisonniers — inclut les îles (accessibles via Engin, voir
+ * RepRules::islandVehicleRequired) pour respecter la demande "n'importe où sur la carte ou une des
+ * nombreuses îles". */
+const ZORGHON_LAND_POI_TYPES: MapPoiType[] = [
+  'plain', 'forest', 'village_ally', 'village_enemy', 'path', 'bridge', 'tavern', 'stable', 'hut',
+  'beach', 'island',
+];
+
+async function randomZorghonSpot(): Promise<{ x: number; y: number }> {
+  const pois = (await getMapPoiDefs(DEFAULT_MAP_ID)).filter(p => p.active && ZORGHON_LAND_POI_TYPES.includes(p.type));
+  if (pois.length) {
+    const pick = pois[Math.floor(Math.random() * pois.length)];
+    const jitterX = Math.round((Math.random() * 8 - 4) * 10) / 10;
+    const jitterY = Math.round((Math.random() * 8 - 4) * 10) / 10;
+    return { x: clamp(pick.x + jitterX, 2, 98), y: clamp(pick.y + jitterY, 2, 98) };
+  }
+  // Repli si le catalogue de POI est vide (nouvelle carte fraîchement créée) : position aléatoire
+  // sur la moitié "terre" habituelle (loin des bordures mer/océan, voir worldTerrain.ts).
+  return { x: 20 + Math.random() * 60, y: 20 + Math.random() * 60 };
+}
+
+/**
+ * Récupère (en le créant paresseusement au premier appel) l'état de la traque de Zorghon pour ce
+ * joueur — retourne `null` tant que la mécanique est désactivée (RepRules::zorghonEnabled) ou que
+ * le seuil de Quêtes du Royaume résolues (zorghonAppearKingdomSolvedCount) n'est pas atteint.
+ */
+export async function getZorghonEncounter(address: string): Promise<ZorghonEncounterState | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+  const rules = await getRepRules();
+  if (!rules.zorghonEnabled) return null;
+  const progress = await computeKingdomProgress(address);
+  if (progress.solvedCount < (rules.zorghonAppearKingdomSolvedCount ?? 6)) return null;
+  const path = `players/${KEY(address)}/zorghonEncounter`;
+  const snap = await get(ref(db, path));
+  let state = snap.val() as ZorghonEncounterState | null;
+  if (!state) {
+    const z = await randomZorghonSpot();
+    const c = await randomZorghonSpot();
+    state = { zorghonX: z.x, zorghonY: z.y, captiveX: c.x, captiveY: c.y, relocations: 0, rescued: false, createdAt: Date.now(), updatedAt: Date.now() };
+    await ensureAnonSignIn();
+    await set(ref(db, path), state);
+  }
+  return state;
+}
+
+/** Écoute temps réel de la traque de Zorghon (voir getZorghonEncounter) — synchronise instantanément
+ * WorldMapWidget.tsx et GameCanvas2D.tsx dès qu'une relocalisation ou une délivrance survient. */
+export function subscribeZorghonEncounter(address: string, cb: (s: ZorghonEncounterState | null) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(null); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/zorghonEncounter`);
+  const handler = (snap: DataSnapshot) => cb(snap.exists() ? snap.val() as ZorghonEncounterState : null);
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/**
+ * Zorghon "sent" Synk trop proche (voir RepRules::zorghonProximityPct, vérification périodique dans
+ * GameCanvas2D.tsx) : tire une chance de relocalisation (zorghonRelocationChancePct) et, si elle
+ * réussit, déplace PocaPoka & El Pipo ailleurs. Ne fait rien si déjà délivrés ou état inexistant.
+ * Retourne le nouvel état (ou l'état inchangé si la relocalisation n'a pas eu lieu / était inutile).
+ */
+export async function relocateZorghonCaptives(address: string): Promise<{ state: ZorghonEncounterState | null; relocated: boolean }> {
+  const db = getFirebaseDb();
+  if (!db) return { state: null, relocated: false };
+  const path = `players/${KEY(address)}/zorghonEncounter`;
+  const snap = await get(ref(db, path));
+  const state = snap.val() as ZorghonEncounterState | null;
+  if (!state || state.rescued) return { state, relocated: false };
+  const c = await randomZorghonSpot();
+  const updated: ZorghonEncounterState = {
+    ...state, captiveX: c.x, captiveY: c.y, relocations: (state.relocations ?? 0) + 1, updatedAt: Date.now(),
+  };
+  await ensureAnonSignIn();
+  await set(ref(db, path), updated);
+  return { state: updated, relocated: true };
+}
+
+/**
+ * Délivrance de PocaPoka et El Pipo (Synk a atteint leur case) — octroie l'XP de récompense
+ * (RepRules::zorghonRescueXpReward) et fige `rescued: true` (idempotent : un second appel ne
+ * ré-octroie pas l'XP). Retourne 'rescued' la première fois, 'already' sinon.
+ */
+export async function rescuePocaPoka(address: string): Promise<'rescued' | 'already'> {
+  const db = getFirebaseDb();
+  if (!db) return 'already';
+  const path = `players/${KEY(address)}/zorghonEncounter`;
+  const snap = await get(ref(db, path));
+  const state = snap.val() as ZorghonEncounterState | null;
+  if (!state || state.rescued) return 'already';
+  const rules = await getRepRules();
+  await applyEffect(address, { xpBonus: rules.zorghonRescueXpReward ?? 2000 });
+  await ensureAnonSignIn();
+  await update(ref(db, path), { rescued: true, updatedAt: Date.now() });
+  return 'rescued';
+}
+
 // ─────────────────────── PNJ officiels / Trésors / Mondes (100% hors-chaîne) ───────────────────────
 // Reprend en Firebase le même principe que les Quêtes ci-dessus : le contrat Solidity n'expose,
 // pour les PNJ/trésors/mondes « officiels », que des fonctions de CRÉATION (`addNpc`/`addTreasure`/
@@ -1877,8 +1996,11 @@ export async function getMapPoiDefs(mapId?: string): Promise<MapPoiDef[]> {
   return mapId ? all.filter(p => p.mapId === mapId) : all;
 }
 
-/** Catégorie d'un marqueur localisé sur la mapmonde/plateforme isométrique — voir MapMarker. */
-export type MapMarkerKind = 'poi' | 'world' | 'npc' | 'treasure' | 'familiar' | 'quest';
+/** Catégorie d'un marqueur localisé sur la mapmonde/plateforme isométrique — voir MapMarker.
+ * 'zorghon'/'captive' : marqueurs narratifs uniques (voir ZorghonEncounterState ci-dessous),
+ * purement visuels (non "interactable" dans le sens PoiInteractionModal — voir onMarkerClick de
+ * GameCanvas2D.tsx), fusionnés au rendu comme kingdomMarker (aucun ajout à getAllMapMarkers()). */
+export type MapMarkerKind = 'poi' | 'world' | 'npc' | 'treasure' | 'familiar' | 'quest' | 'zorghon' | 'captive';
 
 /**
  * Marqueur unifié positionné sur la carte : regroupe les décors/terrain (MapPoiDef), les portes de
@@ -2569,6 +2691,20 @@ export interface RepRules {
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
   kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
                                          // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
+  // ─── Zorghon le Maléfique, PocaPoka & El Pipo (voir ZorghonEncounterState, getZorghonEncounter,
+  // relocateZorghonCaptives, rescuePocaPoka ci-dessous + GameCanvas2D.tsx pour la vérification
+  // périodique de proximité) — Zorghon et ses prisonniers n'apparaissent sur la carte qu'une fois
+  // suffisamment de Quêtes du Royaume résolues ; tant que Synk s'approche trop de Zorghon, ce
+  // dernier a une chance de déplacer PocaPoka et El Pipo ailleurs sur la carte/les îles.
+  zorghonEnabled: boolean;               // Active/désactive toute la mécanique (défaut true)
+  zorghonAppearKingdomSolvedCount: number; // Nb de Quêtes du Royaume résolues nécessaire à l'apparition
+                                            // de Zorghon et de ses prisonniers (défaut 6)
+  zorghonProximityPct: number;           // Distance (en % de carte) en-deçà de laquelle Zorghon "sent"
+                                          // Synk et peut relocaliser ses prisonniers (défaut 12)
+  zorghonRelocationChancePct: number;    // Probabilité (%) de relocalisation à chaque vérification de
+                                         // proximité déclenchée (défaut 35)
+  zorghonCheckIntervalSec: number;      // Fréquence de vérification de la proximité, en secondes (défaut 20)
+  zorghonRescueXpReward: number;        // XP octroyée à la délivrance de PocaPoka et El Pipo (défaut 2000)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -2687,6 +2823,12 @@ export const DEFAULT_REP_RULES: RepRules = {
   waterDepthRarefactionMinIntervalFactor: 0.5,
   islandVehicleRequired: true,
   kingdomMinIntermediateSolved: 3,
+  zorghonEnabled: true,
+  zorghonAppearKingdomSolvedCount: 6,
+  zorghonProximityPct: 12,
+  zorghonRelocationChancePct: 35,
+  zorghonCheckIntervalSec: 20,
+  zorghonRescueXpReward: 2000,
 }
 
 export async function getRepRules(): Promise<RepRules> {
