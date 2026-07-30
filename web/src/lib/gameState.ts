@@ -46,15 +46,15 @@ export interface PlayerState {
   address: string;
   displayName?: string;
   hp: number;              // valeur courante
-  hpMax: number;           // plafond (100 par défaut, boostable via super-fioles jusqu'à 300)
+  hpMax: number;           // plafond (100 par défaut, boostable via super-fioles jusqu'à hpMaxCap, voir RepRules)
   hunger: number;
   hungerMax: number;
   happiness: number;
   happinessMax: number;
   force: number;
-  forceMax: number;        // 100 → 200 → 300 selon super-fioles
+  forceMax: number;        // 100 par défaut, boostable via super-fioles jusqu'à forceMaxCap (voir RepRules)
   spells: number;
-  spellsMax: number;
+  spellsMax: number;       // 100 par défaut, boostable via super-fioles jusqu'à spellsMaxCap (voir RepRules)
   oxygen: number;          // niveau d'oxygène (0-100) — décroît sur les dalles d'eau (voir GameCanvas2D.tsx)
   oxygenMax: number;       // plafond (100 par défaut)
   fatigue: number;         // niveau de fatigue (0-100) — décroît en cas de déplacement continu, remonte à
@@ -327,7 +327,26 @@ export function subscribePlayer(address: string, cb: (p: PlayerState | null) => 
   const db = getFirebaseDb();
   if (!db) { cb(null); return () => {}; }
   const r = ref(db, `players/${KEY(address)}`);
-  const handler = (snap: DataSnapshot) => cb(snap.exists() ? snap.val() as PlayerState : null);
+  const handler = (snap: DataSnapshot) => {
+    if (!snap.exists()) { cb(null); return; }
+    const p = snap.val() as PlayerState;
+    cb(p);
+    // Auto-correction douce d'éventuelles données historiques où hpMax/forceMax/spellsMax
+    // dépasseraient le plafond configuré (hpMaxCap/forceMaxCap/spellsMaxCap dans RepRules) —
+    // corrige le bug de cumul illimité des Super-fioles dès l'ouverture du jeu, sans attendre une
+    // nouvelle action du joueur (applyEffect() empêche déjà toute NOUVELLE dérive). Écriture
+    // silencieuse ; le nouvel appel à `cb` viendra automatiquement via ce même abonnement.
+    getCapRules().then((capRules) => {
+      const hpMaxCap = capRules.hpMaxCap ?? 300;
+      const forceMaxCap = capRules.forceMaxCap ?? 200;
+      const spellsMaxCap = capRules.spellsMaxCap ?? 200;
+      const fixes: Partial<PlayerState> = {};
+      if ((p.hpMax ?? 100) > hpMaxCap) { fixes.hpMax = hpMaxCap; fixes.hp = Math.min(p.hp ?? 100, hpMaxCap); }
+      if ((p.forceMax ?? 100) > forceMaxCap) { fixes.forceMax = forceMaxCap; fixes.force = Math.min(p.force ?? 10, forceMaxCap); }
+      if ((p.spellsMax ?? 100) > spellsMaxCap) { fixes.spellsMax = spellsMaxCap; fixes.spells = Math.min(p.spells ?? 5, spellsMaxCap); }
+      if (Object.keys(fixes).length) update(ref(db, `players/${KEY(address)}`), fixes).catch(() => {});
+    }).catch(() => {});
+  };
   onValue(r, handler);
   return () => off(r, 'value', handler);
 }
@@ -339,6 +358,21 @@ export async function updatePlayer(address: string, patch: Partial<PlayerState>)
   await update(ref(db, `players/${KEY(address)}`), { ...patch, updatedAt: Date.now() });
 }
 
+// Cache mémoire (30s) des plafonds de statistiques configurés par l'administrateur (hpMaxCap/
+// forceMaxCap/spellsMaxCap dans RepRules) — utilisé exclusivement par applyEffect ci-dessous pour
+// borner hpMax/forceMax/spellsMax sans ajouter une lecture Firebase à chaque appel : applyEffect
+// est invoqué en continu par les mécaniques de tick (oxygène, fatigue, faim…), donc relire
+// catalog/repRules à chaque fois serait coûteux. Invalidé immédiatement par setRepRules() quand
+// l'administrateur enregistre de nouveaux plafonds.
+let _capRulesCache: { value: RepRules; at: number } | null = null;
+async function getCapRules(): Promise<RepRules> {
+  const now = Date.now();
+  if (_capRulesCache && now - _capRulesCache.at < 30000) return _capRulesCache.value;
+  const value = await getRepRules().catch(() => DEFAULT_REP_RULES);
+  _capRulesCache = { value, at: now };
+  return value;
+}
+
 /** Applique un effet (potion, combat, quête réussie…) et clamp les stats en tenant compte des plafonds dynamiques. */
 export async function applyEffect(address: string, delta: Partial<PlayerState> & {
   maxHp?: number; maxForce?: number; maxSpells?: number;
@@ -348,10 +382,15 @@ export async function applyEffect(address: string, delta: Partial<PlayerState> &
   const k = KEY(address);
   const snap = await get(ref(db, `players/${k}`));
   const cur = (snap.val() as PlayerState) || await getOrCreatePlayer(address);
-  // Migration douce : ancien joueur sans les *Max
-  const hpMax        = (cur.hpMax        ?? 100) + (delta.maxHp     ?? 0);
-  const forceMax     = (cur.forceMax     ?? 100) + (delta.maxForce  ?? 0);
-  const spellsMax    = (cur.spellsMax    ?? 100) + (delta.maxSpells ?? 0);
+  // Plafonds finaux des statistiques boostables par Super-fioles (paramétrables en Administration,
+  // voir RepRulesPanel) — corrige le bug de cumul illimité (chaque Super-fiole ajoutait +100 sans
+  // jamais s'arrêter) tout en gardant le principe du boost permanent. Bornage appliqué à CHAQUE
+  // appel (pas seulement lors de la consommation d'une Super-fiole) pour aussi corriger
+  // automatiquement, dès le prochain tick, toute donnée déjà au-delà de la limite.
+  const capRules = await getCapRules();
+  const hpMax        = Math.min((cur.hpMax        ?? 100) + (delta.maxHp     ?? 0), capRules.hpMaxCap     ?? 300);
+  const forceMax     = Math.min((cur.forceMax     ?? 100) + (delta.maxForce  ?? 0), capRules.forceMaxCap  ?? 200);
+  const spellsMax    = Math.min((cur.spellsMax    ?? 100) + (delta.maxSpells ?? 0), capRules.spellsMaxCap ?? 200);
   const hungerMax    = cur.hungerMax    ?? 100;
   const happinessMax = cur.happinessMax ?? 100;
   const oxygenMax    = cur.oxygenMax    ?? 100;
@@ -2359,6 +2398,13 @@ export interface RepRules {
   equipDropChancePct: number;       // % de chance qu'un butin de victoire soit un équipement plutôt qu'un objet basique (défaut 15)
   capeInvisibilityMinMinutes: number; // Durée min de la cape d'invisibilité (défaut 10)
   capeInvisibilityMaxMinutes: number; // Durée max de la cape d'invisibilité (défaut 15)
+  // ─── Plafonds finaux des statistiques boostables par Super-fioles (voir DEFAULT_SHOP,
+  // catégorie 'super_potion' : maxHp/maxForce/maxSpells) — chaque Super-fiole/fiole légendaire
+  // augmente le plafond de façon PERMANENTE mais jamais au-delà de cette limite, quel que soit le
+  // nombre de fioles consommées (corrige un bug de cumul illimité). Appliqué dans applyEffect().
+  hpMaxCap: number;     // Plafond final de Vie atteignable (défaut 300 = 100 base + 100 super-fiole + 200 fiole légendaire)
+  forceMaxCap: number;  // Plafond final de Force atteignable (défaut 200 = 100 base + 100 super-fiole)
+  spellsMaxCap: number; // Plafond final de Sortilèges atteignable (défaut 200 = 100 base + 100 super-fiole)
   // Fréquence des rencontres PNJ aléatoires (popup) — voir NpcEncounterPopup.tsx. Anciennement
   // paramétrable uniquement via une transaction on-chain (`setNpcMaxPerDay`) ; désormais 100%
   // hors-chaîne (voir setNpcMaxPerDay ci-dessous), donc gratuit à modifier depuis l'Administration.
@@ -2493,6 +2539,9 @@ export const DEFAULT_REP_RULES: RepRules = {
   equipDropChancePct: 15,
   capeInvisibilityMinMinutes: 10,
   capeInvisibilityMaxMinutes: 15,
+  hpMaxCap: 300,
+  forceMaxCap: 200,
+  spellsMaxCap: 200,
   npcMaxPerDay: 4,
   mapPoiDiscoveryXp: 5,
   travelWalkDurationSec: 6,
@@ -2538,6 +2587,7 @@ export async function setRepRules(rules: RepRules): Promise<void> {
   if (!db) return;
   await ensureAnonSignIn();
   await set(ref(db, 'catalog/repRules'), rules);
+  _capRulesCache = null; // Applique immédiatement les nouveaux plafonds (hpMaxCap/forceMaxCap/spellsMaxCap) sans attendre l'expiration du cache de 30s.
 }
 
 /**

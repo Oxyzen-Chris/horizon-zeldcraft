@@ -128,6 +128,12 @@ export function RepRulesPanel() {
     { key: 'capeInvisibilityMaxMinutes', labelKey: 'admin.repRules.capeInvisibilityMaxMinutes' },
   ];
 
+  const statCapFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'hpMaxCap',     labelKey: 'admin.repRules.hpMaxCap' },
+    { key: 'forceMaxCap',  labelKey: 'admin.repRules.forceMaxCap' },
+    { key: 'spellsMaxCap', labelKey: 'admin.repRules.spellsMaxCap' },
+  ];
+
   const mapFields: { key: keyof RepRules; labelKey: string }[] = [
     { key: 'mapPoiDiscoveryXp',             labelKey: 'admin.repRules.mapPoiDiscoveryXp' },
     { key: 'travelWalkDurationSec',         labelKey: 'admin.repRules.travelWalkDurationSec' },
@@ -193,6 +199,20 @@ export function RepRulesPanel() {
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.equipDescription')}</p>
         <div className="grid md:grid-cols-2 gap-3">
           {equipFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🧪 {t('admin.repRules.statCapTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.statCapDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {statCapFields.map(f => (
             <label key={f.key} className="text-sm">
               <span className="text-slate-300">{t(f.labelKey)}</span>
               <input type="number" className="input mt-1 w-full"
