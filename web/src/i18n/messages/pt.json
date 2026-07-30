@@ -41,6 +41,8 @@
   "game.quests.checking": "A verificar…",
   "game.quests.correct": "✅ Resposta correta! Recompensa recebida.",
   "game.quests.wrong": "❌ Resposta errada, tenta de novo!",
+  "game.quests.missingItems": "🧩 Resposta correta, mas ainda te faltam os objetos necessários para concluir esta missão.",
+  "game.quests.requiresItems": "Requer na tua mochila: {items}",
   "game.quests.error": "❌ Impossível enviar: {msg}",
   "game.quests.noGas": "grátis, sem gas ⚡",
   "game.npcs.section": "🧙 PNJ para encontrar",

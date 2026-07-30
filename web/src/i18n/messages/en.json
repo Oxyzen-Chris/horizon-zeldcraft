@@ -41,6 +41,8 @@
   "game.quests.checking": "Checking answer…",
   "game.quests.correct": "✅ Correct! Reward received.",
   "game.quests.wrong": "❌ Wrong answer, try again!",
+  "game.quests.missingItems": "🧩 Correct answer, but you still lack the items needed to complete this quest.",
+  "game.quests.requiresItems": "Requires in your bag: {items}",
   "game.quests.error": "❌ Cannot submit: {msg}",
   "game.quests.noGas": "free, no gas ⚡",
   "game.npcs.section": "🧙 NPCs to meet",

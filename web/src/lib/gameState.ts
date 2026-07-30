@@ -949,6 +949,15 @@ export interface QuestDef {
   };
                          // objet remis en plus de l'XP/score à la résolution (ex. cape d'invisibilité
                          // de la quête "Gardiens à trois têtes de chameaux") — voir submitQuestAnswerOffchain
+  // ─── Niveau de complexité additionnel « Convergence » (voir submitQuestAnswerOffchain ci-dessous)
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  // Inspiré des fragments de l'Anneau (Tolkien)/quêtes légendaires de World Of Warcraft : certaines
+  // quêtes du Royaume de fin de chaîne exigent, EN PLUS de la bonne réponse, la possession d'objets
+  // spécifiques dans la besace (généralement des `itemReward` d'autres quêtes intermédiaires/du
+  // Royaume disséminées plus tôt dans l'histoire) — consommés à la résolution. Une quête sans ce
+  // champ se comporte EXACTEMENT comme avant (zéro régression). `name` est ré-affiché tel quel
+  // (repli) dans le message d'objets manquants — voir game.quests.missingItems.
+  requiresItems?: { itemId: string; qty: number; name: string }[];
 }
 
 /** Recalcule un id stable `bytes32`-like à partir d'un identifiant texte (ex. "riddle.ice"). */
@@ -995,14 +1004,27 @@ export async function getQuestDefs(): Promise<QuestDef[]> {
  */
 export async function submitQuestAnswerOffchain(
   address: string, quest: QuestDef, rawAnswer: string, reputationReward: number,
-): Promise<'correct' | 'wrong' | 'already'> {
+): Promise<'correct' | 'wrong' | 'already' | 'missing-items'> {
   const already = await getSolvedQuest(address, quest.id);
   if (already) return 'already';
   const normalized = normalizeAnswer(rawAnswer);
   if (hashAnswer(normalized).toLowerCase() !== quest.answerHash.toLowerCase()) return 'wrong';
+  // ─── Quête « Convergence » (voir QuestDef.requiresItems) : la bonne réponse ne suffit pas tant
+  // que les objets requis (ex. Fragments du Sceau Runique glanés plus tôt dans l'histoire) ne sont
+  // pas dans la besace — vérifiés AVANT tout octroi d'XP/score/objet pour rester atomique, puis
+  // consommés (Seigneur des Anneaux : les fragments se "brisent" en scellant le destin de Zorghon).
+  if (quest.requiresItems?.length) {
+    const inv = await getInventoryOnce(address);
+    const held = new Map(inv.map(i => [i.itemId, i.qty]));
+    const missing = quest.requiresItems.some(r => (held.get(r.itemId) ?? 0) < r.qty);
+    if (missing) return 'missing-items';
+  }
   await applyEffect(address, {
     xpBonus: quest.xpReward, score: quest.scoreReward, reputation: reputationReward,
   });
+  if (quest.requiresItems?.length) {
+    for (const r of quest.requiresItems) await removeFromInventory(address, r.itemId, r.qty);
+  }
   if (quest.itemReward) {
     await addToInventory(address, {
       itemId: quest.itemReward.itemId, name: quest.itemReward.name,
@@ -2232,8 +2254,19 @@ export async function getInventoryOnce(address: string): Promise<InventoryItem[]
 /** Retire 1 exemplaire d'un objet TIRÉ AU HASARD dans la besace (ex. pénalité d'évanouissement par
  * manque d'oxygène — voir GameCanvas2D.tsx). Renvoie l'objet perdu (itemId/name) pour affichage
  * dans le pop-up de résultat, ou `null` si la besace est vide (aucune perte dans ce cas). */
+/** Objets protégés contre la perte aléatoire (évanouissement Oxygène/Fatigue, voir
+ * removeRandomInventoryItem ci-dessous) — les reliques de quête (`relic_*`, voir
+ * seedKingdomQuests.mjs) et le titre final ne sont jamais tirés au sort : ce sont des récompenses
+ * uniques et non-refarmables (une quête ne peut être résolue qu'une fois), notamment utilisées
+ * comme Fragments du Sceau Runique par la quête de convergence finale (voir QuestDef.requiresItems)
+ * — les perdre accidentellement créerait un blocage définitif de progression.
+ */
+function isProtectedFromRandomLoss(itemId: string): boolean {
+  return itemId.startsWith('relic_') || itemId === 'titre_liberateur_royaume';
+}
+
 export async function removeRandomInventoryItem(address: string): Promise<{ itemId: string; name: string } | null> {
-  const items = await getInventoryOnce(address);
+  const items = (await getInventoryOnce(address)).filter(i => !isProtectedFromRandomLoss(i.itemId));
   if (!items.length) return null;
   const picked = items[Math.floor(Math.random() * items.length)];
   await removeFromInventory(address, picked.itemId, 1);

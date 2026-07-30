@@ -98,6 +98,8 @@ export function KingdomQuestsWidget() {
         setFeedback(t('game.quests.correct'));
         setAnswer('');
         refresh();
+      } else if (result === 'missing-items') {
+        setFeedback(t('game.quests.missingItems'));
       } else {
         setFeedback(t('game.quests.wrong'));
       }
@@ -166,6 +168,11 @@ export function KingdomQuestsWidget() {
                   {t('game.quests.reward', { xp: progress.nextQuest.xpReward, score: progress.nextQuest.scoreReward })}
                   {' · '}<span className="text-emerald-500">{t('game.quests.noGas')}</span>
                 </p>
+                {!!progress.nextQuest.requiresItems?.length && (
+                  <p className="text-xs text-amber-300 bg-amber-900/20 rounded px-2 py-1 mb-2">
+                    🧩 {t('game.quests.requiresItems', { items: progress.nextQuest.requiresItems.map(r => `${r.name} ×${r.qty}`).join(', ') })}
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <input
                     value={answer} onChange={e => setAnswer(e.target.value)}

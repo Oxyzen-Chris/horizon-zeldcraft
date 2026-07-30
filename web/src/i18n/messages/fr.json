@@ -41,6 +41,8 @@
   "game.quests.checking": "Vérification en cours…",
   "game.quests.correct": "✅ Bonne réponse ! Récompense reçue.",
   "game.quests.wrong": "❌ Mauvaise réponse, essaie encore !",
+  "game.quests.missingItems": "🧩 Bonne réponse, mais il te manque encore les objets nécessaires pour accomplir cette quête.",
+  "game.quests.requiresItems": "Nécessite dans ta besace : {items}",
   "game.quests.error": "❌ Impossible d'envoyer : {msg}",
   "game.quests.noGas": "gratuit, sans gas ⚡",
   "game.quests.answerWas": "Réponse",

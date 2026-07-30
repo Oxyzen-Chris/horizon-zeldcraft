@@ -114,6 +114,8 @@ function QuestCard({ quest, playerXp, npcUnlocked }: { quest: QuestDef; playerXp
       } else if (result === 'already') {
         setCompleted(true);
         setFeedback(t('game.quests.correct'));
+      } else if (result === 'missing-items') {
+        setFeedback(t('game.quests.missingItems'));
       } else {
         setFeedback(t('game.quests.wrong'));
       }
@@ -151,6 +153,11 @@ function QuestCard({ quest, playerXp, npcUnlocked }: { quest: QuestDef; playerXp
         {t('game.quests.xpRequired', { v: quest.xpRequired })} · {t('game.quests.reward', { xp: quest.xpReward, score: quest.scoreReward })}
         {' · '}<span className="text-emerald-500">{t('game.quests.noGas')}</span>
       </p>
+      {!completed && !!quest.requiresItems?.length && (
+        <p className="text-xs text-amber-300 bg-amber-900/20 rounded px-2 py-1 mb-3">
+          🧩 {t('game.quests.requiresItems', { items: quest.requiresItems.map(r => `${r.name} ×${r.qty}`).join(', ') })}
+        </p>
+      )}
       {!completed && !locked && (
         <div className="flex gap-2">
           <input

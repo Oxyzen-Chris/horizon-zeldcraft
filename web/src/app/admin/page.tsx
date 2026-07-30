@@ -809,16 +809,18 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
         ...(npcGiver ? { npcGiver: true } : {}),
         ...(season ? { season } : {}),
         // Champs "Quêtes du Royaume" NON édités par ce formulaire (kingdomQuest/kingdomChapter/
-        // kingdomOrder/mapX/mapY/itemReward) : reportés tels quels depuis `quest` pour éviter que
-        // la sauvegarde d'un simple champ (ex. pleine lune ci-dessous) n'efface la position sur la
-        // Mapmonde, la récompense en objet ou la place dans la chaîne narrative (voir addQuestDef,
-        // qui ré-écrit intégralement le nœud Firebase — `set()`, pas de fusion partielle).
+        // kingdomOrder/mapX/mapY/itemReward/requiresItems) : reportés tels quels depuis `quest` pour
+        // éviter que la sauvegarde d'un simple champ (ex. pleine lune ci-dessous) n'efface la
+        // position sur la Mapmonde, la récompense en objet, les objets de convergence requis ou la
+        // place dans la chaîne narrative (voir addQuestDef, qui ré-écrit intégralement le nœud
+        // Firebase — `set()`, pas de fusion partielle).
         ...(quest.kingdomQuest ? { kingdomQuest: true } : {}),
         ...(quest.kingdomChapter !== undefined ? { kingdomChapter: quest.kingdomChapter } : {}),
         ...(quest.kingdomOrder !== undefined ? { kingdomOrder: quest.kingdomOrder } : {}),
         ...(quest.mapX !== undefined ? { mapX: quest.mapX } : {}),
         ...(quest.mapY !== undefined ? { mapY: quest.mapY } : {}),
         ...(quest.itemReward ? { itemReward: quest.itemReward } : {}),
+        ...(quest.requiresItems ? { requiresItems: quest.requiresItems } : {}),
         ...(fullMoonOnly ? { fullMoonOnly: true } : {}),
         ...(fullMoonOnly && fullMoonDate ? { fullMoonDate } : {}),
         ...(islandKind ? { islandKind } : {}),

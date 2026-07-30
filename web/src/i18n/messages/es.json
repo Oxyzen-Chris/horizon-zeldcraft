@@ -41,6 +41,8 @@
   "game.quests.checking": "Verificando…",
   "game.quests.correct": "✅ ¡Correcto! Recompensa recibida.",
   "game.quests.wrong": "❌ Respuesta incorrecta, ¡inténtalo de nuevo!",
+  "game.quests.missingItems": "🧩 Respuesta correcta, pero aún te faltan los objetos necesarios para completar esta misión.",
+  "game.quests.requiresItems": "Requiere en tu bolsa: {items}",
   "game.quests.error": "❌ No se puede enviar: {msg}",
   "game.quests.noGas": "gratis, sin gas ⚡",
   "game.npcs.section": "🧙 PNJ por encontrar",

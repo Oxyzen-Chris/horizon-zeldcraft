@@ -291,6 +291,7 @@ function QuestBody({ marker, address, playerXp, rules }: { marker: Marker; addre
       const rr = rules ?? { questSolved: 2 } as RepRules;
       const res = await submitQuestAnswerOffchain(address, def, answer, rr.questSolved);
       if (res === 'correct' || res === 'already') { setSolved(answer.trim()); setFeedback(t('game.quests.correct')); }
+      else if (res === 'missing-items') setFeedback(t('game.quests.missingItems'));
       else setFeedback(t('game.quests.wrong'));
     } finally {
       setChecking(false);
@@ -313,6 +314,11 @@ function QuestBody({ marker, address, playerXp, rules }: { marker: Marker; addre
       ) : (
         <>
           <p className="text-xs text-slate-400 mb-2">{t('game.quests.reward', { xp: def.xpReward, score: def.scoreReward })}</p>
+          {!!def.requiresItems?.length && (
+            <p className="text-xs text-amber-300 bg-amber-900/20 rounded px-2 py-1 mb-2">
+              🧩 {t('game.quests.requiresItems', { items: def.requiresItems.map(r => `${r.name} ×${r.qty}`).join(', ') })}
+            </p>
+          )}
           <div className="flex gap-2">
             <input
               value={answer} onChange={(e) => setAnswer(e.target.value)}
