@@ -929,6 +929,12 @@ export interface QuestDef {
                            // calendrier global mais UNIQUEMENT cette date précise (permet d'assigner
                            // à chaque quête son propre jour de pleine lune choisi dans le calendrier
                            // admin plutôt que de partager le même jour global — voir getMoonCalendar()).
+  // ─── Quêtes des îles (50 quêtes intermédiaires supplémentaires, voir seedIslandQuests.mjs) ───
+  // Simples quêtes PNJ (`npcGiver: true`) classées à part pour l'affichage/l'admin — n'affecte NI
+  // le déblocage (identique à toute quête npcGiver, via pickNpcQuestForPlayer) NI le filtrage
+  // Mapmonde (reste `questCategory: 'npc'`, voir mapFilters.ts) : purement une étiquette narrative/
+  // administrative, zéro régression sur le système de quêtes intermédiaires existant.
+  islandKind?: 'archipelago' | 'wildIsland';
   // ─── Positionnement sur la mapmonde/plateforme isométrique (voir WorldMapWidget.tsx et
   // GameCanvas2D.tsx) — facultatif : sans valeur explicite, une position stable est dérivée de
   // l'id (voir poiFallbackPos()) pour que chaque quête ait tout de même un point fixe sur la carte.
@@ -1581,6 +1587,12 @@ export interface MapPoiDef {
   season?: Season;       // si renseigné, décor visible uniquement pendant cette saison tant qu'il
                          // n'a pas déjà été découvert (voir WorldMapWidget.tsx) — undefined = toute
                          // l'année.
+  radius?: number;       // rayon d'influence (unités mapmonde, %) — remplace le rayon par défaut du
+                         // type (voir POI_RADIUS_BY_TYPE dans worldTerrain.ts) quand renseigné, afin
+                         // de permettre par exemple 3 îles d'un même archipel de tailles différentes
+                         // (petite/moyenne/grande) ou des lacs/étangs/mers de gabarits variés sans
+                         // changer WORLD_SIZE ni ajouter de nouveaux types. undefined = comportement
+                         // historique inchangé (rayon uniforme par type — aucune régression).
 }
 
 export const DEFAULT_MAP_ID = 'map.synk_territory';
@@ -1879,6 +1891,9 @@ export type MapMarkerKind = 'poi' | 'world' | 'npc' | 'treasure' | 'familiar' | 
 export interface MapMarker {
   id: string; kind: MapMarkerKind; name: string; i18nKey?: string; icon: string; x: number; y: number;
   poiType?: MapPoiType;
+  radius?: number;       // rayon d'influence terrain (voir MapPoiDef.radius) — repris tel quel pour
+                          // kind==='poi' afin que worldTileAt() applique le même gabarit personnalisé
+                          // dans GameCanvas2D.tsx ET WorldMapWidget.tsx.
   isKingdom?: boolean; // true = quête du Royaume (voir getKingdomQuestMarker) — badge/icône dédiée
   // ─── Métadonnées de filtrage (voir lib/mapFilters.ts) — uniquement pour kind==='quest' : distingue
   // les 3 familles de quêtes affichables/masquables indépendamment sur la Mapmonde/Plateforme 2D
@@ -1901,7 +1916,7 @@ export async function getAllMapMarkers(
   const markers: MapMarker[] = [];
   for (const p of pois) {
     if (p.season && season !== undefined && p.season !== season) continue; // filtré finement par appelant si besoin (visité)
-    markers.push({ id: p.id, kind: 'poi', name: p.name, icon: p.icon || '📍', x: p.x, y: p.y, poiType: p.type });
+    markers.push({ id: p.id, kind: 'poi', name: p.name, icon: p.icon || '📍', x: p.x, y: p.y, poiType: p.type, radius: p.radius });
   }
   for (const w of worlds.filter(w2 => w2.active !== false)) {
     const x = w.mapX ?? 50, y = w.mapY ?? 50;

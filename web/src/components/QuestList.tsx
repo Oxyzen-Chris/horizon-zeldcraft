@@ -133,6 +133,11 @@ function QuestCard({ quest, playerXp, npcUnlocked }: { quest: QuestDef; playerXp
               {t('game.quests.npcBadge')}
             </span>
           )}
+          {quest.islandKind && (
+            <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-teal-900/50 text-teal-300 border border-teal-700 rounded px-1.5 py-0.5 mr-2 align-middle">
+              {quest.islandKind === 'archipelago' ? '🏝️' : '🌴'} {t(`game.quests.islandKind.${quest.islandKind}`)}
+            </span>
+          )}
           {localizeName(t, quest.i18nKey, quest.label)}
         </p>
         {completed && <span className="text-emerald-400 text-sm ml-2">✅</span>}

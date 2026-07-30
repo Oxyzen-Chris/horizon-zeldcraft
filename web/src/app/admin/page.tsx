@@ -124,6 +124,7 @@ export default function AdminPage() {
   const [poiX, setPoiX] = useState('50');
   const [poiY, setPoiY] = useState('50');
   const [poiSeason, setPoiSeason] = useState<Season | ''>('');
+  const [poiRadius, setPoiRadius] = useState('');
   const [poiSaving, setPoiSaving] = useState(false);
   const [allPois, setAllPois] = useState<MapPoiDef[] | null>(null);
   const refreshPois = () => { getMapPoiDefs(DEFAULT_MAP_ID).then(setAllPois).catch(() => setAllPois([])); };
@@ -520,6 +521,7 @@ export default function AdminPage() {
               </select>
               <input className="input" placeholder={t('admin.map.x')} value={poiX} onChange={e => setPoiX(e.target.value)} />
               <input className="input" placeholder={t('admin.map.y')} value={poiY} onChange={e => setPoiY(e.target.value)} />
+              <input className="input" placeholder={t('admin.map.radius')} value={poiRadius} onChange={e => setPoiRadius(e.target.value)} />
               <select className="input" value={poiSeason} onChange={e => setPoiSeason(e.target.value as Season | '')}>
                 <option value="">{t('admin.season.allYear')}</option>
                 {SEASONS.map(s => <option key={s} value={s}>{SEASON_ICONS[s]} {t(`season.${s}`)}</option>)}
@@ -536,8 +538,9 @@ export default function AdminPage() {
                     icon: poiIcon.trim(), x: Number(poiX) || 50, y: Number(poiY) || 50,
                     active: true, createdAt: Date.now(), order: nextOrder,
                     ...(poiSeason ? { season: poiSeason } : {}),
+                    ...(poiRadius.trim() ? { radius: Number(poiRadius) } : {}),
                   });
-                  setPoiKey(''); setPoiName(''); setPoiIcon(''); setPoiX('50'); setPoiY('50'); setPoiSeason('');
+                  setPoiKey(''); setPoiName(''); setPoiIcon(''); setPoiX('50'); setPoiY('50'); setPoiSeason(''); setPoiRadius('');
                   refreshPois();
                 } finally {
                   setPoiSaving(false);
@@ -771,6 +774,7 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
   const [season, setSeason] = useState<Season | ''>(quest.season ?? '');
   const [fullMoonOnly, setFullMoonOnly] = useState(!!quest.fullMoonOnly);
   const [fullMoonDate, setFullMoonDate] = useState(quest.fullMoonDate ?? '');
+  const [islandKind, setIslandKind] = useState<'' | 'archipelago' | 'wildIsland'>(quest.islandKind ?? '');
   const [saving, setSaving] = useState(false);
 
   const startEdit = () => {
@@ -783,6 +787,7 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
     setSeason(quest.season ?? '');
     setFullMoonOnly(!!quest.fullMoonOnly);
     setFullMoonDate(quest.fullMoonDate ?? '');
+    setIslandKind(quest.islandKind ?? '');
     setEditing(true);
   };
 
@@ -816,6 +821,7 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
         ...(quest.itemReward ? { itemReward: quest.itemReward } : {}),
         ...(fullMoonOnly ? { fullMoonOnly: true } : {}),
         ...(fullMoonOnly && fullMoonDate ? { fullMoonDate } : {}),
+        ...(islandKind ? { islandKind } : {}),
       });
       await seedQuestAnswer(quest.id, normalizeAnswer(ans));
       setEditing(false);
@@ -853,6 +859,11 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
             <span className="text-slate-500">{t('admin.quest.fullMoonDateHint')}</span>
           </div>
         )}
+        <select className="input w-full" value={islandKind} onChange={e => setIslandKind(e.target.value as '' | 'archipelago' | 'wildIsland')}>
+          <option value="">{t('admin.quest.islandKind.none')}</option>
+          <option value="archipelago">🏝️ {t('admin.quest.islandKind.archipelago')}</option>
+          <option value="wildIsland">🌴 {t('admin.quest.islandKind.wildIsland')}</option>
+        </select>
         <div className="flex gap-2">
           <button className="btn-primary text-xs px-3 py-1" disabled={saving || !label.trim() || !ans.trim()} onClick={save}>
             {saving ? '⏳' : t('admin.quest.list.save')}
@@ -881,6 +892,11 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
         {quest.fullMoonOnly && (
           <span className="shrink-0" title={quest.fullMoonDate ? `🌕 ${quest.fullMoonDate}` : t('admin.quest.fullMoonOnly')}>
             🌕{quest.fullMoonDate ? ` ${quest.fullMoonDate}` : ''}
+          </span>
+        )}
+        {quest.islandKind && (
+          <span className="shrink-0" title={t(`admin.quest.islandKind.${quest.islandKind}`)}>
+            {quest.islandKind === 'archipelago' ? '🏝️' : '🌴'}
           </span>
         )}
         <span className="shrink-0 text-slate-500">
@@ -1148,11 +1164,13 @@ function MapPoiRow({ poi, poiTypes, onSaved, onDeleted }: {
   const [x, setX] = useState(String(poi.x));
   const [y, setY] = useState(String(poi.y));
   const [season, setSeason] = useState<Season | ''>(poi.season ?? '');
+  const [radius, setRadius] = useState(poi.radius != null ? String(poi.radius) : '');
   const [saving, setSaving] = useState(false);
 
   const startEdit = () => {
     setType(poi.type); setName(poi.name); setIcon(poi.icon); setX(String(poi.x)); setY(String(poi.y));
     setSeason(poi.season ?? '');
+    setRadius(poi.radius != null ? String(poi.radius) : '');
     setEditing(true);
   };
 
@@ -1164,6 +1182,7 @@ function MapPoiRow({ poi, poiTypes, onSaved, onDeleted }: {
         id: poi.id, mapId: poi.mapId, type, name: name.trim(), icon: icon.trim(),
         x: Number(x) || 0, y: Number(y) || 0, active: poi.active, createdAt: poi.createdAt, order: poi.order,
         ...(season ? { season } : {}),
+        ...(radius.trim() ? { radius: Number(radius) } : {}),
       });
       setEditing(false);
       onSaved();
@@ -1183,6 +1202,7 @@ function MapPoiRow({ poi, poiTypes, onSaved, onDeleted }: {
           </select>
           <input className="input" placeholder={t('admin.map.x')} value={x} onChange={e => setX(e.target.value)} />
           <input className="input" placeholder={t('admin.map.y')} value={y} onChange={e => setY(e.target.value)} />
+          <input className="input" placeholder={t('admin.map.radius')} value={radius} onChange={e => setRadius(e.target.value)} />
         </div>
         <select className="input w-full" value={season} onChange={e => setSeason(e.target.value as Season | '')}>
           <option value="">{t('admin.season.allYear')}</option>
@@ -1207,7 +1227,7 @@ function MapPoiRow({ poi, poiTypes, onSaved, onDeleted }: {
         <span className="flex-1 truncate">{poi.name}</span>
         {poi.season && <span className="shrink-0" title={t(`season.${poi.season}`)}>{SEASON_ICONS[poi.season]}</span>}
         <span className="shrink-0 text-slate-500">{t(`admin.map.type.${poi.type}`)}</span>
-        <span className="shrink-0 text-slate-500">x:{poi.x}% y:{poi.y}%</span>
+        <span className="shrink-0 text-slate-500">x:{poi.x}% y:{poi.y}%{poi.radius != null ? ` r:${poi.radius}` : ''}</span>
         <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>
           {t('admin.quest.list.edit')}
         </button>

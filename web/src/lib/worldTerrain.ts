@@ -96,14 +96,14 @@ function poiCap(px: number, py: number, salt: number, min: number, max: number):
  * tout biais de POI) garantit que des dalles d'eau ET DE MONTAGNE (rock) apparaissent naturellement
  * sur toute la mapmonde, même dans les zones où l'admin n'a placé aucun POI "lac"/"montagne"/
  * "grotte" — voir mécanique Oxygène (GameCanvas2D). */
-export function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: number; poiType?: MapPoiType }[]): Tile {
+export function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[]): Tile {
   let bias: MapPoiType | null = null;
   let bestRatio = 1;      // distance / rayon du meilleur candidat retenu (1 = hors influence)
   let bestFalloff = 0;    // 1 - bestRatio, mémorisé pour l'altitude/la profondeur/la plage littorale
   let winner: { x: number; y: number } | null = null;
   for (const p of poiPoints) {
     if (!p.poiType) continue;
-    const radius = radiusForType(p.poiType);
+    const radius = p.radius ?? radiusForType(p.poiType);
     const d = Math.hypot(p.x - wc, p.y - wr);
     if (d > radius) continue;
     const ratio = d / radius;

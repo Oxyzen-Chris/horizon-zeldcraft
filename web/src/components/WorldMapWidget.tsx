@@ -175,7 +175,7 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   // isométrique ». Échantillonné à une résolution plus grossière (48×32) qu'en vue isométrique
   // (tuile par tuile visible) car ici toute la carte 0-100% est affichée d'un coup.
   const terrainPoiPoints = useMemo(
-    () => pois.filter(p => p.active !== false).map(p => ({ x: p.x, y: p.y, poiType: p.type })),
+    () => pois.filter(p => p.active !== false).map(p => ({ x: p.x, y: p.y, poiType: p.type, radius: p.radius })),
     [pois],
   );
   const TERRAIN_COLS = 48, TERRAIN_ROWS = 32;

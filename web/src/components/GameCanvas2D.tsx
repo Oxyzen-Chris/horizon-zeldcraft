@@ -40,7 +40,7 @@ const MARGIN = 1; // marge (en cellules) avant que la caméra ne recadre le déc
 interface Actor { id: string; col: number; row: number; icon: string; label: string }
 
 /** Construit la grille COLSxROWS visible à partir du coin (originCol, originRow) de la caméra. */
-function buildViewportGrid(originCol: number, originRow: number, poiPoints: { x: number; y: number; poiType?: MapPoiType }[]): Tile[][] {
+function buildViewportGrid(originCol: number, originRow: number, poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[]): Tile[][] {
   const grid: Tile[][] = [];
   for (let r = 0; r < ROWS; r++) {
     const row: Tile[] = [];
@@ -56,7 +56,7 @@ const projY = (col: number, row: number) => (col + row) * (TILE_H / 2);
 /** Cherche la dalle verte (terre) la plus proche de (wc, wr) par anneaux concentriques croissants
  * (les cases immédiatement voisines pouvant elles-mêmes être de l'eau) — utilisé pour reposer Synk
  * sur la terre ferme après un évanouissement par noyade (voir mécanique Oxygène). */
-function findNearestGrassTile(wc: number, wr: number, poiPoints: { x: number; y: number; poiType?: MapPoiType }[]): Pos | null {
+function findNearestGrassTile(wc: number, wr: number, poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[]): Pos | null {
   for (let radius = 0; radius <= 12; radius++) {
     for (let dx = -radius; dx <= radius; dx++) {
       for (let dy = -radius; dy <= radius; dy++) {
@@ -223,7 +223,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // fonction, même repli déterministe) afin que les deux vues soient toujours cohérentes.
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   const poiPoints = useMemo(
-    () => markers.filter(m => m.kind === 'poi').map(m => ({ x: m.x, y: m.y, poiType: m.poiType })),
+    () => markers.filter(m => m.kind === 'poi').map(m => ({ x: m.x, y: m.y, poiType: m.poiType, radius: m.radius })),
     [markers],
   );
 
