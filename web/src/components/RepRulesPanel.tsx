@@ -192,6 +192,16 @@ export function RepRulesPanel() {
     { key: 'fatigueFaintHpLoss',       labelKey: 'admin.repRules.fatigueFaintHpLoss' },
   ];
 
+  const altitudeFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'altitudeMaxM',              labelKey: 'admin.repRules.altitudeMaxM' },
+    { key: 'altitudeSnowThresholdM',    labelKey: 'admin.repRules.altitudeSnowThresholdM' },
+    { key: 'altitudeRarefactionStartM', labelKey: 'admin.repRules.altitudeRarefactionStartM' },
+  ];
+
+  const waterDepthFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'waterDepthMaxM', labelKey: 'admin.repRules.waterDepthMaxM' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -369,6 +379,63 @@ export function RepRulesPanel() {
             <span className="text-slate-300">{t('admin.repRules.fatigueFaintResultPopupEnabled')}</span>
           </label>
         </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">⛰️ {t('admin.repRules.altitudeTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.altitudeDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.altitudeEnabled !== false}
+            onChange={e => setBool('altitudeEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.altitudeEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3">
+          {altitudeFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full" disabled={rules.altitudeEnabled === false}
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.altitudeRarefactionMinIntervalFactor')}</span>
+            <input type="number" step="0.05" min="0.05" max="1" className="input mt-1 w-full" disabled={rules.altitudeEnabled === false}
+              value={rules.altitudeRarefactionMinIntervalFactor}
+              onChange={e => setFloat('altitudeRarefactionMinIntervalFactor', e.target.value)} />
+          </label>
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🌊 {t('admin.repRules.waterDepthTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.waterDepthDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.waterDepthEnabled !== false}
+            onChange={e => setBool('waterDepthEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.waterDepthEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3">
+          {waterDepthFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full" disabled={rules.waterDepthEnabled === false}
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.waterDepthRarefactionMinIntervalFactor')}</span>
+            <input type="number" step="0.05" min="0.05" max="1" className="input mt-1 w-full" disabled={rules.waterDepthEnabled === false}
+              value={rules.waterDepthRarefactionMinIntervalFactor}
+              onChange={e => setFloat('waterDepthRarefactionMinIntervalFactor', e.target.value)} />
+          </label>
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🏝️ {t('admin.repRules.islandTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.islandDescription')}</p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={rules.islandVehicleRequired !== false}
+            onChange={e => setBool('islandVehicleRequired', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.islandVehicleRequired')}</span>
+        </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">👑 {t('admin.repRules.kingdomTitle')}</h3>

@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount } from 'wagmi';
 import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
-  getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem,
+  getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem, subscribeInventory,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
-  type MapMarker, type MapPoiType, type RepRules, type PlayerState,
+  type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
 } from '@/lib/gameState';
 import {
   TERRAIN_COLOR, PROP_ICON, TERRAIN_I18N_KEY, PROP_I18N_KEY, worldTileAt, clamp100, WORLD_SIZE, hashRand,
@@ -89,6 +89,32 @@ function computeFatigueDrainPct(rules: RepRules, player: PlayerState | null): nu
   const extraPerStat = Math.max(0, rules.fatigueLowStatsExtraDrainPerStat ?? 1);
   const maxExtra = Math.max(0, rules.fatigueLowStatsMaxExtraPct ?? 4);
   return base + Math.min(lowCount * extraPerStat, maxExtra);
+}
+
+/** Facteur multiplicatif (0 < f <= 1) appliqué à l'intervalle de décroissance Oxygène/Fatigue selon
+ * l'altitude (dalle de montagne/roche, RepRules::altitude*) ou la profondeur (dalle d'eau,
+ * RepRules::waterDepth*) de la tuile fournie — plus Synk grimpe haut ou plonge dans une eau
+ * profonde, plus l'air se raréfie et plus l'intervalle se réduit (décroissance accélérée). Renvoie
+ * 1 (aucun effet) si la mécanique concernée est désactivée ou si la tuile n'a pas d'altitude/
+ * profondeur (terrain plat, dalle d'eau ambiante peu profonde, etc). */
+function computeRarefactionFactor(rules: RepRules, tile: Tile): number {
+  if (tile.altitudeM != null && rules.altitudeEnabled !== false) {
+    const start = Math.max(0, rules.altitudeRarefactionStartM ?? 1500);
+    const max = Math.max(start + 1, rules.altitudeMaxM ?? 6000);
+    if (tile.altitudeM > start) {
+      const ratio = Math.min(1, (tile.altitudeM - start) / (max - start));
+      const minFactor = Math.max(0.05, Math.min(1, rules.altitudeRarefactionMinIntervalFactor ?? 0.4));
+      return 1 - ratio * (1 - minFactor);
+    }
+    return 1;
+  }
+  if (tile.depthM != null && rules.waterDepthEnabled !== false) {
+    const max = Math.max(1, rules.waterDepthMaxM ?? 6000);
+    const ratio = Math.min(1, tile.depthM / max);
+    const minFactor = Math.max(0.05, Math.min(1, rules.waterDepthRarefactionMinIntervalFactor ?? 0.5));
+    return 1 - ratio * (1 - minFactor);
+  }
+  return 1;
 }
 
 /**
@@ -368,24 +394,51 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     row: playerCell.row > 0 ? playerCell.row - 1 : Math.min(ROWS - 1, playerCell.row + 1),
   };
 
-  // Terrain actuellement sous Synk (voir worldTileAt) — sert uniquement à détecter les dalles d'eau
-  // pour la mécanique Oxygène ci-dessous ; ne change de valeur que lorsque Synk change réellement de
+  // Tuile actuellement sous Synk (voir worldTileAt) — sert à détecter les dalles d'eau/montagne
+  // pour la mécanique Oxygène (+ leur altitude/profondeur pour la raréfaction de l'air, voir
+  // computeRarefactionFactor) ci-dessous ; ne change de valeur que lorsque Synk change réellement de
   // TYPE de dalle (entrée/sortie d'eau), pas à chaque pas sur un même type de terrain.
-  const currentTerrain = useMemo(
-    () => worldTileAt(worldCol, worldRow, poiPoints).terrain,
+  const currentTile = useMemo(
+    () => worldTileAt(worldCol, worldRow, poiPoints),
     [worldCol, worldRow, poiPoints],
   );
+  const currentTerrain = currentTile.terrain;
+
+  // ─── Besace (voir RepRules::islandVehicleRequired) — nécessaire pour savoir si Synk possède un
+  // Engin avant de le laisser fouler une île (voir moveTo ci-dessous). Abonnement temps réel (et
+  // non un simple fetch ponctuel) pour refléter immédiatement un achat/drag-and-drop d'Engin.
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  useEffect(() => {
+    if (!address) { setInventory([]); return; }
+    return subscribeInventory(address, setInventory);
+  }, [address]);
+  const hasVehicle = useMemo(() => inventory.some(i => i.category === 'vehicle' && i.qty > 0), [inventory]);
+  // Petit message non bloquant (auto-masqué) affiché quand un déplacement vers une île est refusé
+  // faute d'Engin dans la besace — voir moveTo ci-dessous.
+  const [islandBlockedMsg, setIslandBlockedMsg] = useState<string | null>(null);
+  useEffect(() => {
+    if (!islandBlockedMsg) return;
+    const id = setTimeout(() => setIslandBlockedMsg(null), 3500);
+    return () => clearTimeout(id);
+  }, [islandBlockedMsg]);
 
   // ─── Déplacement de Synk (flèches clavier, pavé directionnel virtuel, clic sur une tuile) ───
   // Écrit directement dans `players/{addr}/mapPos` (même donnée que WorldMapWidget.tsx) : la
   // caméra isométrique ET la carte se mettent à jour en temps réel via subscribePlayerMapPos.
+  // Bloque l'accès aux dalles d'île (voir worldTerrain.ts::Tile.isIsland) tant que Synk ne possède
+  // aucun Engin (besace) et que `rules.islandVehicleRequired` est actif — cf. demande utilisateur
+  // "pour se rendre sur ces iles, il faudra disposer d'engins".
   const moveTo = useCallback((nx: number, ny: number) => {
     if (!address) return;
     const x = clamp100(nx), y = clamp100(ny);
+    if ((rules?.islandVehicleRequired ?? true) && !hasVehicle) {
+      const dest = worldTileAt(Math.round(x), Math.round(y), poiPoints);
+      if (dest.isIsland) { setIslandBlockedMsg(t('canvas2d.islandVehicleRequired')); return; }
+    }
     setWorldPos({ x, y });
     worldPosRef.current = { x, y };
     setPlayerMapPos(address, DEFAULT_MAP_ID, x, y).catch(() => {});
-  }, [address]);
+  }, [address, rules?.islandVehicleRequired, hasVehicle, poiPoints, t]);
 
   const move = useCallback((dx: number, dy: number) => {
     if (faintingRef.current || fatigueFaintingRef.current) return; // Synk évanoui (noyade OU épuisement) : déplacement bloqué
@@ -395,17 +448,19 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
 
   // ─── Décroissance d'oxygène sur l'eau et la montagne/roche ────────────────────────────────────
   // Tant que Synk reste sur une dalle d'eau OU de montagne/roche (raréfaction de l'air en
-  // altitude), un décompte de `oxygenDrainIntervalSec` (défaut 50 s, paramétrable) tourne en continu
-  // (traverser plusieurs dalles à la suite ne le réinitialise PAS, seul un retour sur la terre
-  // ferme l'arrête) ; à chaque palier atteint tant que Synk est toujours sur l'une de ces dalles,
-  // on applique la pénalité (oxygène/XP/Force) et on relance un décompte complet.
+  // altitude/profondeur — voir computeRarefactionFactor), un décompte de `oxygenDrainIntervalSec`
+  // (défaut 50 s, paramétrable, réduit par la raréfaction) tourne en continu (traverser plusieurs
+  // dalles à la suite ne le réinitialise PAS, seul un retour sur la terre ferme l'arrête) ; à chaque
+  // palier atteint tant que Synk est toujours sur l'une de ces dalles, on applique la pénalité
+  // (oxygène/XP/Force) et on relance un décompte complet.
   useEffect(() => {
     if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; }
     if ((currentTerrain !== 'water' && currentTerrain !== 'rock') || !address || !rules || fainting || fatigueFainting) {
       setOxygenTimer(null);
       return;
     }
-    const intervalSec = Math.max(1, Math.round(rules.oxygenDrainIntervalSec ?? 50));
+    const rarefaction = computeRarefactionFactor(rules, currentTile);
+    const intervalSec = Math.max(1, Math.round((rules.oxygenDrainIntervalSec ?? 50) * rarefaction));
     setOxygenTimer(intervalSec);
     oxygenIntervalRef.current = setInterval(() => {
       setOxygenTimer((prev) => {
@@ -422,7 +477,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       });
     }, 1000);
     return () => { if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; } };
-  }, [currentTerrain, address, rules, fainting, fatigueFainting]);
+  }, [currentTerrain, currentTile, address, rules, fainting, fatigueFainting]);
 
   // ─── Récupération d'oxygène sur la terre ferme ────────────────────────────────────────────────
   // Dès que Synk se retrouve sur une dalle de terre (verte), restaure l'oxygène par palier de
@@ -460,18 +515,21 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
 
   // ─── Décroissance de fatigue en mouvement continu ─────────────────────────────────────────────
   // Tant que Synk enchaîne les déplacements sans pause d'au moins `fatigueStopGraceSec` (voir
-  // `isMoving` ci-dessus), un décompte de `fatigueDrainIntervalSec` (défaut 3 s) tourne en continu ;
-  // à chaque palier atteint tant que `isMoving` reste vrai, on applique la perte de Fatigue (voir
-  // `computeFatigueDrainPct` ci-dessus : la perte de base `fatigueDrainPct` est pondérée à la hausse
-  // quand Vie/Faim/Force/Oxygène sont bas — moins d'énergie, fatigue plus rapide) et on relance un
-  // décompte complet. Désactivable entièrement via `rules.fatigueEnabled` (Administration).
+  // `isMoving` ci-dessus), un décompte de `fatigueDrainIntervalSec` (défaut 3 s, réduit par la
+  // raréfaction de l'air en altitude — voir computeRarefactionFactor : "plus la fatigue se fera
+  // ressentir" en montagne) tourne en continu ; à chaque palier atteint tant que `isMoving` reste
+  // vrai, on applique la perte de Fatigue (voir `computeFatigueDrainPct` ci-dessus : la perte de
+  // base `fatigueDrainPct` est pondérée à la hausse quand Vie/Faim/Force/Oxygène sont bas — moins
+  // d'énergie, fatigue plus rapide) et on relance un décompte complet. Désactivable entièrement via
+  // `rules.fatigueEnabled` (Administration).
   useEffect(() => {
     if (fatigueIntervalRef.current) { clearInterval(fatigueIntervalRef.current); fatigueIntervalRef.current = null; }
     if (!isMoving || !address || !rules || fainting || fatigueFainting || rules.fatigueEnabled === false) {
       setFatigueTimer(null);
       return;
     }
-    const intervalSec = Math.max(1, Math.round(rules.fatigueDrainIntervalSec ?? 3));
+    const rarefaction = computeRarefactionFactor(rules, currentTile);
+    const intervalSec = Math.max(1, Math.round((rules.fatigueDrainIntervalSec ?? 3) * rarefaction));
     setFatigueTimer(intervalSec);
     fatigueIntervalRef.current = setInterval(() => {
       setFatigueTimer((prev) => {
@@ -484,7 +542,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       });
     }, 1000);
     return () => { if (fatigueIntervalRef.current) { clearInterval(fatigueIntervalRef.current); fatigueIntervalRef.current = null; } };
-  }, [isMoving, address, rules, fainting, fatigueFainting]);
+  }, [isMoving, currentTile, address, rules, fainting, fatigueFainting]);
 
   // ─── Récupération de fatigue à l'arrêt/ralenti ─────────────────────────────────────────────────
   // Dès que Synk ralentit ou s'arrête (`isMoving` devient faux), restaure la Fatigue par palier de
@@ -771,6 +829,11 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // Éléments d'interface de la mécanique Oxygène — rendus dans les DEUX branches (widget replié ou
   // déplié) puisque Synk peut se déplacer (ex. depuis WorldMapWidget) même widget replié, et que le
   // joueur doit toujours voir le compte à rebours/l'évanouissement quel que soit l'état du widget.
+  const islandBlockedUi = islandBlockedMsg ? (
+    <div className="fixed z-50 bottom-4 right-4 bg-amber-950/95 border border-amber-500 rounded-lg shadow-xl px-3 py-2 max-w-xs">
+      <p className="text-xs text-amber-200">🚤 {islandBlockedMsg}</p>
+    </div>
+  ) : null;
   const faintDurationSec = Math.max(1, Math.round(rules?.oxygenFaintDurationSec ?? 30));
   const oxygenPct = Math.max(0, Math.min(100, ((player?.oxygen ?? 100) / (player?.oxygenMax ?? 100)) * 100));
   const oxygenUi = (
@@ -905,6 +968,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
         >🧩</button>
         {oxygenUi}
         {fatigueUi}
+        {islandBlockedUi}
       </>
     );
   }
@@ -934,12 +998,20 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           {grid.flatMap((rowTiles, r) => rowTiles.map((tile, c) => {
             const x = projX(c, r), y = projY(c, r);
             const zIdx = c + r;
+            // Sommet enneigé (INDÉPENDANT de la saison — voir RepRules::altitudeSnowThresholdM) :
+            // corrige l'incohérence "neige en été" tout en permettant une neige permanente en haute
+            // montagne, quelle que soit la saison réelle (voir aussi seasonalWeatherIndex()).
+            const snowThreshold = rules?.altitudeSnowThresholdM ?? 2000;
+            const isSnowCapped = rules?.altitudeEnabled !== false && tile.terrain === 'rock' && (tile.altitudeM ?? 0) >= snowThreshold;
+            const tileTitle = tile.prop
+              ? `${PROP_ICON[tile.prop]} ${t(PROP_I18N_KEY[tile.prop])}`
+              : `${t(TERRAIN_I18N_KEY[tile.terrain])}${tile.altitudeM ? ` · ${Math.round(tile.altitudeM)} m` : ''}${tile.depthM ? ` · -${tile.depthM} m` : ''}`;
             return (
               <div key={`t-${r}-${c}`} className="absolute" style={{ left: x - TILE_W / 2, top: y - TILE_H / 2, zIndex: zIdx }}>
                 <div
                   className="cursor-pointer hover:brightness-125"
                   style={{
-                    width: TILE_W, height: TILE_H, background: TERRAIN_COLOR[tile.terrain],
+                    width: TILE_W, height: TILE_H, background: isSnowCapped ? '#e7eef3' : TERRAIN_COLOR[tile.terrain],
                     clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
                     border: '1px solid rgba(0,0,0,0.15)',
                   }}
@@ -948,11 +1020,16 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
                     else if (tile.prop === 'hut') onHutTileClick(origin.col + c, origin.row + r);
                     else moveTo(origin.col + c, origin.row + r);
                   }}
-                  title={tile.prop ? `${PROP_ICON[tile.prop]} ${t(PROP_I18N_KEY[tile.prop])}` : t(TERRAIN_I18N_KEY[tile.terrain])}
+                  title={tileTitle}
                 />
                 {tile.prop && (
                   <span className="absolute left-1/2 -translate-x-1/2 -top-4 text-lg pointer-events-none select-none" style={{ zIndex: zIdx + 1 }}>
                     {PROP_ICON[tile.prop]}
+                  </span>
+                )}
+                {!tile.prop && isSnowCapped && (
+                  <span className="absolute left-1/2 -translate-x-1/2 -top-3 text-sm pointer-events-none select-none" style={{ zIndex: zIdx + 1 }}>
+                    ❄️
                   </span>
                 )}
               </div>
@@ -1066,6 +1143,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       )}
       {oxygenUi}
       {fatigueUi}
+      {islandBlockedUi}
     </div>
   );
 }

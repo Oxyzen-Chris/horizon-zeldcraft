@@ -1545,7 +1545,12 @@ export interface WorldDef {
  */
 export type MapPoiType =
   | 'plain' | 'stream' | 'lake' | 'mountain' | 'forest' | 'cave' | 'beach' | 'waterfall'
-  | 'village_ally' | 'village_enemy' | 'path' | 'bridge' | 'tavern' | 'stable' | 'hut';
+  | 'village_ally' | 'village_enemy' | 'path' | 'bridge' | 'tavern' | 'stable' | 'hut'
+  // ─── Géographie étendue (altitude/profondeur/îles) — voir worldTerrain.ts::worldTileAt.
+  // 'sea'/'ocean' génèrent de grandes étendues d'eau profonde en bordure de carte, 'pond' un petit
+  // plan d'eau peu profond (étang), 'island' un îlot de terre entouré par la mer/l'océan alentour
+  // (accès conditionné à la possession d'un Engin — voir ShopItem.category === 'vehicle').
+  | 'sea' | 'ocean' | 'pond' | 'island';
 
 /** Carte mapmonde — évolutif : plusieurs cartes pourront coexister (territoire de Synk, futures
  * extensions saisonnières ou nouveaux continents), chacune avec son propre jeu de POI. */
@@ -2248,6 +2253,17 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'barque',    name: '🛶 Barque sans fond',   category: 'vehicle', slot: 'vehicle', priceGame: 500, effect: {},                          active: true },
   { itemId: 'montgolf',  name: '🎈 Montgolfière',       category: 'vehicle', slot: 'vehicle', priceGame: 800, effect: {},                          active: true },
   { itemId: 'mototaupe', name: '⛏️ Moto-taupe',         category: 'vehicle', slot: 'vehicle', priceGame: 700, effect: {},                          active: true },
+  // ─── Engins nautiques/aériens supplémentaires (gate d'accès aux ÎLES — voir RepRules::
+  // islandVehicleRequired et worldTerrain.ts::Tile.isIsland) — s'inspirent du Seigneur des Anneaux,
+  // de World Of Warcraft, de Zelda et de Minecraft.
+  { itemId: 'radeau_fortune', name: '🪵 Radeau de fortune',         category: 'vehicle', slot: 'vehicle', priceGame: 300,  effect: {}, active: true },
+  { itemId: 'kayak',          name: '🛶 Kayak agile',               category: 'vehicle', slot: 'vehicle', priceGame: 450,  effect: {}, active: true },
+  { itemId: 'canoe',          name: '🛶 Canoë des brumes',          category: 'vehicle', slot: 'vehicle', priceGame: 450,  effect: {}, active: true },
+  { itemId: 'bateau_pecheur', name: '⛵ Bateau de pêcheur',         category: 'vehicle', slot: 'vehicle', priceGame: 900,  effect: {}, active: true },
+  { itemId: 'galion',         name: '🚢 Galion des mers profondes', category: 'vehicle', slot: 'vehicle', priceGame: 2500, effect: {}, active: true },
+  { itemId: 'galere',         name: '🚣 Galère des anciens rois',   category: 'vehicle', slot: 'vehicle', priceGame: 2200, effect: {}, active: true },
+  { itemId: 'cerf_volant',    name: '🪁 Cerf-volant enchanté',      category: 'vehicle', slot: 'vehicle', priceGame: 600,  effect: {}, active: true },
+  { itemId: 'engin_volant',   name: '🛸 Engin volant runique',      category: 'vehicle', slot: 'vehicle', priceGame: 3000, effect: {}, active: true },
   // ─── Objets rares (nécessaires pour apprivoiser certains Familiers — voir FamiliarDef.requiredItemId)
   { itemId: 'ecaille_semaphore',       name: '🔴 Écaille de Sémaphore Écarlate',   category: 'treasure', priceGame: 5000,  effect: {}, active: true },
   { itemId: 'griffe_gel_eternel',      name: '❄️ Griffe de Gel Éternel',           category: 'treasure', priceGame: 4000,  effect: {}, active: true },
@@ -2511,6 +2527,30 @@ export interface RepRules {
   fatigueFaintDurationSec: number;         // Durée du blocage / récupération à 100% (défaut 50)
   fatigueFaintHpLoss: number;              // Vie perdue lors de l'évanouissement d'épuisement (défaut 30)
   fatigueFaintResultPopupEnabled: boolean; // Affiche le pop-up d'information des pertes au réveil (défaut true)
+  // ─── Altitude & raréfaction de l'air (voir worldTerrain.ts::Tile.altitudeM et GameCanvas2D.tsx)
+  // — au-delà de `altitudeRarefactionStartM`, l'air se raréfie progressivement jusqu'à
+  // `altitudeMaxM` (sommet le plus haut généré) : les décomptes Oxygène ET Fatigue s'accélèrent
+  // (l'intervalle entre deux paliers de décroissance est multiplié par un facteur qui descend
+  // linéairement jusqu'à `altitudeRarefactionMinIntervalFactor` au sommet). `altitudeSnowThresholdM`
+  // permet, INDÉPENDAMMENT DE LA SAISON, d'afficher un sommet enneigé dès cette altitude (voir
+  // rendu de la neige d'altitude dans GameCanvas2D.tsx/WorldMapWidget.tsx — corrige l'incohérence
+  // "neige en été" tout en gardant la possibilité de neige permanente en haute montagne).
+  altitudeEnabled: boolean;                     // Active/désactive toute la mécanique d'altitude (défaut true)
+  altitudeMaxM: number;                         // Plafond des sommets générés, en mètres (défaut 6000)
+  altitudeSnowThresholdM: number;               // Altitude à partir de laquelle un sommet est enneigé toute l'année (défaut 2000)
+  altitudeRarefactionStartM: number;            // Altitude à partir de laquelle l'air commence à se raréfier (défaut 1500)
+  altitudeRarefactionMinIntervalFactor: number; // Facteur minimal (au sommet) appliqué à l'intervalle Oxygène/Fatigue (défaut 0.4 = 2,5x plus rapide)
+  // ─── Profondeur d'eau (voir worldTerrain.ts::Tile.depthM/waterKind) — plus une dalle d'eau est
+  // profonde (mer/océan), plus la décroissance d'Oxygène s'accélère, sur le même principe que la
+  // raréfaction de l'air en altitude (voir ci-dessus) ; les ruisseaux/étangs peu profonds restent
+  // proches du comportement historique.
+  waterDepthEnabled: boolean;                     // Active/désactive la pondération par profondeur (défaut true)
+  waterDepthMaxM: number;                         // Profondeur maximale générée (fosse océanique), en mètres (défaut 6000)
+  waterDepthRarefactionMinIntervalFactor: number; // Facteur minimal (profondeur maximale) appliqué à l'intervalle Oxygène (défaut 0.5)
+  // ─── Accès aux îles (voir worldTerrain.ts::Tile.isIsland et GameCanvas2D.tsx) — foulée d'une
+  // dalle d'île nécessite un Engin (ShopItem.category === 'vehicle') dans la besace tant que ce
+  // réglage est actif ; sinon le déplacement est bloqué et un message l'explique au joueur.
+  islandVehicleRequired: boolean; // Exige un Engin dans la besace pour accéder aux îles (défaut true)
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
   kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
                                          // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
@@ -2622,8 +2662,17 @@ export const DEFAULT_REP_RULES: RepRules = {
   fatigueFaintDurationSec: 50,
   fatigueFaintHpLoss: 30,
   fatigueFaintResultPopupEnabled: true,
+  altitudeEnabled: true,
+  altitudeMaxM: 6000,
+  altitudeSnowThresholdM: 2000,
+  altitudeRarefactionStartM: 1500,
+  altitudeRarefactionMinIntervalFactor: 0.4,
+  waterDepthEnabled: true,
+  waterDepthMaxM: 6000,
+  waterDepthRarefactionMinIntervalFactor: 0.5,
+  islandVehicleRequired: true,
   kingdomMinIntermediateSolved: 3,
-};
+}
 
 export async function getRepRules(): Promise<RepRules> {
   const db = getFirebaseDb();

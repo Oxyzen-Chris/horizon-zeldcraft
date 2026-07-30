@@ -138,7 +138,8 @@ export default function AdminPage() {
     }).catch(() => {});
   }, []);
   const POI_TYPES: MapPoiType[] = ['plain', 'stream', 'lake', 'mountain', 'forest', 'cave', 'beach', 'waterfall',
-    'village_ally', 'village_enemy', 'path', 'bridge', 'tavern', 'stable', 'hut'];
+    'village_ally', 'village_enemy', 'path', 'bridge', 'tavern', 'stable', 'hut',
+    'sea', 'ocean', 'pond', 'island'];
 
   // Saisons (gestion tournante) — voir gameState.ts::Season/SeasonState/getCurrentSeason.
   const [seasonState, setSeasonStateLocal] = useState<SeasonState | null>(null);

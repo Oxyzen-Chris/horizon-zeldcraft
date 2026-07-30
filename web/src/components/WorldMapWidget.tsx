@@ -38,6 +38,7 @@ const POI_TYPE_FALLBACK_ICON: Record<string, string> = {
   plain: '🌾', stream: '💧', lake: '🌊', mountain: '⛰️', forest: '🌲', cave: '🕳️', beach: '🏖️',
   waterfall: '💦', village_ally: '🏘️', village_enemy: '🏚️', path: '🥾', bridge: '🌉',
   tavern: '🍺', stable: '🐴', hut: '🛖',
+  sea: '🌊', ocean: '🌊', pond: '💧', island: '🏝️',
 };
 
 /**
