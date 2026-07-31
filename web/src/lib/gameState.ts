@@ -83,10 +83,12 @@ export interface PlayerState {
 // familier de combat — n'est PAS un objet de la besace (voir equipFamiliar), juste un slot logé
 // dans le même arbre `equipment` pour réutiliser l'infrastructure du widget. `saddle` : selle de
 // dragon, ne fonctionne qu'associée au familier correspondant (voir InventoryItem.requiresFamiliarId).
+// `hands` : gants — emplacement de protection dédié aux mains, distinct de `weapon`/`offhand` qui
+// portent l'arme/le bouclier tenus en main (voir EquipmentWidget.tsx).
 export type EquipSlot = 'weapon' | 'offhand' | 'head' | 'body' | 'legs' | 'feet' | 'belt' | 'arrows'
-  | 'amulet' | 'vehicle' | 'familiar' | 'saddle';
+  | 'amulet' | 'vehicle' | 'familiar' | 'saddle' | 'hands';
 export const EQUIP_SLOTS: EquipSlot[] = ['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'belt', 'arrows',
-  'amulet', 'vehicle', 'familiar', 'saddle'];
+  'amulet', 'vehicle', 'familiar', 'saddle', 'hands'];
 
 /** Rareté d'un équipement — seuils XP par palier paramétrables dans RepRules (equipRarityXp*). */
 export type ItemRarity = 'common' | 'rare' | 'legendary' | 'epic';
@@ -621,7 +623,7 @@ export function computeEquipmentCombatBonus(
       usedSlots.push('weapon');
     }
   }
-  (['offhand', 'head', 'body', 'legs', 'feet', 'belt', 'amulet'] as EquipSlot[]).forEach((slot) => {
+  (['offhand', 'head', 'body', 'legs', 'feet', 'belt', 'amulet', 'hands'] as EquipSlot[]).forEach((slot) => {
     const it = equipment[slot];
     if (it && it.durability > 0 && it.defense) {
       defense += it.defense;
@@ -2611,6 +2613,87 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'bottes_sept_lieues',name: '👢 Bottes de sept lieues',         category: 'armor', slot: 'feet', rarity: 'legendary', defense: 18, durabilityMax: 15, priceGame: 750000, effect: {}, active: true },
   { itemId: 'ceinture_force',    name: '🎗️ Ceinture de force',            category: 'armor', slot: 'belt', rarity: 'common',    defense: 5,  durabilityMax: 22, priceGame: 200000, effect: {}, active: true },
   { itemId: 'ceinture_geant',    name: '🎗️ Ceinture du géant',            category: 'armor', slot: 'belt', rarity: 'rare',      defense: 15, durabilityMax: 18, priceGame: 380000, effect: {}, active: true },
+  // ── 60 nouvelles protections/vêtements (casques, bandanas, bonnets, casquettes, guêtres, habits,
+  // gilets, pantalons/shorts/pantalons été/cuir/hiver, gants, chaussures/bottes) inspirées du
+  // Seigneur des Anneaux/Tolkien, World of Warcraft, Zelda et Minecraft — voir demande utilisateur.
+  // Toutes paramétrables/modifiables dans "Catalogue Équipement (armes & protections)" du menu
+  // Administration (EquipmentAdminPanel.tsx, générique par EQUIP_SLOTS — aucune modif nécessaire
+  // là-bas). `hands` est un nouveau slot (gants), voir EquipSlot ci-dessus.
+  // ── Casques additionnels (slot 'head')
+  { itemId: 'casque_acier',      name: '⛑️ Casque d\'acier trempé',        category: 'armor', slot: 'head', rarity: 'common',    defense: 10, durabilityMax: 22, priceGame: 210000,  effect: {}, active: true },
+  { itemId: 'casque_orque',      name: '👹 Heaume orque de guerre',        category: 'armor', slot: 'head', rarity: 'rare',      defense: 16, durabilityMax: 18, priceGame: 390000,  effect: {}, active: true },
+  { itemId: 'casque_elfique',    name: '🍃 Heaume elfique du Crépuscule',  category: 'armor', slot: 'head', rarity: 'epic',      defense: 22, durabilityMax: 15, priceGame: 820000,  effect: {}, active: true },
+  { itemId: 'casque_nain',       name: '⚒️ Heaume nain des Forges Profondes', category: 'armor', slot: 'head', rarity: 'legendary', defense: 28, durabilityMax: 12, priceGame: 950000, effect: {}, active: true },
+  // ── Bandanas (slot 'head')
+  { itemId: 'bandana_voyageur',  name: '🧣 Bandana du voyageur',           category: 'armor', slot: 'head', rarity: 'common',    defense: 3,  durabilityMax: 25, priceGame: 60000,   effect: {}, active: true },
+  { itemId: 'bandana_pirate',    name: '🏴\u200d☠️ Bandana du corsaire des mers', category: 'armor', slot: 'head', rarity: 'rare',   defense: 6,  durabilityMax: 20, priceGame: 150000,  effect: {}, active: true },
+  { itemId: 'bandana_ranger',    name: '🍃 Bandana du Rôdeur des Bois',    category: 'armor', slot: 'head', rarity: 'epic',      defense: 9,  durabilityMax: 16, priceGame: 320000,  effect: {}, active: true },
+  { itemId: 'bandana_dragon',    name: '🐉 Bandana écarlate du Dragon',    category: 'armor', slot: 'head', rarity: 'legendary', defense: 12, durabilityMax: 12, priceGame: 500000,  effect: {}, active: true },
+  // ── Bonnets (slot 'head')
+  { itemId: 'bonnet_hobbit',     name: '🎩 Bonnet de Hobbit douillet',     category: 'armor', slot: 'head', rarity: 'common',    defense: 4,  durabilityMax: 24, priceGame: 70000,   effect: {}, active: true },
+  { itemId: 'bonnet_nain',       name: '🧔 Bonnet nain fourré',            category: 'armor', slot: 'head', rarity: 'rare',      defense: 8,  durabilityMax: 20, priceGame: 170000,  effect: {}, active: true },
+  { itemId: 'bonnet_hiver',      name: '❄️ Bonnet des Cimes Glacées',      category: 'armor', slot: 'head', rarity: 'epic',      defense: 12, durabilityMax: 16, priceGame: 340000,  effect: {}, active: true },
+  { itemId: 'bonnet_mage',       name: '🔮 Bonnet du Mage Ancestral',      category: 'armor', slot: 'head', rarity: 'legendary', defense: 16, durabilityMax: 12, priceGame: 520000,  effect: {}, active: true },
+  // ── Casquettes (slot 'head')
+  { itemId: 'casquette_explorateur', name: '🧢 Casquette de l\'Éclaireur',     category: 'armor', slot: 'head', rarity: 'common',    defense: 3,  durabilityMax: 25, priceGame: 65000,  effect: {}, active: true },
+  { itemId: 'casquette_marin',       name: '⚓ Casquette du Capitaine des mers', category: 'armor', slot: 'head', rarity: 'rare',      defense: 6,  durabilityMax: 20, priceGame: 160000, effect: {}, active: true },
+  { itemId: 'casquette_chasseur',    name: '🏹 Casquette du Chasseur de primes', category: 'armor', slot: 'head', rarity: 'epic',      defense: 9,  durabilityMax: 16, priceGame: 330000, effect: {}, active: true },
+  { itemId: 'casquette_royale',      name: '👑 Casquette Royale ornée d\'or',   category: 'armor', slot: 'head', rarity: 'legendary', defense: 13, durabilityMax: 12, priceGame: 510000, effect: {}, active: true },
+  // ── Habits (slot 'body')
+  { itemId: 'habit_voyageur',    name: '🥼 Habit du voyageur',             category: 'armor', slot: 'body', rarity: 'common',    defense: 8,  durabilityMax: 24, priceGame: 180000,  effect: {}, active: true },
+  { itemId: 'habit_mage',        name: '🧙 Habit du Mage des Arcanes',     category: 'armor', slot: 'body', rarity: 'rare',      defense: 16, durabilityMax: 20, priceGame: 360000,  effect: {}, active: true },
+  { itemId: 'habit_hobbit',      name: '🍀 Habit chaud de la Comté',       category: 'armor', slot: 'body', rarity: 'epic',      defense: 24, durabilityMax: 16, priceGame: 650000,  effect: {}, active: true },
+  { itemId: 'habit_seigneur',    name: '👑 Habit du Seigneur des Terres',  category: 'armor', slot: 'body', rarity: 'legendary', defense: 45, durabilityMax: 12, priceGame: 1300000, effect: {}, active: true },
+  // ── Gilets (slot 'body')
+  { itemId: 'gilet_cuir',        name: '🦺 Gilet de cuir renforcé',        category: 'armor', slot: 'body', rarity: 'common',    defense: 10, durabilityMax: 22, priceGame: 190000,  effect: {}, active: true },
+  { itemId: 'gilet_ranger',      name: '🍃 Gilet du Rôdeur d\'Ithilien',   category: 'armor', slot: 'body', rarity: 'rare',      defense: 18, durabilityMax: 18, priceGame: 380000,  effect: {}, active: true },
+  { itemId: 'gilet_templier',    name: '⚔️ Gilet templier béni',          category: 'armor', slot: 'body', rarity: 'epic',      defense: 32, durabilityMax: 14, priceGame: 700000,  effect: {}, active: true },
+  { itemId: 'gilet_dragon',      name: '🐲 Gilet en écailles de Dragon Noir', category: 'armor', slot: 'body', rarity: 'legendary', defense: 55, durabilityMax: 10, priceGame: 1400000, effect: {}, active: true },
+  // ── Guêtres (slot 'legs')
+  { itemId: 'guetres_cuir',      name: '🥾 Guêtres de cuir tanné',         category: 'armor', slot: 'legs', rarity: 'common',    defense: 5,  durabilityMax: 22, priceGame: 150000,  effect: {}, active: true },
+  { itemId: 'guetres_ranger',    name: '🍃 Guêtres du Rôdeur',             category: 'armor', slot: 'legs', rarity: 'rare',      defense: 10, durabilityMax: 18, priceGame: 300000,  effect: {}, active: true },
+  { itemId: 'guetres_acier',     name: '⚙️ Guêtres d\'acier renforcé',    category: 'armor', slot: 'legs', rarity: 'epic',      defense: 16, durabilityMax: 14, priceGame: 600000,  effect: {}, active: true },
+  { itemId: 'guetres_dragon',    name: '🐲 Guêtres en écailles de Dragon', category: 'armor', slot: 'legs', rarity: 'legendary', defense: 24, durabilityMax: 10, priceGame: 1100000, effect: {}, active: true },
+  // ── Pantalons (slot 'legs')
+  { itemId: 'pantalon_toile',    name: '👖 Pantalon de toile robuste',     category: 'armor', slot: 'legs', rarity: 'common',    defense: 6,  durabilityMax: 24, priceGame: 160000,  effect: {}, active: true },
+  { itemId: 'pantalon_soldat',   name: '🎖️ Pantalon du Soldat de la Garde', category: 'armor', slot: 'legs', rarity: 'rare',      defense: 12, durabilityMax: 20, priceGame: 320000,  effect: {}, active: true },
+  { itemId: 'pantalon_noble',    name: '👑 Pantalon noble brodé d\'or',    category: 'armor', slot: 'legs', rarity: 'epic',      defense: 20, durabilityMax: 16, priceGame: 620000,  effect: {}, active: true },
+  { itemId: 'pantalon_royal',    name: '🏰 Pantalon Royal des Terres du Nord', category: 'armor', slot: 'legs', rarity: 'legendary', defense: 30, durabilityMax: 12, priceGame: 1150000, effect: {}, active: true },
+  // ── Shorts (slot 'legs')
+  { itemId: 'short_explorateur', name: '🩳 Short de l\'explorateur',       category: 'armor', slot: 'legs', rarity: 'common',    defense: 4,  durabilityMax: 25, priceGame: 90000,   effect: {}, active: true },
+  { itemId: 'short_ete',         name: '☀️ Short d\'été léger',            category: 'armor', slot: 'legs', rarity: 'rare',      defense: 7,  durabilityMax: 20, priceGame: 190000,  effect: {}, active: true },
+  { itemId: 'short_combat',      name: '⚔️ Short de combat renforcé',     category: 'armor', slot: 'legs', rarity: 'epic',      defense: 12, durabilityMax: 16, priceGame: 380000,  effect: {}, active: true },
+  { itemId: 'short_aventurier',  name: '🗺️ Short légendaire de l\'Aventurier', category: 'armor', slot: 'legs', rarity: 'legendary', defense: 18, durabilityMax: 12, priceGame: 600000, effect: {}, active: true },
+  // ── Pantalons d'été (slot 'legs')
+  { itemId: 'pantalon_ete_lin',    name: '🌾 Pantalon d\'été en lin',          category: 'armor', slot: 'legs', rarity: 'common',    defense: 4,  durabilityMax: 24, priceGame: 85000,   effect: {}, active: true },
+  { itemId: 'pantalon_ete_coton',  name: '☁️ Pantalon d\'été en coton léger',   category: 'armor', slot: 'legs', rarity: 'rare',      defense: 8,  durabilityMax: 20, priceGame: 180000,  effect: {}, active: true },
+  { itemId: 'pantalon_ete_soie',   name: '🎐 Pantalon d\'été en soie elfique',  category: 'armor', slot: 'legs', rarity: 'epic',      defense: 13, durabilityMax: 16, priceGame: 370000,  effect: {}, active: true },
+  { itemId: 'pantalon_ete_desert', name: '🏜️ Pantalon d\'été des Sables Ardents', category: 'armor', slot: 'legs', rarity: 'legendary', defense: 19, durabilityMax: 12, priceGame: 580000, effect: {}, active: true },
+  // ── Pantalons de cuir (slot 'legs')
+  { itemId: 'pantalon_cuir_brut',   name: '🥾 Pantalon de cuir brut',              category: 'armor', slot: 'legs', rarity: 'common',    defense: 9,  durabilityMax: 22, priceGame: 200000,  effect: {}, active: true },
+  { itemId: 'pantalon_cuir_cloute', name: '🔩 Pantalon de cuir clouté',            category: 'armor', slot: 'legs', rarity: 'rare',      defense: 15, durabilityMax: 18, priceGame: 390000,  effect: {}, active: true },
+  { itemId: 'pantalon_cuir_noir',   name: '🖤 Pantalon de cuir noir des Ombres',   category: 'armor', slot: 'legs', rarity: 'epic',      defense: 24, durabilityMax: 14, priceGame: 680000,  effect: {}, active: true },
+  { itemId: 'pantalon_cuir_dragon', name: '🐲 Pantalon de cuir tanné au feu du Dragon', category: 'armor', slot: 'legs', rarity: 'legendary', defense: 34, durabilityMax: 10, priceGame: 1200000, effect: {}, active: true },
+  // ── Pantalons d'hiver (slot 'legs')
+  { itemId: 'pantalon_hiver_laine',    name: '🧶 Pantalon d\'hiver en laine',              category: 'armor', slot: 'legs', rarity: 'common',    defense: 10, durabilityMax: 22, priceGame: 210000,  effect: {}, active: true },
+  { itemId: 'pantalon_hiver_fourrure', name: '🐻 Pantalon d\'hiver fourré',                category: 'armor', slot: 'legs', rarity: 'rare',      defense: 17, durabilityMax: 18, priceGame: 400000,  effect: {}, active: true },
+  { itemId: 'pantalon_hiver_ours',     name: '🐻\u200d❄️ Pantalon d\'hiver en peau d\'ours polaire', category: 'armor', slot: 'legs', rarity: 'epic', defense: 27, durabilityMax: 14, priceGame: 720000, effect: {}, active: true },
+  { itemId: 'pantalon_hiver_givre',    name: '❄️ Pantalon du Seigneur des Glaces',         category: 'armor', slot: 'legs', rarity: 'legendary', defense: 38, durabilityMax: 10, priceGame: 1250000, effect: {}, active: true },
+  // ── Chaussures (slot 'feet')
+  { itemId: 'chaussures_toile',    name: '👟 Chaussures de toile souple',    category: 'armor', slot: 'feet', rarity: 'common',    defense: 3,  durabilityMax: 24, priceGame: 90000,   effect: {}, active: true },
+  { itemId: 'chaussures_cuir',     name: '🥿 Chaussures de cuir fin',        category: 'armor', slot: 'feet', rarity: 'rare',      defense: 7,  durabilityMax: 20, priceGame: 200000,  effect: {}, active: true },
+  { itemId: 'chaussures_elfiques', name: '🍃 Chaussures elfiques silencieuses', category: 'armor', slot: 'feet', rarity: 'epic',      defense: 11, durabilityMax: 16, priceGame: 420000,  effect: {}, active: true },
+  { itemId: 'chaussures_royales',  name: '👑 Chaussures royales dorées',     category: 'armor', slot: 'feet', rarity: 'legendary', defense: 16, durabilityMax: 12, priceGame: 650000,  effect: {}, active: true },
+  // ── Bottes additionnelles (slot 'feet')
+  { itemId: 'bottes_combat',    name: '🥾 Bottes de combat renforcées',        category: 'armor', slot: 'feet', rarity: 'common',    defense: 8,  durabilityMax: 22, priceGame: 180000,  effect: {}, active: true },
+  { itemId: 'bottes_naines',    name: '⚒️ Bottes naines cloutées',            category: 'armor', slot: 'feet', rarity: 'rare',      defense: 13, durabilityMax: 18, priceGame: 360000,  effect: {}, active: true },
+  { itemId: 'bottes_fourrure',  name: '🐻 Bottes fourrées des Terres Gelées', category: 'armor', slot: 'feet', rarity: 'epic',      defense: 18, durabilityMax: 14, priceGame: 640000,  effect: {}, active: true },
+  { itemId: 'bottes_dragon',    name: '🐲 Bottes en écailles de Dragon d\'Argent', category: 'armor', slot: 'feet', rarity: 'legendary', defense: 24, durabilityMax: 10, priceGame: 1050000, effect: {}, active: true },
+  // ── Gants (nouveau slot 'hands')
+  { itemId: 'gants_cuir',    name: '🧤 Gants de cuir souple',        category: 'armor', slot: 'hands', rarity: 'common',    defense: 4,  durabilityMax: 24, priceGame: 120000, effect: {}, active: true },
+  { itemId: 'gants_acier',   name: '⚙️ Gants d\'acier articulé',    category: 'armor', slot: 'hands', rarity: 'rare',      defense: 9,  durabilityMax: 20, priceGame: 260000, effect: {}, active: true },
+  { itemId: 'gants_mithril', name: '💎 Gants de mithril',            category: 'armor', slot: 'hands', rarity: 'epic',      defense: 15, durabilityMax: 16, priceGame: 550000, effect: {}, active: true },
+  { itemId: 'gants_dragon',  name: '🐲 Gants en écailles de Dragon d\'Or', category: 'armor', slot: 'hands', rarity: 'legendary', defense: 22, durabilityMax: 12, priceGame: 950000, effect: {}, active: true },
   // ── Boucliers (slot 'offhand')
   { itemId: 'bouclier_bois',     name: '🛡️ Bouclier de bois clouté',      category: 'shield', slot: 'offhand', rarity: 'common',    defense: 10, durabilityMax: 20, priceGame: 200000, effect: {}, active: true },
   { itemId: 'bouclier_fer',      name: '🛡️ Bouclier de fer',              category: 'shield', slot: 'offhand', rarity: 'common',    defense: 16, durabilityMax: 22, priceGame: 220000, effect: {}, active: true },

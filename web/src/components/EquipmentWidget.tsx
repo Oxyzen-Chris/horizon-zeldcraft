@@ -20,7 +20,7 @@ interface Pos { x: number; y: number }
 
 const SLOT_ICON: Record<EquipSlot, string> = {
   weapon: '⚔️', offhand: '🛡️', head: '⛑️', body: '🥋', legs: '🦵', feet: '👢', belt: '🎗️', arrows: '➶',
-  amulet: '📿', vehicle: '🎈', familiar: '🐲', saddle: '🐎',
+  amulet: '📿', vehicle: '🎈', familiar: '🐲', saddle: '🐎', hands: '🧤',
 };
 
 /** Emplacement où l'objet équipé peut être posé — un objet ne peut être glissé QUE dans le
@@ -33,7 +33,7 @@ function slotAcceptsItem(slot: EquipSlot, item: InventoryItem): boolean {
 /** Emplacements équipés immédiatement au dépose (comportement historique, sans pop-up) : armes/
  * protections/flèches/amulettes. Engins/selles déclenchent une confirmation (voir demande
  * utilisateur) car ce sont des choix plus engageants (véhicule actif, appairage dragon+selle). */
-const IMMEDIATE_SLOTS = new Set<EquipSlot>(['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'belt', 'arrows', 'amulet']);
+const IMMEDIATE_SLOTS = new Set<EquipSlot>(['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'belt', 'arrows', 'amulet', 'hands']);
 /** Catégories consommables via la "bouche" de Synk (glisser-déposer) — équivalent du bouton
  * "Utiliser" de InventoryPanel.tsx, mêmes deux méthodes proposées à l'utilisateur. */
 const MOUTH_CATEGORIES = new Set<InventoryItem['category']>(['food', 'potion', 'super_potion', 'spell']);
@@ -302,6 +302,14 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
           <Slot slot="belt"    className="bottom-14 right-0" />
           <Slot slot="legs"    className="bottom-0 left-1/2 -translate-x-1/2 -translate-y-1/2" />
           <Slot slot="feet"    className="bottom-0 left-1/2 translate-x-1/2 translate-y-1/2" />
+        </div>
+
+        {/* Emplacement "Gants" (slot 'hands') — ajouté en ligne sous la silhouette plutôt que dans
+            le carré 220×220 déjà entièrement occupé, pour ne prendre aucun risque de régression sur
+            le positionnement absolu finement calé des autres emplacements (tête/torse/jambes/etc.). */}
+        <div className="flex flex-col items-center mt-1">
+          <p className="text-[10px] text-slate-500">{t('equip.slot.hands')}</p>
+          <InlineSlot slot="hands" />
         </div>
 
         {/* Zone "bouche" — glisser-déposer nourriture/potions/sortilèges pour nourrir Synk,
