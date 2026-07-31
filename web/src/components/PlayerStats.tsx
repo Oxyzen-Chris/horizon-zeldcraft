@@ -292,7 +292,17 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
           <StatRow label={t('admin.stats.name')} value={(voxlyn as any)[0]} />
           <StatRow label={t('admin.stats.score')} value={String(Number(score ?? 0))} color="text-yellow-400" />
           <StatRow label={t('admin.stats.level')} value={String(Number((voxlyn as any)[7]))} color="text-emerald-400" />
-          <StatRow label={t('admin.stats.xp')} value={String(Number((voxlyn as any)[3]))} color="text-purple-400" />
+          {/*
+            BUGFIX : l'XP affichée ici était l'XP brute on-chain (voxlyn[3]) uniquement, alors que le
+            widget en jeu (game/page.tsx) affiche systématiquement `xp on-chain + xpBonus` (bonus XP
+            hors-chaîne accumulé via quêtes/PNJ/trésors/Zorghon, voir gameState.ts::applyEffect). Les
+            deux valeurs divergeaient donc dès qu'un joueur avait gagné de l'XP hors-chaîne (ex : 240
+            on-chain vs 1985 affiché en jeu). On applique ici exactement la même formule pour que les
+            deux affichages restent toujours cohérents.
+          */}
+          <StatRow label={t('admin.stats.xp')}
+            value={String(Math.max(0, Number((voxlyn as any)[3]) + (dbPlayer?.xpBonus ?? 0)))}
+            color="text-purple-400" />
           <StatRow label={t('admin.stats.stage')} value={t(`stage.${STAGE_NAMES[Number((voxlyn as any)[8])]}`)} />
           <StatRow label={t('admin.stats.questsSolved')} value={`${count(qRes)} / ${questIds.length}`} color="text-cyan-400" />
           <StatRow label={t('admin.stats.npcsMet')} value={`${Math.max(count(nRes), npcsMetFb)} / ${npcMetCap(Math.max(count(nRes), npcsMetFb))}`} color="text-cyan-400" />
@@ -302,6 +312,17 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
             value={Number((voxlyn as any)[2]) === 0 ? '—' : new Date(Number((voxlyn as any)[2]) * 1000).toLocaleString()} />
           {dbPlayer && (
             <>
+              {/*
+                Ajout des compteurs Vie / Faim / Oxygène / Fatigue, absents jusqu'ici de ce panneau
+                admin alors qu'ils existent dans le widget "Statistiques" en jeu (game/page.tsx). On
+                reprend exactement la même priorité DB > on-chain que le jeu pour la Vie/Faim (qui
+                existent aussi on-chain en valeur de secours), l'Oxygène et la Fatigue étant des
+                compteurs purement hors-chaîne (défaut 100/100, voir gameState.ts).
+              */}
+              <StatRow label={t('game.stats.hp')}      value={`${dbPlayer.hp      ?? Number((voxlyn as any)[4])} / ${dbPlayer.hpMax      ?? 100}`} color="text-rose-400" />
+              <StatRow label={t('game.stats.hunger')}  value={`${dbPlayer.hunger  ?? Number((voxlyn as any)[6])} / ${dbPlayer.hungerMax  ?? 100}`} color="text-orange-400" />
+              <StatRow label={t('game.stats.oxygen')}  value={`${dbPlayer.oxygen  ?? 100} / ${dbPlayer.oxygenMax  ?? 100}`} color="text-sky-400" />
+              <StatRow label={t('game.stats.fatigue')} value={`${dbPlayer.fatigue ?? 100} / ${dbPlayer.fatigueMax ?? 100}`} color="text-amber-400" />
               <StatRow label={t('game.stats.force')}      value={`${dbPlayer.force} / ${dbPlayer.forceMax ?? 100}`}      color="text-rose-400" />
               <StatRow label={t('game.stats.spells')}     value={`${dbPlayer.spells} / ${dbPlayer.spellsMax ?? 100}`}     color="text-indigo-400" />
               <StatRow label={t('game.stats.reputation')} value={String(dbPlayer.reputation)} color="text-amber-400" />

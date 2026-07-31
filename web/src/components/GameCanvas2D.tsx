@@ -460,6 +460,17 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     [worldCol, worldRow, poiPoints],
   );
   const currentTerrain = currentTile.terrain;
+  // Miroir de `currentTile` en ref (même principe que `playerRef` ci-dessus) — lu LIVE depuis
+  // l'intérieur des `setInterval` Oxygène/Fatigue ci-dessous pour connaître l'altitude/profondeur
+  // courante SANS dépendre de `currentTile` dans leur tableau de dépendances : `currentTile` est un
+  // NOUVEL objet à chaque pas (même en restant sur le même TYPE de terrain), donc l'y inclure
+  // relançait (et donc réinitialisait) tout le décompte à chaque déplacement — bug empêchant la
+  // Fatigue/l'Oxygène de jamais atteindre leur palier tant que Synk se déplace en continu (signalé
+  // par l'utilisateur : "maintenir appuyé les touches... ne font pas diminuer le pourcentage de
+  // fatigue"). Seul `currentTerrain`/`isMoving` (changement de TYPE de dalle ou arrêt du mouvement)
+  // doit interrompre le décompte — voir les deux effets ci-dessous.
+  const currentTileRef = useRef(currentTile);
+  useEffect(() => { currentTileRef.current = currentTile; }, [currentTile]);
 
   // ─── Besace (voir RepRules::islandVehicleRequired) — nécessaire pour savoir si Synk possède un
   // Engin avant de le laisser fouler une île (voir moveTo ci-dessous). Abonnement temps réel (et
@@ -527,16 +538,21 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // (défaut 50 s, paramétrable, réduit par la raréfaction) tourne en continu (traverser plusieurs
   // dalles à la suite ne le réinitialise PAS, seul un retour sur la terre ferme l'arrête) ; à chaque
   // palier atteint tant que Synk est toujours sur l'une de ces dalles, on applique la pénalité
-  // (oxygène/XP/Force) et on relance un décompte complet.
+  // (oxygène/XP/Force) et on relance un décompte complet. La raréfaction est recalculée à chaque
+  // tick depuis `currentTileRef` (LIVE) plutôt que figée à l'ouverture de l'effet, afin que
+  // `currentTile` puisse rester HORS du tableau de dépendances (voir currentTileRef ci-dessus) —
+  // sinon chaque pas sur de l'eau/montagne (nouvel objet `currentTile`) relançait l'effet et
+  // réinitialisait le décompte à zéro avant même d'atteindre le premier palier.
   useEffect(() => {
     if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; }
     if ((currentTerrain !== 'water' && currentTerrain !== 'rock') || !address || !rules || fainting || fatigueFainting) {
       setOxygenTimer(null);
       return;
     }
-    const rarefaction = computeRarefactionFactor(rules, currentTile);
-    const intervalSec = Math.max(1, Math.round((rules.oxygenDrainIntervalSec ?? 50) * rarefaction));
-    setOxygenTimer(intervalSec);
+    const initialIntervalSec = Math.max(1, Math.round(
+      (rules.oxygenDrainIntervalSec ?? 50) * computeRarefactionFactor(rules, currentTileRef.current),
+    ));
+    setOxygenTimer(initialIntervalSec);
     oxygenIntervalRef.current = setInterval(() => {
       setOxygenTimer((prev) => {
         if (prev === null) return prev;
@@ -546,13 +562,15 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
             xpBonus: -(rules.oxygenPenaltyXp ?? 10),
             force: -(rules.oxygenPenaltyForce ?? 10),
           }).catch(() => {});
-          return intervalSec;
+          return Math.max(1, Math.round(
+            (rules.oxygenDrainIntervalSec ?? 50) * computeRarefactionFactor(rules, currentTileRef.current),
+          ));
         }
         return prev - 1;
       });
     }, 1000);
     return () => { if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; } };
-  }, [currentTerrain, currentTile, address, rules, fainting, fatigueFainting]);
+  }, [currentTerrain, address, rules, fainting, fatigueFainting]);
 
   // ─── Récupération d'oxygène sur la terre ferme ────────────────────────────────────────────────
   // Dès que Synk se retrouve sur une dalle de terre (verte), restaure l'oxygène par palier de
@@ -596,28 +614,37 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // vrai, on applique la perte de Fatigue (voir `computeFatigueDrainPct` ci-dessus : la perte de
   // base `fatigueDrainPct` est pondérée à la hausse quand Vie/Faim/Force/Oxygène sont bas — moins
   // d'énergie, fatigue plus rapide) et on relance un décompte complet. Désactivable entièrement via
-  // `rules.fatigueEnabled` (Administration).
+  // `rules.fatigueEnabled` (Administration). La raréfaction est recalculée à chaque tick depuis
+  // `currentTileRef` (LIVE, voir plus haut) plutôt que figée à l'ouverture de l'effet — sinon
+  // `currentTile` (nouvel objet à CHAQUE pas, donc en continu tant qu'une touche de déplacement
+  // reste enfoncée) devait rester dans le tableau de dépendances, ce qui relançait l'effet et donc
+  // réinitialisait le décompte à zéro avant même d'atteindre le premier palier de perte de Fatigue :
+  // c'est ce bug précis qui empêchait la Fatigue de jamais diminuer en maintenant les touches de
+  // déplacement enfoncées (signalé par l'utilisateur).
   useEffect(() => {
     if (fatigueIntervalRef.current) { clearInterval(fatigueIntervalRef.current); fatigueIntervalRef.current = null; }
     if (!isMoving || !address || !rules || fainting || fatigueFainting || rules.fatigueEnabled === false) {
       setFatigueTimer(null);
       return;
     }
-    const rarefaction = computeRarefactionFactor(rules, currentTile);
-    const intervalSec = Math.max(1, Math.round((rules.fatigueDrainIntervalSec ?? 3) * rarefaction));
-    setFatigueTimer(intervalSec);
+    const initialIntervalSec = Math.max(1, Math.round(
+      (rules.fatigueDrainIntervalSec ?? 3) * computeRarefactionFactor(rules, currentTileRef.current),
+    ));
+    setFatigueTimer(initialIntervalSec);
     fatigueIntervalRef.current = setInterval(() => {
       setFatigueTimer((prev) => {
         if (prev === null) return prev;
         if (prev <= 1) {
           applyEffect(address, { fatigue: -computeFatigueDrainPct(rules, playerRef.current) }).catch(() => {});
-          return intervalSec;
+          return Math.max(1, Math.round(
+            (rules.fatigueDrainIntervalSec ?? 3) * computeRarefactionFactor(rules, currentTileRef.current),
+          ));
         }
         return prev - 1;
       });
     }, 1000);
     return () => { if (fatigueIntervalRef.current) { clearInterval(fatigueIntervalRef.current); fatigueIntervalRef.current = null; } };
-  }, [isMoving, currentTile, address, rules, fainting, fatigueFainting]);
+  }, [isMoving, address, rules, fainting, fatigueFainting]);
 
   // ─── Récupération de fatigue à l'arrêt/ralenti ─────────────────────────────────────────────────
   // Dès que Synk ralentit ou s'arrête (`isMoving` devient faux), restaure la Fatigue par palier de
