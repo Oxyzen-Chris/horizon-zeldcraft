@@ -7,7 +7,9 @@ import {
   getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem, subscribeInventory,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, relocateZorghonCaptives, rescuePocaPoka,
+  CORNER_POSITION_CLASSES,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem, type ZorghonEncounterState,
+  type SynkDirection,
 } from '@/lib/gameState';
 import {
   TERRAIN_COLOR, PROP_ICON, TERRAIN_I18N_KEY, PROP_I18N_KEY, worldTileAt, clamp100, WORLD_SIZE, hashRand,
@@ -37,6 +39,20 @@ const TILE_W = 56, TILE_H = 28;
 // (même source de vérité : players/{addr}/mapPos, voir gameState.ts::setPlayerMapPos).
 const STEP_PCT = 1; // Synk avance d'une case (= 1 unité mapmonde) à chaque pression/clic — voir move()
 const MARGIN = 1; // marge (en cellules) avant que la caméra ne recadre le décor
+// Délai d'inactivité (ms) après le dernier pas avant de considérer que Synk s'est arrêté et de
+// couper l'animation de marche (voir isWalking/walkStopTimerRef dans le composant) — assez court
+// pour un arrêt visuel réactif, assez long pour ne pas "hacher" l'animation entre deux appuis
+// répétés (auto-repeat clavier) d'un même déplacement continu.
+const WALK_STOP_DELAY_MS = 220;
+
+/** Déduit la direction de marche à 8 valeurs (voir SynkDirection) à partir d'un delta (dx,dy). */
+function directionFromDelta(dx: number, dy: number): SynkDirection | null {
+  if (dx === 0 && dy === 0) return null;
+  if (dx === 0) return dy < 0 ? 'up' : 'down';
+  if (dy === 0) return dx < 0 ? 'left' : 'right';
+  if (dx < 0) return dy < 0 ? 'up-left' : 'down-left';
+  return dy < 0 ? 'up-right' : 'down-right';
+}
 
 interface Actor { id: string; col: number; row: number; icon: string; label: string }
 
@@ -481,11 +497,29 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     setPlayerMapPos(address, DEFAULT_MAP_ID, x, y).catch(() => {});
   }, [address, rules?.islandVehicleRequired, hasVehicle, poiPoints, t]);
 
+  // ─── Direction/animation de marche de Synk (voir SynkSkin.tsx::direction/walking et
+  // RepRules.synkLimbAnimationEnabled) — purement visuel : `facing` mémorise la dernière direction
+  // de déplacement (8 valeurs, cardinales + diagonales), `isWalking` reste vrai tant que des pas
+  // continuent d'arriver et retombe à faux après `WALK_STOP_DELAY_MS` d'inactivité (auto-repeat
+  // clavier/D-pad = "marche continue", relâchement = arrêt de l'animation).
+  const [facing, setFacing] = useState<SynkDirection>('down');
+  const [isWalking, setIsWalking] = useState(false);
+  const walkStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const move = useCallback((dx: number, dy: number) => {
     if (faintingRef.current || fatigueFaintingRef.current) return; // Synk évanoui (noyade OU épuisement) : déplacement bloqué
+    const dir = directionFromDelta(dx, dy);
+    if (dir) {
+      setFacing(dir);
+      setIsWalking(true);
+      if (walkStopTimerRef.current) clearTimeout(walkStopTimerRef.current);
+      walkStopTimerRef.current = setTimeout(() => setIsWalking(false), WALK_STOP_DELAY_MS);
+    }
     const cur = worldPosRef.current;
     moveTo(cur.x + dx * STEP_PCT, cur.y + dy * STEP_PCT);
   }, [moveTo]);
+
+  useEffect(() => () => { if (walkStopTimerRef.current) clearTimeout(walkStopTimerRef.current); }, []);
 
   // ─── Décroissance d'oxygène sur l'eau et la montagne/roche ────────────────────────────────────
   // Tant que Synk reste sur une dalle d'eau OU de montagne/roche (raréfaction de l'air en
@@ -851,22 +885,42 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     }
   }, [moveTo, t]);
 
-  // Déplacement au clavier (flèches directionnelles) — actif seulement widget déplié, et ignoré
-  // si le focus est dans un champ de saisie (chat, admin, etc.) pour ne pas interférer.
+  // Déplacement au clavier (flèches directionnelles, y compris en diagonale via appui combiné
+  // Haut/Bas + Gauche/Droite — voir demande utilisateur "haut diagonale gauche", etc.) — actif
+  // seulement widget déplié, et ignoré si le focus est dans un champ de saisie (chat, admin, etc.)
+  // pour ne pas interférer. `keysDownRef` mémorise les flèches actuellement enfoncées : chaque
+  // keydown recalcule un delta composite (ex. ArrowUp+ArrowLeft ⇒ dx=-1,dy=-1) pour permettre les
+  // 8 directions tout en gardant EXACTEMENT le même pas (STEP_PCT) qu'un déplacement cardinal.
+  const keysDownRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (collapsed) return;
+    const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+    const composite = () => {
+      const keys = keysDownRef.current;
+      const dy = keys.has('ArrowUp') ? -1 : keys.has('ArrowDown') ? 1 : 0;
+      const dx = keys.has('ArrowLeft') ? -1 : keys.has('ArrowRight') ? 1 : 0;
+      return { dx, dy };
+    };
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      switch (e.key) {
-        case 'ArrowUp': e.preventDefault(); move(0, -1); break;
-        case 'ArrowDown': e.preventDefault(); move(0, 1); break;
-        case 'ArrowLeft': e.preventDefault(); move(-1, 0); break;
-        case 'ArrowRight': e.preventDefault(); move(1, 0); break;
-      }
+      if (!ARROWS.has(e.key)) return;
+      e.preventDefault();
+      keysDownRef.current.add(e.key);
+      const { dx, dy } = composite();
+      if (dx !== 0 || dy !== 0) move(dx, dy);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!ARROWS.has(e.key)) return;
+      keysDownRef.current.delete(e.key);
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+      keysDownRef.current.clear();
+    };
   }, [collapsed, move]);
 
   // PNJ et dragon errent doucement dans la grille pour donner l'impression d'un monde vivant.
@@ -1069,6 +1123,26 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     </>
   );
 
+  // ─── Pop-up profondeur/altitude (voir RepRules::depthAltitudePopupEnabled/Position/*Template) ──
+  // Petit indicateur non bloquant et clignotant, affiché tant que Synk reste sur une dalle d'eau
+  // (profondeur, `currentTile.depthM`) ou de montagne/roche (altitude, `currentTile.altitudeM`) —
+  // purement informatif, aucun impact sur les statistiques (contrairement à Oxygène/Fatigue).
+  // Gabarit texte personnalisable par l'admin (jeton `{value}`), sinon texte traduit par défaut.
+  const depthAltitudeUi = (rules?.depthAltitudePopupEnabled === false || (currentTerrain !== 'water' && currentTerrain !== 'rock')) ? null : (() => {
+    const isWater = currentTerrain === 'water';
+    const value = Math.round(isWater ? (currentTile.depthM ?? 0) : (currentTile.altitudeM ?? 0));
+    const template = isWater ? rules?.depthAltitudePopupWaterTemplate : rules?.depthAltitudePopupMountainTemplate;
+    const text = template && template.trim().length > 0
+      ? template.replace('{value}', String(value))
+      : t(isWater ? 'game.depthAltitude.water' : 'game.depthAltitude.mountain', { value });
+    const corner = CORNER_POSITION_CLASSES[rules?.depthAltitudePopupPosition ?? 'top-left'];
+    return (
+      <div className={`fixed z-[90] ${corner} bg-slate-900/90 border-2 border-cyan-500 rounded-xl px-3 py-2 shadow-xl pointer-events-none animate-pulse`}>
+        <p className="text-xs text-cyan-200 whitespace-nowrap">{isWater ? '🌊' : '🏔️'} {text}</p>
+      </div>
+    );
+  })();
+
   if (!pos) return null;
 
   if (collapsed) {
@@ -1086,6 +1160,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
         {fatigueUi}
         {islandBlockedUi}
         {zorghonUi}
+        {depthAltitudeUi}
       </>
     );
   }
@@ -1205,25 +1280,27 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
               <span className="text-xl drop-shadow" style={{ filter: 'drop-shadow(0 0 2px #000)' }}>{NPC_SKINS[encounterNpc.skin]}</span>
             </div>
           )}
-          {/* Synk (joueur) */}
+          {/* Synk (joueur) — direction/marche animées (voir facing/isWalking, SynkSkin.tsx et
+              RepRules.synkLimbAnimationEnabled) */}
           <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-500 pointer-events-auto cursor-help"
             style={{ left: projX(playerCell.col, playerCell.row), top: projY(playerCell.col, playerCell.row) - 26, zIndex: playerCell.col + playerCell.row + 3 }}
             title={t('canvas2d.synkLabel')}>
-            <SynkSkin stage={stage} size={26} />
+            <SynkSkin stage={stage} size={26} direction={facing} walking={isWalking} animated={rules?.synkLimbAnimationEnabled !== false} />
           </div>
         </div>
 
-        {/* Pavé directionnel virtuel — mêmes déplacements que les flèches clavier */}
+        {/* Pavé directionnel virtuel — mêmes déplacements que les flèches clavier, y compris les 4
+            diagonales (coins du pavé, précédemment inoccupés) — voir demande utilisateur. */}
         <div className="absolute bottom-2 left-2 grid grid-cols-3 grid-rows-3 gap-0.5 w-[84px] h-[84px] z-10" title={t('canvas2d.dpadTitle')}>
-          <div />
+          <button className={dpadBtn} onClick={() => move(-1, -1)} title={t('canvas2d.dpadUpLeft')}>↖</button>
           <button className={dpadBtn} onClick={() => move(0, -1)} title={t('canvas2d.dpadUp')}>▲</button>
-          <div />
+          <button className={dpadBtn} onClick={() => move(1, -1)} title={t('canvas2d.dpadUpRight')}>↗</button>
           <button className={dpadBtn} onClick={() => move(-1, 0)} title={t('canvas2d.dpadLeft')}>◀</button>
           <div className="flex items-center justify-center text-emerald-500/50 text-[10px]">🕹️</div>
           <button className={dpadBtn} onClick={() => move(1, 0)} title={t('canvas2d.dpadRight')}>▶</button>
-          <div />
+          <button className={dpadBtn} onClick={() => move(-1, 1)} title={t('canvas2d.dpadDownLeft')}>↙</button>
           <button className={dpadBtn} onClick={() => move(0, 1)} title={t('canvas2d.dpadDown')}>▼</button>
-          <div />
+          <button className={dpadBtn} onClick={() => move(1, 1)} title={t('canvas2d.dpadDownRight')}>↘</button>
         </div>
       </div>
 
@@ -1262,6 +1339,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       {fatigueUi}
       {islandBlockedUi}
       {zorghonUi}
+      {depthAltitudeUi}
     </div>
   );
 }

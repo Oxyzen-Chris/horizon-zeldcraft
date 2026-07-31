@@ -43,3 +43,22 @@ body {
   50%      { box-shadow: 0 0 18px 8px rgba(168, 85, 247, 0.9); }
 }
 .animate-widget-glow { animation: widget-glow 1.6s ease-in-out infinite; }
+
+/* Cycle de marche articulé de Synk (SynkSkin.tsx, groupes SVG jambes/bras/torse/tête) — voir
+   RepRules.synkLimbAnimationEnabled. Jambes/bras opposés en phase (démarche naturelle contro-
+   latérale) ; torse/tête légers contre-bercements. Purement visuel, aucun impact sur le jeu. */
+@keyframes synk-swing-a {
+  0%, 100% { transform: rotate(-14deg); }
+  50%      { transform: rotate(14deg); }
+}
+@keyframes synk-swing-b {
+  0%, 100% { transform: rotate(14deg); }
+  50%      { transform: rotate(-14deg); }
+}
+@keyframes synk-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(0.4px); }
+}
+.animate-synk-swing-a { animation: synk-swing-a 0.55s ease-in-out infinite; transform-box: fill-box; }
+.animate-synk-swing-b { animation: synk-swing-b 0.55s ease-in-out infinite; transform-box: fill-box; }
+.animate-synk-bob { animation: synk-bob 0.55s ease-in-out infinite; transform-box: fill-box; }

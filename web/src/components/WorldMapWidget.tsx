@@ -10,6 +10,7 @@ import {
   getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter,
   getMapNavigationSettings, DEFAULT_MAP_NAVIGATION_SETTINGS,
+  CORNER_POSITION_CLASSES,
   type MapPoiDef, type WorldDef, type RepRules, type Season, type MapMarker, type MapNavigationSettings, type ZorghonEncounterState,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
@@ -215,6 +216,15 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
     }
     return grid;
   }, [terrainPoiPoints]);
+
+  // Tuile actuellement sous Synk sur la Mapmonde (miroir d'affichage de GameCanvas2D.tsx::currentTile
+  // — même générateur déterministe, mêmes coordonnées 0-100%) : sert uniquement au pop-up
+  // profondeur/altitude ci-dessous (voir RepRules::depthAltitudePopupEnabled), aucun impact sur les
+  // statistiques ni sur la logique de jeu (celle-ci reste entièrement pilotée par GameCanvas2D.tsx).
+  const currentMapTile = useMemo(
+    () => worldTileAt(mapPos.x, mapPos.y, terrainPoiPoints),
+    [mapPos.x, mapPos.y, terrainPoiPoints],
+  );
 
   // Découverte fortuite d'un POI proche (rayon 6%) — appelée à chaque changement de position,
   // quelle que soit son origine (clic sur la carte ICI, ou flèches/pavé directionnel dans le
@@ -438,18 +448,40 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
     showToast(`${msg ? msg + ' — ' : '🥾 '}${t('map.arrived', { name: localizeName(t, w.i18nKey, w.name) })}`);
   };
 
+  // ─── Pop-up profondeur/altitude (miroir de GameCanvas2D.tsx — voir RepRules::depthAltitudePopup*)
+  // Même indicateur non bloquant/clignotant, purement informatif, affiché tant que Synk se trouve
+  // sur une dalle d'eau (profondeur) ou de montagne/roche (altitude) sur la Mapmonde.
+  const currentMapTerrain = currentMapTile.terrain;
+  const depthAltitudeUi = (rules?.depthAltitudePopupEnabled === false || (currentMapTerrain !== 'water' && currentMapTerrain !== 'rock')) ? null : (() => {
+    const isWater = currentMapTerrain === 'water';
+    const value = Math.round(isWater ? (currentMapTile.depthM ?? 0) : (currentMapTile.altitudeM ?? 0));
+    const template = isWater ? rules?.depthAltitudePopupWaterTemplate : rules?.depthAltitudePopupMountainTemplate;
+    const text = template && template.trim().length > 0
+      ? template.replace('{value}', String(value))
+      : t(isWater ? 'game.depthAltitude.water' : 'game.depthAltitude.mountain', { value });
+    const corner = CORNER_POSITION_CLASSES[rules?.depthAltitudePopupPosition ?? 'top-left'];
+    return (
+      <div className={`fixed z-[90] ${corner} bg-slate-900/90 border-2 border-cyan-500 rounded-xl px-3 py-2 shadow-xl pointer-events-none animate-pulse`}>
+        <p className="text-xs text-cyan-200 whitespace-nowrap">{isWater ? '🌊' : '🏔️'} {text}</p>
+      </div>
+    );
+  })();
+
   if (!address || !pos) return null;
 
   if (collapsed) {
     return (
-      <button
-        className="fixed z-40 w-14 h-14 rounded-full bg-amber-950 border-2 border-amber-600 text-2xl shadow-lg flex items-center justify-center"
-        style={{ left: pos.x, top: pos.y, zIndex: z }}
-        onPointerDownCapture={bringToFront}
-        onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
-        onClick={() => !dragging && toggleCollapsed()}
-        title={t('map.title')}
-      >🗺️</button>
+      <>
+        <button
+          className="fixed z-40 w-14 h-14 rounded-full bg-amber-950 border-2 border-amber-600 text-2xl shadow-lg flex items-center justify-center"
+          style={{ left: pos.x, top: pos.y, zIndex: z }}
+          onPointerDownCapture={bringToFront}
+          onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
+          onClick={() => !dragging && toggleCollapsed()}
+          title={t('map.title')}
+        >🗺️</button>
+        {depthAltitudeUi}
+      </>
     );
   }
 
@@ -690,6 +722,7 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
         onConfirm={onConfirmWalk}
         onCancel={() => setTravelConfirm(null)}
       />
+      {depthAltitudeUi}
     </div>
   );
 }

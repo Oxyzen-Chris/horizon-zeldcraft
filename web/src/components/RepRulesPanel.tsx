@@ -437,6 +437,15 @@ export function RepRulesPanel() {
         </div>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🚶 {t('admin.repRules.synkLimbAnimationTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.synkLimbAnimationDescription')}</p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={rules.synkLimbAnimationEnabled !== false}
+            onChange={e => setBool('synkLimbAnimationEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.synkLimbAnimationEnabled')}</span>
+        </label>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">🏝️ {t('admin.repRules.islandTitle')}</h3>
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.islandDescription')}</p>
         <label className="flex items-center gap-2 text-sm">
@@ -444,6 +453,42 @@ export function RepRulesPanel() {
             onChange={e => setBool('islandVehicleRequired', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.islandVehicleRequired')}</span>
         </label>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">📍 {t('admin.repRules.depthAltitudePopupTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.depthAltitudePopupDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.depthAltitudePopupEnabled !== false}
+            onChange={e => setBool('depthAltitudePopupEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.depthAltitudePopupEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.depthAltitudePopupPosition')}</span>
+            <select className="input mt-1 w-full" disabled={rules.depthAltitudePopupEnabled === false}
+              value={rules.depthAltitudePopupPosition}
+              onChange={e => setText('depthAltitudePopupPosition', e.target.value)}>
+              <option value="top-left">{t('admin.repRules.corner.topLeft')}</option>
+              <option value="top-right">{t('admin.repRules.corner.topRight')}</option>
+              <option value="bottom-left">{t('admin.repRules.corner.bottomLeft')}</option>
+              <option value="bottom-right">{t('admin.repRules.corner.bottomRight')}</option>
+            </select>
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.depthAltitudePopupWaterTemplate')}</span>
+            <input type="text" className="input mt-1 w-full" disabled={rules.depthAltitudePopupEnabled === false}
+              placeholder={t('game.depthAltitude.water')}
+              value={rules.depthAltitudePopupWaterTemplate}
+              onChange={e => setText('depthAltitudePopupWaterTemplate', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.depthAltitudePopupMountainTemplate')}</span>
+            <input type="text" className="input mt-1 w-full" disabled={rules.depthAltitudePopupEnabled === false}
+              placeholder={t('game.depthAltitude.mountain')}
+              value={rules.depthAltitudePopupMountainTemplate}
+              onChange={e => setText('depthAltitudePopupMountainTemplate', e.target.value)} />
+          </label>
+        </div>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">👑 {t('admin.repRules.kingdomTitle')}</h3>

@@ -2528,6 +2528,68 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'epee_elfique_argent',    name: '✨ Épée elfique à lame d\'argent',    category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 60, durabilityMax: 15, priceGame: 800000, effect: {}, active: true },
   { itemId: 'dard_luisant',           name: '🔷 Dard, la lame qui luit près des Orcs', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 50, durabilityMax: 16, priceGame: 700000, effect: {}, active: true },
   { itemId: 'anduril_replique',       name: '👑 Réplique d\'Andúril, l\'Épée Reforgée', category: 'weapon', slot: 'weapon', rarity: 'epic', damage: 90, durabilityMax: 10, priceGame: 1500000, effect: {}, active: true },
+  // ── 60 nouvelles armes (demande utilisateur) — inspirées du Seigneur des Anneaux/Tolkien, World
+  // of Warcraft, Zelda et Minecraft (voir aussi seedEquipmentCatalog.mjs, même liste exacte).
+  { itemId: 'epee_paysanne', name: '🗡️ Épée paysanne', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 10, durabilityMax: 28, priceGame: 220000, effect: {}, active: true },
+  { itemId: 'hachette_bucheron', name: '🪓 Hachette de bûcheron', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 11, durabilityMax: 26, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'faux_moisson', name: '🌾 Faux du moissonneur', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 13, durabilityMax: 24, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'fourche_ferme', name: '🍴 Fourche de ferme', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 9, durabilityMax: 26, priceGame: 190000, effect: {}, active: true },
+  { itemId: 'baton_pelerin', name: '🥢 Bâton du pèlerin', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 8, durabilityMax: 28, priceGame: 180000, effect: {}, active: true },
+  { itemId: 'epee_garde_village', name: '🗡️ Épée de la garde du village', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 14, durabilityMax: 24, priceGame: 210000, effect: {}, active: true },
+  { itemId: 'hache_bucheron_naine', name: '🪓 Hache de bûcheron naine', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 16, durabilityMax: 22, priceGame: 220000, effect: {}, active: true },
+  { itemId: 'dague_voleur', name: '🔪 Dague de voleur', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 12, durabilityMax: 26, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'marteau_forgeron', name: '🔨 Marteau de forgeron', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 15, durabilityMax: 24, priceGame: 210000, effect: {}, active: true },
+  { itemId: 'lance_milicien', name: '🛡️ Lance de milicien', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 17, durabilityMax: 22, priceGame: 215000, effect: {}, active: true },
+  { itemId: 'arc_court_hobbit', name: '🏹 Arc court de Hobbit', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 5, durabilityMax: 28, requiresArrow: true, priceGame: 200000, effect: {}, active: true },
+  { itemId: 'fronde_gobelin', name: '🪨 Fronde de gobelin', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 6, durabilityMax: 30, priceGame: 180000, effect: {}, active: true },
+  { itemId: 'epee_courte_naine', name: '⚔️ Épée courte naine', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 18, durabilityMax: 22, priceGame: 225000, effect: {}, active: true },
+  { itemId: 'hallebarde_garde', name: '🗡️ Hallebarde de la garde royale', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 19, durabilityMax: 20, priceGame: 230000, effect: {}, active: true },
+  { itemId: 'epee_diamant_minecraft', name: '💎 Épée en diamant', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 20, durabilityMax: 24, priceGame: 230000, effect: {}, active: true },
+  { itemId: 'hache_diamant_minecraft', name: '💎 Hache en diamant', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 22, durabilityMax: 22, priceGame: 235000, effect: {}, active: true },
+  { itemId: 'epee_fer_minecraft', name: '⛏️ Épée en fer', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 16, durabilityMax: 24, priceGame: 210000, effect: {}, active: true },
+  { itemId: 'arc_enchante_minecraft', name: '🏹 Arc enchanté', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 8, durabilityMax: 26, requiresArrow: true, priceGame: 220000, effect: {}, active: true },
+  { itemId: 'arbalete_chasseur', name: '🏹 Arbalète du chasseur', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 9, durabilityMax: 24, requiresArrow: true, priceGame: 210000, effect: {}, active: true },
+  { itemId: 'gourdin_troll', name: '🪵 Gourdin de troll des cavernes', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 20, durabilityMax: 26, priceGame: 220000, effect: {}, active: true },
+  { itemId: 'dague_ombre', name: '🗡️ Dague de l\'ombre', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 14, durabilityMax: 24, priceGame: 205000, effect: {}, active: true },
+  { itemId: 'epee_ecuyer', name: '🗡️ Épée d\'écuyer', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 12, durabilityMax: 26, priceGame: 195000, effect: {}, active: true },
+  { itemId: 'lance_cavalier_leger', name: '🐎 Lance de cavalier léger', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 17, durabilityMax: 22, priceGame: 215000, effect: {}, active: true },
+  { itemId: 'masse_pierre', name: '🪨 Masse de pierre runique', category: 'weapon', slot: 'weapon', rarity: 'common', damage: 15, durabilityMax: 24, priceGame: 205000, effect: {}, active: true },
+  { itemId: 'glamdring_replique', name: '⚔️ Réplique de Frappe-Gnome', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 38, durabilityMax: 18, priceGame: 400000, effect: {}, active: true },
+  { itemId: 'orcrist_replique', name: '⚔️ Réplique de Morsure-Gobelin', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 40, durabilityMax: 18, priceGame: 410000, effect: {}, active: true },
+  { itemId: 'herugrim_replique', name: '⚔️ Réplique de l\'épée du Roi-Cavalier', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 36, durabilityMax: 18, priceGame: 390000, effect: {}, active: true },
+  { itemId: 'guthwine_replique', name: '⚔️ Réplique de la Lame du Neveu', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 34, durabilityMax: 19, priceGame: 380000, effect: {}, active: true },
+  { itemId: 'hache_durin', name: '🪓 Hache de Durin', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 42, durabilityMax: 17, priceGame: 420000, effect: {}, active: true },
+  { itemId: 'lance_intendant_gondor', name: '🗡️ Lance de l\'Intendant de Gondor', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 35, durabilityMax: 18, priceGame: 390000, effect: {}, active: true },
+  { itemId: 'marteau_destin_orque', name: '⚒️ Marteau du Destin orque', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 44, durabilityMax: 16, priceGame: 430000, effect: {}, active: true },
+  { itemId: 'lame_givre_maudite', name: '❄️ Lame gelée maudite', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 40, durabilityMax: 17, priceGame: 410000, effect: {}, active: true },
+  { itemId: 'hache_bataille_horde', name: '🪓 Hache de bataille de la Horde', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 39, durabilityMax: 18, priceGame: 400000, effect: {}, active: true },
+  { itemId: 'epee_geant_montagnes', name: '⚔️ Épée du Géant des Montagnes', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 45, durabilityMax: 16, priceGame: 440000, effect: {}, active: true },
+  { itemId: 'marteau_megatonique', name: '🔨 Marteau mégatonique', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 43, durabilityMax: 16, priceGame: 420000, effect: {}, active: true },
+  { itemId: 'baton_feu_ancien', name: '🔥 Bâton de feu ancien', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 30, durabilityMax: 20, priceGame: 370000, effect: {}, active: true },
+  { itemId: 'baton_glace_ancien', name: '❄️ Bâton de glace ancien', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 30, durabilityMax: 20, priceGame: 370000, effect: {}, active: true },
+  { itemId: 'trident_profondeurs', name: '🔱 Trident des profondeurs', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 37, durabilityMax: 18, priceGame: 400000, effect: {}, active: true },
+  { itemId: 'arbalete_lourde_naine', name: '🏹 Arbalète lourde naine', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 14, durabilityMax: 20, requiresArrow: true, priceGame: 380000, effect: {}, active: true },
+  { itemId: 'arc_sylvain_elfe', name: '🏹 Arc sylvain elfique', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 13, durabilityMax: 22, requiresArrow: true, priceGame: 390000, effect: {}, active: true },
+  { itemId: 'hache_netherite', name: '🟫 Hache en Netherite', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 41, durabilityMax: 17, priceGame: 420000, effect: {}, active: true },
+  { itemId: 'epee_netherite', name: '🟫 Épée en Netherite', category: 'weapon', slot: 'weapon', rarity: 'rare', damage: 40, durabilityMax: 17, priceGame: 415000, effect: {}, active: true },
+  { itemId: 'porte_cendres', name: '✨ Porte-Cendres, la lame sacrée', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 58, durabilityMax: 14, priceGame: 780000, effect: {}, active: true },
+  { itemId: 'fureur_tonnerre', name: '⚡ Fureur du Tonnerre', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 60, durabilityMax: 13, priceGame: 800000, effect: {}, active: true },
+  { itemId: 'epee_ceremonial_gondor', name: '👑 Épée cérémoniale de Gondor', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 52, durabilityMax: 15, priceGame: 700000, effect: {}, active: true },
+  { itemId: 'hache_bataille_naine_royale', name: '🪓 Hache de bataille naine royale', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 55, durabilityMax: 15, priceGame: 720000, effect: {}, active: true },
+  { itemId: 'arc_dame_bois_dore', name: '🏹 Arc de la Dame du Bois Doré', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 22, durabilityMax: 18, requiresArrow: true, priceGame: 750000, effect: {}, active: true },
+  { itemId: 'lame_celeste', name: '🗡️ Lame céleste scellée', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 62, durabilityMax: 13, priceGame: 800000, effect: {}, active: true },
+  { itemId: 'marteau_forge_montagne', name: '⚒️ Marteau de la Forge de la Montagne', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 57, durabilityMax: 14, priceGame: 760000, effect: {}, active: true },
+  { itemId: 'trident_roi_mer', name: '🔱 Trident du Roi des Mers', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 56, durabilityMax: 14, priceGame: 750000, effect: {}, active: true },
+  { itemId: 'baton_archimage', name: '🔮 Bâton de l\'archimage', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 48, durabilityMax: 16, priceGame: 700000, effect: {}, active: true },
+  { itemId: 'faux_faucheur_ames', name: '💀 Faux du faucheur d\'âmes', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 60, durabilityMax: 13, priceGame: 790000, effect: {}, active: true },
+  { itemId: 'dague_reine_ombres', name: '🗡️ Dague de la Reine des Ombres', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 50, durabilityMax: 15, priceGame: 700000, effect: {}, active: true },
+  { itemId: 'arc_vent_eternel', name: '🏹 Arc du Vent Éternel', category: 'weapon', slot: 'weapon', rarity: 'legendary', damage: 24, durabilityMax: 17, requiresArrow: true, priceGame: 780000, effect: {}, active: true },
+  { itemId: 'deuil_ombres', name: '🖤 Deuil des Ombres, lame maudite', category: 'weapon', slot: 'weapon', rarity: 'epic', damage: 95, durabilityMax: 10, priceGame: 1700000, effect: {}, active: true },
+  { itemId: 'sulfuron_marteau_flammes', name: '🔥 Marteau de Sulfuron', category: 'weapon', slot: 'weapon', rarity: 'epic', damage: 92, durabilityMax: 10, priceGame: 1650000, effect: {}, active: true },
+  { itemId: 'epee_maitre_temps', name: '⏳ Épée du Maître du Temps', category: 'weapon', slot: 'weapon', rarity: 'epic', damage: 88, durabilityMax: 11, priceGame: 1600000, effect: {}, active: true },
+  { itemId: 'hache_titan_dechu', name: '🪓 Hache du Titan déchu', category: 'weapon', slot: 'weapon', rarity: 'epic', damage: 90, durabilityMax: 10, priceGame: 1650000, effect: {}, active: true },
+  { itemId: 'lame_hylienne_eternelle', name: '✨ Lame Hylienne Éternelle', category: 'weapon', slot: 'weapon', rarity: 'epic', damage: 85, durabilityMax: 12, priceGame: 1550000, effect: {}, active: true },
+  { itemId: 'trident_empereur_abysses', name: '🔱 Trident de l\'Empereur des Abysses', category: 'weapon', slot: 'weapon', rarity: 'epic', damage: 93, durabilityMax: 10, priceGame: 1700000, effect: {}, active: true },
   // ── Arcs (slot 'weapon', requiresArrow — inefficaces sans flèches équipées dans le slot 'arrows')
   { itemId: 'arc_chasseur',           name: '🏹 Arc du chasseur',                 category: 'weapon', slot: 'weapon', rarity: 'common',    damage: 6,  durabilityMax: 28, requiresArrow: true, priceGame: 200000, effect: {}, active: true },
   { itemId: 'arc_elfique',            name: '🏹 Arc elfique',                     category: 'weapon', slot: 'weapon', rarity: 'rare',      damage: 10, durabilityMax: 30, requiresArrow: true, priceGame: 380000, effect: {}, active: true },
@@ -2581,6 +2643,18 @@ export const DEFAULT_SHOP: ShopItem[] = [
 ];
 
 // ─────────────────────────────────────── Rep rules ───────────────────────────────────────
+
+/** Coin d'écran (voir RepRules::depthAltitudePopupPosition) — réutilisable pour tout futur pop-up
+ * non bloquant dont la position doit être paramétrable par l'admin. */
+export type CornerPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+export const CORNER_POSITION_CLASSES: Record<CornerPosition, string> = {
+  'top-left': 'top-4 left-4', 'top-right': 'top-4 right-4',
+  'bottom-left': 'bottom-4 left-4', 'bottom-right': 'bottom-4 right-4',
+};
+
+/** 8 directions de déplacement de Synk (cardinales + diagonales) — voir SynkSkin.tsx (articulation
+ * visuelle des membres) et GameCanvas2D.tsx (clavier/pavé directionnel). */
+export type SynkDirection = 'up' | 'down' | 'left' | 'right' | 'up-left' | 'up-right' | 'down-left' | 'down-right';
 
 /**
  * Barème de reconnaissance appliqué à chaque type de rencontre PNJ.
@@ -2784,6 +2858,24 @@ export interface RepRules {
   waterDepthEnabled: boolean;                     // Active/désactive la pondération par profondeur (défaut true)
   waterDepthMaxM: number;                         // Profondeur maximale générée (fosse océanique), en mètres (défaut 6000)
   waterDepthRarefactionMinIntervalFactor: number; // Facteur minimal (profondeur maximale) appliqué à l'intervalle Oxygène (défaut 0.5)
+  // ─── Pop-up profondeur/altitude (voir worldTerrain.ts::Tile.depthM/altitudeM, GameCanvas2D.tsx et
+  // WorldMapWidget.tsx) — petit indicateur non bloquant et clignotant affiché tant que Synk se
+  // trouve sur une dalle d'eau (profondeur) ou de montagne/roche (altitude), sur le même principe
+  // visuel que les pop-ups Oxygène/Fatigue mais purement informatif (aucun impact sur les
+  // statistiques). `depthAltitudePopupPosition` choisit le coin d'affichage (voir CornerPosition
+  // ci-dessus). `depthAltitudePopupWaterTemplate`/`MountainTemplate` permettent à l'admin de
+  // personnaliser le texte affiché (jeton `{value}` remplacé par la profondeur/l'altitude en
+  // mètres) ; un gabarit vide (défaut) utilise le texte traduit (voir game.depthAltitude.water/
+  // game.depthAltitude.mountain dans i18n).
+  depthAltitudePopupEnabled: boolean;             // Active/désactive ce pop-up (défaut true)
+  depthAltitudePopupPosition: CornerPosition;     // Coin d'affichage à l'écran (défaut 'top-left')
+  depthAltitudePopupWaterTemplate: string;        // Gabarit eau, ex. "🌊 Profondeur : {value} m" (vide = texte traduit)
+  depthAltitudePopupMountainTemplate: string;     // Gabarit montagne, ex. "🏔️ Altitude : {value} m" (vide = texte traduit)
+  // ─── Articulation des mouvements de Synk (voir SynkSkin.tsx et GameCanvas2D.tsx) — anime
+  // jambes/bras/torse/tête (léger balancement de marche) sur les 8 directions de déplacement
+  // (cardinales + diagonales) dans la Plateforme 2D isométrique. Désactiver revient au rendu
+  // statique d'origine (aucune régression : SynkSkin ignore alors direction/walking).
+  synkLimbAnimationEnabled: boolean;              // Active/désactive l'animation d'articulation (défaut true)
   // ─── Accès aux îles (voir worldTerrain.ts::Tile.isIsland et GameCanvas2D.tsx) — foulée d'une
   // dalle d'île nécessite un Engin (ShopItem.category === 'vehicle') dans la besace tant que ce
   // réglage est actif ; sinon le déplacement est bloqué et un message l'explique au joueur.
@@ -2921,6 +3013,11 @@ export const DEFAULT_REP_RULES: RepRules = {
   waterDepthEnabled: true,
   waterDepthMaxM: 6000,
   waterDepthRarefactionMinIntervalFactor: 0.5,
+  depthAltitudePopupEnabled: true,
+  depthAltitudePopupPosition: 'top-left',
+  depthAltitudePopupWaterTemplate: '',
+  depthAltitudePopupMountainTemplate: '',
+  synkLimbAnimationEnabled: true,
   islandVehicleRequired: true,
   kingdomMinIntermediateSolved: 3,
   zorghonEnabled: true,
