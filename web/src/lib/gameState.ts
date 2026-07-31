@@ -2897,6 +2897,14 @@ export interface RepRules {
                                          // proximité déclenchée (défaut 35)
   zorghonCheckIntervalSec: number;      // Fréquence de vérification de la proximité, en secondes (défaut 20)
   zorghonRescueXpReward: number;        // XP octroyée à la délivrance de PocaPoka et El Pipo (défaut 2000)
+  // ─── Écrans d'accueil & widget "Aides" (voir onboardingContent.ts, OnboardingWizard.tsx et
+  // HelpWidget.tsx) — visite guidée pédagogique (contexte du monde, quêtes, mécaniques, widgets)
+  // affichée une seule fois par navigateur à la première entrée en jeu (drapeau localStorage,
+  // voir game/page.tsx), et rejouable à tout moment via le widget flottant "Aides" qui reprend
+  // exactement le même contenu. `onboardingEnabled` ne contrôle QUE l'affichage automatique de la
+  // première visite ; `helpWidgetEnabled` contrôle la présence du widget flottant lui-même.
+  onboardingEnabled: boolean;   // Affiche automatiquement la visite guidée à la 1ère visite (défaut true)
+  helpWidgetEnabled: boolean;   // Affiche le widget flottant "Aides" (défaut true)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -3026,6 +3034,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   zorghonRelocationChancePct: 35,
   zorghonCheckIntervalSec: 20,
   zorghonRescueXpReward: 2000,
+  onboardingEnabled: true,
+  helpWidgetEnabled: true,
 }
 
 export async function getRepRules(): Promise<RepRules> {

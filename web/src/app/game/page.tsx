@@ -38,6 +38,8 @@ import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
 import { WalletPanel } from '@/components/WalletPanel';
 import { SleepModal } from '@/components/SleepModal';
+import { OnboardingWizard } from '@/components/OnboardingWizard';
+import { HelpWidget } from '@/components/HelpWidget';
 import { useI18n } from '@/lib/i18n';
 import {
   getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, getPlayerActivityStats,
@@ -183,6 +185,19 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const [xpCap, setXpCap] = useState(100000);
   const [repRules, setRepRules] = useState<RepRules | null>(null);
   const [activity, setActivity] = useState<PlayerActivityStats | null>(null);
+  // Visite guidée "Aides" (voir OnboardingWizard.tsx/HelpWidget.tsx) — affichée une seule fois par
+  // navigateur (drapeau localStorage) à la première entrée en jeu, tant que l'admin ne l'a pas
+  // désactivée (repRules.onboardingEnabled). Rejouable à tout moment depuis le widget "Aides".
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    if (!repRules) return;
+    const seen = localStorage.getItem('zc.onboardingSeen.v1') === '1';
+    if (!seen && repRules.onboardingEnabled !== false) setShowOnboarding(true);
+  }, [repRules]);
+  const closeOnboarding = useCallback(() => {
+    setShowOnboarding(false);
+    localStorage.setItem('zc.onboardingSeen.v1', '1');
+  }, []);
   // PNJ actuellement "en approche" (pop-up de rencontre ouvert) — remonté par NpcEncounterPopup
   // pour être matérialisé à côté de Synk dans WorldMapWidget et GameCanvas2D (voir EncounterMarkerInfo).
   const [encounterNpc, setEncounterNpc] = useState<EncounterMarkerInfo>(null);
@@ -469,6 +484,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <CustomWidgetsRenderer playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}
       <SleepModal player={player} rules={repRules} />
+      {/* Visite guidée (contexte, quêtes, mécaniques, widgets) — 1ère visite ou "Revoir" (widget Aides) */}
+      <OnboardingWizard open={showOnboarding} onClose={closeOnboarding} />
+      {/* Fenêtre flottante et déplaçable "Aides" — toujours disponible, reprend le même contenu */}
+      <HelpWidget enabled={repRules?.helpWidgetEnabled !== false} onReplayTour={() => setShowOnboarding(true)} />
     </div>
   );
 }

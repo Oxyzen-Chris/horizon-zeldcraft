@@ -521,6 +521,20 @@ export function RepRulesPanel() {
           ))}
         </div>
       </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">❓ {t('admin.repRules.onboardingTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.onboardingDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.onboardingEnabled !== false}
+            onChange={e => setBool('onboardingEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.onboardingEnabled')}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={rules.helpWidgetEnabled !== false}
+            onChange={e => setBool('helpWidgetEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.helpWidgetEnabled')}</span>
+        </label>
+      </div>
       <div className="flex gap-3 mt-4">
         <button className="btn-primary" disabled={saving} onClick={save}>
           {saving ? '⏳' : t('admin.actions.apply')}
