@@ -3402,12 +3402,42 @@ function progressTheme(key: string, labelI18nKey: string, icon: string, entries:
  * logique de classification.
  */
 export async function getPlayerProgressLedger(address: string): Promise<PlayerProgressLedger> {
-  const [shop, quests, npcs, treasures, worlds, familiars, everOwned, solvedQuests, metNpcs, foundTreasures, unlockedWorlds, tamedFamiliars, packs] =
-    await Promise.all([
-      getShopCatalog(), getQuestDefs(), getNpcDefs(), getTreasureDefs(), getWorldDefs(), getFamiliarDefs(),
-      getItemsEverOwnedIds(address), getAllSolvedQuestIds(address), getMetNpcIds(address), getFoundTreasureIds(address),
-      getUnlockedWorldIds(address), getTamedFamiliarIds(address), getContentPackDefs(),
-    ]);
+  const [
+    shop, quests, npcs, treasures, worlds, familiars, everOwned, solvedQuests, metNpcs, foundTreasures,
+    unlockedWorlds, tamedFamiliars, packs, currentInventory, currentEquipment,
+  ] = await Promise.all([
+    getShopCatalog(), getQuestDefs(), getNpcDefs(), getTreasureDefs(), getWorldDefs(), getFamiliarDefs(),
+    getItemsEverOwnedIds(address), getAllSolvedQuestIds(address), getMetNpcIds(address), getFoundTreasureIds(address),
+    getUnlockedWorldIds(address), getTamedFamiliarIds(address), getContentPackDefs(),
+    // ─── Correctif régression : un objet ACHETÉ/GAGNÉ avant l'introduction du marqueur
+    // `itemsEverOwned` (ou équipé — voir equipItem() ci-dessus qui le retire de la besace via
+    // removeFromInventory SANS jamais passer par addToInventory) n'apparaissait jamais ✅ ici alors
+    // qu'il est bel et bien dans la besace ou porté par Synk (bug signalé : épée de maître, amulette
+    // d'argile/du voyageur, potions, bourse de rubis en besace + épée épique/flèches/amulette
+    // équipées absentes du widget). On complète donc `everOwned` par la photo COURANTE de la besace
+    // ET de l'équipement porté, en plus du marqueur permanent — voir fusion juste après.
+    getInventoryOnce(address), getEquipment(address),
+  ]);
+
+  // Fusionne le marqueur permanent avec la possession ACTUELLE (besace + équipement porté) : un
+  // objet est considéré "possédé" s'il l'a un jour été marqué OU s'il est encore présent maintenant
+  // (couvre tous les objets acquis avant l'ajout du marqueur, sans script de migration séparé).
+  const ownedIds = new Set(everOwned);
+  for (const it of currentInventory) ownedIds.add(it.itemId);
+  // Exclut le slot 'familiar' : son `itemId` est l'id du familier (ex. "dragon.gold", avec un point
+  // interdit dans un segment de chemin Firebase — voir RKEY), pas un itemId de boutique ; il est de
+  // toute façon déjà couvert séparément par `tamedFamiliars` (voir familiarTheme ci-dessous).
+  for (const eq of Object.values(currentEquipment)) if (eq && eq.category !== 'familiar') ownedIds.add(eq.itemId);
+  // Auto-réparation silencieuse et non bloquante : persiste dès maintenant le marqueur permanent
+  // pour tout objet actuellement possédé/équipé qui ne l'était pas encore, afin que ce correctif
+  // n'ait besoin de s'appliquer qu'une seule fois par joueur (les lectures suivantes n'auront plus
+  // besoin de fusionner avec la besace/l'équipement pour ces objets-là).
+  const db = getFirebaseDb();
+  if (db) {
+    for (const id of ownedIds) {
+      if (!everOwned.has(id)) set(ref(db, `players/${KEY(address)}/itemsEverOwned/${id}`), true).catch(() => {});
+    }
+  }
 
   // Mêmes 7 catégories d'objets que les onglets besace/boutique (voir lib/itemTabs.ts) — dupliquées
   // ici en constantes locales plutôt qu'importées, pour ne jamais faire dépendre gameState.ts (la
@@ -3424,7 +3454,7 @@ export async function getPlayerProgressLedger(address: string): Promise<PlayerPr
   const shopThemes = SHOP_THEME_CATS.map(({ key, labelI18nKey, icon, cats }) => {
     const catSet = new Set(cats);
     const entries: ProgressEntry[] = shop.filter(it => catSet.has(it.category))
-      .map(it => ({ id: it.itemId, name: it.name, owned: everOwned.has(it.itemId) }));
+      .map(it => ({ id: it.itemId, name: it.name, owned: ownedIds.has(it.itemId) }));
     return progressTheme(key, labelI18nKey, icon, entries);
   });
 
