@@ -962,6 +962,7 @@
   "equip.consumed": "{name} donné à Synk !",
   "equip.unequipped": "{name} retiré et remis dans la besace",
   "equip.unequipFailed": "Impossible de retirer cet objet (réessaie dans un instant)",
+  "equip.unequipHint": "Cliquer pour retirer et remettre en besace",
   "equip.slot.weapon": "Arme",
   "equip.slot.offhand": "Bouclier",
   "equip.slot.head": "Casque",

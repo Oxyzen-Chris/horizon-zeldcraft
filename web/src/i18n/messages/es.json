@@ -962,6 +962,7 @@
   "equip.consumed": "¡{name} entregado a Synk!",
   "equip.unequipped": "{name} retirado y devuelto a la bolsa",
   "equip.unequipFailed": "No se pudo retirar este objeto (inténtalo de nuevo en un momento)",
+  "equip.unequipHint": "Haz clic para retirar y devolver a la bolsa",
   "equip.slot.weapon": "Arma",
   "equip.slot.offhand": "Escudo",
   "equip.slot.head": "Casco",

@@ -237,7 +237,19 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
             <div className="h-full bg-emerald-400" style={{ width: `${pct}%` }} />
           </div>
         )}
-        <button className="absolute -top-1 -right-1 w-4 h-4 text-[9px] bg-rose-600 rounded-full" onClick={() => doUnequip(slot)}>✕</button>
+        {/* Croix visuelle — le clic sur toute la case (voir onClick du <Slot>/<InlineSlot> ci-dessous)
+            est désormais le déclencheur principal du déséquipement : ce bouton de 16×16px, coincé
+            dans un coin d'une silhouette très compacte où plusieurs emplacements se touchent/se
+            chevauchent légèrement (tête/amulette, bras/torse...), s'est révélé un point de clic trop
+            fragile en pratique (bug signalé à plusieurs reprises : "rien ne se passe"). On garde le
+            bouton par habitude visuelle/accessibilité clavier, mais stopPropagation() évite un double
+            déclenchement (bouton + case) qui aurait pu dupliquer l'objet restitué en besace. */}
+        <button
+          type="button"
+          className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 text-[10px] bg-rose-600 hover:bg-rose-500 rounded-full shadow"
+          onClick={(e) => { e.stopPropagation(); doUnequip(slot); }}
+          title={t('equip.unequipHint')}
+        >✕</button>
       </>
     ) : (
       <span className="text-xl opacity-40">{SLOT_ICON[slot]}</span>
@@ -246,8 +258,13 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
 
   const slotClass = (slot: EquipSlot) => {
     const it = equipment[slot];
-    return dragOverSlot === slot ? 'border-cyan-300 bg-cyan-900/40' : it ? 'border-emerald-500 bg-slate-800/80' : 'border-dashed border-slate-600 bg-slate-800/40';
+    return dragOverSlot === slot ? 'border-cyan-300 bg-cyan-900/40' : it ? 'border-emerald-500 bg-slate-800/80 cursor-pointer' : 'border-dashed border-slate-600 bg-slate-800/40';
   };
+
+  /** Clic n'importe où sur une case OCCUPÉE (pas seulement la petite croix) = déséquiper. Bien plus
+   * robuste qu'un bouton minuscule dans un coin, sans risquer de conflit avec le glisser-déposer
+   * natif HTML5 (equip) qui ne déclenche jamais d'événement `click` sur sa cible. */
+  const onSlotClick = (slot: EquipSlot) => { if (equipment[slot]) doUnequip(slot); };
 
   const Slot = ({ slot, className }: { slot: EquipSlot; className: string }) => (
     <div
@@ -255,6 +272,7 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
       onDragOver={(e) => { e.preventDefault(); setDragOverSlot(slot); }}
       onDragLeave={() => setDragOverSlot((prev) => (prev === slot ? null : prev))}
       onDrop={(e) => onDrop(slot, e)}
+      onClick={() => onSlotClick(slot)}
       title={t(`equip.slot.${slot}`)}
     >
       <SlotBody slot={slot} />
@@ -269,6 +287,7 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
       onDragOver={(e) => { e.preventDefault(); setDragOverSlot(slot); }}
       onDragLeave={() => setDragOverSlot((prev) => (prev === slot ? null : prev))}
       onDrop={(e) => onDrop(slot, e)}
+      onClick={() => onSlotClick(slot)}
       title={t(`equip.slot.${slot}`)}
     >
       <SlotBody slot={slot} />

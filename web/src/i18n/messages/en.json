@@ -962,6 +962,7 @@
   "equip.consumed": "{name} given to Synk!",
   "equip.unequipped": "{name} removed and put back in the bag",
   "equip.unequipFailed": "Couldn't remove this item (try again in a moment)",
+  "equip.unequipHint": "Click to remove and put back in the bag",
   "equip.slot.weapon": "Weapon",
   "equip.slot.offhand": "Shield",
   "equip.slot.head": "Head",
