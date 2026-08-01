@@ -960,6 +960,8 @@
   "equip.failed": "Não foi possível equipar este item",
   "equip.needFamiliar": "Você precisa equipar primeiro o dragão correspondente a esta sela",
   "equip.consumed": "{name} dado a Synk!",
+  "equip.unequipped": "{name} removido e devolvido à bolsa",
+  "equip.unequipFailed": "Não foi possível remover este item (tente novamente em instantes)",
   "equip.slot.weapon": "Arma",
   "equip.slot.offhand": "Escudo",
   "equip.slot.head": "Capacete",

@@ -188,7 +188,19 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
 
   const doUnequip = async (slot: EquipSlot) => {
     if (!address) return;
-    await unequipSlot(address, slot);
+    const it = equipment[slot];
+    try {
+      await unequipSlot(address, slot);
+      // Retour visuel systématique (succès) : sans ce `flash`, un éventuel échec silencieux
+      // (permissions Firebase, coupure réseau...) était rigoureusement indiscernable d'un succès
+      // pour le joueur — les deux ne produisaient AUCUN retour visible (bug signalé : "je ne peux
+      // pas retirer un équipement"). Même logique de retour systématique que onDrop/runPending
+      // ci-dessus, qui affichaient déjà un message de succès ET d'échec.
+      if (it) flash('✅ ' + t('equip.unequipped', { name: slot === 'familiar' ? localizeName(t, it.i18nKey, it.name) : itemLabel(t, it.itemId, it.name) }));
+    } catch (err) {
+      console.error('[equip] doUnequip failed:', err);
+      flash('❌ ' + t('equip.unequipFailed'));
+    }
   };
 
   if (!address || !pos) return null;

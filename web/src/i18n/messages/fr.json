@@ -960,6 +960,8 @@
   "equip.failed": "Impossible d'équiper cet objet",
   "equip.needFamiliar": "Il faut d'abord équiper le dragon correspondant à cette selle",
   "equip.consumed": "{name} donné à Synk !",
+  "equip.unequipped": "{name} retiré et remis dans la besace",
+  "equip.unequipFailed": "Impossible de retirer cet objet (réessaie dans un instant)",
   "equip.slot.weapon": "Arme",
   "equip.slot.offhand": "Bouclier",
   "equip.slot.head": "Casque",

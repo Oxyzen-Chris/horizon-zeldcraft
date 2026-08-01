@@ -960,6 +960,8 @@
   "equip.failed": "Could not equip this item",
   "equip.needFamiliar": "You must equip the matching dragon before this saddle",
   "equip.consumed": "{name} given to Synk!",
+  "equip.unequipped": "{name} removed and put back in the bag",
+  "equip.unequipFailed": "Couldn't remove this item (try again in a moment)",
   "equip.slot.weapon": "Weapon",
   "equip.slot.offhand": "Shield",
   "equip.slot.head": "Head",

@@ -960,6 +960,8 @@
   "equip.failed": "No se pudo equipar este objeto",
   "equip.needFamiliar": "Primero debes equipar el dragón correspondiente a esta silla",
   "equip.consumed": "¡{name} entregado a Synk!",
+  "equip.unequipped": "{name} retirado y devuelto a la bolsa",
+  "equip.unequipFailed": "No se pudo retirar este objeto (inténtalo de nuevo en un momento)",
   "equip.slot.weapon": "Arma",
   "equip.slot.offhand": "Escudo",
   "equip.slot.head": "Casco",

@@ -9,7 +9,7 @@ import {
   computePlayerDiceBonus, rollD20, getChatScripts, getNextQuestHint, DEFAULT_CHAT_SCRIPTS, CHAT_RESPONSE_IDS,
   DEFAULT_REP_RULES, pickNpcQuestForPlayer, unlockQuestForPlayer, getCurrentSeason,
   computeEquipmentCombatBonus, applyEquipmentWear, getShopCatalog, rarityForXp,
-  subscribeEquipment,
+  subscribeEquipment, NPC_FIGHT_LOOT_TABLE,
   type EncounterRecord, type RepRules, type ChatScript, type ChatResponseId, type ChatReaction, type QuestDef,
   type EquipSlot, type EquippedItem, type ItemRarity, type ShopItem, type Season, type InventoryItem,
 } from '@/lib/gameState';
@@ -137,15 +137,10 @@ function rollNpc(season: Season | null): PopupNpc {
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-/** Butin possible lors d'une victoire (récupéré sur le PNJ vaincu). Reçoit les mêmes champs
- * d'équipement (slot/rarité/dégâts ou défense/durabilité) que les objets de boutique — sans quoi
- * un butin de combat restait visible en besace mais impossible à glisser-déposer ou équiper vers
- * la fenêtre Équipement de Synk, contrairement aux objets achetés (bug déjà rencontré). */
-const FIGHT_LOOT_TABLE = [
-  { itemId: 'dague_rouillee', name: '🗡️ Dague rouillée',         category: 'weapon' as const, slot: 'weapon' as const, rarity: 'common' as const, damage: 8, durabilityMax: 12, effect: { force: 5 } },
-  { itemId: 'bourse_pnj',     name: '💰 Bourse trouvée',          category: 'treasure' as const, effect: {} },
-  { itemId: 'amulette_prot',  name: '📿 Amulette de protection',  category: 'armor' as const, slot: 'amulet' as const, rarity: 'common' as const, defense: 6, durabilityMax: 15, effect: { hp: 10 } },
-];
+/** Butin possible lors d'une victoire (récupéré sur le PNJ vaincu) — voir NPC_FIGHT_LOOT_TABLE
+ * (gameState.ts), désormais la source unique (utilisée aussi par getPlayerProgressLedger() pour
+ * que ces 3 objets apparaissent correctement dans le widget "État d'avancement / inventaire"). */
+const FIGHT_LOOT_TABLE = NPC_FIGHT_LOOT_TABLE;
 
 interface FightRoll {
   playerRoll: number; npcRoll: number;

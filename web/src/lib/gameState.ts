@@ -2440,6 +2440,19 @@ export async function getPlayer(address: string): Promise<PlayerState | null> {
 
 // ─────────────────────────────────────── Shop catalog ───────────────────────────────────────
 
+/** Butin possible lors d'une victoire de combat PNJ (récupéré sur le PNJ vaincu) — voir
+ * NpcEncounterPopup.tsx. Reçoit les mêmes champs d'équipement (slot/rarité/dégâts ou défense/
+ * durabilité) que les objets de boutique. Exporté depuis gameState.ts (plutôt que déclaré en local
+ * dans le composant) afin que getPlayerProgressLedger() ci-dessous connaisse ces 3 itemIds
+ * "hors-catalogue-boutique" et les affiche correctement dans le widget "État d'avancement /
+ * inventaire" — sans quoi un butin de combat resterait invisible dans ce widget bien que possédé
+ * (bug signalé : mêmes symptômes que les objets de coffre au trésor, voir itemReward plus bas). */
+export const NPC_FIGHT_LOOT_TABLE: { itemId: string; name: string; category: InventoryItem['category']; slot?: EquipSlot; rarity?: ItemRarity; damage?: number; defense?: number; durabilityMax?: number; effect: InventoryItem['effect'] }[] = [
+  { itemId: 'dague_rouillee', name: '🗡️ Dague rouillée',         category: 'weapon', slot: 'weapon', rarity: 'common', damage: 8, durabilityMax: 12, effect: { force: 5 } },
+  { itemId: 'bourse_pnj',     name: '💰 Bourse trouvée',          category: 'treasure', effect: {} },
+  { itemId: 'amulette_prot',  name: '📿 Amulette de protection',  category: 'armor', slot: 'amulet', rarity: 'common', defense: 6, durabilityMax: 15, effect: { hp: 10 } },
+];
+
 /** Boutique paramétrable — items achetables/vendables. */
 export async function getShopCatalog(): Promise<ShopItem[]> {
   const db = getFirebaseDb();
@@ -3451,9 +3464,41 @@ export async function getPlayerProgressLedger(address: string): Promise<PlayerPr
     { key: 'shopTreasure', labelI18nKey: 'progress.theme.shopTreasure', icon: '💎', cats: ['treasure'] },
     { key: 'saddle', labelI18nKey: 'progress.theme.saddle', icon: '🐎', cats: ['saddle'] },
   ];
+  // Correctif régression (2e signalement) : un objet gagné UNIQUEMENT via un coffre au trésor, une
+  // récompense de quête ou un butin de combat PNJ (itemId "orphelin", jamais enregistré comme
+  // ShopItem — ex. `tresor_epee_maitre` pour l'« Épée de maître (Zelda) ») n'apparaissait JAMAIS
+  // dans les thèmes ci-dessus car ceux-ci n'énuméraient que `getShopCatalog()` : même possédé,
+  // l'objet n'existait tout simplement pas comme *entrée* de la liste (bug plus profond que le
+  // simple indicateur "possédé" déjà corrigé au-dessus). On fusionne donc ici, par itemId, le
+  // catalogue boutique avec tous les `itemReward` de trésors/quêtes et le butin de combat PNJ.
+  const catalogById = new Map<string, { itemId: string; name: string; category: InventoryItem['category'] }>();
+  for (const it of shop) catalogById.set(it.itemId, { itemId: it.itemId, name: it.name, category: it.category });
+  for (const tr of treasures) {
+    const r = tr.itemReward;
+    if (r && !catalogById.has(r.itemId)) catalogById.set(r.itemId, { itemId: r.itemId, name: r.name, category: r.category });
+  }
+  for (const q of quests) {
+    const r = q.itemReward;
+    if (r && !catalogById.has(r.itemId)) catalogById.set(r.itemId, { itemId: r.itemId, name: r.name, category: r.category });
+  }
+  for (const loot of NPC_FIGHT_LOOT_TABLE) {
+    if (!catalogById.has(loot.itemId)) catalogById.set(loot.itemId, { itemId: loot.itemId, name: loot.name, category: loot.category });
+  }
+  // Filet de sécurité ultime : tout itemId actuellement possédé/porté ou marqué "déjà possédé un
+  // jour" mais absent de TOUTES les sources ci-dessus (objet legacy, futur ou non catalogué) est
+  // quand même ajouté au catalogue fusionné — via son propre nom/catégorie stockés en besace ou en
+  // équipement — pour garantir qu'aucun objet réellement possédé ne puisse plus jamais disparaître
+  // silencieusement de ce widget, quelle qu'en soit l'origine future.
+  for (const it of currentInventory) if (!catalogById.has(it.itemId)) catalogById.set(it.itemId, { itemId: it.itemId, name: it.name, category: it.category });
+  for (const eq of Object.values(currentEquipment)) {
+    if (eq && eq.category !== 'familiar' && !catalogById.has(eq.itemId)) {
+      catalogById.set(eq.itemId, { itemId: eq.itemId, name: eq.name, category: eq.category as InventoryItem['category'] });
+    }
+  }
+  const fullCatalog = Array.from(catalogById.values());
   const shopThemes = SHOP_THEME_CATS.map(({ key, labelI18nKey, icon, cats }) => {
     const catSet = new Set(cats);
-    const entries: ProgressEntry[] = shop.filter(it => catSet.has(it.category))
+    const entries: ProgressEntry[] = fullCatalog.filter(it => catSet.has(it.category))
       .map(it => ({ id: it.itemId, name: it.name, owned: ownedIds.has(it.itemId) }));
     return progressTheme(key, labelI18nKey, icon, entries);
   });
