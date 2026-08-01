@@ -40,6 +40,7 @@ import { WalletPanel } from '@/components/WalletPanel';
 import { SleepModal } from '@/components/SleepModal';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { HelpWidget } from '@/components/HelpWidget';
+import { ProgressWidget } from '@/components/ProgressWidget';
 import { useI18n } from '@/lib/i18n';
 import {
   getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, getPlayerActivityStats,
@@ -488,6 +489,11 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <OnboardingWizard open={showOnboarding} onClose={closeOnboarding} />
       {/* Fenêtre flottante et déplaçable "Aides" — toujours disponible, reprend le même contenu */}
       <HelpWidget enabled={repRules?.helpWidgetEnabled !== false} onReplayTour={() => setShowOnboarding(true)} />
+      {/* Fenêtre flottante et déplaçable "État d'avancement / inventaire" — voir demande utilisateur :
+          liste repliable par thème (armes, protections, nourriture, potions & sortilèges, engins,
+          trésors, selles, familiers, quêtes classiques/PNJ/archipel/îles sauvages/Royaume, mondes,
+          PNJ rencontrés) avec icône ✅/❌ par élément selon possession/réussite passée ou présente */}
+      <ProgressWidget enabled={repRules?.progressWidgetEnabled !== false} />
     </div>
   );
 }

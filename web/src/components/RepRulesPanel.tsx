@@ -535,6 +535,15 @@ export function RepRulesPanel() {
           <span className="text-slate-300">{t('admin.repRules.helpWidgetEnabled')}</span>
         </label>
       </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">📖 {t('admin.repRules.progressWidgetTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.progressWidgetDescription')}</p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={rules.progressWidgetEnabled !== false}
+            onChange={e => setBool('progressWidgetEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.progressWidgetEnabled')}</span>
+        </label>
+      </div>
       <div className="flex gap-3 mt-4">
         <button className="btn-primary" disabled={saving} onClick={save}>
           {saving ? '⏳' : t('admin.actions.apply')}

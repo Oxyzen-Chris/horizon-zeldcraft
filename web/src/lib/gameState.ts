@@ -435,6 +435,13 @@ export async function addToInventory(address: string, item: Omit<InventoryItem, 
   if (!db) return;
   await ensureAnonSignIn();
   const path = `players/${KEY(address)}/inventory/${item.itemId}`;
+  // Marqueur permanent "déjà possédé un jour" (voir players/{addr}/itemsEverOwned/{itemId}, jamais
+  // supprimé même si l'objet est ensuite entièrement consommé/retiré via removeFromInventory) —
+  // seule et unique écriture nécessaire ici puisque addToInventory() est le point d'entrée
+  // centralisé de TOUTE acquisition d'objet (boutique, récompense de quête/coffre/PNJ). Alimente le
+  // widget "État d'avancement / inventaire" et la rubrique admin "Statistiques par joueur" (voir
+  // getPlayerProgressLedger ci-dessous). Écriture "fire-and-forget" (non bloquante pour l'appelant).
+  set(ref(db, `players/${KEY(address)}/itemsEverOwned/${item.itemId}`), true).catch(() => {});
   const snap = await get(ref(db, path));
   const existing = snap.val() as InventoryItem | null;
   if (existing) {
@@ -2988,6 +2995,9 @@ export interface RepRules {
   // première visite ; `helpWidgetEnabled` contrôle la présence du widget flottant lui-même.
   onboardingEnabled: boolean;   // Affiche automatiquement la visite guidée à la 1ère visite (défaut true)
   helpWidgetEnabled: boolean;   // Affiche le widget flottant "Aides" (défaut true)
+  // ─── Widget "État d'avancement / inventaire" (voir ProgressWidget.tsx, ProgressLedgerView.tsx et
+  // getPlayerProgressLedger() ci-dessous) — voir demande utilisateur.
+  progressWidgetEnabled: boolean; // Affiche le widget flottant "État d'avancement / inventaire" (défaut true)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -3119,6 +3129,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   zorghonRescueXpReward: 2000,
   onboardingEnabled: true,
   helpWidgetEnabled: true,
+  progressWidgetEnabled: true,
 }
 
 export async function getRepRules(): Promise<RepRules> {
@@ -3320,6 +3331,154 @@ export async function equipFamiliar(address: string, familiar: FamiliarDef): Pro
   };
   await set(ref(db, `players/${KEY(address)}/equipment/familiar`), equipped);
   return 'ok';
+}
+
+/** Ids des familiers déjà apprivoisés par ce joueur, en un seul accès (Set pour lookup O(1)) —
+ * pendant one-shot de subscribeFamiliars() (temps réel), utilisé par getPlayerProgressLedger()
+ * ci-dessous qui n'a besoin que d'une photo instantanée. */
+export async function getTamedFamiliarIds(address: string): Promise<Set<string>> {
+  const db = getFirebaseDb();
+  if (!db) return new Set();
+  const snap = await get(ref(db, `players/${KEY(address)}/familiars`));
+  const v = snap.val() as Record<string, unknown> | null;
+  return new Set(v ? Object.keys(v) : []);
+}
+
+// ────────────────────── État d'avancement / inventaire (ledger combiné) ──────────────────────
+// Voir demande utilisateur : nouveau widget flottant "État d'avancement / inventaire" (repliable
+// par grand thème, icône ✅/❌ par élément) + même détail dans la rubrique admin "Statistiques par
+// joueur". Combine TOUT le catalogue paramétrable (boutique, quêtes, PNJ, trésors, mondes,
+// familiers) avec les enregistrements permanents (jamais supprimés) de possession/réussite du
+// joueur, afin qu'une seule fonction fasse autorité pour les deux affichages (évite toute
+// divergence, comme le bug XP déjà rencontré entre le jeu et l'admin).
+
+/** Ids d'objets (armes/protections/nourriture/potions & sortilèges/engins/trésors boutique/selles)
+ * déjà possédés AU MOINS UNE FOIS par ce joueur — marqueur permanent écrit par addToInventory()
+ * (`players/{addr}/itemsEverOwned/{itemId}`), jamais supprimé même si l'objet est ensuite
+ * entièrement consommé ou retiré de la besace (contrairement à `players/{addr}/inventory` qui,
+ * lui, reflète uniquement la quantité COURANTE). */
+export async function getItemsEverOwnedIds(address: string): Promise<Set<string>> {
+  const db = getFirebaseDb();
+  if (!db) return new Set();
+  const snap = await get(ref(db, `players/${KEY(address)}/itemsEverOwned`));
+  const v = snap.val() as Record<string, unknown> | null;
+  return new Set(v ? Object.keys(v) : []);
+}
+
+/** Une entrée individuelle affichée dans le widget "État d'avancement / inventaire" : possédé
+ * (actuellement ou par le passé)/résolu ou non par le joueur, avec icône ✅/❌ côté UI. */
+export interface ProgressEntry { id: string; name: string; i18nKey?: string; owned: boolean }
+
+/** Sous-groupe repliable au sein d'un thème — utilisé UNIQUEMENT pour "Quêtes du Royaume" afin
+ * d'éviter d'afficher les 400 quêtes en une seule liste plate (regroupement par chapitre, voir
+ * KINGDOM_CHAPTERS). */
+export interface ProgressSubgroup {
+  key: string; label: string; icon: string; entries: ProgressEntry[];
+  ownedCount: number; totalCount: number;
+}
+
+/** Un thème complet (ex. "Armes", "Quêtes du Royaume") du widget "État d'avancement / inventaire"
+ * — soit une liste plate (`entries`), soit des sous-groupes repliables (`subgroups`). */
+export interface ProgressTheme {
+  key: string; labelI18nKey: string; icon: string;
+  entries?: ProgressEntry[]; subgroups?: ProgressSubgroup[];
+  ownedCount: number; totalCount: number;
+}
+
+export interface PlayerProgressLedger { themes: ProgressTheme[] }
+
+function progressTheme(key: string, labelI18nKey: string, icon: string, entries: ProgressEntry[]): ProgressTheme {
+  return { key, labelI18nKey, icon, entries, ownedCount: entries.filter(e => e.owned).length, totalCount: entries.length };
+}
+
+/**
+ * Assemble la progression complète d'un joueur, tous thèmes confondus : équipement/consommables
+ * de la boutique (armes, protections, nourriture, potions & sortilèges, engins, trésors, selles —
+ * via le marqueur permanent itemsEverOwned), familiers apprivoisés, quêtes (classiques/PNJ/
+ * archipel/îles sauvages/Royaume — Royaume sous-groupé par chapitre), mondes débloqués, PNJ
+ * officiels rencontrés et trésors d'exploration trouvés. Utilisée à la fois par le widget flottant
+ * "État d'avancement / inventaire" (ProgressWidget.tsx) et par la rubrique admin "Statistiques par
+ * joueur" (PlayerStats.tsx) — une seule fonction fait autorité pour les deux, aucune duplication de
+ * logique de classification.
+ */
+export async function getPlayerProgressLedger(address: string): Promise<PlayerProgressLedger> {
+  const [shop, quests, npcs, treasures, worlds, familiars, everOwned, solvedQuests, metNpcs, foundTreasures, unlockedWorlds, tamedFamiliars, packs] =
+    await Promise.all([
+      getShopCatalog(), getQuestDefs(), getNpcDefs(), getTreasureDefs(), getWorldDefs(), getFamiliarDefs(),
+      getItemsEverOwnedIds(address), getAllSolvedQuestIds(address), getMetNpcIds(address), getFoundTreasureIds(address),
+      getUnlockedWorldIds(address), getTamedFamiliarIds(address), getContentPackDefs(),
+    ]);
+
+  // Mêmes 7 catégories d'objets que les onglets besace/boutique (voir lib/itemTabs.ts) — dupliquées
+  // ici en constantes locales plutôt qu'importées, pour ne jamais faire dépendre gameState.ts (la
+  // couche de données centrale) d'un fichier UI qui, lui, dépend déjà de gameState.ts.
+  const SHOP_THEME_CATS: { key: string; labelI18nKey: string; icon: string; cats: InventoryItem['category'][] }[] = [
+    { key: 'weapon', labelI18nKey: 'progress.theme.weapon', icon: '⚔️', cats: ['weapon', 'arrow'] },
+    { key: 'armor', labelI18nKey: 'progress.theme.armor', icon: '🛡️', cats: ['armor', 'shield'] },
+    { key: 'food', labelI18nKey: 'progress.theme.food', icon: '🍖', cats: ['food'] },
+    { key: 'potion', labelI18nKey: 'progress.theme.potion', icon: '🧪', cats: ['potion', 'super_potion', 'spell'] },
+    { key: 'vehicle', labelI18nKey: 'progress.theme.vehicle', icon: '🎈', cats: ['vehicle'] },
+    { key: 'shopTreasure', labelI18nKey: 'progress.theme.shopTreasure', icon: '💎', cats: ['treasure'] },
+    { key: 'saddle', labelI18nKey: 'progress.theme.saddle', icon: '🐎', cats: ['saddle'] },
+  ];
+  const shopThemes = SHOP_THEME_CATS.map(({ key, labelI18nKey, icon, cats }) => {
+    const catSet = new Set(cats);
+    const entries: ProgressEntry[] = shop.filter(it => catSet.has(it.category))
+      .map(it => ({ id: it.itemId, name: it.name, owned: everOwned.has(it.itemId) }));
+    return progressTheme(key, labelI18nKey, icon, entries);
+  });
+
+  const familiarTheme = progressTheme('familiar', 'progress.theme.familiar', '🐲',
+    familiars.filter(f => f.active).map(f => ({
+      id: f.id, name: f.label, i18nKey: f.i18nKey, owned: tamedFamiliars.has(familiarKeyOf(f.id)),
+    })));
+  const worldTreasureTheme = progressTheme('worldTreasure', 'progress.theme.worldTreasure', '🎁',
+    treasures.filter(tr => tr.active).map(tr => ({
+      id: tr.id, name: tr.name, i18nKey: tr.i18nKey, owned: foundTreasures.has(RKEY(tr.id)),
+    })));
+  const worldTheme = progressTheme('world', 'progress.theme.world', '🌀',
+    worlds.filter(w => w.active).map(w => ({
+      id: w.id, name: w.name, i18nKey: w.i18nKey, owned: unlockedWorlds.has(RKEY(w.id)),
+    })));
+  const npcTheme = progressTheme('npc', 'progress.theme.npc', '🧙',
+    npcs.filter(n => n.active).map(n => ({
+      id: n.id, name: n.name, i18nKey: n.i18nKey, owned: metNpcs.has(RKEY(n.id)),
+    })));
+
+  const visibleQuests = quests.filter(q => q.active && isContentPackVisible(q.contentPack, packs));
+  const questEntry = (q: QuestDef): ProgressEntry => ({
+    id: q.id, name: q.label, i18nKey: q.i18nKey, owned: solvedQuests.has(q.id.toLowerCase()),
+  });
+  const classicTheme = progressTheme('questClassic', 'progress.theme.questClassic', '📜',
+    visibleQuests.filter(q => !q.kingdomQuest && !q.islandKind && !q.npcGiver).map(questEntry));
+  const npcQuestTheme = progressTheme('questNpc', 'progress.theme.questNpc', '❓',
+    visibleQuests.filter(q => !q.kingdomQuest && !q.islandKind && q.npcGiver).map(questEntry));
+  const archipelagoTheme = progressTheme('questArchipelago', 'progress.theme.questArchipelago', '🏝️',
+    visibleQuests.filter(q => q.islandKind === 'archipelago').map(questEntry));
+  const wildIslandTheme = progressTheme('questWildIsland', 'progress.theme.questWildIsland', '🌴',
+    visibleQuests.filter(q => q.islandKind === 'wildIsland').map(questEntry));
+
+  const kingdomQuests = visibleQuests.filter(q => q.kingdomQuest)
+    .sort((a, b) => (a.kingdomOrder ?? Number.MAX_SAFE_INTEGER) - (b.kingdomOrder ?? Number.MAX_SAFE_INTEGER));
+  const kingdomSubgroups: ProgressSubgroup[] = KINGDOM_CHAPTERS.map(ch => {
+    const entries = kingdomQuests.filter(q => q.kingdomChapter === ch.chapter).map(questEntry);
+    return {
+      key: `chapter${ch.chapter}`, label: `${ch.icon} ${ch.title}`, icon: ch.icon, entries,
+      ownedCount: entries.filter(e => e.owned).length, totalCount: entries.length,
+    };
+  }).filter(g => g.totalCount > 0);
+  const kingdomTheme: ProgressTheme = {
+    key: 'questKingdom', labelI18nKey: 'progress.theme.questKingdom', icon: '👑', subgroups: kingdomSubgroups,
+    ownedCount: kingdomSubgroups.reduce((n, g) => n + g.ownedCount, 0),
+    totalCount: kingdomSubgroups.reduce((n, g) => n + g.totalCount, 0),
+  };
+
+  return {
+    themes: [
+      ...shopThemes, familiarTheme, worldTreasureTheme, worldTheme, npcTheme,
+      classicTheme, npcQuestTheme, archipelagoTheme, wildIslandTheme, kingdomTheme,
+    ],
+  };
 }
 
 // ─────────────────────────────────────── Dialogues PNJ (chat) ───────────────────────────────────────

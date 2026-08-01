@@ -24,6 +24,7 @@ Chemins RTDB utilisés par l'application (à jour au 2026-07) :
 | `chatIndex/{contract}/{roomKey}`        | `TeamsPanel` (à chaque message)               | `ChatHistoryPanel` (dropdown salons)    |
 | `players/{addr}`                        | `applyEffect`, `getOrCreatePlayer`, `topupWallet` | `PlayerStats`, `Scoreboard`, popups |
 | `players/{addr}/inventory/{itemId}`     | `addToInventory`, `removeFromInventory`       | `Inventory`, popup vol PNJ hostile      |
+| `players/{addr}/itemsEverOwned/{itemId}` | `addToInventory` (marqueur permanent, jamais supprimé) | `getPlayerProgressLedger` → `ProgressWidget`, admin `PlayerStats` (« État d'avancement / inventaire ») |
 | `players/{addr}/encounters/{ts}`        | `logEncounter` (popup NPC)                    | `EncountersPanel`, admin PlayerStats    |
 | `players/{addr}/quests/{questId}`       | `markQuestSolved`, `submitQuestAnswerOffchain`, `web/scripts/backfillLegacyQuests.mjs` | `QuestList` (statut résolu + réponse) |
 | `players/{addr}/txs/{ts}`               | `logTx` (mint, feed, buy, quest)              | admin PlayerStats + facture PDF         |

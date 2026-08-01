@@ -9,9 +9,11 @@ import { useI18n } from '@/lib/i18n';
 import { useIdsList } from './useIdsList';
 import {
   listPlayers, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
-  computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex,
+  computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex, getPlayerProgressLedger,
   type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules, type Season,
+  type PlayerProgressLedger,
 } from '@/lib/gameState';
+import { ProgressLedgerView } from './ProgressLedgerView';
 
 const ETHERSCAN_TX: Record<number, string> = {
   1: 'https://etherscan.io/tx/',
@@ -96,6 +98,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const [npcsMetFb, setNpcsMetFb] = useState(0);
   const [activity, setActivity] = useState<PlayerActivityStats | null>(null);
   const [repRules, setRepRulesState] = useState<RepRules | null>(null);
+  const [progressLedger, setProgressLedger] = useState<PlayerProgressLedger | null>(null);
 
   useEffect(() => {
     listPlayers().then(setPlayers).catch(() => {});
@@ -179,17 +182,22 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     setAddr(val);
     setTarget(val as `0x${string}`);
     setLoadingTxs(true);
-    // Charge parallèlement DB player, Firebase txs, Etherscan history et stats d'activité
-    const [p, dbTxs, chainTxs, npcCount, act] = await Promise.all([
+    setProgressLedger(null);
+    // Charge parallèlement DB player, Firebase txs, Etherscan history, stats d'activité et le
+    // ledger complet de progression (voir getPlayerProgressLedger() — même fonction que celle
+    // utilisée par le widget en jeu "État d'avancement / inventaire", pour un affichage identique).
+    const [p, dbTxs, chainTxs, npcCount, act, ledger] = await Promise.all([
       getPlayer(val),
       getTxs(val),
       fetchEtherscanTxs(chainId, val, contract),
       getNpcsMetCount(val),
       getPlayerActivityStats(val),
+      getPlayerProgressLedger(val),
     ]);
     setDbPlayer(p);
     setNpcsMetFb(npcCount);
     setActivity(act);
+    setProgressLedger(ledger);
     // Merge dédupliqué par hash (préférence DB pour le label riche)
     const map = new Map<string, TxRecord>();
     chainTxs.forEach(t => map.set(t.hash.toLowerCase(), t));
@@ -354,6 +362,16 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Section "État d'avancement / inventaire" — voir demande utilisateur : même détail
+          repliable par thème que le widget flottant en jeu ProgressWidget.tsx (source unique
+          getPlayerProgressLedger() pour garantir un affichage strictement identique). */}
+      {target && (
+        <div className="mt-6 border-t border-slate-700 pt-4">
+          <h3 className="text-sm font-semibold mb-3">📖 {t('admin.stats.progressTitle')}</h3>
+          <ProgressLedgerView ledger={progressLedger} />
         </div>
       )}
 
