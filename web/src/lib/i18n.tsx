@@ -51,7 +51,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
 export const useI18n = () => useContext(I18nContext);
 
-type Translate = (key: string, vars?: Record<string, string | number>) => string;
+export type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 /**
  * Résout le libellé localisé d'un item de besace/boutique (`item.<itemId>`), avec repli sur le
