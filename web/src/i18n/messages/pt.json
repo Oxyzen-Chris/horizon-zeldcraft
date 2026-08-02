@@ -1274,5 +1274,6 @@
   "progress.theme.questWildIsland": "🌴 Missões de ilhas selvagens",
   "progress.theme.questKingdom": "👑 Missões do Reino",
   "progress.theme.equipmentGraveyard": "💀 Cemitério de equipamentos",
-  "progress.graveyard.brokenOn": "Quebrado e perdido em {date} — muito danificado para reutilizar"
+  "progress.graveyard.brokenOn": "Quebrado e perdido em {date} — muito danificado para reutilizar",
+  "widget.contextMenu.recenter": "Centralizar na tela"
 }

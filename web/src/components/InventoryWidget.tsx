@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import {
   subscribeInventory, getRepRules, subscribeFamiliars, getFamiliarDefs, familiarKeyOf,
@@ -12,6 +12,8 @@ import { useI18n, itemLabel, localizeName } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DragonSkin, dragonKindFromId } from './DragonSkin';
 import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { WidgetContextMenu } from './WidgetContextMenu';
 
 const POS_KEY = 'zc.inventoryWidgetPos';
 const COLLAPSED_KEY = 'zc.inventoryWidgetCollapsed';
@@ -40,10 +42,13 @@ export function InventoryWidget() {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
-  const [collapsed, setCollapsed] = useState(true);
-  const [pos, setPos] = useState<Pos | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const dragOffset = useRef<Pos>({ x: 0, y: 0 });
+  const {
+    collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,
+    containerRef, menuPos, onContextMenu, closeContextMenu, resetPosition,
+  } = useDraggableWidget({
+    posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
+    defaultPos: () => ({ x: window.innerWidth - 300, y: 160 }),
+  });
 
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
@@ -52,13 +57,6 @@ export function InventoryWidget() {
   const [rules, setRules] = useState<RepRules | null>(null);
   const [familiars, setFamiliars] = useState<FamiliarDef[]>([]);
   const [owned, setOwned] = useState<Record<string, { obtainedAt: number }>>({});
-
-  useEffect(() => {
-    setCollapsed((localStorage.getItem(COLLAPSED_KEY) ?? '1') === '1');
-    const saved = localStorage.getItem(POS_KEY);
-    if (saved) { try { setPos(JSON.parse(saved)); } catch { /* ignore */ } }
-    else if (typeof window !== 'undefined') setPos({ x: window.innerWidth - 300, y: 160 });
-  }, []);
 
   useEffect(() => {
     if (!address) return;
@@ -70,25 +68,6 @@ export function InventoryWidget() {
     if (!address) return;
     return subscribeFamiliars(address, setOwned);
   }, [address]);
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!pos) return;
-    setDragging(true);
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    (e.target as Element).setPointerCapture(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
-  };
-  const onPointerUp = () => {
-    if (!dragging) return;
-    setDragging(false);
-    if (pos) localStorage.setItem(POS_KEY, JSON.stringify(pos));
-  };
-  const toggleCollapsed = () => {
-    setCollapsed(prev => { localStorage.setItem(COLLAPSED_KEY, prev ? '0' : '1'); return !prev; });
-  };
 
   const flash = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(null), 3000); };
 
@@ -147,14 +126,19 @@ export function InventoryWidget() {
 
   if (collapsed) {
     return (
-      <button
-        className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-emerald-500 text-2xl shadow-lg flex items-center justify-center"
-        style={{ left: pos.x, top: pos.y, zIndex: z }}
-        onPointerDownCapture={bringToFront}
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-        onClick={() => !dragging && toggleCollapsed()}
-        title={t('game.inventory.title')}
-      >🎒</button>
+      <>
+        <button
+          ref={containerRef}
+          className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-emerald-500 text-2xl shadow-lg flex items-center justify-center"
+          style={{ left: pos.x, top: pos.y, zIndex: z }}
+          onPointerDownCapture={bringToFront}
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+          onClick={onToggleClick}
+          onContextMenu={onContextMenu}
+          title={t('game.inventory.title')}
+        >🎒</button>
+        <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
+      </>
     );
   }
 
@@ -163,9 +147,11 @@ export function InventoryWidget() {
 
   return (
     <div
+      ref={containerRef}
       className="fixed z-40 w-80 bg-slate-900 border-2 border-emerald-500 rounded-xl shadow-xl select-none"
       style={{ left: pos.x, top: pos.y, zIndex: z }}
       onPointerDownCapture={bringToFront}
+      onContextMenu={onContextMenu}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-emerald-900/30 rounded-t-xl cursor-move"
@@ -174,6 +160,7 @@ export function InventoryWidget() {
         <span className="text-sm font-semibold">🎒 {t('game.inventory.title')}</span>
         <button className="text-xs opacity-70 hover:opacity-100" onClick={toggleCollapsed}>✕</button>
       </div>
+      <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <div className="p-3">
         <div className="flex flex-wrap gap-1 mb-2">
           {TAB_ORDER.map((tb) => (

@@ -17,6 +17,8 @@ import {
 } from '@/lib/worldTerrain';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
 import { SynkSkin } from './SynkSkin';
 import { PoiInteractionModal } from './PoiInteractionModal';
@@ -161,13 +163,17 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
+  const {
+    collapsed, pos, onPointerDown: onHeaderPointerDown, onPointerMove: onHeaderPointerMove,
+    onPointerUp: onHeaderPointerUp, onToggleClick, toggleCollapsed,
+    containerRef, menuPos, onContextMenu, closeContextMenu, resetPosition,
+  } = useDraggableWidget({
+    posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
+    defaultPos: () => ({ x: window.innerWidth - 520, y: 90 }),
+  });
 
-  const [collapsed, setCollapsed] = useState(true);
-  const [pos, setPos] = useState<Pos | null>(null);
   const [size, setSize] = useState<Size>({ w: 480, h: 380 });
-  const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
-  const dragOffset = useRef<Pos>({ x: 0, y: 0 });
   const resizeStart = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
 
   // Règles admin (voir gameState.ts::RepRules) — récupérées une fois pour les interactions POI
@@ -294,10 +300,6 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const [roamingDragonId, setRoamingDragonId] = useState<string | null>(null);
 
   useEffect(() => {
-    setCollapsed((localStorage.getItem(COLLAPSED_KEY) ?? '1') === '1');
-    const savedPos = localStorage.getItem(POS_KEY);
-    if (savedPos) { try { setPos(JSON.parse(savedPos)); } catch { /* ignore */ } }
-    else if (typeof window !== 'undefined') setPos({ x: window.innerWidth - 520, y: 90 });
     const savedSize = localStorage.getItem(SIZE_KEY);
     if (savedSize) { try { setSize(JSON.parse(savedSize)); } catch { /* ignore */ } }
   }, []);
@@ -959,21 +961,6 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     return () => clearInterval(iv);
   }, []);
 
-  const onHeaderPointerDown = (e: React.PointerEvent) => {
-    if (!pos) return;
-    setDragging(true);
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    (e.target as Element).setPointerCapture(e.pointerId);
-  };
-  const onHeaderPointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
-  };
-  const onHeaderPointerUp = () => {
-    if (!dragging) return;
-    setDragging(false);
-    if (pos) localStorage.setItem(POS_KEY, JSON.stringify(pos));
-  };
   const onResizePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     setResizing(true);
@@ -992,9 +979,6 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     if (!resizing) return;
     setResizing(false);
     localStorage.setItem(SIZE_KEY, JSON.stringify(size));
-  };
-  const toggleCollapsed = () => {
-    setCollapsed(prev => { localStorage.setItem(COLLAPSED_KEY, prev ? '0' : '1'); return !prev; });
   };
 
   // Éléments d'interface de la mécanique Oxygène — rendus dans les DEUX branches (widget replié ou
@@ -1176,13 +1160,16 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     return (
       <>
         <button
+          ref={containerRef}
           className="fixed z-40 w-14 h-14 rounded-full bg-emerald-950 border-2 border-emerald-600 text-2xl shadow-lg flex items-center justify-center"
           style={{ left: pos.x, top: pos.y, zIndex: z }}
           onPointerDownCapture={bringToFront}
           onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
-          onClick={() => !dragging && toggleCollapsed()}
+          onClick={onToggleClick}
+          onContextMenu={onContextMenu}
           title={t('canvas2d.title')}
         >🧩</button>
+        <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
         {oxygenUi}
         {fatigueUi}
         {islandBlockedUi}
@@ -1197,6 +1184,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
 
   return (
     <div
+      ref={containerRef}
       className="fixed z-40 bg-slate-950 border-2 border-emerald-600 rounded-xl shadow-2xl select-none flex flex-col"
       style={{ left: pos.x, top: pos.y, width: size.w, height: size.h, zIndex: z }}
       onPointerDownCapture={bringToFront}
@@ -1204,10 +1192,12 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       <div
         className="flex items-center justify-between px-3 py-2 bg-emerald-900/40 rounded-t-xl cursor-move shrink-0"
         onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
+        onContextMenu={onContextMenu}
       >
         <span className="text-sm font-semibold text-emerald-100">🧩 {t('canvas2d.title')}</span>
         <button className="text-xs opacity-70 hover:opacity-100" onClick={toggleCollapsed}>✕</button>
       </div>
+      <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <p className="px-3 pt-1 text-[10px] text-emerald-400/80 shrink-0" title={t('canvas2d.engineNote')}>
         ℹ️ {biasLabel ? t('canvas2d.biasHint', { poi: biasLabel }) : t('canvas2d.hint')} · {t('canvas2d.moveHint')}
       </p>

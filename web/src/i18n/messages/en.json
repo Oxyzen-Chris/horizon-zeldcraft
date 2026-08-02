@@ -1274,5 +1274,6 @@
   "progress.theme.questWildIsland": "🌴 Wild island quests",
   "progress.theme.questKingdom": "👑 Kingdom quests",
   "progress.theme.equipmentGraveyard": "💀 Equipment graveyard",
-  "progress.graveyard.brokenOn": "Broken and lost on {date} — too damaged to be reused"
+  "progress.graveyard.brokenOn": "Broken and lost on {date} — too damaged to be reused",
+  "widget.contextMenu.recenter": "Recenter on screen"
 }

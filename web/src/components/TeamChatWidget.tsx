@@ -7,6 +7,8 @@ import { getFirebaseDb, isFirebaseConfigured, ensureAnonSignIn } from '@/lib/fir
 import { ref, push, query, orderByChild, limitToLast, onValue, off, serverTimestamp, update } from 'firebase/database';
 import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { WidgetContextMenu } from './WidgetContextMenu';
 
 const POS_KEY = 'zc.teamChatWidgetPos';
 const COLLAPSED_KEY = 'zc.teamChatWidgetCollapsed';
@@ -36,12 +38,14 @@ type Msg = {
 export function TeamChatWidget({ contract, defaultName }: { contract: `0x${string}`; defaultName?: string }) {
   const { t } = useI18n();
   const { address } = useAccount();
-
-  const [collapsed, setCollapsed] = useState(true);
-  const [pos, setPos] = useState<Pos | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const dragOffset = useRef<Pos>({ x: 0, y: 0 });
   const { z, bringToFront } = useWindowZIndex();
+  const {
+    collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,
+    containerRef, menuPos, onContextMenu, closeContextMenu, resetPosition,
+  } = useDraggableWidget({
+    posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
+    defaultPos: () => ({ x: window.innerWidth - 340, y: window.innerHeight - 420 }),
+  });
   const fbReady = isFirebaseConfigured();
 
   const { data: teamId } = useReadContract({
@@ -67,13 +71,6 @@ export function TeamChatWidget({ contract, defaultName }: { contract: `0x${strin
   const [editing, setEditing] = useState<Msg | null>(null);
   const lastSendAt = useRef<number>(0);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setCollapsed((localStorage.getItem(COLLAPSED_KEY) ?? '1') === '1');
-    const saved = localStorage.getItem(POS_KEY);
-    if (saved) { try { setPos(JSON.parse(saved)); } catch { /* ignore */ } }
-    else if (typeof window !== 'undefined') setPos({ x: window.innerWidth - 340, y: window.innerHeight - 420 });
-  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -125,29 +122,6 @@ export function TeamChatWidget({ contract, defaultName }: { contract: `0x${strin
     }, (err) => console.error('[teamChatWidget] read error:', err));
     return () => off(msgsRef, 'value', handler);
   }, [inTeam, fbReady, fbUid, roomKey]);
-
-  // ─── Drag (pointer events) ───
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!pos) return;
-    setDragging(true);
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    (e.target as Element).setPointerCapture(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
-  };
-  const onPointerUp = () => {
-    if (!dragging) return;
-    setDragging(false);
-    if (pos) localStorage.setItem(POS_KEY, JSON.stringify(pos));
-  };
-  const toggleCollapsed = () => {
-    setCollapsed(prev => {
-      localStorage.setItem(COLLAPSED_KEY, prev ? '0' : '1');
-      return !prev;
-    });
-  };
 
   const sendChat = async () => {
     if (!chatMsg.trim() || !address || !roomKey) return;
@@ -223,22 +197,29 @@ export function TeamChatWidget({ contract, defaultName }: { contract: `0x${strin
 
   if (collapsed) {
     return (
-      <button
-        className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-emerald-500 text-2xl shadow-lg flex items-center justify-center"
-        style={{ left: pos.x, top: pos.y, zIndex: z }}
-        onPointerDownCapture={bringToFront}
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-        onClick={() => !dragging && toggleCollapsed()}
-        title={t('teamchat.title')}
-      >💬</button>
+      <>
+        <button
+          ref={containerRef}
+          className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-emerald-500 text-2xl shadow-lg flex items-center justify-center"
+          style={{ left: pos.x, top: pos.y, zIndex: z }}
+          onPointerDownCapture={bringToFront}
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+          onClick={onToggleClick}
+          onContextMenu={onContextMenu}
+          title={t('teamchat.title')}
+        >💬</button>
+        <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
+      </>
     );
   }
 
   return (
     <div
+      ref={containerRef}
       className="fixed z-40 w-80 bg-slate-900 border-2 border-emerald-500 rounded-xl shadow-xl select-none flex flex-col"
       style={{ left: pos.x, top: pos.y, maxHeight: '70vh', zIndex: z }}
       onPointerDownCapture={bringToFront}
+      onContextMenu={onContextMenu}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-emerald-900/30 rounded-t-xl cursor-move"
@@ -249,6 +230,7 @@ export function TeamChatWidget({ contract, defaultName }: { contract: `0x${strin
         </span>
         <button className="text-xs opacity-70 hover:opacity-100 shrink-0" onClick={toggleCollapsed}>✕</button>
       </div>
+      <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
 
       <div className="p-3 text-xs flex flex-col gap-2 overflow-hidden">
         {!inTeam ? (

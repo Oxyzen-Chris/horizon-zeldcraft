@@ -12,6 +12,8 @@ import { SynkSkin } from './SynkSkin';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DragonSkin, dragonKindFromId } from './DragonSkin';
 import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { WidgetContextMenu } from './WidgetContextMenu';
 
 const POS_KEY = 'zc.equipWidgetPos';
 const COLLAPSED_KEY = 'zc.equipWidgetCollapsed';
@@ -168,11 +170,14 @@ function InlineSlot({ slot, equipped, t, onUnequip, dragOverSlot, onDragOverSlot
 export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
   const { t } = useI18n();
   const { address } = useAccount();
-  const [collapsed, setCollapsed] = useState(true);
-  const [pos, setPos] = useState<Pos | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const dragOffset = useRef<Pos>({ x: 0, y: 0 });
   const { z, bringToFront } = useWindowZIndex();
+  const {
+    collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,
+    containerRef, menuPos, onContextMenu, closeContextMenu, resetPosition,
+  } = useDraggableWidget({
+    posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
+    defaultPos: () => ({ x: window.innerWidth - 300, y: 90 }),
+  });
 
   const [equipment, setEquipment] = useState<Partial<Record<EquipSlot, EquippedItem>>>({});
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -184,13 +189,6 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
   const [pending, setPending] = useState<PendingAction | null>(null);
 
   useEffect(() => {
-    setCollapsed((localStorage.getItem(COLLAPSED_KEY) ?? '1') === '1');
-    const saved = localStorage.getItem(POS_KEY);
-    if (saved) { try { setPos(JSON.parse(saved)); } catch { /* ignore */ } }
-    else if (typeof window !== 'undefined') setPos({ x: window.innerWidth - 300, y: 90 });
-  }, []);
-
-  useEffect(() => {
     if (!address) return;
     const u1 = subscribeEquipment(address, setEquipment);
     const u2 = subscribeInventory(address, setInventory);
@@ -200,29 +198,6 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
   useEffect(() => { getFamiliarDefs().then(setFamiliars).catch(() => {}); }, []);
   // Sert uniquement à forcer un re-fetch des familiers possédés si besoin ailleurs — pas de state local requis ici.
   useEffect(() => { if (address) subscribeFamiliars(address, () => {}); }, [address]);
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!pos) return;
-    setDragging(true);
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    (e.target as Element).setPointerCapture(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
-  };
-  const onPointerUp = () => {
-    if (!dragging) return;
-    setDragging(false);
-    if (pos) localStorage.setItem(POS_KEY, JSON.stringify(pos));
-  };
-
-  const toggleCollapsed = () => {
-    setCollapsed(prev => {
-      localStorage.setItem(COLLAPSED_KEY, prev ? '0' : '1');
-      return !prev;
-    });
-  };
 
   const flash = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(null), 2500); };
 
@@ -320,14 +295,19 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
 
   if (collapsed) {
     return (
-      <button
-        className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-indigo-500 text-2xl shadow-lg flex items-center justify-center"
-        style={{ left: pos.x, top: pos.y, zIndex: z }}
-        onPointerDownCapture={bringToFront}
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-        onClick={() => !dragging && toggleCollapsed()}
-        title={t('equip.title')}
-      >🧝</button>
+      <>
+        <button
+          ref={containerRef}
+          className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-indigo-500 text-2xl shadow-lg flex items-center justify-center"
+          style={{ left: pos.x, top: pos.y, zIndex: z }}
+          onPointerDownCapture={bringToFront}
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+          onClick={onToggleClick}
+          onContextMenu={onContextMenu}
+          title={t('equip.title')}
+        >🧝</button>
+        <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
+      </>
     );
   }
 
@@ -347,9 +327,11 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
 
   return (
     <div
+      ref={containerRef}
       className="fixed z-40 w-72 bg-slate-900 border-2 border-indigo-500 rounded-xl shadow-xl select-none"
       style={{ left: pos.x, top: pos.y, zIndex: z }}
       onPointerDownCapture={bringToFront}
+      onContextMenu={onContextMenu}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-indigo-900/30 rounded-t-xl cursor-move"
@@ -358,6 +340,7 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
         <span className="text-sm font-semibold">🧝 {t('equip.title')}</span>
         <button className="text-xs opacity-70 hover:opacity-100" onClick={toggleCollapsed}>✕</button>
       </div>
+      <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <div className="p-3">
         <div className="relative mx-auto" style={{ width: 220, height: 220 }}>
           {/* Silhouette "homme de Vitruve" — bras/jambes écartés pour accueillir l'équipement */}

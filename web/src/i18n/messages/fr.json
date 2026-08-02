@@ -1274,5 +1274,6 @@
   "progress.theme.questWildIsland": "🌴 Quêtes îles sauvages",
   "progress.theme.questKingdom": "👑 Quêtes du Royaume",
   "progress.theme.equipmentGraveyard": "💀 Cimetière des équipements",
-  "progress.graveyard.brokenOn": "Cassé et perdu le {date} — trop abîmé pour être réutilisé"
+  "progress.graveyard.brokenOn": "Cassé et perdu le {date} — trop abîmé pour être réutilisé",
+  "widget.contextMenu.recenter": "Recentrer à l'écran"
 }

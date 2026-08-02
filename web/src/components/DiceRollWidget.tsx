@@ -8,6 +8,8 @@ import {
 } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { WidgetContextMenu } from './WidgetContextMenu';
 
 const POS_KEY = 'zc.diceWidgetPos';
 const COLLAPSED_KEY = 'zc.diceWidgetCollapsed';
@@ -110,11 +112,14 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
   const { t } = useI18n();
   const { address } = useAccount();
   const [rules, setRules] = useState<RepRules | null>(null);
-  const [collapsed, setCollapsed] = useState(true);
-  const [pos, setPos] = useState<Pos | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const dragOffset = useRef<Pos>({ x: 0, y: 0 });
   const { z, bringToFront } = useWindowZIndex();
+  const {
+    collapsed, setCollapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,
+    containerRef, menuPos, onContextMenu, closeContextMenu, resetPosition,
+  } = useDraggableWidget({
+    posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
+    defaultPos: () => ({ x: window.innerWidth - 88, y: window.innerHeight - 140 }),
+  });
 
   const [bonus, setBonus] = useState(0);
   const [dailyDone, setDailyDone] = useState(false);
@@ -142,10 +147,6 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
 
   useEffect(() => {
     getRepRules().then(setRules).catch(() => {});
-    setCollapsed((localStorage.getItem(COLLAPSED_KEY) ?? '1') === '1');
-    const saved = localStorage.getItem(POS_KEY);
-    if (saved) { try { setPos(JSON.parse(saved)); } catch { /* ignore */ } }
-    else if (typeof window !== 'undefined') setPos({ x: window.innerWidth - 88, y: window.innerHeight - 140 });
   }, []);
 
   useEffect(() => {
@@ -158,31 +159,6 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
 
   // Coupe l'intervalle de tumbling si le widget se démonte pendant une animation en cours.
   useEffect(() => () => { if (tumbleRef.current) clearInterval(tumbleRef.current); }, []);
-
-  // ─── Drag (pointer events) ───
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!pos) return;
-    setDragging(true);
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    (e.target as Element).setPointerCapture(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    const next = { x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y };
-    setPos(next);
-  };
-  const onPointerUp = () => {
-    if (!dragging) return;
-    setDragging(false);
-    if (pos) localStorage.setItem(POS_KEY, JSON.stringify(pos));
-  };
-
-  const toggleCollapsed = () => {
-    setCollapsed(prev => {
-      localStorage.setItem(COLLAPSED_KEY, prev ? '0' : '1');
-      return !prev;
-    });
-  };
 
   /** Démarre le tumbling visuel (chiffres aléatoires qui défilent sur le/les dés). */
   const startTumble = (twoDice: boolean) => {
@@ -278,25 +254,32 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
 
   if (collapsed) {
     return (
-      <button
-        className={`fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 text-2xl shadow-lg flex items-center justify-center relative ${pendingEvent ? 'border-cyan-400 animate-pulse' : 'border-amber-500'}`}
-        style={{ left: pos.x, top: pos.y, zIndex: pendingEvent ? EVENT_Z : z }}
-        onPointerDownCapture={bringToFront}
-        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-        onClick={() => !dragging && toggleCollapsed()}
-        title={t('dice.title')}
-      >
-        🎲
-        {pendingEvent && <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full animate-ping" />}
-      </button>
+      <>
+        <button
+          ref={containerRef}
+          className={`fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 text-2xl shadow-lg flex items-center justify-center relative ${pendingEvent ? 'border-cyan-400 animate-pulse' : 'border-amber-500'}`}
+          style={{ left: pos.x, top: pos.y, zIndex: pendingEvent ? EVENT_Z : z }}
+          onPointerDownCapture={bringToFront}
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+          onClick={onToggleClick}
+          onContextMenu={onContextMenu}
+          title={t('dice.title')}
+        >
+          🎲
+          {pendingEvent && <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full animate-ping" />}
+        </button>
+        <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
+      </>
     );
   }
 
   return (
     <div
+      ref={containerRef}
       className={`fixed z-40 w-64 bg-slate-900 border-2 rounded-xl shadow-xl select-none ${pendingEvent ? 'border-cyan-400' : 'border-amber-500'}`}
       style={{ left: pos.x, top: pos.y, zIndex: pendingEvent ? EVENT_Z : z }}
       onPointerDownCapture={bringToFront}
+      onContextMenu={onContextMenu}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-amber-900/30 rounded-t-xl cursor-move"
@@ -305,6 +288,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
         <span className="text-sm font-semibold">🎲 {t('dice.title')}</span>
         <button className="text-xs opacity-70 hover:opacity-100" onClick={toggleCollapsed}>✕</button>
       </div>
+      <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <div className="p-3 text-xs space-y-2">
         <p className="text-slate-400">{t('dice.bonusPreview', { v: bonus })}</p>
 

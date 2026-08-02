@@ -15,6 +15,8 @@ import {
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { WidgetContextMenu } from './WidgetContextMenu';
 import {
   useMapFilters, markerMatchesFilters, resetMapFilters, applyAdminMapFilterDefaults,
   MAP_FILTER_CATEGORIES,
@@ -59,13 +61,17 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
+  const {
+    collapsed, pos, onPointerDown: onHeaderPointerDown, onPointerMove: onHeaderPointerMove,
+    onPointerUp: onHeaderPointerUp, onToggleClick, toggleCollapsed,
+    containerRef, menuPos, onContextMenu, closeContextMenu, resetPosition,
+  } = useDraggableWidget({
+    posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
+    defaultPos: () => ({ x: 24, y: Math.max(20, window.innerHeight - 400) }),
+  });
 
-  const [collapsed, setCollapsed] = useState(true);
-  const [pos, setPos] = useState<Pos | null>(null);
   const [size, setSize] = useState<Size>({ w: 460, h: 360 });
-  const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
-  const dragOffset = useRef<Pos>({ x: 0, y: 0 });
   const resizeStart = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
   const [zoom, setZoom] = useState(1);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -131,10 +137,6 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   useEffect(() => { seasonRef.current = season; }, [season]);
 
   useEffect(() => {
-    setCollapsed((localStorage.getItem(COLLAPSED_KEY) ?? '1') === '1');
-    const savedPos = localStorage.getItem(POS_KEY);
-    if (savedPos) { try { setPos(JSON.parse(savedPos)); } catch { /* ignore */ } }
-    else if (typeof window !== 'undefined') setPos({ x: 24, y: Math.max(20, window.innerHeight - 400) });
     const savedSize = localStorage.getItem(SIZE_KEY);
     if (savedSize) { try { setSize(JSON.parse(savedSize)); } catch { /* ignore */ } }
   }, []);
@@ -263,23 +265,6 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
     });
   }, [address, runDiscoveryScan]);
 
-  // ─── Drag (déplacement de la fenêtre) ───
-  const onHeaderPointerDown = (e: React.PointerEvent) => {
-    if (!pos) return;
-    setDragging(true);
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    (e.target as Element).setPointerCapture(e.pointerId);
-  };
-  const onHeaderPointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
-  };
-  const onHeaderPointerUp = () => {
-    if (!dragging) return;
-    setDragging(false);
-    if (pos) localStorage.setItem(POS_KEY, JSON.stringify(pos));
-  };
-
   // ─── Redimensionnement (glisser le coin ⤡) ───
   const onResizePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -300,10 +285,6 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
     if (!resizing) return;
     setResizing(false);
     localStorage.setItem(SIZE_KEY, JSON.stringify(size));
-  };
-
-  const toggleCollapsed = () => {
-    setCollapsed(prev => { localStorage.setItem(COLLAPSED_KEY, prev ? '0' : '1'); return !prev; });
   };
 
   // ─── Déplacement libre de Synk (clic sur la carte) ───
@@ -473,13 +454,16 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
     return (
       <>
         <button
+          ref={containerRef}
           className="fixed z-40 w-14 h-14 rounded-full bg-amber-950 border-2 border-amber-600 text-2xl shadow-lg flex items-center justify-center"
           style={{ left: pos.x, top: pos.y, zIndex: z }}
           onPointerDownCapture={bringToFront}
           onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
-          onClick={() => !dragging && toggleCollapsed()}
+          onClick={onToggleClick}
+          onContextMenu={onContextMenu}
           title={t('map.title')}
         >🗺️</button>
+        <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
         {depthAltitudeUi}
       </>
     );
@@ -489,6 +473,7 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
 
   return (
     <div
+      ref={containerRef}
       className="fixed z-40 bg-amber-950 border-2 border-amber-700 rounded-xl shadow-2xl select-none flex flex-col"
       style={{ left: pos.x, top: pos.y, width: size.w, height: size.h, zIndex: z }}
       onPointerDownCapture={bringToFront}
@@ -496,6 +481,7 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
       <div
         className="flex items-center justify-between px-3 py-2 bg-amber-900/60 rounded-t-xl cursor-move shrink-0"
         onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
+        onContextMenu={onContextMenu}
       >
         <span className="text-sm font-semibold text-amber-100">🗺️ {t('map.title')}</span>
         <div className="flex items-center gap-1">
@@ -510,6 +496,7 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
           <button className="text-xs opacity-70 hover:opacity-100 ml-1" onClick={toggleCollapsed}>✕</button>
         </div>
       </div>
+      <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
 
       {/* Barre de filtres d'affichage par catégorie (voir demande utilisateur : boutons pour
           afficher/masquer décors, mondes, PNJ, trésors, familiers, quêtes classiques/PNJ/Royaume)
