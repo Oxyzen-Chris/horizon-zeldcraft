@@ -7,7 +7,7 @@ import {
   getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem, subscribeInventory,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, relocateZorghonCaptives, rescuePocaPoka,
-  CORNER_POSITION_CLASSES,
+  CORNER_POSITION_CLASSES, trackFaintEvent,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem, type ZorghonEncounterState,
   type SynkDirection,
 } from '@/lib/gameState';
@@ -699,6 +699,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     setFainting({ remaining: durationSec });
     const xpLoss = Math.max(0, Math.round(rules.oxygenFaintXpLoss ?? 50));
     const hpLoss = Math.max(0, Math.round(rules.oxygenFaintHpLoss ?? 10));
+    const faintSpot = worldPosRef.current;
+    trackFaintEvent(address, DEFAULT_MAP_ID, faintSpot.x, faintSpot.y, 'oxygen').catch(() => {});
     (async () => {
       await applyEffect(address, { xpBonus: -xpLoss, hp: -hpLoss }).catch(() => {});
       const lost = await removeRandomInventoryItem(address).catch(() => null);
@@ -763,6 +765,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     const durationSec = Math.max(1, Math.round(rules.fatigueFaintDurationSec ?? 50));
     setFatigueFainting({ remaining: durationSec });
     const hpLoss = Math.max(0, Math.round(rules.fatigueFaintHpLoss ?? 30));
+    const faintSpot = worldPosRef.current;
+    trackFaintEvent(address, DEFAULT_MAP_ID, faintSpot.x, faintSpot.y, 'fatigue').catch(() => {});
     (async () => {
       await applyEffect(address, { hp: -hpLoss }).catch(() => {});
       if (rules.fatigueFaintResultPopupEnabled !== false) setFatigueFaintResult({ hp: hpLoss });

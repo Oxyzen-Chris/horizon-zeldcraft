@@ -31,6 +31,7 @@ import { PotionsSpellsAdminPanel } from '@/components/PotionsSpellsAdminPanel';
 import { MapFiltersAdminPanel } from '@/components/MapFiltersAdminPanel';
 import { MapNavigationAdminPanel } from '@/components/MapNavigationAdminPanel';
 import { ContentPacksAdminPanel } from '@/components/ContentPacksAdminPanel';
+import { AiGameplayIntelligencePanel } from '@/components/AiGameplayIntelligencePanel';
 import { useI18n, localizeName } from '@/lib/i18n';
 
 /** Formate une `Date` en "AAAA-MM-JJ" en heure LOCALE (contrairement à `Date.toISOString()`, qui
@@ -293,6 +294,7 @@ export default function AdminPage() {
           <ChatScriptsAdminPanel />
           <CustomWidgetsAdminPanel />
           <ContentPacksAdminPanel />
+          <AiGameplayIntelligencePanel />
 
           <section className="card">
             <h2 className="text-xl font-semibold mb-3">{t('admin.item.title')}</h2>

@@ -56,6 +56,17 @@ Chemins RTDB utilisés par l'application (à jour au 2026-08) :
 | `catalog/moonState`                     | admin rubrique « Pleine lune » (override par mois) | `isFullMoonOnDate`, `nextFullMoonDateFromState`, quêtes `fullMoonOnly` |
 | `catalog/riddleAnswers/{questId}`       | `web/scripts/seedRiddleAnswers.mjs`, `web/scripts/backfillLegacyQuests.mjs` | scripts de migration (repli réponse legacy) |
 | `catalog/quests/{questId}`              | admin (panneau « Ajouter une quête »), `migrateQuestsToFirebase.mjs`, `seedKingdomQuests.mjs` (400 quêtes), `seedIslandQuests.mjs` (archipel/îles sauvages), `seedNpcRiddleQuests.mjs` (PNJ) | `QuestList`, `KingdomQuestsWidget` (catalogue complet, 100% hors-chaîne) |
+| `players/{addr}/analytics/lastActiveDay`, `/sessionDays/{day}` | `markPlayerActiveToday` (appelé par `getOrCreatePlayer`) | `getDauSeries`, `getRetentionEstimate` (DAU/rétention) |
+| `players/{addr}/analytics/widgetUsage/{widgetId}` | `trackWidgetUsage` (via `useDraggableWidget`, ouverture/fermeture de widget) | `AiGameplayIntelligencePanel` (temps passé par widget, par joueur) |
+| `players/{addr}/analytics/questFunnel/{id}/{event}` | `trackQuestFunnelEvent` (appelé par `submitQuestAnswerOffchain`) | `AiGameplayIntelligencePanel` (entonnoir de quêtes) |
+| `players/{addr}/analytics/faintEvents/{ts}`         | `trackFaintEvent` (`GameCanvas2D`, évanouissement oxygène/fatigue) | `getFaintHeatmap`, `getFaintCauseBreakdown`, score de décrochage |
+| `catalog/analytics/dauGlobal/{day}`                  | `markPlayerActiveToday` (`runTransaction`, compteur global) | `getDauSeries` (graphique 14 jours) |
+| `catalog/analytics/widgetUsageGlobal/{widgetId}`     | `trackWidgetUsage` (`runTransaction`, agrégat global) | `AiGameplayIntelligencePanel` (temps par widget, tous joueurs) |
+| `catalog/analytics/questFunnelGlobal/{id}/{event}`   | `trackQuestFunnelEvent` (`runTransaction`, agrégat global) | `AiGameplayIntelligencePanel` (entonnoir de quêtes global) |
+| `catalog/analytics/mapHeatmapGlobal/{map}/{gridKey}` | `trackMapHeatmap` (appelé par `setPlayerMapPos`, `runTransaction`) | `getMapHeatmap` → `AiGameplayIntelligencePanel` (carte de chaleur) |
+| `catalog/analytics/faintHeatmapGlobal/{map}/{gridKey}`, `/faintCauseGlobal/{cause}` | `trackFaintEvent` (`runTransaction`) | `getFaintHeatmap`, `getFaintCauseBreakdown` |
+| `catalog/aiAnalyticsSettings`            | admin `AiGameplayIntelligencePanel` (rubrique Paramètres) | toutes les fonctions `analytics*`/`trackX` (activation, taille de maille, fenêtre de rétention, fournisseur IA) |
+| `catalog/aiInsightsCache`                | `AiGameplayIntelligencePanel` (bouton « Générer une analyse », résultat de `/api/ai/insights`) | `AiGameplayIntelligencePanel` (affichage + anti-spam) |
 
 ## 1. Créer le projet Firebase (gratuit)
 
@@ -142,11 +153,12 @@ Clique **Publier**.
 
 > ℹ️ **Tous les nouveaux chemins ajoutés depuis 2026-07** (équipement, cimetière des équipements,
 > familiers, quêtes archipel/îles/Royaume, DLC, saisons/météo/lune, filtres carte, scripts de
-> dialogue PNJ, widgets personnalisés…) sont déjà couverts par les règles génériques
-> `players/$addr` et `catalog` ci-dessus, car ce sont tous de simples sous-chemins de ces deux
-> arbres. **Aucune republication des règles n'est nécessaire pour ces fonctionnalités** — seul un
-> nouveau chemin racine (hors `chats`/`chatIndex`/`players`/`playerIndex`/`catalog`) demanderait une
-> mise à jour du JSON ci-dessus.
+> dialogue PNJ, widgets personnalisés, **Intelligence IA GamePlay** : `players/{addr}/analytics/*`,
+> `catalog/analytics*`, `catalog/aiAnalyticsSettings`, `catalog/aiInsightsCache`…) sont déjà couverts
+> par les règles génériques `players/$addr` et `catalog` ci-dessus, car ce sont tous de simples
+> sous-chemins de ces deux arbres. **Aucune republication des règles n'est nécessaire pour ces
+> fonctionnalités** — seul un nouveau chemin racine (hors
+> `chats`/`chatIndex`/`players`/`playerIndex`/`catalog`) demanderait une mise à jour du JSON ci-dessus.
 
 ### Ce que ces règles verrouillent
 

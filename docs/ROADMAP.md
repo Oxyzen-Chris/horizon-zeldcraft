@@ -49,6 +49,12 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
 - [x] Barème de reconnaissance entièrement paramétrable (~20 sous-sections)
 - [x] Infrastructure widgets flottants unifiée : drag/collapse fiable (plus de ré-ouverture
       accidentelle au glissé), clic droit → recentrage à l'écran
+- [x] **Intelligence IA GamePlay** (`/admin`) : analyse évolutive du comportement des joueurs
+      (DAU/rétention 7j-30j, temps passé par widget, entonnoir de quêtes, heatmaps de zones
+      visitées et d'évanouissements, score de risque de décrochage par joueur, signaux de
+      monétisation et de rencontres PNJ) + assistant IA gratuit (Google Gemini) pour générer
+      analyses et recommandations — base de données pour orienter les futures évolutions du jeu
+      et concevoir de nouveaux services
 
 ## 🔜 Phase 2 — Auth sociale & UX
 

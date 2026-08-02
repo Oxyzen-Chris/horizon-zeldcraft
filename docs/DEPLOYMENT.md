@@ -95,8 +95,9 @@ node scripts/backfillLegacyQuests.mjs                 # rattrapage joueurs exist
 | `NEXT_PUBLIC_FIREBASE_DATABASE_URL`         | ✅     | ex. `https://horizon-zeldcraft-default-rtdb.europe-west1.firebasedatabase.app`     |
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID`           | ✅     | ex. `horizon-zeldcraft`                                                             |
 | `NEXT_PUBLIC_FIREBASE_APP_ID`               | ✅     | ex. `1:1234567890:web:abcdef`                                                       |
+| `GEMINI_API_KEY`                            | ⚠️     | Optionnelle — active l'assistant IA du menu Admin « Intelligence IA GamePlay ». **Clé serveur uniquement** (pas de préfixe `NEXT_PUBLIC_`, jamais exposée au navigateur). Génère-la gratuitement sur https://aistudio.google.com/app/apikey (Google Gemini, quota gratuit sans carte bancaire). Sans elle, le bouton « Générer une analyse » répond simplement « non configuré » — le reste du panneau (statistiques, heatmaps, entonnoir de quêtes…) fonctionne normalement. |
 
-> Toutes les clés préfixées `NEXT_PUBLIC_` sont exposées côté navigateur — n'y mets **jamais** de secret sensible (clé privée, mot de passe). Les clés Firebase Web SDK sont publiques par design ; la sécurité repose sur les **règles Firebase RTDB** (voir `FIREBASE_CHAT.md`).
+> Toutes les clés préfixées `NEXT_PUBLIC_` sont exposées côté navigateur — n'y mets **jamais** de secret sensible (clé privée, mot de passe). Les clés Firebase Web SDK sont publiques par design ; la sécurité repose sur les **règles Firebase RTDB** (voir `FIREBASE_CHAT.md`). `GEMINI_API_KEY` n'a volontairement **pas** le préfixe `NEXT_PUBLIC_` : elle n'est lue que côté serveur dans `web/src/app/api/ai/insights/route.ts`.
 
 ### Redéploiement après changement de variable
 

@@ -64,7 +64,7 @@
 - `/` — landing + connexion + choix langue + choix réseau
 - `/game` — dashboard Synk (stats, actions, inventaire, onboarding, 12 fenêtres flottantes - voir
   § Widgets flottants)
-- `/admin` — panneau owner (25 rubriques - voir § Menu Administration)
+- `/admin` — panneau owner (26 rubriques - voir § Menu Administration)
 - `/scoreboard` — classement public des joueurs (lecture seule, sans wallet requis)
 
 ### Widgets flottants (fenêtres déplaçables)
@@ -112,6 +112,16 @@ Dans l'ordre d'affichage :
     17. Ajouter un trésor · 18. Ajouter un monde · 19. Ajouter un point d'intérêt (Carte)
 20. Difficulté globale · 21. Conditions météo · 22. Saisons · 23. Pleine lune
 24. Fréquence des rencontres PNJ · 25. Prix/Cooldowns de nourrissage
+26. **Intelligence IA GamePlay** (`AiGameplayIntelligencePanel.tsx`) — analyse évolutive du
+    gameplay des joueurs : DAU/rétention 7j/30j, temps passé par widget, entonnoir de quêtes
+    (résolu/échoué/bloqué par catégorie), heatmap des zones visitées et des évanouissements
+    (oxygène/fatigue), score de risque de décrochage par joueur (0-100), signaux de monétisation
+    et de rencontres PNJ, plus un **assistant IA gratuit** (Google Gemini `gemini-2.0-flash`,
+    clé `GEMINI_API_KEY` serveur uniquement, voir `DEPLOYMENT.md`) qui génère un résumé et des
+    recommandations à partir de ces statistiques agrégées et anonymisées via
+    `web/src/app/api/ai/insights/route.ts`. Toute la collecte est instrumentée en tâche de fond
+    (fire-and-forget, ne bloque jamais le gameplay) dans `gameState.ts`, `GameCanvas2D.tsx` et
+    `useDraggableWidget.ts`, activable/désactivable via `catalog/aiAnalyticsSettings`.
 
 ## Modèle de terrain (Mapmonde / Plateforme 2D)
 

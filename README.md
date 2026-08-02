@@ -103,7 +103,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 🖱️ Toutes les fenêtres : glisser sans (ré)ouvrir accidentellement, clic droit → recentrage à l'écran
 - ⚙️ Bouton « Administration » visible si le wallet connecté est owner du contrat
 
-### Panneau d'administration (owner only) — 25 rubriques
+### Panneau d'administration (owner only) — 26 rubriques
 - 💰 Solde trésorerie + solde contrat (temps réel)
 - 📊 **Statistiques par joueur** fiables (correction du bug XP désynchronisé) + génération de **factures PDF** (jsPDF, historique on-chain + liens Etherscan)
 - ⭐ **Barème de reconnaissance** (~20 sous-sections : combat, humeur/météo/saisons, équipement, huttes, sommeil, oxygène, fatigue, altitude, profondeur, îles, pop-up profondeur/altitude, Royaume, Zorghon, onboarding, widget « État d'avancement »…)
@@ -112,6 +112,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 🧙 Ajouter quêtes énigmes / PNJ / trésors / mondes / points d'intérêt carte
 - ⚔️ Difficulté globale · 🌤️ Météo forcée · 🍂 Saisons · 🌕 Pleine lune · 🧙 Fréquence PNJ · 💰 Prix/cooldowns de nourrissage
 - 💬 **Historique chat** avec dropdown de tous les salons
+- 🤖 **Intelligence IA GamePlay** : DAU/rétention 7j-30j, temps passé par widget, entonnoir de quêtes, heatmaps de zones visitées/évanouissements, score de risque de décrochage par joueur, signaux de monétisation & rencontres PNJ, et un **assistant IA 100% gratuit** (Google Gemini) qui génère analyses et recommandations
 - ⏸️ Pause/Unpause + retrait de fonds · ↩️ Bouton « Retour au jeu »
 
 ## 🐛 Bugs corrigés (historique)

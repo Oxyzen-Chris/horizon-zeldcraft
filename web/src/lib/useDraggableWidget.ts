@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAccount } from 'wagmi';
+import { trackWidgetUsage } from './gameState';
 
 export interface Pos { x: number; y: number }
 
@@ -71,6 +73,7 @@ export interface DraggableWidgetState {
  */
 export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWidgetState {
   const { posKey, collapsedKey, defaultPos, defaultCollapsed = true } = opts;
+  const { address } = useAccount();
 
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [pos, setPos] = useState<Pos | null>(null);
@@ -81,6 +84,12 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
   const isDraggingRef = useRef(false);
   const movedRef = useRef(false);
   const elRef = useRef<HTMLElement | null>(null);
+  // Intelligence IA GamePlay — instant d'ouverture du widget (ref, pas de state : ne doit jamais
+  // provoquer de re-render) et adresse courante en ref (accédée depuis un effet de démontage qui
+  // ne doit pas dépendre de `address`).
+  const openStartRef = useRef<number | null>(null);
+  const addressRef = useRef<string | undefined>(undefined);
+  useEffect(() => { addressRef.current = address; }, [address]);
 
   useEffect(() => {
     if (collapsedKey) {
@@ -91,6 +100,27 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
       try { setPos(clampToViewport(JSON.parse(saved))); } catch { /* ignore */ }
     } else if (typeof window !== 'undefined') {
       setPos(defaultPos());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Intelligence IA GamePlay — mesure le temps passé fenêtre dépliée par widget (fire-and-forget,
+  // jamais bloquant/ne modifie aucun comportement existant). `widgetId` = `posKey`, déjà unique et
+  // stable par widget, pas besoin d'un identifiant dédié. Couvre les 12 widgets flottants du jeu
+  // depuis ce point d'injection unique (voir trackWidgetUsage dans gameState.ts).
+  useEffect(() => {
+    if (!collapsed) {
+      openStartRef.current = Date.now();
+    } else if (openStartRef.current != null) {
+      const duration = Date.now() - openStartRef.current;
+      openStartRef.current = null;
+      if (addressRef.current) trackWidgetUsage(addressRef.current, posKey, duration).catch(() => {});
+    }
+  }, [collapsed, posKey]);
+
+  useEffect(() => () => {
+    if (openStartRef.current != null && addressRef.current) {
+      trackWidgetUsage(addressRef.current, posKey, Date.now() - openStartRef.current).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

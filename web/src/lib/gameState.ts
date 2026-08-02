@@ -32,9 +32,24 @@
  *   players/{addr}/mapPos              → { mapId, x, y, updatedAt } (position libre de Synk sur la carte, déplacement libre)
  *   players/{addr}/mapPoisVisited/{id} → { visitedAt } (POI découvert par hasard en explorant — XP de découverte, une fois)
  *   catalog/seasonState                → SeasonState (saison courante — auto (date réelle) ou forcée par l'admin)
+ *   catalog/aiAnalyticsSettings         → AiAnalyticsSettings (interrupteur global + config module « Intelligence IA GamePlay »)
+ *   catalog/aiInsightsCache             → AiInsightsCache (dernière analyse générée par le LLM gratuit, voir web/src/app/api/ai/insights/route.ts)
+ *   catalog/analytics/dauGlobal/{jour}         → nombre de joueurs actifs ce jour (compteur O(1), voir markPlayerActiveToday)
+ *   catalog/analytics/widgetUsageGlobal/{id}   → WidgetUsageAgg agrégé tous joueurs (voir trackWidgetUsage, useDraggableWidget)
+ *   catalog/analytics/questFunnelGlobal/{id}   → compteurs blocked/fail/solved agrégés (voir trackQuestFunnelEvent)
+ *   catalog/analytics/mapHeatmapGlobal/{map}   → densité de fréquentation de la carte, en mailles (voir trackMapHeatmap)
+ *   catalog/analytics/faintHeatmapGlobal/{map} → densité des évanouissements sur la carte (voir trackFaintEvent)
+ *   catalog/analytics/faintCauseGlobal         → répartition oxygène/fatigue des évanouissements
+ *   players/{addr}/analytics/dailyActive/{jour} → présence du joueur ce jour (rétention/DAU)
+ *   players/{addr}/analytics/lastSeenAt         → horodatage de dernière activité (score de décrochage)
+ *   players/{addr}/analytics/widgetUsage/{id}   → WidgetUsageAgg par joueur (temps passé par widget)
+ *   players/{addr}/analytics/questEvents/{ts}   → historique des évènements d'entonnoir de quête (par joueur)
+ *   players/{addr}/analytics/faintEvents/{ts}   → historique des évanouissements du joueur
+ * Tous ces nouveaux chemins restent sous players/$addr ou catalog (déjà couverts par les règles
+ * génériques publiées, voir docs/FIREBASE_CHAT.md §4 — aucune republication requise).
  */
 import {
-  ref, get, set, update, onValue, off, push, serverTimestamp, DataSnapshot,
+  ref, get, set, update, onValue, off, push, runTransaction, serverTimestamp, DataSnapshot,
 } from 'firebase/database';
 import { keccak256, toBytes } from 'viem';
 import { getFirebaseDb, ensureAnonSignIn } from './firebase';
@@ -229,6 +244,7 @@ export async function getOrCreatePlayer(address: string, displayName?: string): 
   const k = KEY(address);
   const snap = await get(ref(db, `players/${k}`));
   if (snap.exists()) {
+    markPlayerActiveToday(k).catch(() => {}); // Intelligence IA GamePlay — DAU/rétention, jamais bloquant
     return applyDecay(snap.val() as PlayerState, k);
   }
   const now = Date.now();
@@ -250,6 +266,7 @@ export async function getOrCreatePlayer(address: string, displayName?: string): 
   };
   await set(ref(db, `players/${k}`), initial);
   await set(ref(db, `playerIndex/${k}`), true);
+  markPlayerActiveToday(k).catch(() => {}); // Intelligence IA GamePlay — DAU/rétention, jamais bloquant
   return initial;
 }
 
@@ -1067,7 +1084,10 @@ export async function submitQuestAnswerOffchain(
   const already = await getSolvedQuest(address, quest.id);
   if (already) return 'already';
   const normalized = normalizeAnswer(rawAnswer);
-  if (hashAnswer(normalized).toLowerCase() !== quest.answerHash.toLowerCase()) return 'wrong';
+  if (hashAnswer(normalized).toLowerCase() !== quest.answerHash.toLowerCase()) {
+    trackQuestFunnelEvent(address, quest.id, deriveQuestCategory(quest), 'fail').catch(() => {});
+    return 'wrong';
+  }
   // ─── Quête « Convergence » (voir QuestDef.requiresItems) : la bonne réponse ne suffit pas tant
   // que les objets requis (ex. Fragments du Sceau Runique glanés plus tôt dans l'histoire) ne sont
   // pas dans la besace — vérifiés AVANT tout octroi d'XP/score/objet pour rester atomique, puis
@@ -1076,7 +1096,10 @@ export async function submitQuestAnswerOffchain(
     const inv = await getInventoryOnce(address);
     const held = new Map(inv.map(i => [i.itemId, i.qty]));
     const missing = quest.requiresItems.some(r => (held.get(r.itemId) ?? 0) < r.qty);
-    if (missing) return 'missing-items';
+    if (missing) {
+      trackQuestFunnelEvent(address, quest.id, deriveQuestCategory(quest), 'blocked').catch(() => {});
+      return 'missing-items';
+    }
   }
   await applyEffect(address, {
     xpBonus: quest.xpReward, score: quest.scoreReward, reputation: reputationReward,
@@ -1099,6 +1122,7 @@ export async function submitQuestAnswerOffchain(
     });
   }
   await markQuestSolved(address, quest.id, normalized);
+  trackQuestFunnelEvent(address, quest.id, deriveQuestCategory(quest), 'solved').catch(() => {});
   return 'correct';
 }
 
@@ -2294,9 +2318,14 @@ export async function setPlayerMapPos(address: string, mapId: string, x: number,
   const db = getFirebaseDb();
   if (!db) return;
   await ensureAnonSignIn();
+  const cx = Math.max(0, Math.min(100, x));
+  const cy = Math.max(0, Math.min(100, y));
   await set(ref(db, `players/${KEY(address)}/mapPos`), {
-    mapId, x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)), updatedAt: Date.now(),
+    mapId, x: cx, y: cy, updatedAt: Date.now(),
   });
+  // Intelligence IA GamePlay — heatmap de fréquentation de la carte (Mapmonde + Plateforme 2D
+  // isométrique partagent ce seul point d'écriture) : fire-and-forget, jamais bloquant.
+  trackMapHeatmap(mapId, cx, cy).catch(() => {});
 }
 
 /** Écoute temps réel de la position de Synk sur la mapmonde (voir setPlayerMapPos) — permet de
@@ -3849,5 +3878,449 @@ export async function getCustomWidgets(): Promise<CustomWidgetDef[]> {
     if (ao !== bo) return ao - bo;
     return (a.createdAt ?? 0) - (b.createdAt ?? 0);
   });
+}
+
+// ═══════════════════════════ Intelligence IA GamePlay (analyse comportementale) ═══════════════════════════
+//
+// Système d'analyse fine du comportement des joueurs (sessions/DAU, temps passé par widget,
+// entonnoir de quêtes, heatmap de fréquentation de la carte, localisation des évanouissements,
+// signaux de monétisation, score de risque de décrochage) + cache d'insights générés par un LLM
+// gratuit (voir web/src/app/api/ai/insights/route.ts). 100% hors-chaîne (Firebase RTDB), toujours
+// sous players/{addr}/analytics/* ou catalog/analytics*/aiAnalyticsSettings/aiInsightsCache — déjà
+// couverts par les règles génériques `players/$addr` et `catalog` (voir docs/FIREBASE_CHAT.md §4,
+// aucune republication requise).
+//
+// Règle absolue : TOUTES les fonctions track*/mark* ci-dessous sont fire-and-forget, avalent leurs
+// propres erreurs et respectent l'interrupteur global `AiAnalyticsSettings.enabled` — elles ne
+// doivent jamais bloquer, ralentir ou faire échouer une action de jeu existante (voir points
+// d'injection : getOrCreatePlayer, setPlayerMapPos, submitQuestAnswerOffchain, useDraggableWidget,
+// GameCanvas2D).
+
+export interface AiAnalyticsSettings {
+  enabled: boolean;                 // interrupteur global — coupe tout tracking si false (aucune régression du jeu)
+  mapHeatmapGridSize: number;       // taille de maille (%) pour regrouper les positions sur la heatmap (défaut 5)
+  faintEventsRetentionDays: number; // fenêtre affichée par défaut dans le panneau admin (purge non automatique)
+  aiEnabled: boolean;               // active la section « Assistant IA » (bouton Générer une analyse)
+  aiProvider: 'gemini' | 'groq';    // fournisseur LLM 100% gratuit utilisé par la route API serveur
+  aiModel: string;                  // ex. "gemini-2.0-flash" ou "llama-3.3-70b-versatile" (Groq)
+  aiAutoRefreshHours: number;       // délai mini entre deux régénérations (respect du quota gratuit)
+}
+
+export const DEFAULT_AI_ANALYTICS_SETTINGS: AiAnalyticsSettings = {
+  enabled: true,
+  mapHeatmapGridSize: 5,
+  faintEventsRetentionDays: 90,
+  aiEnabled: true,
+  aiProvider: 'gemini',
+  aiModel: 'gemini-2.0-flash',
+  aiAutoRefreshHours: 6,
+};
+
+export async function getAiAnalyticsSettings(): Promise<AiAnalyticsSettings> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_AI_ANALYTICS_SETTINGS;
+  const snap = await get(ref(db, 'catalog/aiAnalyticsSettings'));
+  const v = snap.val() as Partial<AiAnalyticsSettings> | null;
+  return { ...DEFAULT_AI_ANALYTICS_SETTINGS, ...(v || {}) };
+}
+
+export async function setAiAnalyticsSettings(settings: AiAnalyticsSettings): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/aiAnalyticsSettings'), settings);
+  _aiSettingsCache = null;
+}
+
+// Cache 30s (même logique que `getCapRules`/`_capRulesCache`) : évite une lecture Firebase à
+// chaque évènement de tracking (potentiellement très fréquent : déplacement, ouverture de widget…).
+let _aiSettingsCache: { value: AiAnalyticsSettings; at: number } | null = null;
+async function getCachedAiAnalyticsSettings(): Promise<AiAnalyticsSettings> {
+  const now = Date.now();
+  if (_aiSettingsCache && now - _aiSettingsCache.at < 30000) return _aiSettingsCache.value;
+  const value = await getAiAnalyticsSettings().catch(() => DEFAULT_AI_ANALYTICS_SETTINGS);
+  _aiSettingsCache = { value, at: now };
+  return value;
+}
+
+/** Clé du jour courant (UTC), ex. "2024-06-05" — même format que `todayKey()` (dailyLuck), pour
+ * rester cohérent dans toute la base. */
+function analyticsDayKey(d = new Date()): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// ─────────────────────────────── Sessions, joueurs actifs (DAU) & rétention ───────────────────────────────
+
+/**
+ * Marque le joueur actif aujourd'hui : idempotent (une seule écriture réelle par jour et par
+ * joueur, vérifiée via un `get()` préalable), incrémente le compteur global
+ * `catalog/analytics/dauGlobal/{jour}` une seule fois par joueur/jour pour permettre un calcul
+ * O(1) du nombre de joueurs actifs (pas besoin de parcourir tous les joueurs). Appelé depuis
+ * `getOrCreatePlayer` (bootstrap de session, à chaque connexion/chargement du jeu).
+ */
+export async function markPlayerActiveToday(address: string): Promise<void> {
+  const settings = await getCachedAiAnalyticsSettings();
+  if (!settings.enabled) return;
+  const db = getFirebaseDb();
+  if (!db) return;
+  const k = KEY(address);
+  const day = analyticsDayKey();
+  const path = `players/${k}/analytics/dailyActive/${day}`;
+  const already = await get(ref(db, path)).catch(() => null);
+  if (already?.exists()) {
+    update(ref(db, `players/${k}/analytics`), { lastSeenAt: Date.now() }).catch(() => {});
+    return;
+  }
+  await ensureAnonSignIn();
+  await set(ref(db, path), true).catch(() => {});
+  update(ref(db, `players/${k}/analytics`), { lastSeenAt: Date.now() }).catch(() => {});
+  runTransaction(ref(db, `catalog/analytics/dauGlobal/${day}`), (cur) => (cur ?? 0) + 1).catch(() => {});
+}
+
+/** Série temporelle du nombre de joueurs actifs par jour (30 derniers jours par défaut) — une
+ * seule lecture Firebase (pas d'itération des joueurs). */
+export async function getDauSeries(days = 30): Promise<{ day: string; count: number }[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/analytics/dauGlobal'));
+  const v = snap.val() as Record<string, number> | null;
+  const out: { day: string; count: number }[] = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now); d.setDate(d.getDate() - i);
+    const key = analyticsDayKey(d);
+    out.push({ day: key, count: v?.[key] ?? 0 });
+  }
+  return out;
+}
+
+/**
+ * Estimation de rétention (approximative) : parmi les joueurs actifs il y a exactement
+ * `windowDaysAgo` jours, quelle proportion l'est encore aujourd'hui (ou dans les `toleranceDays`
+ * jours suivant l'ancre). Parcourt un échantillon borné de joueurs (`listPlayers()`, plafonné à
+ * `sampleCap`) — même ordre de coût que les statistiques admin existantes qui itèrent déjà tous
+ * les joueurs (PlayerStats, Scoreboard).
+ */
+export async function getRetentionEstimate(
+  windowDaysAgo: number, toleranceDays = 3, sampleCap = 300,
+): Promise<{ cohort: number; retained: number; pct: number }> {
+  const db = getFirebaseDb();
+  if (!db) return { cohort: 0, retained: 0, pct: 0 };
+  const players = (await listPlayers().catch(() => [])).slice(0, sampleCap);
+  const now = new Date();
+  const anchor = new Date(now); anchor.setDate(anchor.getDate() - windowDaysAgo);
+  const anchorKey = analyticsDayKey(anchor);
+  let cohort = 0, retained = 0;
+  await Promise.all(players.map(async (addr) => {
+    const snap = await get(ref(db, `players/${KEY(addr)}/analytics/dailyActive`)).catch(() => null);
+    const v = snap?.val() as Record<string, true> | null;
+    if (!v || !v[anchorKey]) return;
+    cohort++;
+    for (let i = 0; i <= toleranceDays; i++) {
+      const d = new Date(now); d.setDate(d.getDate() - i);
+      if (v[analyticsDayKey(d)]) { retained++; return; }
+    }
+  }));
+  return { cohort, retained, pct: cohort > 0 ? Math.round((retained / cohort) * 100) : 0 };
+}
+
+// ─────────────────────────────────────── Temps passé par widget ───────────────────────────────────────
+
+export interface WidgetUsageAgg { opens: number; totalMs: number; lastOpenedAt: number }
+
+/**
+ * Enregistre une session d'ouverture d'un widget flottant (appelé en fire-and-forget par
+ * `useDraggableWidget`, le seul point d'injection couvrant les 12 fenêtres flottantes du jeu, à
+ * chaque fermeture/démontage). `widgetId` = la clé localStorage `posKey` du widget (déjà unique et
+ * stable, ex. "zc.statsWidgetPos") — pas besoin d'un identifiant dédié supplémentaire. Ignore les
+ * durées < 500 ms (clic accidentel qui ouvre/ferme aussitôt).
+ */
+export async function trackWidgetUsage(address: string, widgetId: string, durationMs: number): Promise<void> {
+  if (durationMs < 500) return;
+  const settings = await getCachedAiAnalyticsSettings();
+  if (!settings.enabled) return;
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const now = Date.now();
+  const bump = (cur: WidgetUsageAgg | null) => ({
+    opens: (cur?.opens ?? 0) + 1, totalMs: (cur?.totalMs ?? 0) + durationMs, lastOpenedAt: now,
+  });
+  const wid = RKEY(widgetId);
+  await Promise.all([
+    runTransaction(ref(db, `players/${KEY(address)}/analytics/widgetUsage/${wid}`), bump).catch(() => {}),
+    runTransaction(ref(db, `catalog/analytics/widgetUsageGlobal/${wid}`), bump).catch(() => {}),
+  ]);
+}
+
+export async function getWidgetUsageGlobal(): Promise<Record<string, WidgetUsageAgg>> {
+  const db = getFirebaseDb();
+  if (!db) return {};
+  const snap = await get(ref(db, 'catalog/analytics/widgetUsageGlobal'));
+  return (snap.val() as Record<string, WidgetUsageAgg> | null) ?? {};
+}
+
+// ─────────────────────────────────────── Entonnoir de quêtes ───────────────────────────────────────
+
+export type QuestFunnelEvent = 'blocked' | 'fail' | 'solved';
+
+/** Catégorise une quête pour l'analyse (ne modifie/n'expose rien côté jeu, purement analytique). */
+function deriveQuestCategory(q: Pick<QuestDef, 'kingdomQuest' | 'npcGiver' | 'fullMoonOnly' | 'islandKind'>): string {
+  if (q.fullMoonOnly) return 'fullMoon';
+  if (q.islandKind) return 'island';
+  if (q.kingdomQuest) return 'kingdom';
+  if (q.npcGiver) return 'npc';
+  return 'classic';
+}
+
+/**
+ * Trace un évènement d'entonnoir de quête (bloquée par objets manquants, réponse fausse, réussie)
+ * — permet de repérer les quêtes qui font perdre le plus de temps ou qui sont le plus abandonnées.
+ * Écrit à la fois un évènement horodaté par joueur (deep-dive) et un compteur global agrégé (vue
+ * d'ensemble en O(1)). Appelé en fire-and-forget depuis `submitQuestAnswerOffchain` : n'altère
+ * jamais sa valeur de retour ni son comportement existant.
+ */
+export async function trackQuestFunnelEvent(
+  address: string, questId: string, category: string, event: QuestFunnelEvent,
+): Promise<void> {
+  const settings = await getCachedAiAnalyticsSettings();
+  if (!settings.enabled) return;
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const clean = { questId, category, event, timestamp: Date.now() };
+  await Promise.all([
+    push(ref(db, `players/${KEY(address)}/analytics/questEvents`), clean).catch(() => {}),
+    runTransaction(ref(db, `catalog/analytics/questFunnelGlobal/${RKEY(questId)}/${event}`), (cur) => (cur ?? 0) + 1).catch(() => {}),
+  ]);
+}
+
+export interface QuestFunnelSummary { questId: string; blocked: number; fail: number; solved: number }
+
+export async function getQuestFunnelGlobal(): Promise<QuestFunnelSummary[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, 'catalog/analytics/questFunnelGlobal'));
+  const v = snap.val() as Record<string, Partial<Record<QuestFunnelEvent, number>>> | null;
+  if (!v) return [];
+  return Object.entries(v).map(([questId, counts]) => ({
+    questId, blocked: counts.blocked ?? 0, fail: counts.fail ?? 0, solved: counts.solved ?? 0,
+  })).sort((a, b) => (b.blocked + b.fail) - (a.blocked + a.fail));
+}
+
+// ─────────────────────────────────────── Heatmap de la carte ───────────────────────────────────────
+
+export interface HeatCell { gx: number; gy: number; count: number }
+
+/** Regroupe une position (0-100, 0-100) en maille de `gridSize` % pour borner la taille de la
+ * heatmap (paramétrable via `AiAnalyticsSettings.mapHeatmapGridSize`, menu Administration). */
+function gridKeyOf(x: number, y: number, gridSize: number): string {
+  const gx = Math.floor(x / Math.max(1, gridSize));
+  const gy = Math.floor(y / Math.max(1, gridSize));
+  return `${gx}_${gy}`;
+}
+
+/** Incrémente la densité de fréquentation de la carte — appelé en fire-and-forget par
+ * `setPlayerMapPos` (seul point d'écriture de la position de Synk, partagé par WorldMapWidget et
+ * GameCanvas2D). */
+async function trackMapHeatmap(mapId: string, x: number, y: number): Promise<void> {
+  const settings = await getCachedAiAnalyticsSettings();
+  if (!settings.enabled) return;
+  const db = getFirebaseDb();
+  if (!db) return;
+  const key = gridKeyOf(x, y, settings.mapHeatmapGridSize);
+  runTransaction(ref(db, `catalog/analytics/mapHeatmapGlobal/${RKEY(mapId)}/${key}`), (cur) => (cur ?? 0) + 1).catch(() => {});
+}
+
+export async function getMapHeatmap(mapId: string): Promise<HeatCell[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, `catalog/analytics/mapHeatmapGlobal/${RKEY(mapId)}`));
+  const v = snap.val() as Record<string, number> | null;
+  if (!v) return [];
+  return Object.entries(v).map(([k, count]) => {
+    const [gx, gy] = k.split('_').map(Number);
+    return { gx, gy, count };
+  }).sort((a, b) => b.count - a.count);
+}
+
+// ─────────────────────────────────────── Évanouissements ───────────────────────────────────────
+
+export interface FaintEventRecord { mapId: string; x: number; y: number; cause: 'oxygen' | 'fatigue'; timestamp: number }
+
+/** Trace un évanouissement (noyade en dalle d'eau ou épuisement) avec sa localisation — utilisé
+ * pour repérer les zones où les joueurs perdent le plus de temps/de progression. Appelé en
+ * fire-and-forget depuis `GameCanvas2D` (déclencheurs déjà en place, aucune régression). */
+export async function trackFaintEvent(
+  address: string, mapId: string, x: number, y: number, cause: FaintEventRecord['cause'],
+): Promise<void> {
+  const settings = await getCachedAiAnalyticsSettings();
+  if (!settings.enabled) return;
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const rec: FaintEventRecord = { mapId, x: Math.round(x), y: Math.round(y), cause, timestamp: Date.now() };
+  await Promise.all([
+    push(ref(db, `players/${KEY(address)}/analytics/faintEvents`), rec).catch(() => {}),
+    runTransaction(
+      ref(db, `catalog/analytics/faintHeatmapGlobal/${RKEY(mapId)}/${gridKeyOf(x, y, settings.mapHeatmapGridSize)}`),
+      (cur) => (cur ?? 0) + 1,
+    ).catch(() => {}),
+    runTransaction(ref(db, `catalog/analytics/faintCauseGlobal/${cause}`), (cur) => (cur ?? 0) + 1).catch(() => {}),
+  ]);
+}
+
+export async function getFaintHeatmap(mapId: string): Promise<HeatCell[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, `catalog/analytics/faintHeatmapGlobal/${RKEY(mapId)}`));
+  const v = snap.val() as Record<string, number> | null;
+  if (!v) return [];
+  return Object.entries(v).map(([k, count]) => {
+    const [gx, gy] = k.split('_').map(Number);
+    return { gx, gy, count };
+  }).sort((a, b) => b.count - a.count);
+}
+
+export async function getFaintCauseBreakdown(): Promise<{ oxygen: number; fatigue: number }> {
+  const db = getFirebaseDb();
+  if (!db) return { oxygen: 0, fatigue: 0 };
+  const snap = await get(ref(db, 'catalog/analytics/faintCauseGlobal'));
+  const v = snap.val() as Record<string, number> | null;
+  return { oxygen: v?.oxygen ?? 0, fatigue: v?.fatigue ?? 0 };
+}
+
+// ─────────────────────────────────────── Signaux de monétisation ───────────────────────────────────────
+
+export interface MonetizationOverview {
+  totalConfirmed: number;
+  totalFailed: number;
+  totalEthSpentApprox: number;
+  byType: Record<string, number>;
+}
+
+/**
+ * Vue d'ensemble monétisation dérivée des transactions déjà loguées (`logTx`, voir
+ * `players/{addr}/txs`) — aucune nouvelle écriture nécessaire, on ré-agrège une donnée existante
+ * en la parcourant sur un échantillon borné de joueurs (même coût que PlayerStats/Scoreboard, qui
+ * itèrent déjà tous les joueurs).
+ */
+export async function getMonetizationOverview(sampleCap = 300): Promise<MonetizationOverview> {
+  const players = (await listPlayers().catch(() => [])).slice(0, sampleCap);
+  const byType: Record<string, number> = {};
+  let totalConfirmed = 0, totalFailed = 0, totalEthSpentApprox = 0;
+  await Promise.all(players.map(async (addr) => {
+    const txs = await getTxs(addr).catch(() => []);
+    for (const tx of txs) {
+      if (tx.status === 'failed') { totalFailed++; continue; }
+      totalConfirmed++;
+      byType[tx.type] = (byType[tx.type] ?? 0) + 1;
+      const amount = parseFloat(tx.valueEth || '0');
+      if (!Number.isNaN(amount)) totalEthSpentApprox += amount;
+    }
+  }));
+  return { totalConfirmed, totalFailed, totalEthSpentApprox, byType };
+}
+
+/**
+ * Vue d'ensemble des rencontres PNJ dérivée de `players/{addr}/encounters` (déjà logué par
+ * `logEncounter`) — répartition par type d'offre (combat/troc/quête/discussion) et par issue.
+ */
+export async function getNpcEncounterOverview(sampleCap = 300): Promise<{
+  byOffer: Record<string, number>; byOutcome: Record<string, number>; total: number;
+}> {
+  const players = (await listPlayers().catch(() => [])).slice(0, sampleCap);
+  const byOffer: Record<string, number> = {};
+  const byOutcome: Record<string, number> = {};
+  let total = 0;
+  await Promise.all(players.map(async (addr) => {
+    const encs = await getEncounters(addr, 500).catch(() => []);
+    for (const e of encs) {
+      total++;
+      byOffer[e.offer] = (byOffer[e.offer] ?? 0) + 1;
+      if (e.outcome) byOutcome[e.outcome] = (byOutcome[e.outcome] ?? 0) + 1;
+    }
+  }));
+  return { byOffer, byOutcome, total };
+}
+
+// ─────────────────────────────────────── Profil analytique par joueur ───────────────────────────────────────
+
+export interface PlayerAnalyticsSummary {
+  address: string;
+  lastSeenAt: number | null;
+  daysActiveLast30: number;
+  faintCount: number;
+  questFail: number;
+  questBlocked: number;
+  questSolved: number;
+  totalWidgetTimeMs: number;
+  /** Score de risque de décrochage (0-100, plus haut = plus à risque) — pondère l'inactivité
+   * récente, le taux d'échec/blocage de quêtes et la fréquence d'évanouissement. Formule simple et
+   * transparente (calculée à la volée, jamais stockée), ajustable si besoin futur. */
+  churnScore: number;
+}
+
+export async function getPlayerAnalyticsSummary(address: string): Promise<PlayerAnalyticsSummary> {
+  const k = KEY(address);
+  const empty: PlayerAnalyticsSummary = {
+    address: k, lastSeenAt: null, daysActiveLast30: 0, faintCount: 0,
+    questFail: 0, questBlocked: 0, questSolved: 0, totalWidgetTimeMs: 0, churnScore: 0,
+  };
+  const db = getFirebaseDb();
+  if (!db) return empty;
+  const [analyticsSnap, questEventsSnap, widgetSnap] = await Promise.all([
+    get(ref(db, `players/${k}/analytics`)),
+    get(ref(db, `players/${k}/analytics/questEvents`)),
+    get(ref(db, `players/${k}/analytics/widgetUsage`)),
+  ]);
+  const a = analyticsSnap.val() as {
+    lastSeenAt?: number; dailyActive?: Record<string, true>; faintEvents?: Record<string, FaintEventRecord>;
+  } | null;
+  const lastSeenAt = a?.lastSeenAt ?? null;
+  const nowMs = Date.now();
+  const daysActiveLast30 = a?.dailyActive
+    ? Object.keys(a.dailyActive).filter(d => (nowMs - new Date(d).getTime()) / 86_400_000 <= 30).length
+    : 0;
+  const faintCount = a?.faintEvents ? Object.keys(a.faintEvents).length : 0;
+  const qeVal = questEventsSnap.val() as Record<string, { event: QuestFunnelEvent }> | null;
+  let questFail = 0, questBlocked = 0, questSolved = 0;
+  if (qeVal) {
+    for (const e of Object.values(qeVal)) {
+      if (e.event === 'fail') questFail++;
+      else if (e.event === 'blocked') questBlocked++;
+      else if (e.event === 'solved') questSolved++;
+    }
+  }
+  const wVal = widgetSnap.val() as Record<string, WidgetUsageAgg> | null;
+  const totalWidgetTimeMs = wVal ? Object.values(wVal).reduce((s, w) => s + (w.totalMs ?? 0), 0) : 0;
+  const daysSinceSeen = lastSeenAt ? (nowMs - lastSeenAt) / 86_400_000 : 999;
+  const inactivityScore = Math.min(50, Math.round(daysSinceSeen * 5));
+  const questTotal = questSolved + questFail + questBlocked;
+  const questPain = questTotal > 0 ? Math.round(((questFail + questBlocked) / questTotal) * 30) : 0;
+  const faintPain = Math.min(20, faintCount * 2);
+  const churnScore = Math.min(100, inactivityScore + questPain + faintPain);
+  return {
+    address: k, lastSeenAt, daysActiveLast30, faintCount, questFail, questBlocked, questSolved,
+    totalWidgetTimeMs, churnScore,
+  };
+}
+
+// ─────────────────────────────────────── Cache des insights IA ───────────────────────────────────────
+
+export interface AiInsightsCache { text: string; generatedAt: number; model: string }
+
+export async function getAiInsightsCache(): Promise<AiInsightsCache | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+  const snap = await get(ref(db, 'catalog/aiInsightsCache'));
+  return (snap.val() as AiInsightsCache | null) ?? null;
+}
+
+export async function setAiInsightsCache(cache: AiInsightsCache): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/aiInsightsCache'), cache);
 }
 
