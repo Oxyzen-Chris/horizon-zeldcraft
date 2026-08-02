@@ -121,6 +121,12 @@ export interface InventoryItem {
   damage?: number;           // bonus de dégâts en combat (armes/flèches/familier)
   defense?: number;          // bonus de protection en combat (armures/boucliers/amulettes/familier)
   durabilityMax?: number;    // nombre d'utilisations en combat avant de risquer la casse
+  // Usure courante conservée quand l'objet est déséquipé et remis en besace (voir unequipSlot()/
+  // equipItem() dans gameState.ts) — absent/undefined = objet neuf (jamais encore équipé/usé),
+  // équivaut alors à `durabilityMax` au moment de l'équiper. Sans ce champ, une arme/protection
+  // usée en combat retrouvait son usure à 100% dès qu'on la retirait puis remettait sur Synk (bug
+  // signalé : l'usure "disparaissait" au déséquipement).
+  durability?: number;
   requiresArrow?: boolean;   // true pour un arc : inefficace tant qu'aucune flèche n'est équipée
   // Selle (slot 'saddle') : id du familier requis pour pouvoir l'équiper — voir equipItem().
   // Ex. 'dragon.gold' → seule la Selle Solaire fonctionne avec le Dragon d'Or équipé.
@@ -452,7 +458,7 @@ export async function addToInventory(address: string, item: Omit<InventoryItem, 
     // par exemple non-glissable (pas de `slot`) même après un nouvel achat du même objet.
     const refresh: Record<string, unknown> = { qty: existing.qty + item.qty };
     const equipFields: (keyof Omit<InventoryItem, 'addedAt'>)[] = [
-      'slot', 'rarity', 'damage', 'defense', 'durabilityMax', 'requiresArrow', 'requiresFamiliarId', 'effect',
+      'slot', 'rarity', 'damage', 'defense', 'durabilityMax', 'durability', 'requiresArrow', 'requiresFamiliarId', 'effect',
     ];
     for (const k of equipFields) if (item[k] !== undefined) refresh[k] = item[k];
     await update(ref(db, path), refresh);
@@ -522,8 +528,12 @@ export async function consumeInventoryItem(address: string, item: InventoryItem,
 // Le joueur équipe une arme/protection/flèches par glisser-déposer depuis la besace vers
 // EquipmentWidget.tsx. Contrairement à l'inventaire (empilé par itemId), chaque emplacement
 // d'équipement porte sa propre usure (`durability`) : équiper consomme 1 unité (ou toute la pile
-// pour les flèches) de l'inventaire ; déséquiper la restitue à l'état neuf (simplification
-// volontaire — l'usure partielle n'est pas fractionnée dans la pile d'inventaire empilée par qty).
+// pour les flèches) de l'inventaire ; déséquiper restitue l'objet à la besace EN CONSERVANT son
+// usure courante (voir `InventoryItem.durability`) — ré-équiper ensuite le même objet reprend
+// l'usure là où elle en était, seule la casse totale (durability ≤ 0) le fait disparaître pour de
+// bon. Simplification assumée : cette usure n'est pas fractionnée par exemplaire au sein d'une
+// pile empilée par `qty` (rare en pratique, l'équipement portant un `slot` n'étant quasiment
+// jamais acheté/obtenu en plusieurs exemplaires identiques).
 
 export function subscribeEquipment(address: string, cb: (equipment: Partial<Record<EquipSlot, EquippedItem>>) => void): () => void {
   const db = getFirebaseDb();
@@ -563,7 +573,9 @@ export async function equipItem(address: string, item: InventoryItem, slot: Equi
   await unequipSlot(address, slot); // restitue l'ancien occupant avant de poser le nouveau
   const equipped: EquippedItem = {
     itemId: item.itemId, name: item.name, category: item.category, slot,
-    durability: item.durabilityMax ?? 100, durabilityMax: item.durabilityMax ?? 100,
+    // Reprend l'usure conservée en besace (`item.durability`, voir unequipSlot()) si l'objet a déjà
+    // servi ; sinon objet neuf → pleine durabilité (comportement historique inchangé).
+    durability: item.durability ?? item.durabilityMax ?? 100, durabilityMax: item.durabilityMax ?? 100,
     equippedAt: Date.now(),
     ...(item.rarity ? { rarity: item.rarity } : {}),
     ...(item.damage ? { damage: item.damage } : {}),
@@ -576,10 +588,13 @@ export async function equipItem(address: string, item: InventoryItem, slot: Equi
   return 'ok';
 }
 
-/** Retire l'objet équipé d'un emplacement et le restitue à la besace (à l'état neuf). Le slot
- * 'familiar' est un cas particulier : ce n'est pas un objet de besace (juste une référence vers un
- * familier déjà apprivoisé, voir equipFamiliar), donc rien n'est restitué — le familier reste
- * possédé indéfiniment, on ne fait que le retirer du rang de compagnon de combat actif. */
+/** Retire l'objet équipé d'un emplacement et le restitue à la besace, en conservant son usure
+ * courante (`durability`, voir champ ajouté à `InventoryItem`) pour qu'un ré-équipement ultérieur
+ * du même objet ne réinitialise pas sa durabilité — seule la casse totale (durability ≤ 0, gérée
+ * ailleurs par applyEquipmentWear) fait définitivement disparaître l'objet. Le slot 'familiar' est
+ * un cas particulier : ce n'est pas un objet de besace (juste une référence vers un familier déjà
+ * apprivoisé, voir equipFamiliar), donc rien n'est restitué — le familier reste possédé
+ * indéfiniment, on ne fait que le retirer du rang de compagnon de combat actif. */
 export async function unequipSlot(address: string, slot: EquipSlot): Promise<void> {
   const db = getFirebaseDb();
   if (!db) return;
@@ -597,7 +612,7 @@ export async function unequipSlot(address: string, slot: EquipSlot): Promise<voi
     ...(it.rarity ? { rarity: it.rarity } : {}),
     ...(it.damage ? { damage: it.damage } : {}),
     ...(it.defense ? { defense: it.defense } : {}),
-    ...(it.durabilityMax ? { durabilityMax: it.durabilityMax } : {}),
+    ...(it.durabilityMax ? { durabilityMax: it.durabilityMax, durability: it.durability } : {}),
     ...(it.requiresArrow ? { requiresArrow: true } : {}),
     ...(it.requiresFamiliarId ? { requiresFamiliarId: it.requiresFamiliarId } : {}),
   });

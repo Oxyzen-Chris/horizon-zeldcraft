@@ -49,6 +49,14 @@ function slotLabel(t: Translate, slot: EquipSlot, it: EquippedItem): string {
   return itemLabel(t, it.itemId, it.name).slice(0, 10);
 }
 
+/** Nom complet (non tronqué) de l'objet équipé, utilisé pour la bulle d'info (`title`) du
+ * compartiment — le texte affiché DANS le compartiment reste, lui, tronqué/réduit pour ne jamais
+ * déborder de son cadre (voir SlotBody), quelle que soit la longueur du nom (ex. "Thunderfury" ou
+ * "Épée de maître (Zelda)" qui débordaient auparavant en police trop grande). */
+function fullEquippedName(t: Translate, slot: EquipSlot, it: EquippedItem): string {
+  return slot === 'familiar' ? localizeName(t, it.i18nKey, it.name) : itemLabel(t, it.itemId, it.name);
+}
+
 /** Props partagées par `Slot`/`InlineSlot` — définies en dehors de `EquipmentWidget` (portée
  * module) pour garantir une identité de composant STABLE d'un rendu à l'autre. Déclarer ces
  * composants À L'INTÉRIEUR du corps de `EquipmentWidget` (comme c'était le cas auparavant) crée à
@@ -75,7 +83,13 @@ function SlotBody({ slot, equipped: it, t, onUnequip }: SlotBodyProps) {
   const pct = it ? (slot === 'arrows' || slot === 'familiar' ? 100 : Math.round((it.durability / Math.max(1, it.durabilityMax)) * 100)) : 0;
   return it ? (
     <>
-      {kind ? <DragonSkin kind={kind} size={22} /> : <span className="text-lg leading-none">{it.name.split(' ')[0]}</span>}
+      {/* Nom (ou 1er mot) de l'objet — `truncate` + largeur bornée (`w-full`) empêchent tout
+          débordement du cadre 56×56px quel que soit le nom (ex. "Thunderfury", "Épée de maître
+          (Zelda)") : le texte est coupé avec "…" plutôt que de déborder visuellement, le nom
+          complet restant consultable via la bulle d'info du compartiment (voir Slot/InlineSlot). */}
+      {kind ? <DragonSkin kind={kind} size={22} /> : (
+        <span className="text-sm font-semibold leading-none w-full px-0.5 truncate">{it.name.split(' ')[0]}</span>
+      )}
       <span className="text-[8px] text-slate-300 truncate w-full px-0.5">{slotLabel(t, slot, it)}</span>
       {slot !== 'arrows' && slot !== 'familiar' && (
         <div className="w-10 h-1 bg-rose-700 rounded overflow-hidden mt-0.5">
@@ -108,13 +122,16 @@ interface SlotProps extends SlotBodyProps {
 
 function Slot({ slot, className, equipped, t, onUnequip, dragOverSlot, onDragOverSlot, onDragLeaveSlot, onDropSlot }: SlotProps) {
   const slotCls = dragOverSlot === slot ? 'border-cyan-300 bg-cyan-900/40' : equipped ? 'border-emerald-500 bg-slate-800/80' : 'border-dashed border-slate-600 bg-slate-800/40';
+  // Bulle d'info : nom complet de l'objet équipé (jamais tronqué, contrairement au texte affiché
+  // dans le compartiment) en plus du nom de l'emplacement, sinon juste le nom de l'emplacement.
+  const title = equipped ? `${t(`equip.slot.${slot}`)} — ${fullEquippedName(t, slot, equipped)}` : t(`equip.slot.${slot}`);
   return (
     <div
       className={`absolute w-14 h-14 rounded-lg border-2 flex flex-col items-center justify-center text-center ${className} ${slotCls}`}
       onDragOver={(e) => { e.preventDefault(); onDragOverSlot(slot); }}
       onDragLeave={() => onDragLeaveSlot(slot)}
       onDrop={(e) => onDropSlot(slot, e)}
-      title={t(`equip.slot.${slot}`)}
+      title={title}
     >
       <SlotBody slot={slot} equipped={equipped} t={t} onUnequip={onUnequip} />
     </div>
@@ -125,13 +142,14 @@ function Slot({ slot, className, equipped, t, onUnequip, dragOverSlot, onDragOve
  * ligne sous le personnage plutôt que collés au corps (pas de zone anatomique adaptée). */
 function InlineSlot({ slot, equipped, t, onUnequip, dragOverSlot, onDragOverSlot, onDragLeaveSlot, onDropSlot }: Omit<SlotProps, 'className'>) {
   const slotCls = dragOverSlot === slot ? 'border-cyan-300 bg-cyan-900/40' : equipped ? 'border-emerald-500 bg-slate-800/80' : 'border-dashed border-slate-600 bg-slate-800/40';
+  const title = equipped ? `${t(`equip.slot.${slot}`)} — ${fullEquippedName(t, slot, equipped)}` : t(`equip.slot.${slot}`);
   return (
     <div
       className={`relative w-14 h-14 rounded-lg border-2 flex flex-col items-center justify-center text-center ${slotCls}`}
       onDragOver={(e) => { e.preventDefault(); onDragOverSlot(slot); }}
       onDragLeave={() => onDragLeaveSlot(slot)}
       onDrop={(e) => onDropSlot(slot, e)}
-      title={t(`equip.slot.${slot}`)}
+      title={title}
     >
       <SlotBody slot={slot} equipped={equipped} t={t} onUnequip={onUnequip} />
     </div>
