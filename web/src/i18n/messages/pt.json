@@ -988,7 +988,7 @@
   "equip.mouthHint": "Arraste comida, uma poção ou um feitiço aqui para alimentar Synk",
   "equip.travelCompanions": "Viagem & Companheiros",
   "fight.equipBonus": "Bônus de equipamento: +{v}",
-  "fight.equipBroken": "Item(ns) quebrado(s) durante a luta: {names}",
+  "fight.equipBroken": "Item(ns) quebrado(s) durante a luta, danificado(s) demais para reutilizar — enviado(s) ao Cemitério de equipamentos: {names}",
   "admin.repRules.equipTitle": "⚔️ Equipamento (armas e proteções)",
   "admin.repRules.equipDescription": "Limites de raridade por XP, preço mínimo, bônus de combate, desgaste e itens de saque.",
   "admin.repRules.equipRarityXpCommon": "XP necessária — raridade Comum",
@@ -1272,5 +1272,7 @@
   "progress.theme.questNpc": "❓ Missões de PNJ",
   "progress.theme.questArchipelago": "🏝️ Missões de arquipélago",
   "progress.theme.questWildIsland": "🌴 Missões de ilhas selvagens",
-  "progress.theme.questKingdom": "👑 Missões do Reino"
+  "progress.theme.questKingdom": "👑 Missões do Reino",
+  "progress.theme.equipmentGraveyard": "💀 Cemitério de equipamentos",
+  "progress.graveyard.brokenOn": "Quebrado e perdido em {date} — muito danificado para reutilizar"
 }

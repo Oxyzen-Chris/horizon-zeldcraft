@@ -988,7 +988,7 @@
   "equip.mouthHint": "Glisse de la nourriture, une potion ou un sortilège ici pour nourrir Synk",
   "equip.travelCompanions": "Voyage & Compagnons",
   "fight.equipBonus": "Bonus d'équipement : +{v}",
-  "fight.equipBroken": "Objet(s) cassé(s) durant le combat : {names}",
+  "fight.equipBroken": "Objet(s) cassé(s) durant le combat, trop abîmé(s) pour être réutilisé(s) — envoyé(s) au Cimetière des équipements : {names}",
   "admin.repRules.equipTitle": "⚔️ Équipement (armes & protections)",
   "admin.repRules.equipDescription": "Seuils de rareté par XP, coût minimum, bonus de combat, usure et objets de butin.",
   "admin.repRules.equipRarityXpCommon": "XP requis — rareté Commune",
@@ -1272,5 +1272,7 @@
   "progress.theme.questNpc": "❓ Quêtes PNJ",
   "progress.theme.questArchipelago": "🏝️ Quêtes archipel",
   "progress.theme.questWildIsland": "🌴 Quêtes îles sauvages",
-  "progress.theme.questKingdom": "👑 Quêtes du Royaume"
+  "progress.theme.questKingdom": "👑 Quêtes du Royaume",
+  "progress.theme.equipmentGraveyard": "💀 Cimetière des équipements",
+  "progress.graveyard.brokenOn": "Cassé et perdu le {date} — trop abîmé pour être réutilisé"
 }

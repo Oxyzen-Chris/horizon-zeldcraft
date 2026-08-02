@@ -8,11 +8,30 @@ import type { PlayerProgressLedger, ProgressTheme, ProgressSubgroup, ProgressEnt
  * utilisent la convention `itemLabel()`/`item.<itemId>` comme le reste de la besace/boutique.
  * Tous les autres thèmes (quêtes, PNJ, mondes, familiers, trésors d'exploration) portent un
  * `i18nKey` explicite sur chaque entrée et utilisent `localizeName()`. */
-const SHOP_ITEM_THEME_KEYS = new Set(['weapon', 'armor', 'food', 'potion', 'vehicle', 'shopTreasure', 'saddle']);
+const SHOP_ITEM_THEME_KEYS = new Set(['weapon', 'armor', 'food', 'potion', 'vehicle', 'shopTreasure', 'saddle', 'equipmentGraveyard']);
+
+/** Date courte localisée (JJ/MM/AAAA) pour l'affichage du "Cimetière des équipements" — pas de
+ * dépendance à une lib de formatage externe pour un affichage aussi simple. */
+function shortDate(ts: number): string {
+  return new Date(ts).toLocaleDateString();
+}
 
 function EntryRow({ entry, isShopItem }: { entry: ProgressEntry; isShopItem: boolean }) {
   const { t } = useI18n();
-  const label = isShopItem ? itemLabel(t, entry.id, entry.name) : localizeName(t, entry.i18nKey, entry.name);
+  const label = isShopItem ? itemLabel(t, entry.itemId ?? entry.id, entry.name) : localizeName(t, entry.i18nKey, entry.name);
+  // Entrée du "Cimetière des équipements" (voir applyEquipmentWear/getPlayerProgressLedger) : objet
+  // définitivement cassé au combat, affiché avec 💀 + date de casse plutôt que ✅/❌ (qui n'aurait
+  // pas de sens ici — l'objet a bien existé, il est juste devenu inexploitable).
+  if (entry.brokenAt !== undefined) {
+    return (
+      <div className="flex items-center justify-between gap-2 text-xs py-1 px-2 rounded hover:bg-slate-800/50">
+        <span className="truncate text-slate-300">{label}</span>
+        <span className="text-slate-500 shrink-0" title={t('progress.graveyard.brokenOn', { date: shortDate(entry.brokenAt) })}>
+          💀 {shortDate(entry.brokenAt)}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center justify-between gap-2 text-xs py-1 px-2 rounded hover:bg-slate-800/50">
       <span className="truncate text-slate-300">{label}</span>

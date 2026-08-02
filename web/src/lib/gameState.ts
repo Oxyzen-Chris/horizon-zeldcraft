@@ -664,9 +664,37 @@ export function computeEquipmentCombatBonus(
   return { bonus, usedSlots, arrowsExhausted };
 }
 
+/** Enregistrement persistant d'un objet cassé (durabilité tombée à 0) — voir applyEquipmentWear()
+ * et le thème "Cimetière des équipements" du widget "État d'avancement / inventaire"
+ * (getPlayerProgressLedger()). Contrairement au déséquipement classique (unequipSlot()), un objet
+ * cassé N'EST PAS remis en besace : il est considéré définitivement inexploitable/trop abîmé (voir
+ * demande utilisateur), seule cette trace en garde le souvenir. Clé RTDB :
+ * players/{addr}/equipmentGraveyard/{pushId}
+ */
+export interface EquipmentGraveyardEntry {
+  id: string; itemId: string; name: string; category: EquippedItem['category']; slot: EquipSlot;
+  rarity?: ItemRarity; brokenAt: number;
+}
+
+/** Lit l'historique des objets cassés d'un joueur, du plus récent au plus ancien. */
+export async function getEquipmentGraveyard(address: string): Promise<EquipmentGraveyardEntry[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, `players/${KEY(address)}/equipmentGraveyard`));
+  const v = snap.val() as Record<string, Omit<EquipmentGraveyardEntry, 'id'>> | null;
+  if (!v) return [];
+  return Object.entries(v)
+    .map(([id, e]) => ({ id, ...e }))
+    .sort((a, b) => b.brokenAt - a.brokenAt);
+}
+
 /** Applique l'usure de combat aux emplacements utilisés (arme/protections) : réduit la durabilité
  * de `wearPct` % du plafond (arrondi, minimum 1) ; si elle atteint 0, l'objet casse et disparaît
- * (pop-up dédié côté UI). Les flèches sont consommées séparément (1 par tir), sans casse. */
+ * (pop-up dédié côté UI, voir FightResultModal.tsx) SANS être remis en besace — trop abîmé pour
+ * être réutilisé (voir demande utilisateur) — et une trace est archivée dans le "Cimetière des
+ * équipements" (equipmentGraveyard, voir getEquipmentGraveyard() ci-dessus). Les flèches sont
+ * consommées séparément (1 par tir, qty décrémentée), sans notion de durabilité ni de casse : ce
+ * mécanisme de munitions existant n'est pas concerné par le cimetière. */
 export async function applyEquipmentWear(
   address: string, usedSlots: EquipSlot[], wearPct: number,
 ): Promise<{ broken: EquippedItem[] }> {
@@ -689,6 +717,11 @@ export async function applyEquipmentWear(
     if (remaining <= 0) {
       await set(ref(db, path), null);
       broken.push(it);
+      const entry: Omit<EquipmentGraveyardEntry, 'id'> = {
+        itemId: it.itemId, name: it.name, category: it.category, slot, brokenAt: Date.now(),
+        ...(it.rarity ? { rarity: it.rarity } : {}),
+      };
+      push(ref(db, `players/${KEY(address)}/equipmentGraveyard`), entry).catch(() => {});
     } else {
       await update(ref(db, path), { durability: remaining });
     }
@@ -3394,8 +3427,13 @@ export async function getItemsEverOwnedIds(address: string): Promise<Set<string>
 }
 
 /** Une entrée individuelle affichée dans le widget "État d'avancement / inventaire" : possédé
- * (actuellement ou par le passé)/résolu ou non par le joueur, avec icône ✅/❌ côté UI. */
-export interface ProgressEntry { id: string; name: string; i18nKey?: string; owned: boolean }
+ * (actuellement ou par le passé)/résolu ou non par le joueur, avec icône ✅/❌ côté UI. `brokenAt`
+ * (optionnel) marque une entrée du thème spécial "Cimetière des équipements" : un objet cassé au
+ * combat (durabilité à 0, voir applyEquipmentWear) affiché avec sa date de casse plutôt que ✅/❌.
+ * `itemId` (optionnel) sert de clé i18n de secours (`item.<itemId>`) quand `id` n'est PAS l'itemId
+ * du catalogue — cas du cimetière, où `id` est la clé Firebase unique de chaque casse (un même
+ * modèle d'arme peut casser plusieurs fois, `id` doit donc rester unique pour React). */
+export interface ProgressEntry { id: string; name: string; i18nKey?: string; owned: boolean; brokenAt?: number; itemId?: string }
 
 /** Sous-groupe repliable au sein d'un thème — utilisé UNIQUEMENT pour "Quêtes du Royaume" afin
  * d'éviter d'afficher les 400 quêtes en une seule liste plate (regroupement par chapitre, voir
@@ -3424,15 +3462,16 @@ function progressTheme(key: string, labelI18nKey: string, icon: string, entries:
  * de la boutique (armes, protections, nourriture, potions & sortilèges, engins, trésors, selles —
  * via le marqueur permanent itemsEverOwned), familiers apprivoisés, quêtes (classiques/PNJ/
  * archipel/îles sauvages/Royaume — Royaume sous-groupé par chapitre), mondes débloqués, PNJ
- * officiels rencontrés et trésors d'exploration trouvés. Utilisée à la fois par le widget flottant
- * "État d'avancement / inventaire" (ProgressWidget.tsx) et par la rubrique admin "Statistiques par
- * joueur" (PlayerStats.tsx) — une seule fonction fait autorité pour les deux, aucune duplication de
- * logique de classification.
+ * officiels rencontrés, trésors d'exploration trouvés et historique des équipements cassés au
+ * combat ("Cimetière des équipements", voir applyEquipmentWear/getEquipmentGraveyard). Utilisée à
+ * la fois par le widget flottant "État d'avancement / inventaire" (ProgressWidget.tsx) et par la
+ * rubrique admin "Statistiques par joueur" (PlayerStats.tsx) — une seule fonction fait autorité
+ * pour les deux, aucune duplication de logique de classification.
  */
 export async function getPlayerProgressLedger(address: string): Promise<PlayerProgressLedger> {
   const [
     shop, quests, npcs, treasures, worlds, familiars, everOwned, solvedQuests, metNpcs, foundTreasures,
-    unlockedWorlds, tamedFamiliars, packs, currentInventory, currentEquipment,
+    unlockedWorlds, tamedFamiliars, packs, currentInventory, currentEquipment, graveyard,
   ] = await Promise.all([
     getShopCatalog(), getQuestDefs(), getNpcDefs(), getTreasureDefs(), getWorldDefs(), getFamiliarDefs(),
     getItemsEverOwnedIds(address), getAllSolvedQuestIds(address), getMetNpcIds(address), getFoundTreasureIds(address),
@@ -3444,7 +3483,7 @@ export async function getPlayerProgressLedger(address: string): Promise<PlayerPr
     // d'argile/du voyageur, potions, bourse de rubis en besace + épée épique/flèches/amulette
     // équipées absentes du widget). On complète donc `everOwned` par la photo COURANTE de la besace
     // ET de l'équipement porté, en plus du marqueur permanent — voir fusion juste après.
-    getInventoryOnce(address), getEquipment(address),
+    getInventoryOnce(address), getEquipment(address), getEquipmentGraveyard(address),
   ]);
 
   // Fusionne le marqueur permanent avec la possession ACTUELLE (besace + équipement porté) : un
@@ -3535,6 +3574,15 @@ export async function getPlayerProgressLedger(address: string): Promise<PlayerPr
       id: n.id, name: n.name, i18nKey: n.i18nKey, owned: metNpcs.has(RKEY(n.id)),
     })));
 
+  // "Cimetière des équipements" — historique des armes/protections/amulettes/boucliers/habits/
+  // gants/bottes cassées au combat (durabilité à 0, voir applyEquipmentWear). Chaque casse est une
+  // entrée distincte (pas de déduplication par itemId : un même modèle peut casser plusieurs fois),
+  // toujours `owned: true` (l'objet a bien existé) — c'est `brokenAt` qui pilote l'affichage 💀 +
+  // date au lieu de ✅/❌ côté UI (voir ProgressLedgerView.tsx). Non concerné : les flèches, qui ne
+  // "cassent" pas mais se consomment (qty → 0, mécanisme de munitions déjà existant).
+  const graveyardTheme = progressTheme('equipmentGraveyard', 'progress.theme.equipmentGraveyard', '💀',
+    graveyard.map(g => ({ id: g.id, itemId: g.itemId, name: g.name, owned: true, brokenAt: g.brokenAt })));
+
   const visibleQuests = quests.filter(q => q.active && isContentPackVisible(q.contentPack, packs));
   const questEntry = (q: QuestDef): ProgressEntry => ({
     id: q.id, name: q.label, i18nKey: q.i18nKey, owned: solvedQuests.has(q.id.toLowerCase()),
@@ -3565,7 +3613,7 @@ export async function getPlayerProgressLedger(address: string): Promise<PlayerPr
 
   return {
     themes: [
-      ...shopThemes, familiarTheme, worldTreasureTheme, worldTheme, npcTheme,
+      ...shopThemes, graveyardTheme, familiarTheme, worldTreasureTheme, worldTheme, npcTheme,
       classicTheme, npcQuestTheme, archipelagoTheme, wildIslandTheme, kingdomTheme,
     ],
   };

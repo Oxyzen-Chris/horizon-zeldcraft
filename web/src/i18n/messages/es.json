@@ -988,7 +988,7 @@
   "equip.mouthHint": "Arrastra comida, una poción o un hechizo aquí para alimentar a Synk",
   "equip.travelCompanions": "Viaje y Compañeros",
   "fight.equipBonus": "Bono de equipo: +{v}",
-  "fight.equipBroken": "Objeto(s) roto(s) durante el combate: {names}",
+  "fight.equipBroken": "Objeto(s) roto(s) durante el combate, demasiado dañado(s) para reutilizarlo(s) — enviado(s) al Cementerio de equipamiento: {names}",
   "admin.repRules.equipTitle": "⚔️ Equipo (armas y protecciones)",
   "admin.repRules.equipDescription": "Umbrales de rareza por XP, precio mínimo, bono de combate, desgaste y objetos de botín.",
   "admin.repRules.equipRarityXpCommon": "XP requerida — rareza Común",
@@ -1272,5 +1272,7 @@
   "progress.theme.questNpc": "❓ Misiones de PNJ",
   "progress.theme.questArchipelago": "🏝️ Misiones de archipiélago",
   "progress.theme.questWildIsland": "🌴 Misiones de islas salvajes",
-  "progress.theme.questKingdom": "👑 Misiones del Reino"
+  "progress.theme.questKingdom": "👑 Misiones del Reino",
+  "progress.theme.equipmentGraveyard": "💀 Cementerio de equipamiento",
+  "progress.graveyard.brokenOn": "Roto y perdido el {date} — demasiado dañado para reutilizarlo"
 }

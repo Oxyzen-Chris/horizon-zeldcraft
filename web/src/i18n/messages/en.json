@@ -988,7 +988,7 @@
   "equip.mouthHint": "Drag food, a potion or a spell here to feed Synk",
   "equip.travelCompanions": "Travel & Companions",
   "fight.equipBonus": "Equipment bonus: +{v}",
-  "fight.equipBroken": "Item(s) broken during the fight: {names}",
+  "fight.equipBroken": "Item(s) broken during the fight, too damaged to be reused — sent to the Equipment Graveyard: {names}",
   "admin.repRules.equipTitle": "⚔️ Equipment (weapons & armor)",
   "admin.repRules.equipDescription": "XP rarity thresholds, minimum price, combat bonus, wear and loot drops.",
   "admin.repRules.equipRarityXpCommon": "XP required — Common rarity",
@@ -1272,5 +1272,7 @@
   "progress.theme.questNpc": "❓ NPC quests",
   "progress.theme.questArchipelago": "🏝️ Archipelago quests",
   "progress.theme.questWildIsland": "🌴 Wild island quests",
-  "progress.theme.questKingdom": "👑 Kingdom quests"
+  "progress.theme.questKingdom": "👑 Kingdom quests",
+  "progress.theme.equipmentGraveyard": "💀 Equipment graveyard",
+  "progress.graveyard.brokenOn": "Broken and lost on {date} — too damaged to be reused"
 }
