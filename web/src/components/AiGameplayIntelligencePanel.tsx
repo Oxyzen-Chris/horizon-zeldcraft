@@ -9,11 +9,102 @@ import {
   getAiInsightsCache, setAiInsightsCache, DEFAULT_MAP_ID,
   getPlayerAnalyticsOverride, setPlayerAnalyticsOverride,
   getPlayerWidgetUsageDetail, getPlayerQuestFunnelDetail, getPlayerFaintEventsDetail,
+  getMapPoiDefs, getWorldDefs, getQuestDefs,
   type AiAnalyticsSettings, type WidgetUsageAgg, type QuestFunnelSummary, type HeatCell,
   type MonetizationOverview, type PlayerAnalyticsSummary, type AiInsightsCache,
   type PlayerAnalyticsOverride, type PlayerQuestFunnelEntry, type FaintEventRecord,
 } from '@/lib/gameState';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, localizeName } from '@/lib/i18n';
+
+/**
+ * Banque de noms de zones évocateurs façon lore (« Prairie des 3 cerfs », « Abreuvoir originel de
+ * Perrughias »…) utilisée pour rendre la « carte des zones fréquentées » et le « suivi ciblé par
+ * joueur » plus lisibles que de simples coordonnées `(gx, gy)`. Un même index (icône ⟷ nom) est
+ * partagé par les 4 langues pour garder une identité visuelle cohérente quelle que soit la langue
+ * choisie à la connexion — voir `pickFlavorZoneName()` ci-dessous.
+ */
+const ZONE_ICON_BANK = [
+  '🦌', '🏞️', '🌸', '🌳', '🌫️', '🧝', '💧', '🧌', '🐉', '🏝️', '🍃', '🛖', '⛏️', '🐙', '🪨', '👑', '🔥', '🌲', '🔭', '💎', '🐑', '🗼', '🌷', '🏕️',
+];
+const ZONE_NAME_BANK: Record<string, string[]> = {
+  fr: [
+    'Prairie des 3 Cerfs', 'Abreuvoir originel de Perrughias', 'Clairière des Lucioles', 'Combe du Vieux Chêne',
+    'Sentier des Brumes', 'Bosquet des Elfes Rieurs', 'Confluent des Deux Rivières', 'Val des Trolls Endormis',
+    'Crête du Dragon Assoupi', 'Anse du Kraken Placide', 'Fourré des Esprits', 'Camp des Voyageurs',
+    'Galerie des Gnomes Bâtisseurs', 'Récif de la Pieuvre Ancienne', 'Éboulis du Vieux Phare', 'Terrasse de la Reine Elfe',
+    'Marais des Feux-Follets', 'Pinède Argentée', 'Observatoire des Astronomes', 'Grotte aux Cristaux',
+    'Vallon des Bergers', 'Tour du Guet Oubliée', 'Prairie Fleurie de Synk', 'Campement des Nomades',
+  ],
+  en: [
+    'Three Stags Meadow', 'Perrughias\' First Spring', 'Firefly Glade', 'Old Oak Hollow',
+    'Mist Trail', 'Laughing Elves Grove', 'Twin Rivers Confluence', 'Sleeping Trolls Vale',
+    'Slumbering Dragon Ridge', 'Placid Kraken Cove', 'Spirit Thicket', 'Wanderers\' Camp',
+    'Gnome Builders Gallery', 'Ancient Octopus Reef', 'Old Lighthouse Scree', 'Elf Queen\'s Terrace',
+    'Will-o\'-the-Wisp Marsh', 'Silver Pine Forest', 'Astronomers\' Observatory', 'Crystal Cave',
+    'Shepherds\' Vale', 'Forgotten Watchtower', 'Synk\'s Blooming Meadow', 'Nomads\' Encampment',
+  ],
+  es: [
+    'Pradera de los 3 Ciervos', 'Manantial originario de Perrughias', 'Claro de las Luciérnagas', 'Hondonada del Viejo Roble',
+    'Sendero de las Brumas', 'Bosquecillo de los Elfos Risueños', 'Confluencia de los Dos Ríos', 'Valle de los Trolls Dormidos',
+    'Cresta del Dragón Dormido', 'Cala del Kraken Apacible', 'Espesura de los Espíritus', 'Campamento de los Viajeros',
+    'Galería de los Gnomos Constructores', 'Arrecife del Pulpo Antiguo', 'Pedregal del Viejo Faro', 'Terraza de la Reina Elfa',
+    'Pantano de los Fuegos Fatuos', 'Pinar Plateado', 'Observatorio de los Astrónomos', 'Cueva de Cristal',
+    'Valle de los Pastores', 'Torre de Vigía Olvidada', 'Pradera Florida de Synk', 'Campamento Nómada',
+  ],
+  pt: [
+    'Prado dos 3 Cervos', 'Nascente original de Perrughias', 'Clareira dos Vaga-lumes', 'Vale do Velho Carvalho',
+    'Trilha das Brumas', 'Bosque dos Elfos Risonhos', 'Confluência dos Dois Rios', 'Vale dos Trols Adormecidos',
+    'Crista do Dragão Adormecido', 'Enseada do Kraken Plácido', 'Mata dos Espíritos', 'Acampamento dos Viajantes',
+    'Galeria dos Gnomos Construtores', 'Recife do Polvo Antigo', 'Pedregulho do Velho Farol', 'Terraço da Rainha Élfica',
+    'Pântano dos Fogos-Fátuos', 'Pinhal Prateado', 'Observatório dos Astrônomos', 'Gruta de Cristal',
+    'Vale dos Pastores', 'Torre de Vigia Esquecida', 'Prado Florido de Synk', 'Acampamento Nômade',
+  ],
+};
+
+/** Hash déterministe simple (aucune dépendance) : la même case (gx,gy) donne toujours le même nom
+ * de zone « inventé » — stable entre deux rafraîchissements tant qu'aucune quête/PNJ/monde connu
+ * ne se trouve à proximité (auquel cas ce landmark réel est utilisé à la place, voir plus bas). */
+function zoneHash(gx: number, gy: number): number {
+  return Math.abs((gx * 73_856_093) ^ (gy * 19_349_663));
+}
+
+interface MapLandmark { name: string; x: number; y: number; icon?: string }
+
+/**
+ * Nom lisible d'une case de heatmap `(gx, gy)` : si une quête/PNJ/monde/POI actif de la carte se
+ * trouve à proximité du centre de la case, on reprend directement son nom (« lié aux quêtes, etc. »
+ * — demande explicite) ; sinon on pioche un nom de zone évocateur dans la banque ci-dessus, stable
+ * pour cette case. Retourne aussi une icône (mini « bitmap » visuel de la zone).
+ */
+function zoneLabelForCell(
+  gx: number, gy: number, gridSize: number, landmarks: MapLandmark[], locale: string,
+): { name: string; icon: string } {
+  const cx = gx * gridSize + gridSize / 2;
+  const cy = gy * gridSize + gridSize / 2;
+  let nearest: MapLandmark | null = null;
+  let nearestDist = Infinity;
+  for (const lm of landmarks) {
+    const d = Math.hypot(lm.x - cx, lm.y - cy);
+    if (d < nearestDist) { nearestDist = d; nearest = lm; }
+  }
+  // Rayon de rattachement : la case doit être "collée" au landmark réel pour reprendre son nom —
+  // au-delà, mieux vaut un nom de zone inventé que d'attribuer arbitrairement le nom d'un point
+  // d'intérêt lointain à une case sans rapport.
+  if (nearest && nearestDist <= gridSize * 1.2) {
+    return { name: nearest.name, icon: nearest.icon ?? '📍' };
+  }
+  const bank = ZONE_NAME_BANK[locale] ?? ZONE_NAME_BANK.fr;
+  const idx = zoneHash(gx, gy) % bank.length;
+  return { name: bank[idx], icon: ZONE_ICON_BANK[idx % ZONE_ICON_BANK.length] };
+}
+
+/** Idem `zoneLabelForCell` mais à partir d'une position exacte `(x, y)` en % (pas d'une case de
+ * heatmap agrégée) — utilisé par le « suivi ciblé par joueur » (évanouissements individuels). */
+function zoneLabelForPosition(
+  x: number, y: number, gridSize: number, landmarks: MapLandmark[], locale: string,
+): { name: string; icon: string } {
+  return zoneLabelForCell(Math.floor(x / Math.max(1, gridSize)), Math.floor(y / Math.max(1, gridSize)), gridSize, landmarks, locale);
+}
 
 /** Petite barre horizontale (0-100%) — pas de dépendance à une lib de graphiques (aucune installée
  * dans le projet, voir package.json), cohérent avec `ProgressBar` (ProgressLedgerView.tsx). */
@@ -78,6 +169,7 @@ export function AiGameplayIntelligencePanel() {
 
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(false);
+  const [landmarks, setLandmarks] = useState<MapLandmark[]>([]);
 
   const [insights, setInsights] = useState<AiInsightsCache | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -146,13 +238,25 @@ export function AiGameplayIntelligencePanel() {
       setAllAddresses(players);
       const [
         dau, retention7, retention30, widgetUsage, questFunnel, mapHeatmap, faintHeatmap,
-        faintCause, monetization, npcOverview,
+        faintCause, monetization, npcOverview, pois, worlds, quests,
       ] = await Promise.all([
         getDauSeries(14), getRetentionEstimate(7), getRetentionEstimate(30),
         getWidgetUsageGlobal(), getQuestFunnelGlobal(),
         getMapHeatmap(DEFAULT_MAP_ID), getFaintHeatmap(DEFAULT_MAP_ID), getFaintCauseBreakdown(),
         getMonetizationOverview(), getNpcEncounterOverview(),
+        getMapPoiDefs(DEFAULT_MAP_ID).catch(() => []), getWorldDefs().catch(() => []), getQuestDefs().catch(() => []),
       ]);
+      // Points de repère réels (POI décoratifs, portails de monde, quêtes positionnées sur la
+      // mapmonde) utilisés pour nommer les zones fréquentées par leur nom véritable plutôt qu'un
+      // nom inventé quand ils sont assez proches (voir zoneLabelForCell ci-dessus).
+      const lm: MapLandmark[] = [
+        ...pois.filter(p => p.active).map(p => ({ name: p.name, x: p.x, y: p.y, icon: p.icon })),
+        ...worlds.filter(w => w.active && w.mapX != null && w.mapY != null)
+          .map(w => ({ name: localizeName(t, w.i18nKey, w.name), x: w.mapX as number, y: w.mapY as number, icon: '🌀' })),
+        ...quests.filter(q => q.active && q.kingdomQuest && q.mapX != null && q.mapY != null)
+          .map(q => ({ name: localizeName(t, q.i18nKey, q.label), x: q.mapX as number, y: q.mapY as number, icon: '📜' })),
+      ];
+      setLandmarks(lm);
       // Score de décrochage par joueur — échantillon plafonné à 50 pour rester réactif (voir
       // getPlayerAnalyticsSummary, même logique de coût que PlayerStats).
       const sample = players.slice(0, 50);
@@ -215,8 +319,8 @@ export function AiGameplayIntelligencePanel() {
         retention30d: snap.retention30,
         widgetUsage: widgetRows.map(w => ({ widget: w.id, opens: w.opens, totalMinutes: Math.round(w.totalMs / 60000) })),
         questFunnel: snap.questFunnel.slice(0, 20),
-        topMapHeatCells: snap.mapHeatmap.slice(0, 15),
-        topFaintHeatCells: snap.faintHeatmap.slice(0, 15),
+        topMapHeatCells: snap.mapHeatmap.slice(0, 15).map(c => ({ ...c, zone: zoneLabelForCell(c.gx, c.gy, settings.mapHeatmapGridSize, landmarks, locale).name })),
+        topFaintHeatCells: snap.faintHeatmap.slice(0, 15).map(c => ({ ...c, zone: zoneLabelForCell(c.gx, c.gy, settings.mapHeatmapGridSize, landmarks, locale).name })),
         faintCauseBreakdown: snap.faintCause,
         monetization: snap.monetization,
         npcEncounterOverview: snap.npcOverview,
@@ -225,14 +329,19 @@ export function AiGameplayIntelligencePanel() {
       };
       const res = await fetch('/api/ai/insights', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stats: statsPayload, locale, model: settings.aiModel }),
+        body: JSON.stringify({ stats: statsPayload, locale, model: settings.aiModel, provider: settings.aiProvider }),
       });
       const data = await res.json();
       if (!res.ok) {
         setAiError(data?.message || t('admin.aiGameplay.ai.error'));
         return;
       }
-      const cache: AiInsightsCache = { text: data.text, generatedAt: data.generatedAt ?? Date.now(), model: data.model ?? settings.aiModel };
+      const cache: AiInsightsCache = {
+        text: data.text,
+        generatedAt: data.generatedAt ?? Date.now(),
+        model: data.model ?? settings.aiModel,
+        provider: data.provider === 'groq' ? 'groq' : 'gemini',
+      };
       await setAiInsightsCache(cache);
       setInsights(cache);
     } catch (e: any) {
@@ -389,13 +498,16 @@ export function AiGameplayIntelligencePanel() {
                 <div className="mt-2">
                   <p className="text-xs text-slate-400 mb-1">{t('admin.aiGameplay.playerFocus.faintEvents')}</p>
                   <div className="space-y-1 max-h-32 overflow-y-auto">
-                    {focusFaints.map((f, i) => (
-                      <div key={i} className="flex items-center gap-2 text-[11px]">
-                        <span>{f.cause === 'oxygen' ? '💧' : '😮‍💨'}</span>
-                        <span className="text-slate-300">{f.mapId} ({f.x}, {f.y})</span>
-                        <span className="text-slate-500">{new Date(f.timestamp).toLocaleString()}</span>
-                      </div>
-                    ))}
+                    {focusFaints.map((f, i) => {
+                      const zone = zoneLabelForPosition(f.x, f.y, settings.mapHeatmapGridSize, landmarks, locale);
+                      return (
+                        <div key={i} className="flex items-center gap-2 text-[11px]">
+                          <span>{f.cause === 'oxygen' ? '💧' : '😮‍💨'}</span>
+                          <span className="text-slate-300" title={`${f.mapId} (${f.x}, ${f.y})`}>{zone.icon} {zone.name}</span>
+                          <span className="text-slate-500">{new Date(f.timestamp).toLocaleString()}</span>
+                        </div>
+                      );
+                    })}
                     {focusFaints.length === 0 && <p className="text-xs text-slate-500 italic">{t('admin.aiGameplay.empty')}</p>}
                   </div>
                 </div>
@@ -438,13 +550,16 @@ export function AiGameplayIntelligencePanel() {
               <div>
                 <p className="text-xs text-slate-400 mb-1">{t('admin.aiGameplay.heatmap.map')}</p>
                 <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {snap.mapHeatmap.slice(0, 12).map(c => (
-                    <div key={`${c.gx}_${c.gy}`} className="flex items-center gap-2 text-xs">
-                      <span className="w-16 text-slate-400">({c.gx},{c.gy})</span>
-                      <Bar pct={(c.count / maxHeat) * 100} />
-                      <span className="w-10 text-right text-slate-400">{c.count}</span>
-                    </div>
-                  ))}
+                  {snap.mapHeatmap.slice(0, 12).map(c => {
+                    const zone = zoneLabelForCell(c.gx, c.gy, settings.mapHeatmapGridSize, landmarks, locale);
+                    return (
+                      <div key={`${c.gx}_${c.gy}`} className="flex items-center gap-2 text-xs">
+                        <span className="w-32 shrink-0 truncate text-slate-300" title={`(${c.gx},${c.gy})`}>{zone.icon} {zone.name}</span>
+                        <Bar pct={(c.count / maxHeat) * 100} />
+                        <span className="w-10 text-right text-slate-400">{c.count}</span>
+                      </div>
+                    );
+                  })}
                   {snap.mapHeatmap.length === 0 && <p className="text-xs text-slate-500 italic">{t('admin.aiGameplay.empty')}</p>}
                 </div>
               </div>
@@ -454,13 +569,16 @@ export function AiGameplayIntelligencePanel() {
                   💧 {snap.faintCause.oxygen} · 🥵 {snap.faintCause.fatigue}
                 </p>
                 <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {snap.faintHeatmap.slice(0, 10).map(c => (
-                    <div key={`${c.gx}_${c.gy}`} className="flex items-center gap-2 text-xs">
-                      <span className="w-16 text-slate-400">({c.gx},{c.gy})</span>
-                      <Bar pct={(c.count / maxFaintHeat) * 100} color="bg-rose-500" />
-                      <span className="w-10 text-right text-slate-400">{c.count}</span>
-                    </div>
-                  ))}
+                  {snap.faintHeatmap.slice(0, 10).map(c => {
+                    const zone = zoneLabelForCell(c.gx, c.gy, settings.mapHeatmapGridSize, landmarks, locale);
+                    return (
+                      <div key={`${c.gx}_${c.gy}`} className="flex items-center gap-2 text-xs">
+                        <span className="w-32 shrink-0 truncate text-slate-300" title={`(${c.gx},${c.gy})`}>{zone.icon} {zone.name}</span>
+                        <Bar pct={(c.count / maxFaintHeat) * 100} color="bg-rose-500" />
+                        <span className="w-10 text-right text-slate-400">{c.count}</span>
+                      </div>
+                    );
+                  })}
                   {snap.faintHeatmap.length === 0 && <p className="text-xs text-slate-500 italic">{t('admin.aiGameplay.empty')}</p>}
                 </div>
               </div>
@@ -556,6 +674,7 @@ export function AiGameplayIntelligencePanel() {
                   <div className="mt-3 bg-slate-800/60 rounded-lg p-3">
                     <p className="text-[10px] text-slate-500 mb-2">
                       {t('admin.aiGameplay.ai.generatedAt', { date: new Date(insights.generatedAt).toLocaleString(), model: insights.model })}
+                      {insights.provider ? ` · ${insights.provider === 'groq' ? 'Groq' : 'Google Gemini'}` : ''}
                     </p>
                     <pre className="text-xs text-slate-300 whitespace-pre-wrap font-sans">{insights.text}</pre>
                   </div>
@@ -584,7 +703,21 @@ export function AiGameplayIntelligencePanel() {
               </label>
               <label className="text-xs flex flex-col gap-1">
                 {t('admin.aiGameplay.settings.aiProvider')}
-                <select className="input" value={settings.aiProvider} onChange={e => setSettings(prev => ({ ...prev, aiProvider: e.target.value as AiAnalyticsSettings['aiProvider'] }))}>
+                <select
+                  className="input"
+                  value={settings.aiProvider}
+                  onChange={e => {
+                    const next = e.target.value as AiAnalyticsSettings['aiProvider'];
+                    setSettings(prev => ({
+                      ...prev,
+                      aiProvider: next,
+                      // Le champ modèle est repris directement par la route API : on le remet à
+                      // une valeur par défaut cohérente avec le nouveau fournisseur pour éviter
+                      // d'envoyer par erreur un nom de modèle Gemini à Groq (ou l'inverse).
+                      aiModel: next === 'groq' ? 'llama-3.3-70b-versatile' : 'gemini-2.0-flash',
+                    }));
+                  }}
+                >
                   <option value="gemini">Google Gemini</option>
                   <option value="groq">Groq</option>
                 </select>

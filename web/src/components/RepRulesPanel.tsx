@@ -544,6 +544,20 @@ export function RepRulesPanel() {
           <span className="text-slate-300">{t('admin.repRules.progressWidgetEnabled')}</span>
         </label>
       </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">⏱️ {t('admin.repRules.playtimeTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.playtimeDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.playtimeTrackingEnabled !== false}
+            onChange={e => setBool('playtimeTrackingEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.playtimeTrackingEnabled')}</span>
+        </label>
+        <label className="text-sm block max-w-xs">
+          <span className="text-slate-300">{t('admin.repRules.playtimeHeartbeatSec')}</span>
+          <input type="number" min={5} className="input mt-1 w-full" disabled={rules.playtimeTrackingEnabled === false}
+            value={rules.playtimeHeartbeatSec} onChange={e => set('playtimeHeartbeatSec', e.target.value)} />
+        </label>
+      </div>
       <div className="flex gap-3 mt-4">
         <button className="btn-primary" disabled={saving} onClick={save}>
           {saving ? '⏳' : t('admin.actions.apply')}

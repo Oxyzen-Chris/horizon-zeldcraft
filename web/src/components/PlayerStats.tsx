@@ -10,8 +10,9 @@ import { useIdsList } from './useIdsList';
 import {
   listPlayers, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
   computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex, getPlayerProgressLedger,
+  getPlayerPlaytimeStats,
   type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules, type Season,
-  type PlayerProgressLedger,
+  type PlayerProgressLedger, type PlaytimeStats,
 } from '@/lib/gameState';
 import { ProgressLedgerView } from './ProgressLedgerView';
 
@@ -99,6 +100,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const [activity, setActivity] = useState<PlayerActivityStats | null>(null);
   const [repRules, setRepRulesState] = useState<RepRules | null>(null);
   const [progressLedger, setProgressLedger] = useState<PlayerProgressLedger | null>(null);
+  const [playtime, setPlaytime] = useState<PlaytimeStats | null>(null);
 
   useEffect(() => {
     listPlayers().then(setPlayers).catch(() => {});
@@ -183,21 +185,23 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     setTarget(val as `0x${string}`);
     setLoadingTxs(true);
     setProgressLedger(null);
-    // Charge parallèlement DB player, Firebase txs, Etherscan history, stats d'activité et le
-    // ledger complet de progression (voir getPlayerProgressLedger() — même fonction que celle
-    // utilisée par le widget en jeu "État d'avancement / inventaire", pour un affichage identique).
-    const [p, dbTxs, chainTxs, npcCount, act, ledger] = await Promise.all([
+    // Charge parallèlement DB player, Firebase txs, Etherscan history, stats d'activité, le ledger
+    // complet de progression et le temps de jeu total/quotidien (voir getPlayerPlaytimeStats() —
+    // rubrique "Statistiques par joueur").
+    const [p, dbTxs, chainTxs, npcCount, act, ledger, pt] = await Promise.all([
       getPlayer(val),
       getTxs(val),
       fetchEtherscanTxs(chainId, val, contract),
       getNpcsMetCount(val),
       getPlayerActivityStats(val),
       getPlayerProgressLedger(val),
+      getPlayerPlaytimeStats(val),
     ]);
     setDbPlayer(p);
     setNpcsMetFb(npcCount);
     setActivity(act);
     setProgressLedger(ledger);
+    setPlaytime(pt);
     // Merge dédupliqué par hash (préférence DB pour le label riche)
     const map = new Map<string, TxRecord>();
     chainTxs.forEach(t => map.set(t.hash.toLowerCase(), t));
@@ -335,6 +339,12 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
               <StatRow label={t('game.stats.spells')}     value={`${dbPlayer.spells} / ${dbPlayer.spellsMax ?? 100}`}     color="text-indigo-400" />
               <StatRow label={t('game.stats.reputation')} value={String(dbPlayer.reputation)} color="text-amber-400" />
               <StatRow label={t('game.stats.wallet')}     value={String(dbPlayer.wallet)}     color="text-amber-400" />
+              {playtime && (
+                <>
+                  <StatRow label={`⏱️ ${t('admin.stats.playtimeTotal')}`} value={fmtDuration(playtime.totalMs)} color="text-teal-400" />
+                  <StatRow label={`⏱️ ${t('admin.stats.playtimeToday')}`} value={fmtDuration(playtime.todayMs)} color="text-teal-400" />
+                </>
+              )}
               {repRules && activity && (
                 <>
                   <StatRow
@@ -454,6 +464,22 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
       )}
     </section>
   );
+}
+
+/** Formate une durée en millisecondes en texte lisible ("2 j 3 h 12 min", "45 min", "12 s"). */
+function fmtDuration(ms: number): string {
+  if (!ms || ms <= 0) return '—';
+  const totalSec = Math.floor(ms / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days} j`);
+  if (hours > 0) parts.push(`${hours} h`);
+  if (days === 0 && mins > 0) parts.push(`${mins} min`);
+  if (days === 0 && hours === 0 && mins === 0) parts.push(`${secs} s`);
+  return parts.join(' ') || '—';
 }
 
 function StatRow({ label, value, color = 'text-slate-100' }: { label: string; value: string; color?: string }) {

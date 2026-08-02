@@ -41,6 +41,45 @@ function toLocalISODate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/**
+ * Sommaire vertical (table des matières) du menu Administration — une simple liste d'ancres
+ * `#admin-sec-xxx` vers chaque rubrique, dans l'ordre exact où elles apparaissent dans le rendu
+ * ci-dessous. Purement de la navigation (aucun état, aucune donnée) : ajouter/retirer une rubrique
+ * du panneau Administration nécessite de mettre à jour cette liste ET l'attribut `id` correspondant
+ * posé sur la section (ou son wrapper `<div id="...">` pour les composants `<XxxAdminPanel />`).
+ */
+const ADMIN_TOC_SECTIONS: { id: string; labelKey: string; icon?: string }[] = [
+  { id: 'admin-sec-revenue', labelKey: 'admin.revenue.title' },
+  { id: 'admin-sec-stats', labelKey: 'admin.stats.title' },
+  { id: 'admin-sec-chatHistory', labelKey: 'admin.chatHistory.title' },
+  { id: 'admin-sec-repRules', labelKey: 'admin.repRules.title', icon: '⭐' },
+  { id: 'admin-sec-topup', labelKey: 'admin.topup.title', icon: '💰' },
+  { id: 'admin-sec-familiars', labelKey: 'admin.familiars.title' },
+  { id: 'admin-sec-equipment', labelKey: 'admin.equipment.title', icon: '⚔️' },
+  { id: 'admin-sec-food', labelKey: 'admin.food.title', icon: '🍎' },
+  { id: 'admin-sec-potions', labelKey: 'admin.potions.title', icon: '🧪' },
+  { id: 'admin-sec-mapFilters', labelKey: 'admin.mapFilters.title', icon: '🔧' },
+  { id: 'admin-sec-mapNav', labelKey: 'admin.mapNav.title', icon: '🖱️' },
+  { id: 'admin-sec-chatScripts', labelKey: 'admin.chatScripts.title' },
+  { id: 'admin-sec-customWidgets', labelKey: 'admin.customWidgets.title' },
+  { id: 'admin-sec-contentPacks', labelKey: 'admin.contentPacks.title', icon: '🧩' },
+  { id: 'admin-sec-aiGameplay', labelKey: 'admin.aiGameplay.title', icon: '🤖' },
+  { id: 'admin-sec-item', labelKey: 'admin.item.title' },
+  { id: 'admin-sec-quest', labelKey: 'admin.quest.title' },
+  { id: 'admin-sec-npc', labelKey: 'admin.npc.title' },
+  { id: 'admin-sec-treasure', labelKey: 'admin.treasure.title' },
+  { id: 'admin-sec-world', labelKey: 'admin.world.title' },
+  { id: 'admin-sec-map', labelKey: 'admin.map.title', icon: '🗺️' },
+  { id: 'admin-sec-difficulty', labelKey: 'admin.difficulty.title' },
+  { id: 'admin-sec-weather', labelKey: 'admin.weather.title' },
+  { id: 'admin-sec-season', labelKey: 'admin.season.title' },
+  { id: 'admin-sec-moon', labelKey: 'admin.moon.title' },
+  { id: 'admin-sec-npcFreq', labelKey: 'admin.npcFreq.title' },
+  { id: 'admin-sec-price', labelKey: 'admin.price.title' },
+  { id: 'admin-sec-cooldowns', labelKey: 'admin.cooldowns.title' },
+  { id: 'admin-sec-contractActions', labelKey: 'admin.toc.contractActions' },
+];
+
 export default function AdminPage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -243,7 +282,7 @@ export default function AdminPage() {
   }, [curCooldown, cooldownIdx]);
 
   return (
-    <main className="min-h-screen p-6 max-w-4xl mx-auto">
+    <main className="min-h-screen p-6 max-w-7xl mx-auto">
       <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <Link href="/" className="text-2xl font-bold text-voxlyn-crystal">🐉 {t('app.title')}</Link>
         <div className="flex flex-wrap gap-3 items-center">
@@ -259,8 +298,45 @@ export default function AdminPage() {
       {!isOwner ? (
         <div className="card"><p>{t('admin.notOwner')}</p></div>
       ) : (
-        <div className="space-y-6">
-          <section className="card">
+        <>
+          <div className="lg:hidden mb-4">
+            <label className="text-xs text-slate-400 block mb-1">📑 {t('admin.toc.title')}</label>
+            <select
+              className="input w-full"
+              defaultValue=""
+              onChange={e => {
+                const id = e.target.value;
+                if (!id) return;
+                document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                e.target.value = '';
+              }}
+            >
+              <option value="">{t('admin.toc.jumpTo')}</option>
+              {ADMIN_TOC_SECTIONS.map(s => (
+                <option key={s.id} value={s.id}>{s.icon ? `${s.icon} ` : ''}{t(s.labelKey)}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="lg:flex lg:items-start lg:gap-6">
+            <nav className="hidden lg:block sticky top-6 shrink-0 w-64 max-h-[calc(100vh-3rem)] overflow-y-auto card !p-3">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-2 px-2">📑 {t('admin.toc.title')}</p>
+              <ul className="space-y-0.5 text-xs">
+                {ADMIN_TOC_SECTIONS.map(s => (
+                  <li key={s.id}>
+                    <a
+                      href={`#${s.id}`}
+                      className="block px-2 py-1.5 rounded hover:bg-slate-800 text-slate-300 hover:text-emerald-400 transition-colors"
+                    >
+                      {s.icon ? `${s.icon} ` : ''}{t(s.labelKey)}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+
+            <div className="flex-1 min-w-0 space-y-6">
+          <section id="admin-sec-revenue" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.revenue.title')}</h2>
             <div className="grid md:grid-cols-2 gap-4">
               <div className="bg-slate-800/60 rounded-lg p-4">
@@ -281,22 +357,22 @@ export default function AdminPage() {
             <p className="text-xs text-slate-500 mt-3">{t('admin.revenue.hint')}</p>
           </section>
 
-          {contract && <PlayerStats contract={contract} />}
-          {contract && <ChatHistory contract={contract} />}
-          <RepRulesPanel />
-          <TopupPresetsPanel />
-          <FamiliarsAdminPanel />
-          <EquipmentAdminPanel />
-          <FoodAdminPanel />
-          <PotionsSpellsAdminPanel />
-          <MapFiltersAdminPanel />
-          <MapNavigationAdminPanel />
-          <ChatScriptsAdminPanel />
-          <CustomWidgetsAdminPanel />
-          <ContentPacksAdminPanel />
-          <AiGameplayIntelligencePanel />
+          {contract && <div id="admin-sec-stats" className="scroll-mt-6"><PlayerStats contract={contract} /></div>}
+          {contract && <div id="admin-sec-chatHistory" className="scroll-mt-6"><ChatHistory contract={contract} /></div>}
+          <div id="admin-sec-repRules" className="scroll-mt-6"><RepRulesPanel /></div>
+          <div id="admin-sec-topup" className="scroll-mt-6"><TopupPresetsPanel /></div>
+          <div id="admin-sec-familiars" className="scroll-mt-6"><FamiliarsAdminPanel /></div>
+          <div id="admin-sec-equipment" className="scroll-mt-6"><EquipmentAdminPanel /></div>
+          <div id="admin-sec-food" className="scroll-mt-6"><FoodAdminPanel /></div>
+          <div id="admin-sec-potions" className="scroll-mt-6"><PotionsSpellsAdminPanel /></div>
+          <div id="admin-sec-mapFilters" className="scroll-mt-6"><MapFiltersAdminPanel /></div>
+          <div id="admin-sec-mapNav" className="scroll-mt-6"><MapNavigationAdminPanel /></div>
+          <div id="admin-sec-chatScripts" className="scroll-mt-6"><ChatScriptsAdminPanel /></div>
+          <div id="admin-sec-customWidgets" className="scroll-mt-6"><CustomWidgetsAdminPanel /></div>
+          <div id="admin-sec-contentPacks" className="scroll-mt-6"><ContentPacksAdminPanel /></div>
+          <div id="admin-sec-aiGameplay" className="scroll-mt-6"><AiGameplayIntelligencePanel /></div>
 
-          <section className="card">
+          <section id="admin-sec-item" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.item.title')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
               <input className="input" placeholder={t('admin.item.id')}    value={itemKey}   onChange={e => setItemKey(e.target.value)} />
@@ -311,7 +387,7 @@ export default function AdminPage() {
             >{t('admin.actions.add')}</button>
           </section>
 
-          <section className="card">
+          <section id="admin-sec-quest" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.quest.title')}</h2>
             <div className="grid md:grid-cols-4 gap-3 mb-3">
               <input className="input" placeholder={t('admin.quest.id')}            value={questKey}      onChange={e => setQuestKey(e.target.value)} />
@@ -395,7 +471,7 @@ export default function AdminPage() {
             })()}
           </section>
 
-          <section className="card">
+          <section id="admin-sec-npc" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.npc.title')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
               <input className="input" placeholder={t('admin.npc.id')}   value={npcKey}    onChange={e => setNpcKey(e.target.value)} />
@@ -436,7 +512,7 @@ export default function AdminPage() {
             )}
           </section>
 
-          <section className="card">
+          <section id="admin-sec-treasure" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.treasure.title')}</h2>
             <div className="grid md:grid-cols-4 gap-3 mb-3">
               <input className="input" placeholder={t('admin.treasure.id')}   value={trsKey}  onChange={e => setTrsKey(e.target.value)} />
@@ -472,7 +548,7 @@ export default function AdminPage() {
             )}
           </section>
 
-          <section className="card">
+          <section id="admin-sec-world" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.world.title')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
               <input className="input" placeholder={t('admin.world.id')}         value={wldKey}  onChange={e => setWldKey(e.target.value)} />
@@ -513,7 +589,7 @@ export default function AdminPage() {
             )}
           </section>
 
-          <section className="card">
+          <section id="admin-sec-map" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">🗺️ {t('admin.map.title')}</h2>
             <p className="text-xs text-slate-400 mb-3">{t('admin.map.hint')}</p>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
@@ -565,7 +641,7 @@ export default function AdminPage() {
             )}
           </section>
 
-          <section className="card">
+          <section id="admin-sec-difficulty" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.difficulty.title')}</h2>
             <div className="flex gap-3 items-center mb-3">
               <input type="range" min="0" max="100" value={difficulty}
@@ -580,7 +656,7 @@ export default function AdminPage() {
             <p className="text-xs text-slate-500">{t('admin.difficulty.hint')}</p>
           </section>
 
-          <section className="card">
+          <section id="admin-sec-weather" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.weather.title')}</h2>
             <p className="text-xs text-slate-400 mb-3">{t('admin.weather.hint')}</p>
             <div className="flex gap-3 items-center mb-2">
@@ -600,7 +676,7 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <section className="card">
+          <section id="admin-sec-season" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.season.title')}</h2>
             <p className="text-xs text-slate-400 mb-3">{t('admin.season.hint')}</p>
             <p className="text-sm mb-3">
@@ -622,7 +698,7 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <section className="card">
+          <section id="admin-sec-moon" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.moon.title')}</h2>
             <p className="text-xs text-slate-400 mb-3">{t('admin.moon.hint')}</p>
             <p className="text-sm mb-1">
@@ -675,7 +751,7 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <section className="card">
+          <section id="admin-sec-npcFreq" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.npcFreq.title')}</h2>
             <p className="text-xs text-slate-400 mb-3">{t('admin.npcFreq.hint')}</p>
             <div className="flex gap-3 items-center">
@@ -703,7 +779,7 @@ export default function AdminPage() {
             {npcMaxSaved && <p className="text-xs text-emerald-400 mt-2">{t('admin.actions.saved')}</p>}
           </section>
 
-          <section className="card">
+          <section id="admin-sec-price" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.price.title')}</h2>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
               <select className="input" value={feedIdx} onChange={e => setFeedIdx(Number(e.target.value))}>
@@ -719,7 +795,7 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <section className="card">
+          <section id="admin-sec-cooldowns" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.cooldowns.title')}</h2>
             <p className="text-sm text-slate-400 mb-3">{t('admin.cooldowns.hint')}</p>
             <div className="grid md:grid-cols-3 gap-3 mb-3">
@@ -736,7 +812,7 @@ export default function AdminPage() {
             </div>
           </section>
 
-          <section className="card flex flex-wrap gap-3">
+          <section id="admin-sec-contractActions" className="card flex flex-wrap gap-3 scroll-mt-6">
             <Link href="/game" className="btn-primary">{t('admin.backToGame')}</Link>
             <button className="btn-secondary" onClick={() => writeContract({
               address: contract, abi: HORIZON_ABI, functionName: 'withdraw', args: [],
@@ -748,7 +824,9 @@ export default function AdminPage() {
               address: contract, abi: HORIZON_ABI, functionName: 'unpause', args: [],
             })}>{t('admin.actions.unpause')}</button>
           </section>
-        </div>
+            </div>
+          </div>
+        </>
       )}
 
       <style jsx>{`

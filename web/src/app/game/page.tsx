@@ -44,7 +44,7 @@ import { ProgressWidget } from '@/components/ProgressWidget';
 import { useI18n } from '@/lib/i18n';
 import {
   getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, getPlayerActivityStats,
-  computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex,
+  computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex, trackPlaytimeHeartbeat,
   type PlayerState, type RepRules, type PlayerActivityStats, type Season,
 } from '@/lib/gameState';
 
@@ -240,6 +240,34 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     if (!address) return;
     getPlayerActivityStats(address).then(setActivity).catch(() => {});
   }, [address]);
+
+  // Temps de jeu (voir RepRules.playtimeTrackingEnabled/playtimeHeartbeatSec, trackPlaytimeHeartbeat
+  // et rubrique "Statistiques par joueur" du menu Administration) : "battement" régulier tant que la
+  // page reste ouverte ET l'onglet visible (`document.visibilityState`), afin de ne PAS compter le
+  // temps passé sur un autre onglet/une autre fenêtre. Le temps masqué n'est jamais rattrapé au
+  // retour (pas de delta artificiel) — seul le temps réellement passé "au premier plan" est cumulé.
+  useEffect(() => {
+    if (!address || repRules?.playtimeTrackingEnabled === false) return;
+    let lastTickAt = Date.now();
+    const heartbeatMs = Math.max(5, repRules?.playtimeHeartbeatSec ?? 30) * 1000;
+    const tick = () => {
+      const now = Date.now();
+      if (document.visibilityState === 'visible') {
+        const delta = now - lastTickAt;
+        if (delta > 0) trackPlaytimeHeartbeat(address, delta).catch(() => {});
+      }
+      lastTickAt = now;
+    };
+    const id = setInterval(tick, heartbeatMs);
+    // Compte aussi le temps écoulé juste avant que l'onglet ne soit masqué/l'utilisateur ne quitte
+    // la page, sans attendre le prochain intervalle complet.
+    const onVisibilityChange = () => { if (document.visibilityState === 'hidden') tick(); };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [address, repRules?.playtimeTrackingEnabled, repRules?.playtimeHeartbeatSec]);
 
   // Météo courante (même source que le WeatherWidget de l'en-tête)
   const { data: weatherRaw } = useReadContract({

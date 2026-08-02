@@ -3090,6 +3090,11 @@ export interface RepRules {
   // ─── Widget "État d'avancement / inventaire" (voir ProgressWidget.tsx, ProgressLedgerView.tsx et
   // getPlayerProgressLedger() ci-dessous) — voir demande utilisateur.
   progressWidgetEnabled: boolean; // Affiche le widget flottant "État d'avancement / inventaire" (défaut true)
+  // ─── Temps de jeu par joueur (voir trackPlaytimeHeartbeat/getPlayerPlaytimeStats ci-dessous et
+  // rubrique "Statistiques par joueur" du menu Administration) — statistique de jeu de base,
+  // TOUJOURS active (indépendante de l'interrupteur optionnel `AiAnalyticsSettings.enabled`).
+  playtimeTrackingEnabled: boolean; // Active le suivi du temps de jeu total/quotidien (défaut true)
+  playtimeHeartbeatSec: number;     // Fréquence d'envoi du "battement" de temps de jeu, en secondes (défaut 30)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -3222,6 +3227,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   onboardingEnabled: true,
   helpWidgetEnabled: true,
   progressWidgetEnabled: true,
+  playtimeTrackingEnabled: true,
+  playtimeHeartbeatSec: 30,
 }
 
 export async function getRepRules(): Promise<RepRules> {
@@ -4033,6 +4040,56 @@ export async function markPlayerActiveToday(address: string): Promise<void> {
   runTransaction(ref(db, `catalog/analytics/dauGlobal/${day}`), (cur) => (cur ?? 0) + 1).catch(() => {});
 }
 
+// ─────────────────────────────────────── Temps de jeu par joueur ───────────────────────────────────────
+
+export interface PlaytimeStats {
+  totalMs: number;   // temps de jeu cumulé depuis la toute première session (jamais réinitialisé)
+  todayMs: number;   // temps de jeu de la journée calendaire courante (UTC, réinitialisé chaque jour)
+}
+
+/**
+ * Enregistre un "battement" de temps de jeu écoulé (appelé à intervalle régulier — voir
+ * `RepRules.playtimeHeartbeatSec` — tant que la page /game reste ouverte ET l'onglet visible ;
+ * voir `VoxlynDashboard` dans `game/page.tsx`, seul point d'appel). Incrémente en une seule
+ * transaction O(1) le compteur cumulé ET celui du jour courant (clé `analyticsDayKey()`, identique
+ * au format déjà utilisé par `markPlayerActiveToday`/DAU pour rester cohérent dans toute la base).
+ * Statistique de jeu DE BASE (temps de vie du compagnon, comme la faim ou l'XP) — volontairement
+ * PAS soumise à l'interrupteur optionnel `AiAnalyticsSettings.enabled` (celui-ci ne gouverne que le
+ * module d'analyse comportementale « Intelligence IA GamePlay »), seulement à son propre
+ * interrupteur dédié `RepRules.playtimeTrackingEnabled`.
+ */
+export async function trackPlaytimeHeartbeat(address: string, deltaMs: number): Promise<void> {
+  if (deltaMs <= 0) return;
+  const rules = await getRepRules().catch(() => DEFAULT_REP_RULES);
+  if (rules.playtimeTrackingEnabled === false) return;
+  const db = getFirebaseDb();
+  if (!db) return;
+  const k = KEY(address);
+  const day = analyticsDayKey();
+  await ensureAnonSignIn();
+  await Promise.all([
+    runTransaction(ref(db, `players/${k}/playtime/totalMs`), (cur) => (cur ?? 0) + deltaMs).catch(() => {}),
+    runTransaction(ref(db, `players/${k}/playtime/daily/${day}`), (cur) => (cur ?? 0) + deltaMs).catch(() => {}),
+  ]);
+}
+
+/** Lit le temps de jeu cumulé + celui de la journée courante d'un joueur — utilisé par la rubrique
+ * "Statistiques par joueur" du menu Administration (voir PlayerStats.tsx). */
+export async function getPlayerPlaytimeStats(address: string): Promise<PlaytimeStats> {
+  const db = getFirebaseDb();
+  if (!db) return { totalMs: 0, todayMs: 0 };
+  const k = KEY(address);
+  const day = analyticsDayKey();
+  const [totalSnap, todaySnap] = await Promise.all([
+    get(ref(db, `players/${k}/playtime/totalMs`)),
+    get(ref(db, `players/${k}/playtime/daily/${day}`)),
+  ]);
+  return {
+    totalMs: (totalSnap.val() as number | null) ?? 0,
+    todayMs: (todaySnap.val() as number | null) ?? 0,
+  };
+}
+
 /** Série temporelle du nombre de joueurs actifs par jour (30 derniers jours par défaut) — une
  * seule lecture Firebase (pas d'itération des joueurs). */
 export async function getDauSeries(days = 30): Promise<{ day: string; count: number }[]> {
@@ -4400,7 +4457,7 @@ export async function getPlayerFaintEventsDetail(address: string, limitN = 100):
 
 // ─────────────────────────────────────── Cache des insights IA ───────────────────────────────────────
 
-export interface AiInsightsCache { text: string; generatedAt: number; model: string }
+export interface AiInsightsCache { text: string; generatedAt: number; model: string; provider?: 'gemini' | 'groq' }
 
 export async function getAiInsightsCache(): Promise<AiInsightsCache | null> {
   const db = getFirebaseDb();
