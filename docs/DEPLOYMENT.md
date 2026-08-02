@@ -51,6 +51,36 @@ npm install
 
 Créer un projet Vercel, importer le dossier `web/`, et configurer **toutes** les variables d'environnement ci-dessous.
 
+### 2bis. Peupler le contenu de jeu (Firebase, une seule fois par projet Firebase)
+
+La quasi-totalité du contenu de jeu (quêtes, PNJ, familiers, équipement…) vit dans Firebase RTDB
+(voir `docs/FIREBASE_CHAT.md`) et doit être injectée via les scripts de `web/scripts/` après avoir
+renseigné `web/.env.local` (clés Firebase — voir `FIREBASE_CHAT.md` § 2) :
+
+```bash
+cd web
+node scripts/migrateQuestsToFirebase.mjs            # quêtes classiques historiques
+node scripts/migrateNpcsTreasuresWorldsToFirebase.mjs # PNJ, trésors, mondes historiques
+node scripts/seedRiddleAnswers.mjs                    # réponses d'énigmes (hash keccak256)
+node scripts/seedNpcRiddleQuests.mjs                  # 20 quêtes PNJ (intermédiaires)
+node scripts/seedIslandGeography.mjs                  # géographie des îles/archipel
+node scripts/seedIslandQuests.mjs                     # 50 quêtes archipel / îles sauvages
+node scripts/seedKingdomQuests.mjs                    # 400 Quêtes du Royaume (40 chapitres, Zorghon)
+node scripts/seedConvergenceFragments.mjs             # 5 Fragments du Sceau Runique
+node scripts/seedEquipmentCatalog.mjs                 # catalogue armes & protections (120+ articles)
+node scripts/migrateFamiliarsToFirebase.mjs           # catalogue Familiers (Dragon d'Or…)
+node scripts/seedMapToFirebase.mjs                    # carte + points d'intérêt
+node scripts/seedMoreMapPois.mjs                      # POI additionnels
+node scripts/seedInvisibilityQuest.mjs                # quête spéciale sortilège d'invisibilité
+node scripts/tagSeasonalRiddleQuests.mjs              # tag saisonnier sur certaines énigmes
+node scripts/backfillLegacyQuests.mjs                 # rattrapage joueurs existants (si migration tardive)
+```
+
+> Chaque script est idempotent (upsert par id) — relancer un script déjà exécuté ne duplique rien.
+> L'ordre ci-dessus respecte les dépendances (ex : les quêtes archipel référencent la géographie des
+> îles déjà seedée). Tout nouveau contenu ajouté ensuite peut se faire **directement depuis
+> `/admin`**, sans script.
+
 ### Variables d'environnement Vercel (liste complète — Production + Preview + Development)
 
 | Variable                                    | Requise | Exemple / Source                                                                   |

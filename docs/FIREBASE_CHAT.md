@@ -16,26 +16,46 @@ par le code, les règles Firebase RTDB DOIVENT être mises à jour.**
 - Vérifier ensuite qu'un `accept()` de popup NPC ou un envoi de chat ne remonte pas d'erreur
   `PERMISSION_DENIED` dans la console browser.
 
-Chemins RTDB utilisés par l'application (à jour au 2026-07) :
+Chemins RTDB utilisés par l'application (à jour au 2026-08) :
 
 | Chemin RTDB                             | Écrit par                                     | Lu par                                  |
 | --------------------------------------- | --------------------------------------------- | --------------------------------------- |
 | `chats/{contract}_{teamId}/{msgId}`     | `TeamsPanel` (envoi message)                  | `TeamsPanel`, `ChatHistoryPanel`        |
 | `chatIndex/{contract}/{roomKey}`        | `TeamsPanel` (à chaque message)               | `ChatHistoryPanel` (dropdown salons)    |
-| `players/{addr}`                        | `applyEffect`, `getOrCreatePlayer`, `topupWallet` | `PlayerStats`, `Scoreboard`, popups |
-| `players/{addr}/inventory/{itemId}`     | `addToInventory`, `removeFromInventory`       | `Inventory`, popup vol PNJ hostile      |
+| `players/{addr}`                        | `applyEffect`, `getOrCreatePlayer`, `topupWallet`, `updatePlayer` | `PlayerStats`, `Scoreboard`, popups, tous les widgets de stats |
+| `players/{addr}/inventory/{itemId}`     | `addToInventory`, `removeFromInventory`       | `InventoryWidget`, `InventoryPanel`, popup vol PNJ hostile |
+| `players/{addr}/equipment/{slot}`       | `equipItem`, `unequipSlot`                    | `EquipmentWidget` (durabilité conservée au ré-équipement) |
+| `players/{addr}/equipmentGraveyard/{ts}` | `applyEquipmentWear` (objet cassé à 0% usure) | `getEquipmentGraveyard` → `ProgressWidget` (thème « Cimetière des équipements ») |
 | `players/{addr}/itemsEverOwned/{itemId}` | `addToInventory` (marqueur permanent, jamais supprimé) | `getPlayerProgressLedger` → `ProgressWidget`, admin `PlayerStats` (« État d'avancement / inventaire ») |
+| `players/{addr}/familiars/{id}`         | `tameFamiliar`                                | `FamiliarsList` (statut apprivoisé), `ProgressWidget` |
+| `players/{addr}/npcsMet/{id}`           | `markNpcMet`                                  | `ProgressWidget` (thème « PNJ rencontrés ») |
+| `players/{addr}/treasuresFound/{id}`    | `markTreasureFound`                           | `ProgressWidget` (thème trésors)        |
+| `players/{addr}/worldsUnlocked/{id}`    | `unlockWorldForPlayer`                        | `ProgressWidget` (thème mondes), `WorldMapWidget` |
+| `players/{addr}/unlockedQuests/{id}`    | `unlockQuestForPlayer`                        | `KingdomQuestsWidget`, `QuestList`      |
+| `players/{addr}/mapPos`                 | `setPlayerMapPos`                             | `subscribePlayerMapPos` (sync `WorldMapWidget` ↔ `GameCanvas2D`) |
+| `players/{addr}/mapPoisVisited/{id}`    | `visitMapPoi`                                 | `WorldMapWidget`, `PoiInteractionModal` |
+| `players/{addr}/zorghonEncounter`       | logique de déplacement aléatoire Zorghon      | `GameCanvas2D`, `WorldMapWidget` (position PocaPoka/El Pipo) |
+| `players/{addr}/dailyLuck/{day}`        | jet de destin quotidien                       | `DiceRollWidget`                        |
 | `players/{addr}/encounters/{ts}`        | `logEncounter` (popup NPC)                    | `EncountersPanel`, admin PlayerStats    |
 | `players/{addr}/quests/{questId}`       | `markQuestSolved`, `submitQuestAnswerOffchain`, `web/scripts/backfillLegacyQuests.mjs` | `QuestList` (statut résolu + réponse) |
-| `players/{addr}/txs/{ts}`               | `logTx` (mint, feed, buy, quest)              | admin PlayerStats + facture PDF         |
+| `players/{addr}/txs/{ts}`               | `logTx` (mint, feed, buy, quest, topup)        | admin PlayerStats + facture PDF         |
 | `playerIndex/{addr}`                    | `getOrCreatePlayer`                           | admin `listPlayers`, Scoreboard         |
-| `catalog/repRules`                      | admin `ReputationRulesPanel`                  | popup NPC (calcul reputation)           |
-| `catalog/topupPresets`                  | admin `TopupPresetsPanel`                     | `WalletTopupPopup` (choix montants)     |
-| `catalog/shopItems` *(WIP)*             | admin `ShopPanel`                             | `Shop` (achats)                         |
-| `catalog/riddleAnswers/{questId}`       | `web/scripts/seedRiddleAnswers.mjs`, `web/scripts/backfillLegacyQuests.mjs` | scripts de migration (repli réponse legacy) |
-| `catalog/quests/{questId}`              | admin (panneau « Ajouter une quête »), `web/scripts/migrateQuestsToFirebase.mjs` | `QuestList` (catalogue complet, 100% hors-chaîne) |
+| `catalog/repRules`                      | admin `RepRulesPanel` (~20 sous-sections : combat, humeur, équipement, huttes, sommeil, oxygène, fatigue, altitude, profondeur, îles, pop-up profondeur/altitude, Royaume, Zorghon, onboarding, widget « État d'avancement »…) | tous les widgets/mécaniques de jeu (calcul en direct) |
+| `catalog/topupPresets`                  | admin `TopupPresetsPanel`                     | `WalletPanel`/`WalletTopupPopup` (choix montants) |
+| `catalog/shopItems`                     | admin `ShopPanel`                             | `Shop` (achats)                         |
 | `catalog/familiars/{id}`                | admin `FamiliarsAdminPanel`, `web/scripts/migrateFamiliarsToFirebase.mjs` | `FamiliarsList` (catalogue, 100% hors-chaîne) |
-| `players/{addr}/familiars/{id}`         | `tameFamiliar`                                | `FamiliarsList` (statut apprivoisé)     |
+| `catalog/equipment/{id}`                | admin `EquipmentAdminPanel`, `web/scripts/seedEquipmentCatalog.mjs` | `Shop`, `EquipmentWidget` (armes/protections/habits/gants/bottes…) |
+| `catalog/food/{id}`                     | admin `FoodAdminPanel`                        | `Shop`, nourrissage de Synk             |
+| `catalog/potionsSpells/{id}`            | admin `PotionsSpellsAdminPanel`               | `Shop` (potions, super-fioles, sortilèges) |
+| `catalog/mapFilterDefaults`             | admin `MapFiltersAdminPanel`                  | `WorldMapWidget`, `GameCanvas2D` (filtres par défaut au 1er chargement) |
+| `catalog/mapNavigationSettings`         | admin `MapNavigationAdminPanel`               | `WorldMapWidget` (zoom min/max/pas, pan clic droit) |
+| `catalog/chatScripts/{id}`              | admin `ChatScriptsAdminPanel`                 | `NpcEncounterPopup` (dialogues PNJ à réactions) |
+| `catalog/customWidgets/{id}`            | admin `CustomWidgetsAdminPanel`                | `CustomWidgetsRenderer` (widgets flottants dynamiques) |
+| `catalog/contentPacks/{id}`             | admin `ContentPacksAdminPanel`                | `isContentPackVisible()` (visibilité DLC/saisons narratives) |
+| `catalog/seasonState`                   | admin rubrique « Saisons » (`getSeasonState`/`setSeasonState`) | calcul saison auto (calendrier réel) ou forcée, météo, humeur |
+| `catalog/moonState`                     | admin rubrique « Pleine lune » (override par mois) | `isFullMoonOnDate`, `nextFullMoonDateFromState`, quêtes `fullMoonOnly` |
+| `catalog/riddleAnswers/{questId}`       | `web/scripts/seedRiddleAnswers.mjs`, `web/scripts/backfillLegacyQuests.mjs` | scripts de migration (repli réponse legacy) |
+| `catalog/quests/{questId}`              | admin (panneau « Ajouter une quête »), `migrateQuestsToFirebase.mjs`, `seedKingdomQuests.mjs` (400 quêtes), `seedIslandQuests.mjs` (archipel/îles sauvages), `seedNpcRiddleQuests.mjs` (PNJ) | `QuestList`, `KingdomQuestsWidget` (catalogue complet, 100% hors-chaîne) |
 
 ## 1. Créer le projet Firebase (gratuit)
 
@@ -119,6 +139,14 @@ Clique **Publier**.
 > ⚠️ Le noeud `chatIndex` est **indispensable** pour que le menu Admin → « Historique des chats » puisse
 > lister les salons. Sans lui la dropdown reste vide car Firebase RTDB n'autorise pas la lecture d'un
 > parent (`/chats`) quand seuls les enfants ont `.read`.
+
+> ℹ️ **Tous les nouveaux chemins ajoutés depuis 2026-07** (équipement, cimetière des équipements,
+> familiers, quêtes archipel/îles/Royaume, DLC, saisons/météo/lune, filtres carte, scripts de
+> dialogue PNJ, widgets personnalisés…) sont déjà couverts par les règles génériques
+> `players/$addr` et `catalog` ci-dessus, car ce sont tous de simples sous-chemins de ces deux
+> arbres. **Aucune republication des règles n'est nécessaire pour ces fonctionnalités** — seul un
+> nouveau chemin racine (hors `chats`/`chatIndex`/`players`/`playerIndex`/`catalog`) demanderait une
+> mise à jour du JSON ci-dessus.
 
 ### Ce que ces règles verrouillent
 
