@@ -7,8 +7,11 @@ import {
   getMapHeatmap, getFaintHeatmap, getFaintCauseBreakdown, getMonetizationOverview,
   getNpcEncounterOverview, getPlayerAnalyticsSummary, listPlayers,
   getAiInsightsCache, setAiInsightsCache, DEFAULT_MAP_ID,
+  getPlayerAnalyticsOverride, setPlayerAnalyticsOverride,
+  getPlayerWidgetUsageDetail, getPlayerQuestFunnelDetail, getPlayerFaintEventsDetail,
   type AiAnalyticsSettings, type WidgetUsageAgg, type QuestFunnelSummary, type HeatCell,
   type MonetizationOverview, type PlayerAnalyticsSummary, type AiInsightsCache,
+  type PlayerAnalyticsOverride, type PlayerQuestFunnelEntry, type FaintEventRecord,
 } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 
@@ -80,13 +83,67 @@ export function AiGameplayIntelligencePanel() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  // ─── Suivi ciblé par joueur (opt-in/opt-out individuel + focus d'analyse) ───
+  const [focusAddress, setFocusAddress] = useState('');
+  const [focusOverride, setFocusOverride] = useState<PlayerAnalyticsOverride>('default');
+  const [focusOverrideLoading, setFocusOverrideLoading] = useState(false);
+  const [focusOverrideFeedback, setFocusOverrideFeedback] = useState<string | null>(null);
+  const [focusSummary, setFocusSummary] = useState<PlayerAnalyticsSummary | null>(null);
+  const [focusWidgets, setFocusWidgets] = useState<Record<string, WidgetUsageAgg>>({});
+  const [focusQuests, setFocusQuests] = useState<PlayerQuestFunnelEntry[]>([]);
+  const [focusFaints, setFocusFaints] = useState<FaintEventRecord[]>([]);
+  const [focusLoading, setFocusLoading] = useState(false);
+  const [focusLoaded, setFocusLoaded] = useState(false);
+  const [allAddresses, setAllAddresses] = useState<string[]>([]);
+
   useEffect(() => { getAiAnalyticsSettings().then(setSettings).catch(() => {}); }, []);
   useEffect(() => { getAiInsightsCache().then(setInsights).catch(() => {}); }, []);
+
+  const analyzeFocusPlayer = async () => {
+    const addr = focusAddress.trim();
+    if (!addr) return;
+    setFocusLoading(true);
+    setFocusOverrideFeedback(null);
+    try {
+      const [override, summary, widgets, quests, faints] = await Promise.all([
+        getPlayerAnalyticsOverride(addr),
+        getPlayerAnalyticsSummary(addr),
+        getPlayerWidgetUsageDetail(addr),
+        getPlayerQuestFunnelDetail(addr, 30),
+        getPlayerFaintEventsDetail(addr, 30),
+      ]);
+      setFocusOverride(override);
+      setFocusSummary(summary);
+      setFocusWidgets(widgets);
+      setFocusQuests(quests);
+      setFocusFaints(faints);
+      setFocusLoaded(true);
+    } finally {
+      setFocusLoading(false);
+    }
+  };
+
+  const applyFocusOverride = async (value: PlayerAnalyticsOverride) => {
+    const addr = focusAddress.trim();
+    if (!addr) return;
+    setFocusOverrideLoading(true);
+    try {
+      await setPlayerAnalyticsOverride(addr, value);
+      setFocusOverride(value);
+      setFocusOverrideFeedback('✅ ' + t('common.success'));
+    } catch (e: any) {
+      setFocusOverrideFeedback('❌ ' + (e?.message ?? 'error'));
+    } finally {
+      setFocusOverrideLoading(false);
+      setTimeout(() => setFocusOverrideFeedback(null), 2500);
+    }
+  };
 
   const loadSnapshot = async () => {
     setLoading(true);
     try {
       const players = await listPlayers().catch(() => []);
+      setAllAddresses(players);
       const [
         dau, retention7, retention30, widgetUsage, questFunnel, mapHeatmap, faintHeatmap,
         faintCause, monetization, npcOverview,
@@ -230,6 +287,120 @@ export function AiGameplayIntelligencePanel() {
                 ))}
               </div>
             </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection title={`🎯 ${t('admin.aiGameplay.playerFocus.title')}`}>
+            <p className="text-xs text-slate-500 mb-2">{t('admin.aiGameplay.playerFocus.hint')}</p>
+            <div className="flex flex-wrap items-end gap-2 mb-3">
+              <label className="text-xs flex flex-col gap-1 flex-1 min-w-[220px]">
+                {t('admin.aiGameplay.playerFocus.addressLabel')}
+                <input
+                  className="input"
+                  list="ai-gameplay-focus-players"
+                  placeholder={t('admin.aiGameplay.playerFocus.addressPlaceholder')}
+                  value={focusAddress}
+                  onChange={e => { setFocusAddress(e.target.value); setFocusLoaded(false); }}
+                />
+                <datalist id="ai-gameplay-focus-players">
+                  {allAddresses.map(a => <option key={a} value={a} />)}
+                </datalist>
+              </label>
+              <button className="btn-primary text-xs" disabled={!focusAddress.trim() || focusLoading} onClick={analyzeFocusPlayer}>
+                {focusLoading ? '⏳' : '🔍'} {t('admin.aiGameplay.playerFocus.analyze')}
+              </button>
+            </div>
+
+            {focusLoaded && (
+              <>
+                <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+                  <span className="text-slate-400">{t('admin.aiGameplay.playerFocus.status')} :</span>
+                  <span className={`px-2 py-0.5 rounded-full font-semibold ${
+                    focusOverride === 'enabled' ? 'bg-emerald-600/30 text-emerald-300' :
+                    focusOverride === 'disabled' ? 'bg-rose-600/30 text-rose-300' :
+                    'bg-slate-700 text-slate-300'
+                  }`}>
+                    {focusOverride === 'enabled' ? t('admin.aiGameplay.playerFocus.statusEnabled')
+                      : focusOverride === 'disabled' ? t('admin.aiGameplay.playerFocus.statusDisabled')
+                      : t('admin.aiGameplay.playerFocus.statusDefault')}
+                  </span>
+                  <button className="btn-secondary text-xs" disabled={focusOverrideLoading} onClick={() => applyFocusOverride('enabled')}>
+                    ✅ {t('admin.aiGameplay.playerFocus.forceEnable')}
+                  </button>
+                  <button className="btn-secondary text-xs" disabled={focusOverrideLoading} onClick={() => applyFocusOverride('disabled')}>
+                    🚫 {t('admin.aiGameplay.playerFocus.forceDisable')}
+                  </button>
+                  <button className="btn-secondary text-xs" disabled={focusOverrideLoading} onClick={() => applyFocusOverride('default')}>
+                    ↩️ {t('admin.aiGameplay.playerFocus.reset')}
+                  </button>
+                  {focusOverrideFeedback && <span>{focusOverrideFeedback}</span>}
+                </div>
+
+                {focusSummary && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-xs">
+                    <div className="bg-slate-800/60 rounded-lg p-2">
+                      <p className="text-slate-400">{t('admin.aiGameplay.playerFocus.churnScore')}</p>
+                      <p className="text-lg font-bold">{focusSummary.churnScore}</p>
+                    </div>
+                    <div className="bg-slate-800/60 rounded-lg p-2">
+                      <p className="text-slate-400">{t('admin.aiGameplay.playerFocus.daysActive30')}</p>
+                      <p className="text-lg font-bold">{focusSummary.daysActiveLast30}</p>
+                    </div>
+                    <div className="bg-slate-800/60 rounded-lg p-2">
+                      <p className="text-slate-400">{t('admin.aiGameplay.playerFocus.lastSeen')}</p>
+                      <p className="text-sm font-semibold">{focusSummary.lastSeenAt ? new Date(focusSummary.lastSeenAt).toLocaleString() : '—'}</p>
+                    </div>
+                    <div className="bg-slate-800/60 rounded-lg p-2">
+                      <p className="text-slate-400">{t('admin.aiGameplay.playerFocus.totalWidgetTime')}</p>
+                      <p className="text-lg font-bold">{fmtMs(focusSummary.totalWidgetTimeMs)}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-slate-400 mb-1">{t('admin.aiGameplay.playerFocus.widgetTimes')}</p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {Object.entries(focusWidgets).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([id, v]) => (
+                        <div key={id} className="flex items-center gap-2 text-[11px]">
+                          <span className="w-32 truncate text-slate-300" title={id}>{id}</span>
+                          <span className="text-slate-400">{fmtMs(v.totalMs)} · {v.opens}×</span>
+                        </div>
+                      ))}
+                      {Object.keys(focusWidgets).length === 0 && <p className="text-xs text-slate-500 italic">{t('admin.aiGameplay.empty')}</p>}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400 mb-1">{t('admin.aiGameplay.playerFocus.questEvents')}</p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {focusQuests.map((q, i) => (
+                        <div key={i} className="flex items-center gap-2 text-[11px]">
+                          <span className={q.event === 'solved' ? 'text-emerald-400' : q.event === 'fail' ? 'text-rose-400' : 'text-amber-400'}>
+                            {q.event === 'solved' ? '✅' : q.event === 'fail' ? '❌' : '🔒'}
+                          </span>
+                          <span className="w-24 truncate text-slate-300" title={q.questId}>{q.questId}</span>
+                          <span className="text-slate-500">{q.category} · {new Date(q.timestamp).toLocaleDateString()}</span>
+                        </div>
+                      ))}
+                      {focusQuests.length === 0 && <p className="text-xs text-slate-500 italic">{t('admin.aiGameplay.empty')}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-2">
+                  <p className="text-xs text-slate-400 mb-1">{t('admin.aiGameplay.playerFocus.faintEvents')}</p>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {focusFaints.map((f, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[11px]">
+                        <span>{f.cause === 'oxygen' ? '💧' : '😮‍💨'}</span>
+                        <span className="text-slate-300">{f.mapId} ({f.x}, {f.y})</span>
+                        <span className="text-slate-500">{new Date(f.timestamp).toLocaleString()}</span>
+                      </div>
+                    ))}
+                    {focusFaints.length === 0 && <p className="text-xs text-slate-500 italic">{t('admin.aiGameplay.empty')}</p>}
+                  </div>
+                </div>
+              </>
+            )}
           </CollapsibleSection>
 
           <CollapsibleSection title={`🪟 ${t('admin.aiGameplay.widgets.title')}`}>

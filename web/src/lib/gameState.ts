@@ -40,6 +40,8 @@
  *   catalog/analytics/mapHeatmapGlobal/{map}   → densité de fréquentation de la carte, en mailles (voir trackMapHeatmap)
  *   catalog/analytics/faintHeatmapGlobal/{map} → densité des évanouissements sur la carte (voir trackFaintEvent)
  *   catalog/analytics/faintCauseGlobal         → répartition oxygène/fatigue des évanouissements
+ *   players/{addr}/analytics/trackingOverride  → 'enabled'|'disabled' (opt-in/opt-out ciblé pour CE joueur, prime sur
+ *                                                  aiAnalyticsSettings.enabled — voir getPlayerAnalyticsOverride/setPlayerAnalyticsOverride)
  *   players/{addr}/analytics/dailyActive/{jour} → présence du joueur ce jour (rétention/DAU)
  *   players/{addr}/analytics/lastSeenAt         → horodatage de dernière activité (score de décrochage)
  *   players/{addr}/analytics/widgetUsage/{id}   → WidgetUsageAgg par joueur (temps passé par widget)
@@ -2325,7 +2327,7 @@ export async function setPlayerMapPos(address: string, mapId: string, x: number,
   });
   // Intelligence IA GamePlay — heatmap de fréquentation de la carte (Mapmonde + Plateforme 2D
   // isométrique partagent ce seul point d'écriture) : fire-and-forget, jamais bloquant.
-  trackMapHeatmap(mapId, cx, cy).catch(() => {});
+  trackMapHeatmap(address, mapId, cx, cy).catch(() => {});
 }
 
 /** Écoute temps réel de la position de Synk sur la mapmonde (voir setPlayerMapPos) — permet de
@@ -3949,6 +3951,60 @@ function analyticsDayKey(d = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
+// ─────────────────────────────── Suivi ciblé par joueur (opt-in/opt-out individuel) ───────────────────────────────
+//
+// Permet à l'admin d'activer ou désactiver l'analyse fine pour UN joueur en particulier — sans
+// changer le comportement des autres joueurs (aucune régression) : par défaut ('default'), chaque
+// joueur suit simplement l'interrupteur global `AiAnalyticsSettings.enabled`, exactement comme
+// avant l'introduction de cette fonctionnalité. Deux cas d'usage :
+//   - 'disabled' : opt-out pour ce joueur précis (ex. demande de confidentialité), même si le
+//     suivi global est actif — ses évènements ne sont écrits ni côté joueur, ni dans les agrégats
+//     globaux.
+//   - 'enabled'  : force le suivi pour ce joueur précis même si le suivi global est désactivé —
+//     permet d'étudier un joueur ciblé « pas forcément tous les joueurs ».
+
+export type PlayerAnalyticsOverride = 'default' | 'enabled' | 'disabled';
+
+export async function getPlayerAnalyticsOverride(address: string): Promise<PlayerAnalyticsOverride> {
+  const db = getFirebaseDb();
+  if (!db) return 'default';
+  const snap = await get(ref(db, `players/${KEY(address)}/analytics/trackingOverride`));
+  const v = snap.val();
+  return v === 'enabled' || v === 'disabled' ? v : 'default';
+}
+
+export async function setPlayerAnalyticsOverride(address: string, value: PlayerAnalyticsOverride): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const k = KEY(address);
+  await set(ref(db, `players/${k}/analytics/trackingOverride`), value === 'default' ? null : value);
+  _playerOverrideCache.delete(k);
+}
+
+// Cache 30s par joueur (même logique que `_aiSettingsCache`) : les fonctions track*/mark* peuvent
+// être appelées très fréquemment (déplacement, ouverture de widget) et ne doivent jamais ajouter
+// de latence perceptible au gameplay.
+const _playerOverrideCache = new Map<string, { value: PlayerAnalyticsOverride; at: number }>();
+async function getCachedPlayerAnalyticsOverride(address: string): Promise<PlayerAnalyticsOverride> {
+  const k = KEY(address);
+  const now = Date.now();
+  const cached = _playerOverrideCache.get(k);
+  if (cached && now - cached.at < 30000) return cached.value;
+  const value = await getPlayerAnalyticsOverride(k).catch(() => 'default' as PlayerAnalyticsOverride);
+  _playerOverrideCache.set(k, { value, at: now });
+  return value;
+}
+
+/** Résout si le suivi doit être actif pour ce joueur précis : l'override individuel (s'il existe)
+ * prime toujours sur l'interrupteur global, qui reste le comportement par défaut. */
+async function isTrackingEnabledForPlayer(address: string, settings: AiAnalyticsSettings): Promise<boolean> {
+  const override = await getCachedPlayerAnalyticsOverride(address);
+  if (override === 'enabled') return true;
+  if (override === 'disabled') return false;
+  return settings.enabled;
+}
+
 // ─────────────────────────────── Sessions, joueurs actifs (DAU) & rétention ───────────────────────────────
 
 /**
@@ -3960,7 +4016,7 @@ function analyticsDayKey(d = new Date()): string {
  */
 export async function markPlayerActiveToday(address: string): Promise<void> {
   const settings = await getCachedAiAnalyticsSettings();
-  if (!settings.enabled) return;
+  if (!(await isTrackingEnabledForPlayer(address, settings))) return;
   const db = getFirebaseDb();
   if (!db) return;
   const k = KEY(address);
@@ -4038,7 +4094,7 @@ export interface WidgetUsageAgg { opens: number; totalMs: number; lastOpenedAt: 
 export async function trackWidgetUsage(address: string, widgetId: string, durationMs: number): Promise<void> {
   if (durationMs < 500) return;
   const settings = await getCachedAiAnalyticsSettings();
-  if (!settings.enabled) return;
+  if (!(await isTrackingEnabledForPlayer(address, settings))) return;
   const db = getFirebaseDb();
   if (!db) return;
   await ensureAnonSignIn();
@@ -4084,7 +4140,7 @@ export async function trackQuestFunnelEvent(
   address: string, questId: string, category: string, event: QuestFunnelEvent,
 ): Promise<void> {
   const settings = await getCachedAiAnalyticsSettings();
-  if (!settings.enabled) return;
+  if (!(await isTrackingEnabledForPlayer(address, settings))) return;
   const db = getFirebaseDb();
   if (!db) return;
   await ensureAnonSignIn();
@@ -4122,10 +4178,11 @@ function gridKeyOf(x: number, y: number, gridSize: number): string {
 
 /** Incrémente la densité de fréquentation de la carte — appelé en fire-and-forget par
  * `setPlayerMapPos` (seul point d'écriture de la position de Synk, partagé par WorldMapWidget et
- * GameCanvas2D). */
-async function trackMapHeatmap(mapId: string, x: number, y: number): Promise<void> {
+ * GameCanvas2D). `address` permet de respecter un éventuel override de suivi ciblé par joueur
+ * (voir `isTrackingEnabledForPlayer`) avant de contribuer à l'agrégat global. */
+async function trackMapHeatmap(address: string, mapId: string, x: number, y: number): Promise<void> {
   const settings = await getCachedAiAnalyticsSettings();
-  if (!settings.enabled) return;
+  if (!(await isTrackingEnabledForPlayer(address, settings))) return;
   const db = getFirebaseDb();
   if (!db) return;
   const key = gridKeyOf(x, y, settings.mapHeatmapGridSize);
@@ -4155,7 +4212,7 @@ export async function trackFaintEvent(
   address: string, mapId: string, x: number, y: number, cause: FaintEventRecord['cause'],
 ): Promise<void> {
   const settings = await getCachedAiAnalyticsSettings();
-  if (!settings.enabled) return;
+  if (!(await isTrackingEnabledForPlayer(address, settings))) return;
   const db = getFirebaseDb();
   if (!db) return;
   await ensureAnonSignIn();
@@ -4304,6 +4361,41 @@ export async function getPlayerAnalyticsSummary(address: string): Promise<Player
     address: k, lastSeenAt, daysActiveLast30, faintCount, questFail, questBlocked, questSolved,
     totalWidgetTimeMs, churnScore,
   };
+}
+
+/**
+ * Détail brut (non agrégé) du temps passé par widget pour UN joueur — utilisé par la vue « Suivi
+ * ciblé par joueur » du panneau admin pour étudier son gameplay en profondeur, contrairement à
+ * `getWidgetUsageGlobal` qui agrège tous les joueurs.
+ */
+export async function getPlayerWidgetUsageDetail(address: string): Promise<Record<string, WidgetUsageAgg>> {
+  const db = getFirebaseDb();
+  if (!db) return {};
+  const snap = await get(ref(db, `players/${KEY(address)}/analytics/widgetUsage`));
+  return (snap.val() as Record<string, WidgetUsageAgg> | null) ?? {};
+}
+
+export interface PlayerQuestFunnelEntry { questId: string; category: string; event: QuestFunnelEvent; timestamp: number }
+
+/** Historique brut (le plus récent en premier) des évènements d'entonnoir de quête pour UN joueur
+ * — permet de suivre précisément où un joueur ciblé bloque/échoue/réussit ses quêtes. */
+export async function getPlayerQuestFunnelDetail(address: string, limitN = 100): Promise<PlayerQuestFunnelEntry[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, `players/${KEY(address)}/analytics/questEvents`));
+  const v = snap.val() as Record<string, PlayerQuestFunnelEntry> | null;
+  if (!v) return [];
+  return Object.values(v).sort((a, b) => b.timestamp - a.timestamp).slice(0, limitN);
+}
+
+/** Historique brut (le plus récent en premier) des évanouissements pour UN joueur ciblé. */
+export async function getPlayerFaintEventsDetail(address: string, limitN = 100): Promise<FaintEventRecord[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  const snap = await get(ref(db, `players/${KEY(address)}/analytics/faintEvents`));
+  const v = snap.val() as Record<string, FaintEventRecord> | null;
+  if (!v) return [];
+  return Object.values(v).sort((a, b) => b.timestamp - a.timestamp).slice(0, limitN);
 }
 
 // ─────────────────────────────────────── Cache des insights IA ───────────────────────────────────────

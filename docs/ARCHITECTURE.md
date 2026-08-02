@@ -121,7 +121,11 @@ Dans l'ordre d'affichage :
     recommandations à partir de ces statistiques agrégées et anonymisées via
     `web/src/app/api/ai/insights/route.ts`. Toute la collecte est instrumentée en tâche de fond
     (fire-and-forget, ne bloque jamais le gameplay) dans `gameState.ts`, `GameCanvas2D.tsx` et
-    `useDraggableWidget.ts`, activable/désactivable via `catalog/aiAnalyticsSettings`.
+    `useDraggableWidget.ts`, activable/désactivable via `catalog/aiAnalyticsSettings`. Une
+    sous-rubrique **« Suivi ciblé par joueur »** permet en plus d'activer/désactiver l'analyse
+    fine pour UN joueur en particulier (`players/{addr}/analytics/trackingOverride`, prime sur le
+    réglage global) et d'afficher son profil détaillé (temps par widget, entonnoir de quêtes,
+    évanouissements) sans avoir à suivre tous les joueurs.
 
 ## Modèle de terrain (Mapmonde / Plateforme 2D)
 

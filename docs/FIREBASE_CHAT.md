@@ -60,6 +60,7 @@ Chemins RTDB utilisés par l'application (à jour au 2026-08) :
 | `players/{addr}/analytics/widgetUsage/{widgetId}` | `trackWidgetUsage` (via `useDraggableWidget`, ouverture/fermeture de widget) | `AiGameplayIntelligencePanel` (temps passé par widget, par joueur) |
 | `players/{addr}/analytics/questFunnel/{id}/{event}` | `trackQuestFunnelEvent` (appelé par `submitQuestAnswerOffchain`) | `AiGameplayIntelligencePanel` (entonnoir de quêtes) |
 | `players/{addr}/analytics/faintEvents/{ts}`         | `trackFaintEvent` (`GameCanvas2D`, évanouissement oxygène/fatigue) | `getFaintHeatmap`, `getFaintCauseBreakdown`, score de décrochage |
+| `players/{addr}/analytics/trackingOverride`         | admin `AiGameplayIntelligencePanel` (rubrique « Suivi ciblé par joueur ») via `setPlayerAnalyticsOverride` | `isTrackingEnabledForPlayer` (prime sur `aiAnalyticsSettings.enabled` pour CE joueur uniquement) |
 | `catalog/analytics/dauGlobal/{day}`                  | `markPlayerActiveToday` (`runTransaction`, compteur global) | `getDauSeries` (graphique 14 jours) |
 | `catalog/analytics/widgetUsageGlobal/{widgetId}`     | `trackWidgetUsage` (`runTransaction`, agrégat global) | `AiGameplayIntelligencePanel` (temps par widget, tous joueurs) |
 | `catalog/analytics/questFunnelGlobal/{id}/{event}`   | `trackQuestFunnelEvent` (`runTransaction`, agrégat global) | `AiGameplayIntelligencePanel` (entonnoir de quêtes global) |
