@@ -3110,6 +3110,20 @@ export interface RepRules {
   statsWidgetEnabled: boolean;
   kingdomQuestsWidgetEnabled: boolean;
   questsZeldaCraftWidgetEnabled: boolean; // Nouveau widget "Quêtes de ZeldaCraft" (voir QuestsZeldaCraftWidget.tsx)
+  // ─── Repas on-chain de Synk (section "Nourrir Synk" de game/page.tsx, 4 boutons journalier/
+  // hebdomadaire/mensuel/annuel qui appellent `feed()` sur le smart contract Sepolia). Masqués et
+  // désactivés PAR DÉFAUT (contrairement aux autres interrupteurs de widgets ci-dessus, tous par
+  // défaut `true`) car le contrat actuellement déployé sur Sepolia contient un bug connu : les 4
+  // types de repas partagent à tort le même horodatage on-chain, donc nourrir Synk avec un repas
+  // journalier bloque à tort le festin hebdomadaire (et le banquet mensuel / rituel annuel). Le
+  // correctif est déjà écrit dans `contracts/contracts/HorizonZeldCraft.sol` (mapping
+  // `lastFedAtByType` séparé par type) mais nécessite un REDÉPLOIEMENT du contrat pour prendre
+  // effet (nouvelle adresse, réinitialise xp/niveau/stage de Synk) — voir ROADMAP.md pour la
+  // procédure. En attendant, les joueurs nourrissent/soignent Synk via la Boutique (achats
+  // hors-chaîne, voir ShopPanel.tsx/applyEffect). L'admin peut réactiver ce bloc à tout moment ici
+  // s'il souhaite malgré tout autoriser le nourrissage on-chain (le bug de cooldown partagé
+  // persistera alors jusqu'au redéploiement).
+  onchainFeedButtonsEnabled: boolean; // défaut false
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -3253,6 +3267,9 @@ export const DEFAULT_REP_RULES: RepRules = {
   statsWidgetEnabled: true,
   kingdomQuestsWidgetEnabled: true,
   questsZeldaCraftWidgetEnabled: true,
+  // Défaut false (voir commentaire sur l'interface RepRules) : bug de cooldown partagé sur le
+  // contrat Sepolia actuellement déployé, correctif écrit mais en attente de redéploiement.
+  onchainFeedButtonsEnabled: false,
 }
 
 export async function getRepRules(): Promise<RepRules> {

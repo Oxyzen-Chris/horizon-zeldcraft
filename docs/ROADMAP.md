@@ -56,6 +56,44 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
       analyses et recommandations — base de données pour orienter les futures évolutions du jeu
       et concevoir de nouveaux services
 
+## ⚠️ Dette technique connue — redéploiement du smart contract à prévoir
+
+- **Bug de cooldown des repas on-chain partagé entre les 4 types** (`feed()` dans
+  `HorizonZeldCraft.sol`) : le contrat actuellement déployé sur **Sepolia** utilise un unique
+  horodatage `Voxlyn.lastFedAt` partagé par les repas journalier/hebdomadaire/mensuel/annuel à la
+  fois pour le calcul de la faim ET pour le cooldown de chaque bouton. Résultat : nourrir Synk avec
+  un « repas journalier » réinitialise ce même horodatage et bloque à tort, temporairement, le
+  « festin hebdomadaire » (et de la même façon le « banquet mensuel »/« rituel annuel »).
+  - **Correctif déjà écrit et testé** dans le code source : ajout d'un mapping dédié
+    `mapping(uint256 => mapping(FeedType => uint64)) public lastFedAtByType;`, utilisé uniquement
+    pour le cooldown de chaque type de repas ; `Voxlyn.lastFedAt` continue de servir uniquement au
+    calcul de la faim (`currentHunger()`), ce qui est correct et inchangé. 2 tests de non-régression
+    ajoutés dans `contracts/test/HorizonZeldCraft.test.ts` (12/12 tests passent).
+  - **Non déployé sur Sepolia pour le moment** : le contrat n'est pas upgradable (pas de proxy/UUPS),
+    donc appliquer ce correctif nécessite un **redéploiement complet à une nouvelle adresse**, ce
+    qui réinitialiserait le(s) Voxlyn déjà mintés (xp/niveau/stade/faim) ainsi que les équipes
+    on-chain existantes. Décision prise avec le porteur du projet : **redéploiement différé** pour
+    ne pas perdre la progression en cours.
+  - **Mesure de contournement en place immédiatement** : les 4 boutons de repas on-chain sont
+    désormais **masqués et désactivés par défaut** dans le jeu (`RepRules.onchainFeedButtonsEnabled`,
+    défaut `false` — voir `Administration > Widgets personnalisés`, section « Repas on-chain de
+    Synk »), avec un message expliquant que le nourrissage/soin de Synk reste possible via la
+    Boutique (achats hors-chaîne, sans le bug). L'admin peut réactiver ces boutons malgré le bug
+    connu depuis ce même panneau s'il le souhaite.
+  - **Procédure de redéploiement** (à faire quand la remise à zéro de la progression sera acceptable,
+    par exemple au lancement d'une nouvelle saison narrative) :
+    1. `cd contracts && npx hardhat run scripts/deploy.ts --network sepolia` (les fonctions
+       `addQuest`/`addNpc`/`addTreasure`/`addWorld`/`addCatalogItem` du script de seed sont
+       aujourd'hui des chemins morts côté front — tout ce contenu vit dans Firebase — donc leur
+       réexécution au déploiement est sans risque mais optionnelle/skippable).
+    2. Mettre à jour `NEXT_PUBLIC_CONTRACT_ADDRESS_SEPOLIA` dans `web/.env.local` **et** dans les
+       variables d'environnement du projet Vercel (Production + Preview).
+    3. Vérifier le contrat sur Etherscan (`npx hardhat verify --network sepolia <adresse> ...`).
+    4. Repasser `RepRules.onchainFeedButtonsEnabled` à `true` depuis `Administration > Widgets
+       personnalisés` une fois la nouvelle adresse en production.
+    5. Communiquer aux joueurs (Instagram, in-game) la réinitialisation de leur Voxlyn on-chain
+       avant de redéployer.
+
 ## 🔜 Phase 2 — Auth sociale & UX
 
 - [ ] Web3Auth ou Privy pour login Gmail/X/Discord/Apple/Github

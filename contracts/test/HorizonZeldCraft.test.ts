@@ -128,4 +128,31 @@ describe("HorizonZeldCraft v2", () => {
     await contract.setFeedCooldown(0, 0);
     await contract.connect(player).feed(1, 0, { value: price });
   });
+
+  it("un repas journalier ne bloque pas le festin hebdomadaire/mensuel/annuel (régression)", async () => {
+    await contract.connect(player).mintVoxlyn("Draco");
+    // Repas journalier (FeedType 0)
+    await contract.connect(player).feed(1, 0, { value: await contract.feedPrice(0) });
+    // Le repas journalier doit repartir en cooldown...
+    await expect(contract.connect(player).feed(1, 0, { value: await contract.feedPrice(0) }))
+      .to.be.revertedWith("feed cooldown");
+    // ...mais les 3 autres types de repas doivent rester immédiatement disponibles.
+    await contract.connect(player).feed(1, 1, { value: await contract.feedPrice(1) }); // Weekly
+    await contract.connect(player).feed(1, 2, { value: await contract.feedPrice(2) }); // Monthly
+    await contract.connect(player).feed(1, 3, { value: await contract.feedPrice(3) }); // Yearly
+    const v = await contract.voxlyns(1);
+    // 10 (daily) + 80 (weekly) + 400 (monthly) + 6000 (yearly)
+    expect(v.xp).to.equal(6490n);
+  });
+
+  it("chaque type de repas a son propre cooldown indépendant", async () => {
+    await contract.connect(player).mintVoxlyn("Draco");
+    await contract.connect(player).feed(1, 1, { value: await contract.feedPrice(1) }); // Weekly
+    // Le festin hebdomadaire est bien en cooldown pour lui-même...
+    await expect(contract.connect(player).feed(1, 1, { value: await contract.feedPrice(1) }))
+      .to.be.revertedWith("feed cooldown");
+    // ...mais le repas journalier, jamais utilisé, reste disponible.
+    await contract.connect(player).feed(1, 0, { value: await contract.feedPrice(0) });
+  });
 });
+

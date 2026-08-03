@@ -29,6 +29,11 @@ export const HORIZON_ABI = [
     inputs: [{ type: 'uint8' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'feedCooldown', stateMutability: 'view',
     inputs: [{ type: 'uint8' }], outputs: [{ type: 'uint64' }] },
+  // Horodatage du dernier repas PAR TYPE (journalier/hebdomadaire/mensuel/annuel) — corrige le bug
+  // où nourrir Synk avec un repas journalier bloquait à tort le festin hebdomadaire (ils partageaient
+  // auparavant le même horodatage `voxlyns(tokenId).lastFedAt`, désormais réservé au calcul de faim).
+  { type: 'function', name: 'lastFedAtByType', stateMutability: 'view',
+    inputs: [{ type: 'uint256' }, { type: 'uint8' }], outputs: [{ type: 'uint64' }] },
   { type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', name: 'treasury', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
   { type: 'function', name: 'difficulty', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },

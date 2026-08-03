@@ -298,9 +298,26 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     }).data as bigint | undefined;
   });
 
+  // Horodatage du DERNIER repas pris PAR TYPE (journalier/hebdomadaire/mensuel/annuel) — chaque
+  // type de repas a son propre minuteur indépendant : nourrir Synk avec un repas journalier ne
+  // doit jamais bloquer/retarder l'accès au festin hebdomadaire (ou au banquet mensuel / rituel
+  // annuel), et inversement. Corrige un bug où les 4 boutons partageaient à tort le même
+  // horodatage `voxlyns(tokenId).lastFedAt` (utilisé désormais uniquement pour la faim, plus bas).
+  const lastFedByType = FEED_TYPES.map((_, idx) => {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const { data, queryKey } = useReadContract({
+      address: contract, abi: HORIZON_ABI, functionName: 'lastFedAtByType',
+      args: [tokenId, idx], query: { enabled: !!contract && !!tokenId },
+    });
+    return { value: data as bigint | undefined, queryKey };
+  });
+
   useEffect(() => {
     if (isMined && txHash) {
       queryClient.invalidateQueries({ queryKey: voxlynKey });
+      // Invalide aussi les 4 horodatages par type de repas, pour que le bouton qui vient d'être
+      // utilisé passe immédiatement en cooldown SANS affecter les 3 autres boutons.
+      lastFedByType.forEach(({ queryKey }) => queryClient.invalidateQueries({ queryKey }));
       // Recharge faim/bonheur en DB après un repas
       if (address) applyEffect(address, { hunger: 25, happiness: 10 }).catch(() => {});
       const timer = setTimeout(() => reset(), 1500);
@@ -309,8 +326,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMined, txHash]);
 
-  const [name, , lastFedAt, xp, hp, happiness, hunger, level, stage] = v;
-  const lastFed = Number(lastFedAt);
+  const [name, , , xp, hp, happiness, hunger, level, stage] = v;
 
   // Priorité aux valeurs DB (temps réel) si dispo, sinon fallback on-chain
   const dispHp        = player?.hp        ?? Number(hp);
@@ -347,6 +363,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   ].join(' · ') : undefined;
 
   const feed = (feedType: number) => {
+    // Défense en profondeur : même si l'UI masque la section (voir plus bas), on bloque aussi
+    // l'appel côté handler tant que l'admin n'a pas explicitement réactivé le nourrissage on-chain
+    // (bug de cooldown partagé, voir RepRules.onchainFeedButtonsEnabled dans gameState.ts).
+    if (repRules?.onchainFeedButtonsEnabled !== true) return;
     const price = feedPrices[feedType];
     if (!price) return;
     writeContract({
@@ -398,10 +418,22 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
 
       <section className="card md:col-span-2">
         <h3 className="text-lg font-semibold mb-4">{t('game.feed.title')}</h3>
+        {repRules?.onchainFeedButtonsEnabled !== true ? (
+          // Section masquée par défaut : bug connu de cooldown partagé sur le contrat Sepolia
+          // déployé (voir RepRules.onchainFeedButtonsEnabled). Réactivable depuis Administration
+          // > Widgets personnalisés une fois le correctif redéployé (ou volontairement plus tôt).
+          <div className="bg-amber-950/20 border border-amber-700/40 rounded p-3 text-center">
+            <p className="text-sm font-semibold text-amber-300">{t('game.feed.onchainDisabledTitle')}</p>
+            <p className="text-xs text-slate-400 mt-1">{t('game.feed.onchainDisabledMessage')}</p>
+          </div>
+        ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {FEED_TYPES.map((f, idx) => {
             const cooldown = cooldowns[idx];
-            const nextAvailable = cooldown !== undefined ? lastFed + Number(cooldown) : 0;
+            // Horodatage propre à CE type de repas (voir `lastFedByType` ci-dessus) — un repas
+            // journalier n'affecte plus jamais la disponibilité du festin hebdomadaire/mensuel/annuel.
+            const lastFedThisType = Number(lastFedByType[idx]?.value ?? 0n);
+            const nextAvailable = cooldown !== undefined ? lastFedThisType + Number(cooldown) : 0;
             const now = Math.floor(Date.now() / 1000);
             const isReady = nextAvailable <= now;
             return (
@@ -422,6 +454,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
             );
           })}
         </div>
+        )}
         {txHash && (
           <p className="text-sm text-slate-400 mt-3">
             Tx : <code className="text-cyan-300">{txHash.slice(0, 10)}…</code>

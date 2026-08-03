@@ -49,6 +49,11 @@ contract HorizonZeldCraft is ERC721, Ownable2Step, ReentrancyGuard, Pausable {
     mapping(FeedType => uint256) public feedPrice;
     mapping(FeedType => uint32) public feedXpReward;
     mapping(FeedType => uint64) public feedCooldown;
+    // Horodatage du DERNIER repas pris PAR TYPE (journalier/hebdomadaire/mensuel/annuel), afin que
+    // chaque type de repas ait son propre cooldown indépendant. `Voxlyn.lastFedAt` (ci-dessus)
+    // reste, lui, mis à jour à CHAQUE repas (peu importe le type) : il ne sert plus qu'à calculer
+    // la faim décroissante dans `currentHunger()`, plus jamais à vérifier un cooldown de repas.
+    mapping(uint256 => mapping(FeedType => uint64)) public lastFedAtByType;
 
     mapping(bytes32 => CatalogItem) public catalog;
     bytes32[] public catalogIds;
@@ -193,7 +198,11 @@ contract HorizonZeldCraft is ERC721, Ownable2Step, ReentrancyGuard, Pausable {
         uint256 price = feedPrice[feedType];
         require(msg.value >= price, "insufficient eth");
         Voxlyn storage v = voxlyns[tokenId];
-        require(block.timestamp >= v.lastFedAt + feedCooldown[feedType], "feed cooldown");
+        // Cooldown indépendant PAR TYPE de repas : nourrir Synk avec un repas journalier ne doit
+        // jamais bloquer/retarder l'accès au festin hebdomadaire (ou au banquet mensuel / rituel
+        // annuel), et inversement — chaque bouton a son propre minuteur (voir `lastFedAtByType`).
+        require(block.timestamp >= lastFedAtByType[tokenId][feedType] + feedCooldown[feedType], "feed cooldown");
+        lastFedAtByType[tokenId][feedType] = uint64(block.timestamp);
         v.lastFedAt = uint64(block.timestamp);
         v.hunger = 100;
         v.happiness = v.happiness < 90 ? v.happiness + 10 : 100;
