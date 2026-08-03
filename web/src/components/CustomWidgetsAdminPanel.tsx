@@ -100,21 +100,6 @@ export function CustomWidgetsAdminPanel() {
     }
   };
 
-  // Bascule dédiée pour `onchainFeedButtonsEnabled` (voir bloc d'avertissement ci-dessous) — même
-  // logique de relecture/fusion que `toggleBuiltinWidget`, séparée car cette clé n'est pas un
-  // widget flottant mais une section de game/page.tsx, avec une sémantique de défaut inversée.
-  const toggleOnchainFeed = async (checked: boolean) => {
-    setTogglingKey('onchainFeedButtonsEnabled');
-    try {
-      const fresh = await getRepRules();
-      const next = { ...fresh, onchainFeedButtonsEnabled: checked };
-      await setRepRules(next);
-      setRules(next);
-    } finally {
-      setTogglingKey(null);
-    }
-  };
-
   const setButtonField = (i: number, field: keyof ButtonForm, value: string) => {
     setButtons(prev => prev.map((b, idx) => idx === i ? { ...b, [field]: value } : b));
   };
@@ -194,25 +179,6 @@ export function CustomWidgetsAdminPanel() {
               </label>
             ))}
           </div>
-        )}
-      </div>
-
-      <div className="mb-5 pb-4 border-b border-slate-700 bg-amber-950/20 border border-amber-700/40 rounded p-3">
-        <p className="text-sm font-semibold mb-1 text-amber-300">⚠️ {t('admin.customWidgets.onchainFeed.title')}</p>
-        <p className="text-xs text-slate-400 mb-2">{t('admin.customWidgets.onchainFeed.description')}</p>
-        {!rules ? (
-          <p className="text-xs text-slate-500 italic">{t('common.loading')}</p>
-        ) : (
-          <label className="flex items-center gap-2 text-xs bg-slate-800/40 rounded px-2.5 py-1.5 w-fit">
-            <input
-              type="checkbox"
-              checked={rules.onchainFeedButtonsEnabled === true}
-              disabled={togglingKey === 'onchainFeedButtonsEnabled'}
-              onChange={e => toggleOnchainFeed(e.target.checked)}
-            />
-            <span>🍖 {t('admin.customWidgets.onchainFeed.toggle')}</span>
-            {togglingKey === 'onchainFeedButtonsEnabled' && <span className="opacity-60">⏳</span>}
-          </label>
         )}
       </div>
 

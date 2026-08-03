@@ -10,7 +10,7 @@ import { HORIZON_ABI, FEED_TYPES, WEATHER, WEATHER_KEYS, normalizeAnswer } from 
 import { addQuestDef, getQuestDefs, questIdOf, seedQuestAnswer, getAllQuestAnswers, hashAnswer, type QuestDef } from '@/lib/gameState';
 import {
   addNpcDef, getNpcDefs, addTreasureDef, getTreasureDefs, addWorldDef, getWorldDefs,
-  getRepRules, setNpcMaxPerDay, addMapPoiDef, getMapPoiDefs, removeMapPoiDef, addMapDef, getMapDefs,
+  getRepRules, setRepRules, setNpcMaxPerDay, addMapPoiDef, getMapPoiDefs, removeMapPoiDef, addMapDef, getMapDefs,
   getSeasonState, setSeasonState, computeAutoSeason, SEASONS, SEASON_ICONS,
   getMoonState, setMoonState, isFullMoonOnDate, nextFullMoonDateFromState, getMoonCalendar, setMoonOverrideForMonth,
   DEFAULT_MAP_ID, type NpcDef, type TreasureDef, type WorldDef, type MapPoiDef, type MapPoiType,
@@ -258,6 +258,24 @@ export default function AdminPage() {
   const [feedNewPrice, setFeedNewPrice] = useState('0.0001');
   const [cooldownIdx, setCooldownIdx] = useState(0);
   const [cooldownSec, setCooldownSec] = useState('0');
+  // Interrupteur "Repas on-chain de Synk" (RepRules.onchainFeedButtonsEnabled, défaut false) —
+  // voir docs/ROADMAP.md § Dette technique connue : bug de cooldown partagé sur le contrat Sepolia
+  // déployé, correctif déjà écrit (lastFedAtByType) mais en attente de redéploiement. Regroupé ici
+  // avec les cooldowns (et non dans Widgets personnalisés) car il concerne directement ce mécanisme.
+  const [onchainFeedEnabled, setOnchainFeedEnabled] = useState(false);
+  const [onchainFeedLoaded, setOnchainFeedLoaded] = useState(false);
+  const [onchainFeedSaving, setOnchainFeedSaving] = useState(false);
+  useEffect(() => { getRepRules().then((r) => { setOnchainFeedEnabled(r.onchainFeedButtonsEnabled === true); setOnchainFeedLoaded(true); }).catch(() => {}); }, []);
+  const toggleOnchainFeed = async (checked: boolean) => {
+    setOnchainFeedSaving(true);
+    try {
+      const fresh = await getRepRules();
+      await setRepRules({ ...fresh, onchainFeedButtonsEnabled: checked });
+      setOnchainFeedEnabled(checked);
+    } finally {
+      setOnchainFeedSaving(false);
+    }
+  };
 
   // Récupère la valeur actuelle du prix/cooldown pour l'index sélectionné (refresh à chaque changement)
   const { data: curFeedPrice } = useReadContract({
@@ -809,6 +827,25 @@ export default function AdminPage() {
                   args: [cooldownIdx, BigInt(cooldownSec)],
                 })}
               >{t('admin.actions.apply')}</button>
+            </div>
+
+            <div className="mt-4 bg-amber-950/20 border border-amber-700/40 rounded p-3">
+              <p className="text-sm font-semibold mb-1 text-amber-300">⚠️ {t('admin.customWidgets.onchainFeed.title')}</p>
+              <p className="text-xs text-slate-400 mb-2">{t('admin.customWidgets.onchainFeed.description')}</p>
+              {!onchainFeedLoaded ? (
+                <p className="text-xs text-slate-500 italic">{t('common.loading')}</p>
+              ) : (
+                <label className="flex items-center gap-2 text-xs bg-slate-800/40 rounded px-2.5 py-1.5 w-fit">
+                  <input
+                    type="checkbox"
+                    checked={onchainFeedEnabled}
+                    disabled={onchainFeedSaving}
+                    onChange={e => toggleOnchainFeed(e.target.checked)}
+                  />
+                  <span>🍖 {t('admin.customWidgets.onchainFeed.toggle')}</span>
+                  {onchainFeedSaving && <span className="opacity-60">⏳</span>}
+                </label>
+              )}
             </div>
           </section>
 
