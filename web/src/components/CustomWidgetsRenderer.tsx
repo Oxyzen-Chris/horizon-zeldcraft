@@ -29,6 +29,7 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
     posKey, collapsedKey,
     // Cascade les positions par défaut pour éviter que plusieurs widgets ne se superposent.
     defaultPos: () => ({ x: 24 + (index % 4) * 80, y: window.innerHeight - 220 - Math.floor(index / 4) * 80 }),
+    onExpand: bringToFront,
   });
   const [feedback, setFeedback] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

@@ -33,6 +33,12 @@ export interface UseDraggableWidgetOptions {
   defaultPos: () => Pos;
   /** État réduit par défaut au tout premier affichage (icône réduite par défaut). */
   defaultCollapsed?: boolean;
+  /** Appelé quand le widget passe de réduit à déplié (icône cliquée) — utilisé pour forcer
+   * `bringToFront()` au dépliage, en complément du `onPointerDownCapture` déjà posé sur le
+   * conteneur, afin de garantir que la fenêtre qui vient de s'ouvrir passe TOUJOURS au premier
+   * plan même si un autre widget se trouvait déjà au-dessus d'elle (voir bug remonté : fenêtre
+   * active parfois recouverte par un widget ouvert ou réduit). */
+  onExpand?: () => void;
 }
 
 export interface DraggableWidgetState {
@@ -72,7 +78,7 @@ export interface DraggableWidgetState {
  * pour le cas où il deviendrait inaccessible hors de l'écran visible.
  */
 export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWidgetState {
-  const { posKey, collapsedKey, defaultPos, defaultCollapsed = true } = opts;
+  const { posKey, collapsedKey, defaultPos, defaultCollapsed = true, onExpand } = opts;
   const { address } = useAccount();
 
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -129,9 +135,14 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
     setCollapsed(prev => {
       const next = !prev;
       if (collapsedKey) localStorage.setItem(collapsedKey, next ? '1' : '0');
+      // Le widget vient de se déplier (prev=true → next=false) : force le premier plan, en
+      // complément défensif du `onPointerDownCapture={bringToFront}` déjà posé sur le conteneur,
+      // qui devrait déjà suffire mais peut être court-circuité selon l'ordre exact des gestion-
+      // naires d'événements natifs — voir bug remonté (widget parfois recouvert au dépliage).
+      if (prev && !next) onExpand?.();
       return next;
     });
-  }, [collapsedKey]);
+  }, [collapsedKey, onExpand]);
 
   const onToggleClick = useCallback(() => {
     if (movedRef.current) { movedRef.current = false; return; }

@@ -27,6 +27,7 @@ export function HelpWidget({ enabled, onReplayTour }: { enabled: boolean; onRepl
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
     defaultPos: () => ({ x: 24, y: window.innerHeight - 90 }),
+    onExpand: bringToFront,
   });
 
   if (!enabled || !pos) return null;

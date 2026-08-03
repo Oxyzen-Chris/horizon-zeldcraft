@@ -18,6 +18,8 @@ export interface StatsWidgetProps {
   oxygen: number; oxygenMax: number;
   fatigue: number; fatigueMax: number;
   wallet: number; reputation: number;
+  /** Affichage paramétrable (admin → "Widgets personnalisés", `statsWidgetEnabled`), défaut true. */
+  enabled?: boolean;
 }
 
 function Bar({ label, value, max, color, hint }: { label: string; value: number; max: number; color: string; hint?: string }) {
@@ -46,6 +48,7 @@ function Bar({ label, value, max, color, hint }: { label: string; value: number;
  * (dispHp/dispHunger/mood…) que le tableau fixe, simplement rejouée ici en lecture seule.
  */
 export function StatsWidget(props: StatsWidgetProps) {
+  const { enabled = true } = props;
   const { t } = useI18n();
   const { z, bringToFront } = useWindowZIndex();
   const {
@@ -54,9 +57,10 @@ export function StatsWidget(props: StatsWidgetProps) {
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
     defaultPos: () => ({ x: window.innerWidth - 300, y: 90 }),
+    onExpand: bringToFront,
   });
 
-  if (!pos) return null;
+  if (!enabled || !pos) return null;
 
   if (collapsed) {
     return (

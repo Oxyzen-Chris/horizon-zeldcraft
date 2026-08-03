@@ -28,7 +28,7 @@ const STATUS_ICON: Record<KingdomQuestStatus, string> = {
  * quêtes chacun) pour visualiser l'avancée globale vers la libération de PocaPoka et El Pipo.
  * 100% indépendant de QuestList.tsx (quêtes classiques/PNJ, qui filtre désormais `kingdomQuest`).
  */
-export function KingdomQuestsWidget() {
+export function KingdomQuestsWidget({ enabled = true }: { enabled?: boolean } = {}) {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -38,6 +38,7 @@ export function KingdomQuestsWidget() {
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
     defaultPos: () => ({ x: 24, y: 140 }),
+    onExpand: bringToFront,
   });
 
   const [progress, setProgress] = useState<KingdomProgress | null>(null);
@@ -87,7 +88,7 @@ export function KingdomQuestsWidget() {
     setChecking(false);
   };
 
-  if (!pos) return null;
+  if (!enabled || !pos) return null;
 
   if (collapsed) {
     return (

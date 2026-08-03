@@ -9,24 +9,26 @@ import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { ProgressLedgerView } from './ProgressLedgerView';
 
-const POS_KEY = 'zc.progressWidgetPos';
-const COLLAPSED_KEY = 'zc.progressWidgetCollapsed';
+const POS_KEY = 'zc.questsZeldaCraftWidgetPos';
+const COLLAPSED_KEY = 'zc.questsZeldaCraftWidgetCollapsed';
 
-// Rafraîchi automatiquement toutes les 15s pendant que le panneau est ouvert (le ledger repose sur
-// des lectures Firebase ponctuelles, pas un abonnement temps réel — voir getPlayerProgressLedger()
-// dans gameState.ts) afin de refléter assez vite un nouvel objet/quête/PNJ/monde/familier obtenu
-// sans pour autant multiplier les lectures pendant que le joueur explore le widget.
+// Mêmes clés de thème que celles produites par getPlayerProgressLedger() dans gameState.ts — voir
+// demande utilisateur : regrouper ici UNIQUEMENT les thèmes "quêtes" + "PNJ rencontrés" (déjà
+// calculés par le ledger partagé), dans cet ordre d'affichage précis, sans dupliquer la moindre
+// logique métier (aucune modification de gameState.ts/ProgressLedgerView.tsx nécessaire).
+const QUEST_THEME_KEYS = ['npc', 'questClassic', 'questNpc', 'questArchipelago', 'questWildIsland', 'questKingdom'];
+
 const REFRESH_INTERVAL_MS = 15_000;
 
 /**
- * Fenêtre flottante et déplaçable "État d'avancement / inventaire" — liste repliable par thème
- * (armes, protections, nourriture, potions & sortilèges, engins, trésors, selles, familiers,
- * quêtes classiques/PNJ/archipel/îles sauvages/Royaume par chapitre, mondes, PNJ rencontrés) avec
- * une icône ✅/❌ par élément selon que le joueur le possède ou l'a déjà possédé/résolu au moins
- * une fois. Voir demande utilisateur. Paramétrable (affichage) via `progressWidgetEnabled` dans le
- * menu Administration (même convention que HelpWidget.tsx/`helpWidgetEnabled`).
+ * Fenêtre flottante et déplaçable "Quêtes de ZeldaCraft" — même mécanisme visuel repliable par
+ * thème que "Quêtes du Royaume" (KingdomQuestsWidget.tsx), mais couvrant l'ensemble des quêtes du
+ * jeu (PNJ rencontrés, quêtes classiques, quêtes PNJ, quêtes archipel, quêtes îles sauvages,
+ * quêtes du Royaume par chapitre) en un seul endroit. Réutilise telle quelle la même donnée que le
+ * widget "État d'avancement / inventaire" (getPlayerProgressLedger()), simplement filtrée aux
+ * thèmes "quêtes". Paramétrable via `questsZeldaCraftWidgetEnabled` dans le menu Administration.
  */
-export function ProgressWidget({ enabled }: { enabled: boolean }) {
+export function QuestsZeldaCraftWidget({ enabled }: { enabled: boolean }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -35,7 +37,7 @@ export function ProgressWidget({ enabled }: { enabled: boolean }) {
     containerRef, menuPos, onContextMenu, closeContextMenu, resetPosition,
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
-    defaultPos: () => ({ x: window.innerWidth - 400, y: 220 }),
+    defaultPos: () => ({ x: window.innerWidth - 400, y: 280 }),
     onExpand: bringToFront,
   });
 
@@ -45,7 +47,10 @@ export function ProgressWidget({ enabled }: { enabled: boolean }) {
   const refresh = () => {
     if (!address) return;
     setRefreshing(true);
-    getPlayerProgressLedger(address).then(setLedger).catch(() => {}).finally(() => setRefreshing(false));
+    getPlayerProgressLedger(address)
+      .then(full => setLedger({ themes: QUEST_THEME_KEYS.map(k => full.themes.find(th => th.key === k)).filter((th): th is NonNullable<typeof th> => !!th) }))
+      .catch(() => {})
+      .finally(() => setRefreshing(false));
   };
 
   useEffect(() => {
@@ -63,14 +68,14 @@ export function ProgressWidget({ enabled }: { enabled: boolean }) {
       <>
         <button
           ref={containerRef}
-          className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-amber-500 text-2xl shadow-lg flex items-center justify-center"
+          className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-emerald-500 text-2xl shadow-lg flex items-center justify-center"
           style={{ left: pos.x, top: pos.y, zIndex: z }}
           onPointerDownCapture={bringToFront}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
-          title={t('progress.title')}
-        >📖</button>
+          title={t('questsZeldaCraft.title')}
+        >🧭</button>
         <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       </>
     );
@@ -79,16 +84,16 @@ export function ProgressWidget({ enabled }: { enabled: boolean }) {
   return (
     <div
       ref={containerRef}
-      className="fixed z-40 w-96 max-h-[75vh] bg-slate-900 border-2 border-amber-500 rounded-xl shadow-xl select-none flex flex-col"
+      className="fixed z-40 w-96 max-h-[75vh] bg-slate-900 border-2 border-emerald-500 rounded-xl shadow-xl select-none flex flex-col"
       style={{ left: pos.x, top: pos.y, zIndex: z }}
       onPointerDownCapture={bringToFront}
       onContextMenu={onContextMenu}
     >
       <div
-        className="flex items-center justify-between px-3 py-2 bg-amber-900/30 rounded-t-xl cursor-move shrink-0"
+        className="flex items-center justify-between px-3 py-2 bg-emerald-900/30 rounded-t-xl cursor-move shrink-0"
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       >
-        <span className="text-sm font-semibold">📖 {t('progress.title')}</span>
+        <span className="text-sm font-semibold">🧭 {t('questsZeldaCraft.title')}</span>
         <div className="flex items-center gap-2">
           <button className="text-xs opacity-70 hover:opacity-100" onClick={refresh} title={t('progress.refresh')}>
             {refreshing ? '⏳' : '🔄'}
@@ -97,7 +102,7 @@ export function ProgressWidget({ enabled }: { enabled: boolean }) {
         </div>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
-      <p className="text-xs text-slate-400 px-3 pt-2">{t('progress.subtitle')}</p>
+      <p className="text-xs text-slate-400 px-3 pt-2">{t('questsZeldaCraft.subtitle')}</p>
       <div className="p-3 overflow-y-auto">
         {!address ? (
           <p className="text-xs text-slate-500 italic">{t('progress.connectFirst')}</p>

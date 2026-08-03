@@ -167,7 +167,7 @@ function InlineSlot({ slot, equipped, t, onUnequip, dragOverSlot, onDragOverSlot
  * + repli mémorisés). Engins/familiers/selles passent par une pop-up de confirmation (Oui/Non) ;
  * armes/protections/amulettes/flèches s'équipent immédiatement au dépose (comportement historique).
  */
-export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
+export function EquipmentWidget({ stage = 0, enabled = true }: { stage?: number; enabled?: boolean }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -177,6 +177,7 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
     defaultPos: () => ({ x: window.innerWidth - 300, y: 90 }),
+    onExpand: bringToFront,
   });
 
   const [equipment, setEquipment] = useState<Partial<Record<EquipSlot, EquippedItem>>>({});
@@ -291,7 +292,7 @@ export function EquipmentWidget({ stage = 0 }: { stage?: number }) {
     }
   };
 
-  if (!address || !pos) return null;
+  if (!enabled || !address || !pos) return null;
 
   if (collapsed) {
     return (

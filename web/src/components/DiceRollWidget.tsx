@@ -101,13 +101,15 @@ function classifyEventRoll(sum: number, rules: RepRules | null): { modifier: num
  *    les deux autres se désactivent (grisés) tant qu'un combat est en cours (`otherRollsLocked`),
  *    pour matérialiser le caractère obligatoire du jet.
  */
-export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked }: {
+export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked, enabled = true }: {
   /** Événement en attente d'un lancer obligatoire (ex. `'fight'`), ou `null`/`undefined` si aucun. */
   pendingEvent?: DiceEventKind | null;
   /** Reçoit le résultat dès que le joueur clique sur "Lancer..." pour un événement en attente. */
   onEventResolved?: (outcome: DiceEventOutcome) => void;
   /** Vrai pendant toute la durée d'un combat PNJ : grise "Test rapide" et "Destin quotidien". */
   otherRollsLocked?: boolean;
+  /** Affichage paramétrable (admin → "Widgets personnalisés", `diceRollWidgetEnabled`), défaut true. */
+  enabled?: boolean;
 } = {}) {
   const { t } = useI18n();
   const { address } = useAccount();
@@ -119,6 +121,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
     defaultPos: () => ({ x: window.innerWidth - 88, y: window.innerHeight - 140 }),
+    onExpand: bringToFront,
   });
 
   const [bonus, setBonus] = useState(0);
@@ -250,7 +253,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
     onEventResolved?.({ roll: total, rolls: [roll1, roll2], modifier, tier });
   };
 
-  if (!address || !pos) return null;
+  if (!enabled || !address || !pos) return null;
 
   if (collapsed) {
     return (

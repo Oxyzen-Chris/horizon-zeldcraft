@@ -3095,6 +3095,21 @@ export interface RepRules {
   // TOUJOURS active (indépendante de l'interrupteur optionnel `AiAnalyticsSettings.enabled`).
   playtimeTrackingEnabled: boolean; // Active le suivi du temps de jeu total/quotidien (défaut true)
   playtimeHeartbeatSec: number;     // Fréquence d'envoi du "battement" de temps de jeu, en secondes (défaut 30)
+  // ─── Activation/désactivation des widgets flottants existants (rubrique admin "Widgets
+  // personnalisés" — voir CustomWidgetsAdminPanel.tsx) : chaque widget flottant du jeu (hors
+  // widgets flottants personnalisés créés par l'admin, qui ont déjà leur propre `active` par
+  // widget) peut être masqué globalement pour tous les joueurs, ex. pour désactiver
+  // temporairement une fonctionnalité en maintenance sans toucher au code. Tous par défaut à
+  // true (comportement strictement identique à avant l'introduction de ces interrupteurs).
+  diceRollWidgetEnabled: boolean;
+  teamChatWidgetEnabled: boolean;
+  equipmentWidgetEnabled: boolean;
+  inventoryWidgetEnabled: boolean;
+  shopWidgetEnabled: boolean;
+  worldMapWidgetEnabled: boolean;
+  statsWidgetEnabled: boolean;
+  kingdomQuestsWidgetEnabled: boolean;
+  questsZeldaCraftWidgetEnabled: boolean; // Nouveau widget "Quêtes de ZeldaCraft" (voir QuestsZeldaCraftWidget.tsx)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -3229,6 +3244,15 @@ export const DEFAULT_REP_RULES: RepRules = {
   progressWidgetEnabled: true,
   playtimeTrackingEnabled: true,
   playtimeHeartbeatSec: 30,
+  diceRollWidgetEnabled: true,
+  teamChatWidgetEnabled: true,
+  equipmentWidgetEnabled: true,
+  inventoryWidgetEnabled: true,
+  shopWidgetEnabled: true,
+  worldMapWidgetEnabled: true,
+  statsWidgetEnabled: true,
+  kingdomQuestsWidgetEnabled: true,
+  questsZeldaCraftWidgetEnabled: true,
 }
 
 export async function getRepRules(): Promise<RepRules> {

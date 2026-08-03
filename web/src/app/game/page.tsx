@@ -33,6 +33,7 @@ import { WorldMapWidget } from '@/components/WorldMapWidget';
 import { GameCanvas2D } from '@/components/GameCanvas2D';
 import { StatsWidget } from '@/components/StatsWidget';
 import { KingdomQuestsWidget } from '@/components/KingdomQuestsWidget';
+import { QuestsZeldaCraftWidget } from '@/components/QuestsZeldaCraftWidget';
 import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
@@ -479,19 +480,19 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         onRequestDiceRoll={requestDiceRoll} onCombatActiveChange={setCombatDiceActive} />
       {/* Fenêtre flottante et déplaçable de lancer de dés (infra générique + destin quotidien +
           "Lancer..." obligatoire pour les combats PNJ, voir le pont ci-dessus) */}
-      <DiceRollWidget pendingEvent={pendingDiceEvent} onEventResolved={handleDiceEventResolved} otherRollsLocked={combatDiceActive} />
+      <DiceRollWidget pendingEvent={pendingDiceEvent} onEventResolved={handleDiceEventResolved} otherRollsLocked={combatDiceActive} enabled={repRules?.diceRollWidgetEnabled !== false} />
       {/* Fenêtre flottante et déplaçable du chat d'équipe multi-joueurs */}
-      <TeamChatWidget contract={contract} defaultName={name} />
+      <TeamChatWidget contract={contract} defaultName={name} enabled={repRules?.teamChatWidgetEnabled !== false} />
       {/* Fenêtre flottante "homme de Vitruve" pour équiper armes/protections par drag-and-drop */}
-      <EquipmentWidget stage={Number(stage)} />
+      <EquipmentWidget stage={Number(stage)} enabled={repRules?.equipmentWidgetEnabled !== false} />
       {/* Fenêtre flottante et déplaçable "Sac / Besace" — duplique InventoryPanel.tsx ci-dessus,
           permet le glisser-déposer direct vers EquipmentWidget sans défiler la page */}
-      <InventoryWidget />
+      <InventoryWidget enabled={repRules?.inventoryWidgetEnabled !== false} />
       {/* Fenêtre flottante et déplaçable "Boutique des terres de ZeldCraft" — duplique ShopPanel.tsx
           ci-dessus dans une fenêtre repositionnable */}
-      <ShopWidget />
+      <ShopWidget enabled={repRules?.shopWidgetEnabled !== false} />
       {/* Mapmonde du territoire de Synk — carte parchemin zoomable, POI, mondes, voyage libre */}
-      <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} />
+      <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} enabled={repRules?.worldMapWidgetEnabled !== false} />
       {/* Socle évolutif de plateforme de jeu 2D isométrique (déplacements, PNJ, dragon, décor) */}
       <GameCanvas2D stage={Number(stage)} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} />
       {/* Fenêtre flottante et déplaçable "Statistiques" — duplique le tableau fixe ci-dessus */}
@@ -505,10 +506,15 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         oxygen={player?.oxygen ?? 100} oxygenMax={player?.oxygenMax ?? 100}
         fatigue={player?.fatigue ?? 100} fatigueMax={player?.fatigueMax ?? 100}
         wallet={player?.wallet ?? 0} reputation={player?.reputation ?? 0}
+        enabled={repRules?.statsWidgetEnabled !== false}
       />
       {/* Fenêtre flottante et déplaçable "Quêtes du Royaume" — 400 énigmes, 40 chapitres, fil
           narratif principal (libérer PocaPoka et El Pipo de Zorghon) — voir gameState.ts */}
-      <KingdomQuestsWidget />
+      <KingdomQuestsWidget enabled={repRules?.kingdomQuestsWidgetEnabled !== false} />
+      {/* Fenêtre flottante et déplaçable "Quêtes de ZeldaCraft" — récapitulatif repliable par
+          thème de TOUTES les quêtes (PNJ rencontrés, classiques, PNJ, archipel, îles sauvages,
+          Royaume) en un seul widget, voir demande utilisateur */}
+      <QuestsZeldaCraftWidget enabled={repRules?.questsZeldaCraftWidgetEnabled !== false} />
       {/* Widgets flottants personnalisés définis par l'admin (menu Administration) */}
       <CustomWidgetsRenderer playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} />
       {/* Sommeil forcé si HP ≤ 20 (récupère à 75 après 50s) */}

@@ -25,7 +25,7 @@ const COLLAPSED_KEY = 'zc.shopWidgetCollapsed';
  * Purement additif : la section fixe ShopPanel.tsx n'est ni retirée ni modifiée, aucune
  * régression sur son fonctionnement existant.
  */
-export function ShopWidget() {
+export function ShopWidget({ enabled = true }: { enabled?: boolean } = {}) {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -35,6 +35,7 @@ export function ShopWidget() {
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
     defaultPos: () => ({ x: window.innerWidth - 300, y: 230 }),
+    onExpand: bringToFront,
   });
 
   const [catalog, setCatalog] = useState<ShopItem[]>([]);
@@ -120,7 +121,7 @@ export function ShopWidget() {
     if (c.kind === 'sell') await sell(c.item, c.price);
   };
 
-  if (!address || !pos) return null;
+  if (!enabled || !address || !pos) return null;
 
   if (collapsed) {
     return (

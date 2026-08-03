@@ -170,6 +170,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
     defaultPos: () => ({ x: window.innerWidth - 520, y: 90 }),
+    onExpand: bringToFront,
   });
 
   const [size, setSize] = useState<Size>({ w: 480, h: 380 });

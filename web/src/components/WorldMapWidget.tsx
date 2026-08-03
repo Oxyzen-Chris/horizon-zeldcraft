@@ -57,7 +57,7 @@ const POI_TYPE_FALLBACK_ICON: Record<string, string> = {
  * RepRules.travel*). Évolutif : `mapId` fixé sur DEFAULT_MAP_ID pour l'instant, mais toute
  * l'infrastructure (MapDef/MapPoiDef) supporte déjà plusieurs cartes à l'avenir.
  */
-export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; encounterNpc?: EncounterMarkerInfo }) {
+export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { playerXp: number; encounterNpc?: EncounterMarkerInfo; enabled?: boolean }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -68,6 +68,7 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
     defaultPos: () => ({ x: 24, y: Math.max(20, window.innerHeight - 400) }),
+    onExpand: bringToFront,
   });
 
   const [size, setSize] = useState<Size>({ w: 460, h: 360 });
@@ -448,7 +449,7 @@ export function WorldMapWidget({ playerXp, encounterNpc }: { playerXp: number; e
     );
   })();
 
-  if (!address || !pos) return null;
+  if (!enabled || !address || !pos) return null;
 
   if (collapsed) {
     return (

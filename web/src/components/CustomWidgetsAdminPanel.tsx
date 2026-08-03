@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import {
-  addCustomWidget, getCustomWidgets, removeCustomWidget,
+  addCustomWidget, getCustomWidgets, removeCustomWidget, getRepRules, setRepRules,
   type CustomWidgetDef, type CustomWidgetActionType, type CustomWidgetAnimation, type CustomWidgetEffect,
+  type RepRules,
 } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 
@@ -28,15 +29,47 @@ const ANIMATIONS: CustomWidgetAnimation[] = ['none', 'pulse', 'bounce', 'glow'];
 const ACTION_TYPES: CustomWidgetActionType[] = ['none', 'link', 'message', 'effect'];
 const EFFECT_FIELDS: (keyof EffectForm)[] = ['wallet', 'xpBonus', 'reputation', 'hp', 'hunger', 'happiness', 'force', 'spells'];
 
+/** Clés `RepRules` booléennes couvertes par le tableau `BUILTIN_WIDGETS` ci-dessous — union
+ * explicite (plutôt que `keyof RepRules`, trop large) pour garantir au typage que `rules[w.key]`
+ * est bien un `boolean` et que `toggleBuiltinWidget` ne peut recevoir qu'une de ces clés. */
+type BuiltinWidgetKey =
+  | 'diceRollWidgetEnabled' | 'teamChatWidgetEnabled' | 'equipmentWidgetEnabled' | 'inventoryWidgetEnabled'
+  | 'shopWidgetEnabled' | 'worldMapWidgetEnabled' | 'statsWidgetEnabled' | 'kingdomQuestsWidgetEnabled'
+  | 'questsZeldaCraftWidgetEnabled' | 'helpWidgetEnabled' | 'progressWidgetEnabled';
+
+/** Widgets flottants EXISTANTS du jeu pouvant être masqués/réaffichés globalement par l'admin (voir
+ * demande utilisateur). Volontairement exclu : `GameCanvas2D` (plateforme 2D isométrique — cœur du
+ * jeu, sa désactivation rendrait le jeu injouable) ainsi que WeatherWidget/SeasonWidget/MoonWidget
+ * (bandeaux fixes d'en-tête, pas des fenêtres flottantes déplaçables). Chaque entrée correspond à
+ * un booléen `RepRules.<key>` déjà lu par le composant concerné dans game/page.tsx (défaut true —
+ * comportement identique à avant l'introduction de ces interrupteurs tant que rien n'est décoché). */
+const BUILTIN_WIDGETS: { key: BuiltinWidgetKey; icon: string; labelKey: string }[] = [
+  { key: 'diceRollWidgetEnabled', icon: '🎲', labelKey: 'admin.customWidgets.builtin.dice' },
+  { key: 'teamChatWidgetEnabled', icon: '💬', labelKey: 'admin.customWidgets.builtin.teamChat' },
+  { key: 'equipmentWidgetEnabled', icon: '🧍', labelKey: 'admin.customWidgets.builtin.equipment' },
+  { key: 'inventoryWidgetEnabled', icon: '🎒', labelKey: 'admin.customWidgets.builtin.inventory' },
+  { key: 'shopWidgetEnabled', icon: '🏪', labelKey: 'admin.customWidgets.builtin.shop' },
+  { key: 'worldMapWidgetEnabled', icon: '🗺️', labelKey: 'admin.customWidgets.builtin.worldMap' },
+  { key: 'statsWidgetEnabled', icon: '📊', labelKey: 'admin.customWidgets.builtin.stats' },
+  { key: 'kingdomQuestsWidgetEnabled', icon: '👑', labelKey: 'admin.customWidgets.builtin.kingdomQuests' },
+  { key: 'questsZeldaCraftWidgetEnabled', icon: '🧭', labelKey: 'admin.customWidgets.builtin.questsZeldaCraft' },
+  { key: 'helpWidgetEnabled', icon: '❓', labelKey: 'admin.customWidgets.builtin.help' },
+  { key: 'progressWidgetEnabled', icon: '📖', labelKey: 'admin.customWidgets.builtin.progress' },
+];
+
 /**
- * Panneau admin — catalogue de widgets flottants génériques (100% hors-chaîne). Chaque widget =
- * un titre, un contenu, une icône/animation, une condition d'affichage (XP min) et une liste de
- * boutons dont l'action est choisie parmi un ensemble prédéfini et sûr (lien externe, message,
- * ou effet appliqué au joueur) — même esprit que `ChatScriptsAdminPanel`.
+ * Panneau admin — activation/désactivation des widgets flottants EXISTANTS du jeu (voir
+ * `BUILTIN_WIDGETS` ci-dessus), puis catalogue de widgets flottants génériques ADMIN (100%
+ * hors-chaîne). Chaque widget = un titre, un contenu, une icône/animation, une condition
+ * d'affichage (XP min) et une liste de boutons dont l'action est choisie parmi un ensemble
+ * prédéfini et sûr (lien externe, message, ou effet appliqué au joueur) — même esprit que
+ * `ChatScriptsAdminPanel`.
  */
 export function CustomWidgetsAdminPanel() {
   const { t } = useI18n();
   const [widgets, setWidgets] = useState<CustomWidgetDef[]>([]);
+  const [rules, setRules] = useState<RepRules | null>(null);
+  const [togglingKey, setTogglingKey] = useState<string | null>(null);
   const [id, setId] = useState('');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -48,7 +81,24 @@ export function CustomWidgetsAdminPanel() {
   const [saved, setSaved] = useState(false);
 
   const reload = () => getCustomWidgets().then(setWidgets).catch(() => {});
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); getRepRules().then(setRules).catch(() => {}); }, []);
+
+  // Bascule immédiate d'un widget (pas de bouton "Enregistrer" séparé, comme pour la liste de
+  // widgets admin ci-dessous) — relit toujours `getRepRules()` juste avant d'écrire pour fusionner
+  // avec la valeur la plus récente côté serveur plutôt que d'écraser aveuglément l'objet local
+  // (setRepRules fait un `set()` complet), au cas où un autre onglet Administration (RepRulesPanel)
+  // aurait modifié un autre champ entre-temps.
+  const toggleBuiltinWidget = async (key: BuiltinWidgetKey, checked: boolean) => {
+    setTogglingKey(key);
+    try {
+      const fresh = await getRepRules();
+      const next = { ...fresh, [key]: checked };
+      await setRepRules(next);
+      setRules(next);
+    } finally {
+      setTogglingKey(null);
+    }
+  };
 
   const setButtonField = (i: number, field: keyof ButtonForm, value: string) => {
     setButtons(prev => prev.map((b, idx) => idx === i ? { ...b, [field]: value } : b));
@@ -108,6 +158,29 @@ export function CustomWidgetsAdminPanel() {
     <section className="card">
       <h2 className="text-xl font-semibold mb-3">{t('admin.customWidgets.title')}</h2>
       <p className="text-xs text-slate-400 mb-3">{t('admin.customWidgets.description')}</p>
+
+      <div className="mb-5 pb-4 border-b border-slate-700">
+        <p className="text-sm font-semibold mb-1">{t('admin.customWidgets.builtin.title')}</p>
+        <p className="text-xs text-slate-400 mb-2">{t('admin.customWidgets.builtin.description')}</p>
+        {!rules ? (
+          <p className="text-xs text-slate-500 italic">{t('common.loading')}</p>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-1.5">
+            {BUILTIN_WIDGETS.map(w => (
+              <label key={w.key} className="flex items-center gap-2 text-xs bg-slate-800/40 rounded px-2.5 py-1.5">
+                <input
+                  type="checkbox"
+                  checked={rules[w.key] !== false}
+                  disabled={togglingKey === w.key}
+                  onChange={e => toggleBuiltinWidget(w.key, e.target.checked)}
+                />
+                <span>{w.icon} {t(w.labelKey)}</span>
+                {togglingKey === w.key && <span className="opacity-60">⏳</span>}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="grid md:grid-cols-4 gap-2 mb-2">
         <input className="input" placeholder={t('admin.customWidgets.id')} value={id} onChange={e => setId(e.target.value)} />

@@ -35,7 +35,7 @@ type Msg = {
  * `/game`, sans arrière-plan bloquant). Permet d'écrire/répondre à son équipe sans quitter le
  * reste de l'écran de jeu. La création/gestion d'équipe reste dans `TeamsPanel`.
  */
-export function TeamChatWidget({ contract, defaultName }: { contract: `0x${string}`; defaultName?: string }) {
+export function TeamChatWidget({ contract, defaultName, enabled = true }: { contract: `0x${string}`; defaultName?: string; enabled?: boolean }) {
   const { t } = useI18n();
   const { address } = useAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -45,6 +45,7 @@ export function TeamChatWidget({ contract, defaultName }: { contract: `0x${strin
   } = useDraggableWidget({
     posKey: POS_KEY, collapsedKey: COLLAPSED_KEY,
     defaultPos: () => ({ x: window.innerWidth - 340, y: window.innerHeight - 420 }),
+    onExpand: bringToFront,
   });
   const fbReady = isFirebaseConfigured();
 
@@ -193,7 +194,7 @@ export function TeamChatWidget({ contract, defaultName }: { contract: `0x${strin
     } catch (e) { console.error(e); }
   };
 
-  if (!address || !pos) return null;
+  if (!enabled || !address || !pos) return null;
 
   if (collapsed) {
     return (
