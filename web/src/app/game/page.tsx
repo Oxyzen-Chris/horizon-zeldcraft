@@ -38,6 +38,7 @@ import { EncountersLog } from '@/components/EncountersLog';
 import { ShopPanel } from '@/components/ShopPanel';
 import { InventoryPanel } from '@/components/InventoryPanel';
 import { WalletPanel } from '@/components/WalletPanel';
+import { WalletTopupWidget } from '@/components/WalletTopupWidget';
 import { SleepModal } from '@/components/SleepModal';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { HelpWidget } from '@/components/HelpWidget';
@@ -416,6 +417,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         </div>
       </section>
 
+      {repRules?.feedSectionEnabled !== false && (
       <section className="card md:col-span-2">
         <h3 className="text-lg font-semibold mb-4">{t('game.feed.title')}</h3>
         {repRules?.onchainFeedButtonsEnabled !== true ? (
@@ -463,6 +465,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
           </p>
         )}
       </section>
+      )}
 
       <div className="md:col-span-2">
         <Scoreboard contract={contract} tokenId={tokenId} level={Number(level)} xp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} offchainScore={player?.score ?? 0} />
@@ -524,6 +527,9 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       {/* Fenêtre flottante et déplaçable "Boutique des terres de ZeldCraft" — duplique ShopPanel.tsx
           ci-dessus dans une fenêtre repositionnable */}
       <ShopWidget enabled={repRules?.shopWidgetEnabled !== false} />
+      {/* Fenêtre flottante et déplaçable "Rechargement du portefeuille" — duplique WalletPanel.tsx
+          ci-dessus (achat de monnaie de jeu contre ETH, mêmes presets/treasury/applyEffect) */}
+      <WalletTopupWidget contract={contract} enabled={repRules?.walletTopupWidgetEnabled !== false} />
       {/* Mapmonde du territoire de Synk — carte parchemin zoomable, POI, mondes, voyage libre */}
       <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} enabled={repRules?.worldMapWidgetEnabled !== false} />
       {/* Socle évolutif de plateforme de jeu 2D isométrique (déplacements, PNJ, dragon, décor) */}

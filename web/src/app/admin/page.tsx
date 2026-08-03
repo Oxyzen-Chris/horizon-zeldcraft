@@ -265,7 +265,20 @@ export default function AdminPage() {
   const [onchainFeedEnabled, setOnchainFeedEnabled] = useState(false);
   const [onchainFeedLoaded, setOnchainFeedLoaded] = useState(false);
   const [onchainFeedSaving, setOnchainFeedSaving] = useState(false);
-  useEffect(() => { getRepRules().then((r) => { setOnchainFeedEnabled(r.onchainFeedButtonsEnabled === true); setOnchainFeedLoaded(true); }).catch(() => {}); }, []);
+  // Interrupteur "Afficher la rubrique Nourrir Synk" (RepRules.feedSectionEnabled, défaut true) —
+  // masque toute la rubrique game/page.tsx (titre + boutons on-chain + message d'attente), en plus
+  // du contrôle indépendant `onchainFeedButtonsEnabled` qui ne masque que les 4 boutons eux-mêmes.
+  const [feedSectionEnabled, setFeedSectionEnabled] = useState(true);
+  const [feedSectionLoaded, setFeedSectionLoaded] = useState(false);
+  const [feedSectionSaving, setFeedSectionSaving] = useState(false);
+  useEffect(() => {
+    getRepRules().then((r) => {
+      setOnchainFeedEnabled(r.onchainFeedButtonsEnabled === true);
+      setOnchainFeedLoaded(true);
+      setFeedSectionEnabled(r.feedSectionEnabled !== false);
+      setFeedSectionLoaded(true);
+    }).catch(() => {});
+  }, []);
   const toggleOnchainFeed = async (checked: boolean) => {
     setOnchainFeedSaving(true);
     try {
@@ -274,6 +287,16 @@ export default function AdminPage() {
       setOnchainFeedEnabled(checked);
     } finally {
       setOnchainFeedSaving(false);
+    }
+  };
+  const toggleFeedSection = async (checked: boolean) => {
+    setFeedSectionSaving(true);
+    try {
+      const fresh = await getRepRules();
+      await setRepRules({ ...fresh, feedSectionEnabled: checked });
+      setFeedSectionEnabled(checked);
+    } finally {
+      setFeedSectionSaving(false);
     }
   };
 
@@ -816,6 +839,18 @@ export default function AdminPage() {
           <section id="admin-sec-cooldowns" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.cooldowns.title')}</h2>
             <p className="text-sm text-slate-400 mb-3">{t('admin.cooldowns.hint')}</p>
+
+            <label className="flex items-center gap-2 text-xs bg-slate-800/40 rounded px-2.5 py-1.5 w-fit mb-3">
+              <input
+                type="checkbox"
+                checked={feedSectionEnabled}
+                disabled={feedSectionSaving || !feedSectionLoaded}
+                onChange={e => toggleFeedSection(e.target.checked)}
+              />
+              <span>🍽️ {t('admin.cooldowns.feedSectionToggle')}</span>
+              {feedSectionSaving && <span className="opacity-60">⏳</span>}
+            </label>
+
             <div className="grid md:grid-cols-3 gap-3 mb-3">
               <select className="input" value={cooldownIdx} onChange={e => setCooldownIdx(Number(e.target.value))}>
                 {FEED_TYPES.map((f, i) => <option key={f} value={i}>{t(`game.feed.${f}`)}</option>)}

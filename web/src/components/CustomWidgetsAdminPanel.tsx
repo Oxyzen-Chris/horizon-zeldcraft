@@ -35,7 +35,7 @@ const EFFECT_FIELDS: (keyof EffectForm)[] = ['wallet', 'xpBonus', 'reputation', 
 type BuiltinWidgetKey =
   | 'diceRollWidgetEnabled' | 'teamChatWidgetEnabled' | 'equipmentWidgetEnabled' | 'inventoryWidgetEnabled'
   | 'shopWidgetEnabled' | 'worldMapWidgetEnabled' | 'statsWidgetEnabled' | 'kingdomQuestsWidgetEnabled'
-  | 'questsZeldaCraftWidgetEnabled' | 'helpWidgetEnabled' | 'progressWidgetEnabled';
+  | 'questsZeldaCraftWidgetEnabled' | 'helpWidgetEnabled' | 'progressWidgetEnabled' | 'walletTopupWidgetEnabled';
 
 /** Widgets flottants EXISTANTS du jeu pouvant être masqués/réaffichés globalement par l'admin (voir
  * demande utilisateur). Volontairement exclu : `GameCanvas2D` (plateforme 2D isométrique — cœur du
@@ -55,6 +55,7 @@ const BUILTIN_WIDGETS: { key: BuiltinWidgetKey; icon: string; labelKey: string }
   { key: 'questsZeldaCraftWidgetEnabled', icon: '🧭', labelKey: 'admin.customWidgets.builtin.questsZeldaCraft' },
   { key: 'helpWidgetEnabled', icon: '❓', labelKey: 'admin.customWidgets.builtin.help' },
   { key: 'progressWidgetEnabled', icon: '📖', labelKey: 'admin.customWidgets.builtin.progress' },
+  { key: 'walletTopupWidgetEnabled', icon: '💰', labelKey: 'admin.customWidgets.builtin.walletTopup' },
 ];
 
 /**

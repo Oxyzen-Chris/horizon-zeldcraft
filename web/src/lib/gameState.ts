@@ -3110,6 +3110,18 @@ export interface RepRules {
   statsWidgetEnabled: boolean;
   kingdomQuestsWidgetEnabled: boolean;
   questsZeldaCraftWidgetEnabled: boolean; // Nouveau widget "Quêtes de ZeldaCraft" (voir QuestsZeldaCraftWidget.tsx)
+  // Nouveau widget flottant "Rechargement du portefeuille" (voir WalletTopupWidget.tsx), duplique
+  // le mécanisme d'achat de monnaie de jeu contre ETH déjà en place dans WalletPanel.tsx (section
+  // fixe "Portefeuille") — même sémantique par défaut `true` que les autres widgets ci-dessus.
+  walletTopupWidgetEnabled: boolean;
+  // Affiche/masque la rubrique "Nourrir Synk" (les 4 boutons de repas on-chain + leur cooldown)
+  // dans le jeu — voir game/page.tsx. Distinct de `onchainFeedButtonsEnabled` ci-dessous qui ne
+  // gère QUE les boutons on-chain eux-mêmes (déjà masqués par défaut à cause du bug connu) :
+  // `feedSectionEnabled` permet en plus à l'admin de masquer toute la rubrique (titre inclus,
+  // y compris le message "repas suspendus") si le nourrissage on-chain n'est pas souhaité du
+  // tout dans l'UI, par ex. le temps de communiquer sur la Boutique comme alternative. Défaut
+  // `true` (comportement identique à avant l'introduction de cet interrupteur).
+  feedSectionEnabled: boolean;
   // ─── Repas on-chain de Synk (section "Nourrir Synk" de game/page.tsx, 4 boutons journalier/
   // hebdomadaire/mensuel/annuel qui appellent `feed()` sur le smart contract Sepolia). Masqués et
   // désactivés PAR DÉFAUT (contrairement aux autres interrupteurs de widgets ci-dessus, tous par
@@ -3267,6 +3279,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   statsWidgetEnabled: true,
   kingdomQuestsWidgetEnabled: true,
   questsZeldaCraftWidgetEnabled: true,
+  walletTopupWidgetEnabled: true,
+  feedSectionEnabled: true,
   // Défaut false (voir commentaire sur l'interface RepRules) : bug de cooldown partagé sur le
   // contrat Sepolia actuellement déployé, correctif écrit mais en attente de redéploiement.
   onchainFeedButtonsEnabled: false,
