@@ -674,7 +674,13 @@ export function AiGameplayIntelligencePanel() {
                   <div className="mt-3 bg-slate-800/60 rounded-lg p-3">
                     <p className="text-[10px] text-slate-500 mb-2">
                       {t('admin.aiGameplay.ai.generatedAt', { date: new Date(insights.generatedAt).toLocaleString(), model: insights.model })}
-                      {insights.provider ? ` · ${insights.provider === 'groq' ? 'Groq' : 'Google Gemini'}` : ''}
+                      {insights.provider
+                        ? ` · ${
+                            { gemini: 'Google Gemini', groq: 'Groq', cerebras: 'Cerebras', openrouter: 'OpenRouter' }[
+                              insights.provider as 'gemini' | 'groq' | 'cerebras' | 'openrouter'
+                            ] ?? insights.provider
+                          }`
+                        : ''}
                     </p>
                     <pre className="text-xs text-slate-300 whitespace-pre-wrap font-sans">{insights.text}</pre>
                   </div>
@@ -708,18 +714,26 @@ export function AiGameplayIntelligencePanel() {
                   value={settings.aiProvider}
                   onChange={e => {
                     const next = e.target.value as AiAnalyticsSettings['aiProvider'];
+                    // Le champ modèle est repris directement par la route API : on le remet à une
+                    // valeur par défaut cohérente avec le nouveau fournisseur pour éviter d'envoyer
+                    // par erreur un nom de modèle d'un autre fournisseur (ex : Gemini à Groq).
+                    const defaultModelByProvider: Record<AiAnalyticsSettings['aiProvider'], string> = {
+                      gemini: 'gemini-2.0-flash',
+                      groq: 'llama-3.3-70b-versatile',
+                      cerebras: 'llama-3.3-70b',
+                      openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
+                    };
                     setSettings(prev => ({
                       ...prev,
                       aiProvider: next,
-                      // Le champ modèle est repris directement par la route API : on le remet à
-                      // une valeur par défaut cohérente avec le nouveau fournisseur pour éviter
-                      // d'envoyer par erreur un nom de modèle Gemini à Groq (ou l'inverse).
-                      aiModel: next === 'groq' ? 'llama-3.3-70b-versatile' : 'gemini-2.0-flash',
+                      aiModel: defaultModelByProvider[next],
                     }));
                   }}
                 >
                   <option value="gemini">Google Gemini</option>
                   <option value="groq">Groq</option>
+                  <option value="cerebras">Cerebras</option>
+                  <option value="openrouter">OpenRouter</option>
                 </select>
               </label>
               <label className="text-xs flex flex-col gap-1">

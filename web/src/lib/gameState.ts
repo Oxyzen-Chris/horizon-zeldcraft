@@ -3934,8 +3934,8 @@ export interface AiAnalyticsSettings {
   mapHeatmapGridSize: number;       // taille de maille (%) pour regrouper les positions sur la heatmap (défaut 5)
   faintEventsRetentionDays: number; // fenêtre affichée par défaut dans le panneau admin (purge non automatique)
   aiEnabled: boolean;               // active la section « Assistant IA » (bouton Générer une analyse)
-  aiProvider: 'gemini' | 'groq';    // fournisseur LLM 100% gratuit utilisé par la route API serveur
-  aiModel: string;                  // ex. "gemini-2.0-flash" ou "llama-3.3-70b-versatile" (Groq)
+  aiProvider: 'gemini' | 'groq' | 'cerebras' | 'openrouter'; // fournisseur LLM 100% gratuit utilisé par la route API serveur
+  aiModel: string;                  // ex. "gemini-2.0-flash", "llama-3.3-70b-versatile" (Groq), "llama-3.3-70b" (Cerebras) ou "meta-llama/llama-3.3-70b-instruct:free" (OpenRouter)
   aiAutoRefreshHours: number;       // délai mini entre deux régénérations (respect du quota gratuit)
 }
 
@@ -4481,7 +4481,7 @@ export async function getPlayerFaintEventsDetail(address: string, limitN = 100):
 
 // ─────────────────────────────────────── Cache des insights IA ───────────────────────────────────────
 
-export interface AiInsightsCache { text: string; generatedAt: number; model: string; provider?: 'gemini' | 'groq' }
+export interface AiInsightsCache { text: string; generatedAt: number; model: string; provider?: 'gemini' | 'groq' | 'cerebras' | 'openrouter' }
 
 export async function getAiInsightsCache(): Promise<AiInsightsCache | null> {
   const db = getFirebaseDb();
