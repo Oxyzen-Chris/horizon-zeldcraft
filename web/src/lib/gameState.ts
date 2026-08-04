@@ -3114,6 +3114,16 @@ export interface RepRules {
   // le mécanisme d'achat de monnaie de jeu contre ETH déjà en place dans WalletPanel.tsx (section
   // fixe "Portefeuille") — même sémantique par défaut `true` que les autres widgets ci-dessus.
   walletTopupWidgetEnabled: boolean;
+  // Nouveau widget flottant "Plateforme 3D" (voir Platform3DWidget.tsx, Phase 3 Roadmap — Moteur
+  // de jeu) : rendu 3D façon Minecraft (voxels/blocs) de Synk et de tout son univers (PNJ,
+  // familiers, monstres, Zorghon/PocaPoka/El Pipo, huttes, eau, montagnes, trésors, engins),
+  // synchronisé EN TEMPS RÉEL avec la même position (`players/{addr}/mapPos`) que la Plateforme 2D
+  // isométrique et la Mapmonde — mêmes fonctions `worldTileAt`/`getAllMapMarkers`, donc AUCUNE
+  // divergence possible entre les 3 vues. Bâti en Three.js/React Three Fiber (et non un moteur
+  // Godot/Unity/Unreal séparé) pour rester un widget React natif, sans pipeline d'export externe —
+  // voir ROADMAP.md § Phase 3 pour la justification de ce choix technique. Même sémantique par
+  // défaut `true` que les autres widgets ci-dessus (comportement additif, ne retire rien).
+  platform3dWidgetEnabled: boolean;
   // Affiche/masque la rubrique "Nourrir Synk" (les 4 boutons de repas on-chain + leur cooldown)
   // dans le jeu — voir game/page.tsx. Distinct de `onchainFeedButtonsEnabled` ci-dessous qui ne
   // gère QUE les boutons on-chain eux-mêmes (déjà masqués par défaut à cause du bug connu) :
@@ -3280,6 +3290,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   kingdomQuestsWidgetEnabled: true,
   questsZeldaCraftWidgetEnabled: true,
   walletTopupWidgetEnabled: true,
+  platform3dWidgetEnabled: true,
   feedSectionEnabled: true,
   // Défaut false (voir commentaire sur l'interface RepRules) : bug de cooldown partagé sur le
   // contrat Sepolia actuellement déployé, correctif écrit mais en attente de redéploiement.

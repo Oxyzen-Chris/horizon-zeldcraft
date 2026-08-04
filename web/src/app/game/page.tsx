@@ -31,6 +31,7 @@ import { InventoryWidget } from '@/components/InventoryWidget';
 import { ShopWidget } from '@/components/ShopWidget';
 import { WorldMapWidget } from '@/components/WorldMapWidget';
 import { GameCanvas2D } from '@/components/GameCanvas2D';
+import { Platform3DWidget } from '@/components/Platform3DWidget';
 import { StatsWidget } from '@/components/StatsWidget';
 import { KingdomQuestsWidget } from '@/components/KingdomQuestsWidget';
 import { QuestsZeldaCraftWidget } from '@/components/QuestsZeldaCraftWidget';
@@ -534,6 +535,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       <WorldMapWidget playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} enabled={repRules?.worldMapWidgetEnabled !== false} />
       {/* Socle évolutif de plateforme de jeu 2D isométrique (déplacements, PNJ, dragon, décor) */}
       <GameCanvas2D stage={Number(stage)} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} />
+      {/* Fenêtre flottante et déplaçable "Plateforme 3D" (Phase 3 Roadmap — Moteur de jeu) — rendu
+          3D façon Minecraft de Synk et de son univers, synchronisé avec la Plateforme 2D
+          isométrique et la Mapmonde (même position/décor/marqueurs, voir Platform3DWidget.tsx) */}
+      <Platform3DWidget stage={Number(stage)} enabled={repRules?.platform3dWidgetEnabled !== false} />
       {/* Fenêtre flottante et déplaçable "Statistiques" — duplique le tableau fixe ci-dessus */}
       <StatsWidget
         xp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} xpCap={xpCap}

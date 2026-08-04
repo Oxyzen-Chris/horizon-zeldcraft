@@ -83,7 +83,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 📜 Quêtes classiques, ❓ quêtes PNJ (intermédiaires), 🏝️ quêtes d'archipel, 🌴 quêtes d'îles sauvages — toutes contribuent au déblocage séquentiel des Quêtes du Royaume
 - 🎬 **Onboarding en 3 écrans** ludiques (bienvenue & stades de Synk, lore & mécaniques, guide des widgets) + widget **« Aides »** disponible à tout moment
 
-### Écran de jeu — 14 fenêtres flottantes déplaçables
+### Écran de jeu — 15 fenêtres flottantes déplaçables
 - 🗡️ Création de Synk (~15–20 € en ETH, paramétrable admin)
 - 🍖 Nourrissage journalier / hebdo / mensuel / annuel avec cooldowns **indépendants par type** et compte-à-rebours — rubrique masquable par l'admin, boutons on-chain désactivables séparément (voir Bugs corrigés)
 - 💰 **Rechargement du portefeuille** (nouveau) : fenêtre flottante dédiée à l'achat de monnaie de jeu contre ETH (mêmes presets/trésorerie que la rubrique « Portefeuille » fixe), déplaçable/réductible comme tous les autres widgets
@@ -96,6 +96,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 🛒 **Boutique des terres de ZeldCraft** : armes, protections, casques/habits/gants/bottes (120+ articles inspirés Tolkien/WoW/Zelda/Minecraft), nourriture, potions & sortilèges, engins, trésors, selles
 - 🗺️ **Mapmonde** zoomable avec filtres par catégorie, mers/océans/îles/archipels, pop-up profondeur/altitude clignotant
 - 🧍 **Plateforme 2D isométrique** : déplacement et articulation de Synk en **8 directions**, dalles d'eau (profondeur) et de montagne (altitude 0–6000 m) avec raréfaction de l'air, mécaniques d'oxygène/fatigue
+- 🧊 **Plateforme 3D** (nouveau, Phase 2 Roadmap) : rendu 3D façon Minecraft (voxels/blocs) de Synk et de tout son univers (PNJ, familiers, Zorghon/PocaPoka/El Pipo, huttes, eau, montagnes, trésors), bâti en **Three.js/React Three Fiber**, synchronisé en temps réel avec la Plateforme 2D isométrique et la Mapmonde (même position/décor/marqueurs), mêmes contrôles clavier/souris/pavé directionnel, immersion visuelle en nage sur les dalles d'eau — activable/désactivable dans `Administration > Widgets personnalisés`
 - 🐲 **Familiers** (Dragon d'Or…) et selles pour les chevaucher
 - 👑 Widget **« Quêtes du Royaume »** : suivi des 400 quêtes/40 chapitres
 - 🧭 Widget **« Quêtes de ZeldaCraft »** (nouveau) : récapitulatif dépliable par thème de **toutes** les quêtes du jeu en un seul endroit — PNJ rencontrés, quêtes classiques, quêtes PNJ, quêtes d'archipel, quêtes d'îles sauvages, Quêtes du Royaume

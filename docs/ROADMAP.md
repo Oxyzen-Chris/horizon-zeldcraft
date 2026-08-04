@@ -94,7 +94,46 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
     5. Communiquer aux joueurs (Instagram, in-game) la réinitialisation de leur Voxlyn on-chain
        avant de redéployer.
 
-## 🔜 Phase 2 — Auth sociale & UX
+## 🔜 Phase 2 — Moteur de jeu
+
+> **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la
+> demande du porteur du projet, pour prioriser la Plateforme 3D et l'écosystème de jeu avant les
+> évolutions d'authentification/UX.
+
+- [x] **Choix moteur : Three.js / React Three Fiber** (et non un moteur Godot/Unity/Unreal séparé)
+      pour le widget « Plateforme 3D » ci-dessous — décision technique prise avec le porteur du
+      projet : un vrai projet Godot 4 est une application autonome (éditeur GDScript, pipeline
+      d'export WebGL/wasm, pont JS↔Godot) qui ne peut pas fonctionner comme un widget React
+      synchronisé en temps réel avec l'état de jeu existant (Firebase RTDB, `players/{addr}/mapPos`)
+      sans une réécriture majeure et déconnectée du reste de l'app Next.js. Three.js/React Three
+      Fiber s'intègre nativement comme composant React (`Platform3DWidget.tsx`), sans pipeline de
+      build externe, disponible immédiatement sur web ET mobile (navigateur Expo Go/WebView).
+      **Godot 4 reste documenté ci-dessous comme portage natif optionnel et futur**, hors périmètre
+      du widget web actuel (à envisager uniquement si un besoin de performances/portabilité native
+      (store mobile, console) apparaît).
+- [ ] *(Optionnel, futur)* SDK Web3 pour un éventuel portage natif **Godot 4** (via GDNative → ethers)
+      si un jeu natif distinct (store mobile/PC) est un jour lancé en parallèle du widget web.
+- [x] Widget « Plateforme 3D » (`web/src/components/Platform3DWidget.tsx`) — rendu 3D façon
+      Minecraft (voxels/blocs) de Synk et de tout son univers (PNJ, familiers, monstres, Zorghon/
+      PocaPoka/El Pipo, huttes, eau, montagnes, trésors, décor), réutilisant tel quel le modèle de
+      tuile (`worldTerrain.ts`, altitude/profondeur — voir `docs/ARCHITECTURE.md` § Modèle de
+      terrain) et le catalogue de marqueurs (`getAllMapMarkers`), synchronisé EN TEMPS RÉEL (même
+      `players/{addr}/mapPos`) avec la Plateforme 2D isométrique et la Mapmonde. Déplacements au
+      clavier (flèches/WASD), à la souris (clic sur une case, glisser pour orbiter la caméra) et au
+      pavé directionnel virtuel — même logique que la Plateforme 2D isométrique. Mécanique de
+      nage/immersion (profondeur, dalles d'eau) purement visuelle : la décroissance/récupération
+      d'oxygène et de fatigue reste intégralement pilotée par `GameCanvas2D.tsx` (toujours monté),
+      ce widget n'étant qu'une vue et un canal de déplacement supplémentaires — zéro nouvelle
+      mécanique, zéro risque de double-décompte. Activable/désactivable dans
+      `Administration > Widgets personnalisés` (`RepRules.platform3dWidgetEnabled`).
+- [ ] Prototype donjon 1 (Forêt de Zephyria) : déplacement, combat, loot (au-delà de l'exploration
+      libre déjà couverte par le widget « Plateforme 3D »)
+- [ ] Sync inventaire on-chain ↔ jeu
+- [ ] Boss & PNJ scriptés en 3D (au-delà des scripts de dialogue textuels actuels et de la
+      matérialisation statique déjà en place dans le widget « Plateforme 3D »)
+- [ ] Multi-joueur (Nakama server)
+
+## 🔜 Phase 3 — Auth sociale & UX
 
 - [ ] Web3Auth ou Privy pour login Gmail/X/Discord/Apple/Github
 - [ ] Animations Framer Motion sur Synk
@@ -102,18 +141,6 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
 - [ ] Système d'amis / classement (au-delà du `/scoreboard` actuel)
 - [ ] Deploy Instagram + kit contenu 30 posts (voir `docs/DEPLOYMENT.md` § Réseaux sociaux)
 - [ ] Premier DLC / saison narrative post-Zorghon (utilisant l'architecture Content Packs livrée)
-
-## 🎮 Phase 3 — Moteur de jeu
-
-- [ ] Choix moteur : **Godot 4** (recommandé, gratuit, léger) vs Unity vs Unreal
-- [ ] SDK Web3 pour Godot (via GDNative → ethers)
-- [ ] Widget « Plateforme 3D » — les données altitude/profondeur sont déjà structurées dans le
-      modèle de tuile (`worldTerrain.ts`) pour être consommées sans réécriture (voir
-      `docs/ARCHITECTURE.md` § Modèle de terrain)
-- [ ] Prototype donjon 1 (Forêt de Zephyria) : déplacement, combat, loot
-- [ ] Sync inventaire on-chain ↔ jeu
-- [ ] Boss & PNJ scriptés (au-delà des scripts de dialogue textuels actuels)
-- [ ] Multi-joueur (Nakama server)
 
 ## 💳 Phase 4 — Paiements fiat
 

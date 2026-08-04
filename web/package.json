@@ -10,12 +10,16 @@
   },
   "dependencies": {
     "@rainbow-me/rainbowkit": "^2.1.5",
+    "@react-three/drei": "^9.114.3",
+    "@react-three/fiber": "^8.17.10",
     "@tanstack/react-query": "^5.51.15",
+    "@types/three": "^0.169.0",
     "firebase": "^12.16.0",
     "jspdf": "^4.2.1",
     "next": "14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "three": "^0.169.0",
     "viem": "^2.19.0",
     "wagmi": "^2.12.2"
   },

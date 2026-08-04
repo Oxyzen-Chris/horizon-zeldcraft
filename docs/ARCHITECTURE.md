@@ -127,7 +127,7 @@ Dans l'ordre d'affichage :
     réglage global) et d'afficher son profil détaillé (temps par widget, entonnoir de quêtes,
     évanouissements) sans avoir à suivre tous les joueurs.
 
-## Modèle de terrain (Mapmonde / Plateforme 2D)
+## Modèle de terrain (Mapmonde / Plateforme 2D / Plateforme 3D)
 
 `web/src/lib/worldTerrain.ts` génère chaque tuile de façon **déterministe** (même seed pour tous
 les joueurs) via `worldTileAt(colonne, ligne, poiPoints)`, avec le modèle :
@@ -143,8 +143,16 @@ type Tile = {
 };
 ```
 
-Cette structure est volontairement pensée pour être réutilisable telle quelle par un futur widget
-« Plateforme 3D » (même donnée altitude/profondeur, sans réécriture - voir `docs/ROADMAP.md`).
+Cette structure a été pensée dès l'origine pour être réutilisable telle quelle par un widget
+« Plateforme 3D » (même donnée altitude/profondeur, sans réécriture) : c'est désormais le cas —
+`web/src/components/Platform3DWidget.tsx` (Phase 2 Roadmap, Three.js/React Three Fiber) consomme
+`worldTileAt`/`getAllMapMarkers` à l'identique de `GameCanvas2D.tsx`/`WorldMapWidget.tsx`, garantissant
+que les 3 vues (2D isométrique, Mapmonde, 3D voxel) restent strictement cohérentes entre elles (même
+décor, même position `players/{addr}/mapPos`). Le rendu 3D transpose directement `altitudeM` en
+hauteur de bloc rocheux et `depthM` en profondeur/teinte de bloc d'eau. Les mécaniques d'oxygène/
+fatigue/raréfaction de l'air restent intégralement pilotées par `GameCanvas2D.tsx` (toujours monté
+dans `game/page.tsx`) : le widget 3D n'en est qu'une vue et un canal de déplacement supplémentaires,
+sans y dupliquer aucune logique de décompte (zéro risque de régression/double-décompte).
 
 ## Architecture DLC / Content Packs
 
