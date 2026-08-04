@@ -2,7 +2,7 @@
 
 > Un Tamagotchi Web3 crypté sur la blockchain Ethereum. Nourris ton **Synk** (jeune héros façon Link, en pixel-art) chaque jour, semaine, mois et année pour le faire évoluer, débloquer des sorts, skins, familiers, mondes et quêtes épiques inspirés de **Minecraft Dungeons**, **The Legend of Zelda: BOTW/TOTK** et **World of Warcraft**.
 
-![status](https://img.shields.io/badge/status-v3.0%20%E2%80%94%20%C3%89cosyst%C3%A8me%20narratif-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![solidity](https://img.shields.io/badge/solidity-0.8.24-orange) ![nextjs](https://img.shields.io/badge/Next.js-14-black)
+![status](https://img.shields.io/badge/status-v3.1%20%E2%80%94%20IA%20GamePlay%20%26%20Widgets-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![solidity](https://img.shields.io/badge/solidity-0.8.24-orange) ![nextjs](https://img.shields.io/badge/Next.js-14-black)
 
 ## 📦 Monorepo
 
@@ -46,7 +46,7 @@ L'utilisateur choisit le réseau au moment de la connexion.
 
 FR • EN • ES • PT (via `next-intl`, fichiers JSON versionnés dans `web/src/i18n/messages/`)
 
-## 🧬 Architecture on-chain / off-chain (v3.0)
+## 🧬 Architecture on-chain / off-chain (v3.1)
 
 Pour minimiser les frais de gas et les appels au wallet, **seules les opérations monétaires** passent par le smart contract Ethereum. Toutes les autres données de jeu vivent dans **Firebase Realtime Database** (plan gratuit Spark : 1 Go stockage + 10 Go BW/mois — largement suffisant pour le MVP).
 
@@ -74,7 +74,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 
 **Garantie de persistance :** les données Firebase sont indexées par **adresse wallet**, jamais par adresse de contrat. Redéployer le smart contract ne perd rien du parcours joueur (stats, inventaire, chat, transactions).
 
-## 🎮 Fonctionnalités v3.0
+## 🎮 Fonctionnalités v3.1
 
 ### Trame narrative
 - 👹 **Zorghon le Maléfique** a enlevé la princesse **PocaPoka** et son lutin des sables **El Pipo** — objectif final du jeu
@@ -83,36 +83,39 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 📜 Quêtes classiques, ❓ quêtes PNJ (intermédiaires), 🏝️ quêtes d'archipel, 🌴 quêtes d'îles sauvages — toutes contribuent au déblocage séquentiel des Quêtes du Royaume
 - 🎬 **Onboarding en 3 écrans** ludiques (bienvenue & stades de Synk, lore & mécaniques, guide des widgets) + widget **« Aides »** disponible à tout moment
 
-### Écran de jeu — 12 fenêtres flottantes déplaçables
+### Écran de jeu — 14 fenêtres flottantes déplaçables
 - 🗡️ Création de Synk (~15–20 € en ETH, paramétrable admin)
-- 🍖 Nourrissage journalier / hebdo / mensuel / annuel avec cooldowns et compte-à-rebours
+- 🍖 Nourrissage journalier / hebdo / mensuel / annuel avec cooldowns **indépendants par type** et compte-à-rebours — rubrique masquable par l'admin, boutons on-chain désactivables séparément (voir Bugs corrigés)
+- 💰 **Rechargement du portefeuille** (nouveau) : fenêtre flottante dédiée à l'achat de monnaie de jeu contre ETH (mêmes presets/trésorerie que la rubrique « Portefeuille » fixe), déplaçable/réductible comme tous les autres widgets
 - 📊 **Statistiques** : XP · Vie · Faim · Bonheur · Force · Sortilèges · **Oxygène** · **Fatigue** · Portefeuille · Reconnaissance
 - 🌤️ Météo dynamique cohérente avec le **cycle des 4 saisons** (calendrier réel), impact sur le bonheur
 - 🌕 Pleine lune (calendrier réel + override admin) débloquant des quêtes spéciales
 - 🎲 **Lancer de dés** : jet de destin quotidien + résolution des combats PNJ (bonus/malus)
-- ⚔️ **Équipement Synk** : slots drag & drop, usure persistante, auto-déséquipement à 0% + Cimetière des équipements
+- ⚔️ **Équipement Synk** : slots drag & drop, retrait vers la besace, usure persistante (conservée au déséquipement/ré-équipement), auto-déséquipement à 0% + **Cimetière des équipements**, police adaptative avec info-bulle pour les noms longs (ex. « Thunderfury »)
 - 🎒 **Sac / Besace** synchronisée avec l'équipement
 - 🛒 **Boutique des terres de ZeldCraft** : armes, protections, casques/habits/gants/bottes (120+ articles inspirés Tolkien/WoW/Zelda/Minecraft), nourriture, potions & sortilèges, engins, trésors, selles
 - 🗺️ **Mapmonde** zoomable avec filtres par catégorie, mers/océans/îles/archipels, pop-up profondeur/altitude clignotant
 - 🧍 **Plateforme 2D isométrique** : déplacement et articulation de Synk en **8 directions**, dalles d'eau (profondeur) et de montagne (altitude 0–6000 m) avec raréfaction de l'air, mécaniques d'oxygène/fatigue
 - 🐲 **Familiers** (Dragon d'Or…) et selles pour les chevaucher
 - 👑 Widget **« Quêtes du Royaume »** : suivi des 400 quêtes/40 chapitres
-- 📖 Widget **« État d'avancement / inventaire »** : ledger dépliable en **17 thèmes** (armes, protections, nourriture, potions, engins, trésors, selles, familiers, mondes, PNJ rencontrés, cimetière des équipements, quêtes classiques/PNJ/archipel/îles sauvages/Royaume) avec icônes ✅/❌
+- 🧭 Widget **« Quêtes de ZeldaCraft »** (nouveau) : récapitulatif dépliable par thème de **toutes** les quêtes du jeu en un seul endroit — PNJ rencontrés, quêtes classiques, quêtes PNJ, quêtes d'archipel, quêtes d'îles sauvages, Quêtes du Royaume
+- 📖 Widget **« État d'avancement / inventaire »** : ledger dépliable en **17 thèmes** (armes, protections, nourriture, potions, engins, trésors, selles, familiers, mondes, PNJ rencontrés, cimetière des équipements, quêtes classiques/PNJ/archipel/îles sauvages/Royaume) avec icônes ✅/❌ — corrigé pour refléter fidèlement la besace, l'équipement actif et les familiers apprivoisés
 - 👥 Équipe multi-joueurs avec chat temps réel (Firebase RTDB)
-- 🎮 Widgets personnalisés créés par l'admin, rendus dynamiquement
-- 🖱️ Toutes les fenêtres : glisser sans (ré)ouvrir accidentellement, clic droit → recentrage à l'écran
+- 🎮 Widgets personnalisés créés par l'admin, rendus dynamiquement — chacun **activable/désactivable individuellement** depuis Administration
+- 🖱️ Toutes les fenêtres : glisser sans (ré)ouvrir accidentellement, clic droit → recentrage à l'écran, z-order/focus fiabilisé (une fenêtre active ne passe plus sous une autre par erreur)
 - ⚙️ Bouton « Administration » visible si le wallet connecté est owner du contrat
 
-### Panneau d'administration (owner only) — 26 rubriques
+### Panneau d'administration (owner only) — sommaire vertical + 29 rubriques
+- 🗂️ **Sommaire vertical** de navigation rapide entre toutes les rubriques (ancre `#admin-sec-xxx`)
 - 💰 Solde trésorerie + solde contrat (temps réel)
-- 📊 **Statistiques par joueur** fiables (correction du bug XP désynchronisé) + génération de **factures PDF** (jsPDF, historique on-chain + liens Etherscan)
+- 📊 **Statistiques par joueur** fiables (correction du bug XP désynchronisé), incluant désormais le **temps total de jeu** et le **temps de jeu sur 24 h glissantes** (suivi paramétrable) + génération de **factures PDF** (jsPDF, historique on-chain + liens Etherscan)
 - ⭐ **Barème de reconnaissance** (~20 sous-sections : combat, humeur/météo/saisons, équipement, huttes, sommeil, oxygène, fatigue, altitude, profondeur, îles, pop-up profondeur/altitude, Royaume, Zorghon, onboarding, widget « État d'avancement »…)
 - 💳 Presets de rechargement wallet · 🐲 Catalogue Familiers · ⚔️ Catalogue Équipement · 🍖 Catalogue Nourriture · 🧪 Catalogue Potions & Sortilèges
-- 🗺️ Filtres Mapmonde par défaut · 🧭 Navigation Mapmonde (zoom/pan) · 💬 Scripts de dialogue PNJ · 🧩 Widgets personnalisés · 📦 DLC / Packs de contenu (saisons narratives)
+- 🗺️ Filtres Mapmonde par défaut · 🧭 Navigation Mapmonde (zoom/pan) · 💬 Scripts de dialogue PNJ · 🧩 **Widgets personnalisés** (créés par l'admin **et** activation/désactivation des widgets flottants existants du jeu) · 📦 DLC / Packs de contenu (saisons narratives)
 - 🧙 Ajouter quêtes énigmes / PNJ / trésors / mondes / points d'intérêt carte
-- ⚔️ Difficulté globale · 🌤️ Météo forcée · 🍂 Saisons · 🌕 Pleine lune · 🧙 Fréquence PNJ · 💰 Prix/cooldowns de nourrissage
+- ⚔️ Difficulté globale · 🌤️ Météo forcée · 🍂 Saisons · 🌕 Pleine lune · 🧙 Fréquence PNJ · 💰 Prix de nourrissage · ⏱️ **Cooldowns de nourrissage** (par type + interrupteur d'affichage de la rubrique « Nourrir Synk » + interrupteur des boutons on-chain)
 - 💬 **Historique chat** avec dropdown de tous les salons
-- 🤖 **Intelligence IA GamePlay** : DAU/rétention 7j-30j, temps passé par widget, entonnoir de quêtes, heatmaps de zones visitées/évanouissements, score de risque de décrochage par joueur, signaux de monétisation & rencontres PNJ, et un **assistant IA 100% gratuit** (Google Gemini) qui génère analyses et recommandations
+- 🤖 **Intelligence IA GamePlay** : DAU/rétention 7j-30j, temps passé par widget, entonnoir de quêtes, **carte des zones fréquentées avec noms de lore** (« Prairie des 3 Cerfs », « Abreuvoir originel de Perrughias »…) et heatmaps d'évanouissements, **suivi ciblé par joueur activable/désactivable individuellement**, score de risque de décrochage, signaux de monétisation & rencontres PNJ, et un **assistant IA 100% gratuit avec repli automatique multi-fournisseur** (Google Gemini → Groq → Cerebras → OpenRouter, tous gratuits) qui génère analyses et recommandations
 - ⏸️ Pause/Unpause + retrait de fonds · ↩️ Bouton « Retour au jeu »
 
 ## 🐛 Bugs corrigés (historique)
@@ -132,6 +135,8 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 | Police trop grande débordant du compartiment équipement (ex. « Thunderfury ») | Taille de police adaptative + troncature avec info-bulle (titre complet au survol) |
 | Usure d'une arme réinitialisée au déséquipement/ré-équipement | Durabilité désormais persistée dans `players/{addr}/equipment/{slot}` et restaurée telle quelle |
 | Glisser un widget flottant l'ouvrait toujours accidentellement | `useDraggableWidget.ts` : distinction fiable clic/glissé via un `movedRef` (ref, pas state) |
+| Widget « Quêtes du Royaume » affichant 0% pour des quêtes déjà réussies | Lecture de la progression harmonisée sur la même clé Firebase que celle utilisée pour l'écrire |
+| Nourrir Synk en journalier bloquait à tort le festin hebdomadaire (et le banquet mensuel / rituel annuel) | Cooldown on-chain désormais suivi **par type de repas** (`lastFedAtByType`) au lieu d'un unique horodatage partagé — correctif prêt, en attente de redéploiement du contrat Sepolia (voir docs/ROADMAP.md) ; boutons on-chain masqués par défaut en attendant, nourrissage possible via la Boutique |
 
 ## 📚 Documentation
 
