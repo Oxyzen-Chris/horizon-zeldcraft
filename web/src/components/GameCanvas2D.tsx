@@ -13,11 +13,13 @@ import {
 } from '@/lib/gameState';
 import {
   TERRAIN_COLOR, PROP_ICON, TERRAIN_I18N_KEY, PROP_I18N_KEY, worldTileAt, clamp100, WORLD_SIZE, hashRand,
+  isObstacleAt,
   type Tile,
 } from '@/lib/worldTerrain';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { useHoldMovement } from '@/lib/useHoldMovement';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
 import { SynkSkin } from './SynkSkin';
@@ -514,10 +516,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // ─── Direction/animation de marche de Synk (voir SynkSkin.tsx::direction/walking et
   // RepRules.synkLimbAnimationEnabled) — purement visuel : `facing` mémorise la dernière direction
   // de déplacement (8 valeurs, cardinales + diagonales), `isWalking` reste vrai tant que des pas
-  // continuent d'arriver et retombe à faux après `WALK_STOP_DELAY_MS` d'inactivité (auto-repeat
-  // clavier/D-pad = "marche continue", relâchement = arrêt de l'animation).
+  // continuent d'arriver et retombe à faux après `WALK_STOP_DELAY_MS` d'inactivité (maintien
+  // clavier/D-pad/souris = "marche continue", relâchement = arrêt de l'animation). `isRunning`
+  // bascule à `true` après `movementRunHoldThresholdMs` de maintien ininterrompu d'une direction
+  // (voir useHoldMovement.ts) — anime Synk plus vite (SynkSkin.tsx::running) SANS changer le pas
+  // (`STEP_PCT` reste 1 case/pas, seule la CADENCE des pas s'accélère).
   const [facing, setFacing] = useState<SynkDirection>('down');
   const [isWalking, setIsWalking] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
   const walkStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const move = useCallback((dx: number, dy: number) => {
@@ -527,11 +533,27 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       setFacing(dir);
       setIsWalking(true);
       if (walkStopTimerRef.current) clearTimeout(walkStopTimerRef.current);
-      walkStopTimerRef.current = setTimeout(() => setIsWalking(false), WALK_STOP_DELAY_MS);
+      walkStopTimerRef.current = setTimeout(() => { setIsWalking(false); setIsRunning(false); }, WALK_STOP_DELAY_MS);
     }
     const cur = worldPosRef.current;
-    moveTo(cur.x + dx * STEP_PCT, cur.y + dy * STEP_PCT);
-  }, [moveTo]);
+    const nx = cur.x + dx * STEP_PCT, ny = cur.y + dy * STEP_PCT;
+    // ─── Collision POI "obstacle" (voir worldTerrain.ts::isObstacleAt et RepRules
+    // .poiObstacleCollisionEnabled) : ne bloque QUE ce déplacement incrémental — jamais moveTo
+    // (clic d'approche/téléportation), qui reste intégralement inchangé (aucune régression sur le
+    // clic pour s'approcher d'un village/PNJ/marqueur, même s'il se tient sur une case obstacle).
+    if (rules?.poiObstacleCollisionEnabled ?? true) {
+      const destTile = worldTileAt(Math.round(clamp100(nx)), Math.round(clamp100(ny)), poiPoints);
+      if (isObstacleAt(Math.round(clamp100(nx)), Math.round(clamp100(ny)), poiPoints, destTile)) return;
+    }
+    moveTo(nx, ny);
+  }, [moveTo, rules?.poiObstacleCollisionEnabled, poiPoints]);
+
+  const hold = useHoldMovement(move, {
+    walkStepMs: rules?.movementWalkStepMs ?? 220,
+    runStepMs: rules?.movementRunStepMs ?? 110,
+    runHoldThresholdMs: rules?.movementRunHoldThresholdMs ?? 1500,
+    onRunChange: setIsRunning,
+  });
 
   useEffect(() => () => { if (walkStopTimerRef.current) clearTimeout(walkStopTimerRef.current); }, []);
 
@@ -925,6 +947,9 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // pour ne pas interférer. `keysDownRef` mémorise les flèches actuellement enfoncées : chaque
   // keydown recalcule un delta composite (ex. ArrowUp+ArrowLeft ⇒ dx=-1,dy=-1) pour permettre les
   // 8 directions tout en gardant EXACTEMENT le même pas (STEP_PCT) qu'un déplacement cardinal.
+  // `e.repeat` (répétition automatique OS) est IGNORÉ : c'est `useHoldMovement` (hold.press/update)
+  // qui pilote désormais seul la cadence des pas tant qu'une touche reste maintenue (corrige le bug
+  // rapporté "Synk avance de 2 cases par appui" dû à la variabilité de la répétition native).
   const keysDownRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (collapsed) return;
@@ -940,13 +965,18 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (!ARROWS.has(e.key)) return;
       e.preventDefault();
+      if (e.repeat) return;
+      const wasIdle = keysDownRef.current.size === 0;
       keysDownRef.current.add(e.key);
       const { dx, dy } = composite();
-      if (dx !== 0 || dy !== 0) move(dx, dy);
+      if (dx === 0 && dy === 0) return;
+      if (wasIdle) hold.press(dx, dy); else hold.update(dx, dy);
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (!ARROWS.has(e.key)) return;
       keysDownRef.current.delete(e.key);
+      const { dx, dy } = composite();
+      if (dx === 0 && dy === 0) hold.release(); else hold.update(dx, dy);
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKeyUp);
@@ -954,8 +984,9 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKeyUp);
       keysDownRef.current.clear();
+      hold.release();
     };
-  }, [collapsed, move]);
+  }, [collapsed, hold]);
 
   // PNJ et dragon errent doucement dans la grille pour donner l'impression d'un monde vivant.
   useEffect(() => {
@@ -1307,22 +1338,24 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-500 pointer-events-auto cursor-help"
             style={{ left: projX(playerCell.col, playerCell.row), top: projY(playerCell.col, playerCell.row) - 26, zIndex: playerCell.col + playerCell.row + 3 }}
             title={t('canvas2d.synkLabel')}>
-            <SynkSkin stage={stage} size={26} direction={facing} walking={isWalking} animated={rules?.synkLimbAnimationEnabled !== false} />
+            <SynkSkin stage={stage} size={26} direction={facing} walking={isWalking} running={isRunning} animated={rules?.synkLimbAnimationEnabled !== false} />
           </div>
         </div>
 
         {/* Pavé directionnel virtuel — mêmes déplacements que les flèches clavier, y compris les 4
-            diagonales (coins du pavé, précédemment inoccupés) — voir demande utilisateur. */}
+            diagonales (coins du pavé, précédemment inoccupés), ET le maintien pour courir (voir
+            useHoldMovement.ts/RepRules.movementRunHoldThresholdMs) — appui court = 1 case (comme
+            avant), bouton maintenu = marche continue puis course après le seuil configuré. */}
         <div className="absolute bottom-2 left-2 grid grid-cols-3 grid-rows-3 gap-0.5 w-[84px] h-[84px] z-10" title={t('canvas2d.dpadTitle')}>
-          <button className={dpadBtn} onClick={() => move(-1, -1)} title={t('canvas2d.dpadUpLeft')}>↖</button>
-          <button className={dpadBtn} onClick={() => move(0, -1)} title={t('canvas2d.dpadUp')}>▲</button>
-          <button className={dpadBtn} onClick={() => move(1, -1)} title={t('canvas2d.dpadUpRight')}>↗</button>
-          <button className={dpadBtn} onClick={() => move(-1, 0)} title={t('canvas2d.dpadLeft')}>◀</button>
+          <button className={dpadBtn} onPointerDown={() => hold.press(-1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpLeft')}>↖</button>
+          <button className={dpadBtn} onPointerDown={() => hold.press(0, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUp')}>▲</button>
+          <button className={dpadBtn} onPointerDown={() => hold.press(1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpRight')}>↗</button>
+          <button className={dpadBtn} onPointerDown={() => hold.press(-1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadLeft')}>◀</button>
           <div className="flex items-center justify-center text-emerald-500/50 text-[10px]">🕹️</div>
-          <button className={dpadBtn} onClick={() => move(1, 0)} title={t('canvas2d.dpadRight')}>▶</button>
-          <button className={dpadBtn} onClick={() => move(-1, 1)} title={t('canvas2d.dpadDownLeft')}>↙</button>
-          <button className={dpadBtn} onClick={() => move(0, 1)} title={t('canvas2d.dpadDown')}>▼</button>
-          <button className={dpadBtn} onClick={() => move(1, 1)} title={t('canvas2d.dpadDownRight')}>↘</button>
+          <button className={dpadBtn} onPointerDown={() => hold.press(1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadRight')}>▶</button>
+          <button className={dpadBtn} onPointerDown={() => hold.press(-1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownLeft')}>↙</button>
+          <button className={dpadBtn} onPointerDown={() => hold.press(0, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDown')}>▼</button>
+          <button className={dpadBtn} onPointerDown={() => hold.press(1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownRight')}>↘</button>
         </div>
       </div>
 

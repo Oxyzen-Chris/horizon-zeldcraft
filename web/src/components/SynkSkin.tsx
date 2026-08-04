@@ -149,8 +149,8 @@ const PART_ANIM: Record<BodyPart, { origin: string; swing: 'a' | 'b' | 'bob' }> 
 };
 
 export function SynkSkin({
-  stage, size = 200, direction = 'down', walking = false, animated = true,
-}: { stage: number; size?: number; direction?: SynkDirection; walking?: boolean; animated?: boolean }) {
+  stage, size = 200, direction = 'down', walking = false, animated = true, running = false,
+}: { stage: number; size?: number; direction?: SynkDirection; walking?: boolean; animated?: boolean; running?: boolean }) {
   const stageName = STAGE_NAMES[stage] || 'egg';
   const overlay = STAGE_OVERLAYS[stageName] ?? [];
   const palette: Record<string, string> = { ...BASE_PALETTE, T: STAGE_TUNIC[stageName] ?? BASE_PALETTE.T };
@@ -191,8 +191,9 @@ export function SynkSkin({
           const cells = parts[part];
           if (!cells.length) return null;
           const anim = PART_ANIM[part];
+          const suffix = running ? '-run' : '';
           const swingClass = isWalkingAnimated
-            ? anim.swing === 'bob' ? 'animate-synk-bob' : `animate-synk-swing-${anim.swing}`
+            ? anim.swing === 'bob' ? `animate-synk-bob${suffix}` : `animate-synk-swing-${anim.swing}${suffix}`
             : undefined;
           return (
             <g key={part} className={swingClass} style={swingClass ? { transformOrigin: anim.origin } : undefined}>

@@ -62,3 +62,9 @@ body {
 .animate-synk-swing-a { animation: synk-swing-a 0.55s ease-in-out infinite; transform-box: fill-box; }
 .animate-synk-swing-b { animation: synk-swing-b 0.55s ease-in-out infinite; transform-box: fill-box; }
 .animate-synk-bob { animation: synk-bob 0.55s ease-in-out infinite; transform-box: fill-box; }
+/* Variante "course" (Synk maintient une direction ≥ RepRules.movementRunHoldThresholdMs, voir
+   useHoldMovement.ts) — même cycle d'articulation, cadence 2x plus rapide, pour distinguer
+   visuellement marche/course sans dupliquer la mécanique. */
+.animate-synk-swing-a-run { animation: synk-swing-a 0.28s ease-in-out infinite; transform-box: fill-box; }
+.animate-synk-swing-b-run { animation: synk-swing-b 0.28s ease-in-out infinite; transform-box: fill-box; }
+.animate-synk-bob-run { animation: synk-bob 0.28s ease-in-out infinite; transform-box: fill-box; }

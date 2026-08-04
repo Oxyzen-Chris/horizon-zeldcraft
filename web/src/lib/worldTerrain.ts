@@ -25,6 +25,30 @@ function radiusForType(t: MapPoiType | null | undefined): number {
   return POI_RADIUS_BY_TYPE[t] ?? POI_BIAS_RADIUS;
 }
 
+/** Types de POI catalogue considérés comme des OBSTACLES SOLIDES (voir RepRules.poiObstacleCollisionEnabled,
+ * GameCanvas2D.tsx/Platform3DWidget.tsx::move()) : bâtiments habités qu'il n'est pas cohérent de
+ * traverser à pied. Volontairement RESTREINT aux structures bâties — 'mountain'/'cave' en sont
+ * EXCLUS (elles restent franchissables, voir le saut de la Plateforme 3D), tout comme 'path',
+ * 'bridge', les POI d'eau ('stream'/'lake'/'sea'/'ocean'/'pond'/'waterfall') et 'forest'/'beach'/
+ * 'island' (déjà régis par leurs propres mécaniques de traversée/nage/accès-Engin) : ajouter un
+ * nouveau type ici l'active immédiatement comme obstacle, sans toucher au reste du moteur. */
+export const OBSTACLE_POI_TYPES: MapPoiType[] = ['village_ally', 'village_enemy', 'tavern', 'stable', 'hut'];
+
+/** Une cellule est un obstacle bloquant le déplacement INCRÉMENTAL (clavier/pavé directionnel/
+ * souris maintenue — PAS le clic d'approche/téléportation `moveTo`, voir commentaire RepRules) si :
+ * (a) un POI catalogue de type `OBSTACLE_POI_TYPES` est positionné exactement sur cette case, ou
+ * (b) le décor généré aléatoirement par `worldTileAt` y a placé une hutte/un château décoratif
+ * (`tile.prop === 'hut' | 'castle'`). Ne dépend d'AUCUN autre champ de `Tile` : appelable avec la
+ * tuile déjà calculée par `worldTileAt`, sans recalcul. */
+export function isObstacleAt(
+  wc: number, wr: number,
+  poiPoints: { x: number; y: number; poiType?: MapPoiType }[],
+  tile: Pick<Tile, 'prop'>,
+): boolean {
+  if (tile.prop === 'hut' || tile.prop === 'castle') return true;
+  return poiPoints.some(p => p.poiType && OBSTACLE_POI_TYPES.includes(p.poiType) && Math.round(p.x) === wc && Math.round(p.y) === wr);
+}
+
 export const ALTITUDE_MAX_M = 6000;   // plus haut sommet possible (paramétrable via RepRules côté jeu)
 export const WATER_DEPTH_MAX_M = 6000; // fosse océanique la plus profonde possible
 

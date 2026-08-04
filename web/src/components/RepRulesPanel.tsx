@@ -455,6 +455,51 @@ export function RepRulesPanel() {
         </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🏃 {t('admin.repRules.movementTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.movementDescription')}</p>
+        <div className="grid md:grid-cols-3 gap-3 mb-3">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.movementWalkStepMs')}</span>
+            <input type="number" min="30" className="input mt-1 w-full"
+              value={rules.movementWalkStepMs} onChange={e => set('movementWalkStepMs', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.movementRunStepMs')}</span>
+            <input type="number" min="30" className="input mt-1 w-full"
+              value={rules.movementRunStepMs} onChange={e => set('movementRunStepMs', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.movementRunHoldThresholdMs')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.movementRunHoldThresholdMs} onChange={e => set('movementRunHoldThresholdMs', e.target.value)} />
+          </label>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={rules.poiObstacleCollisionEnabled !== false}
+            onChange={e => setBool('poiObstacleCollisionEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.poiObstacleCollisionEnabled')}</span>
+        </label>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🧊 {t('admin.repRules.platform3dRefinementsTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.platform3dRefinementsDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.platform3dEquipmentRenderEnabled !== false}
+            onChange={e => setBool('platform3dEquipmentRenderEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.platform3dEquipmentRenderEnabled')}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.platform3dJumpEnabled !== false}
+            onChange={e => setBool('platform3dJumpEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.platform3dJumpEnabled')}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={rules.platform3dResizableEnabled !== false}
+            onChange={e => setBool('platform3dResizableEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.platform3dResizableEnabled')}</span>
+        </label>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">📍 {t('admin.repRules.depthAltitudePopupTitle')}</h3>
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.depthAltitudePopupDescription')}</p>
         <label className="flex items-center gap-2 text-sm mb-3">

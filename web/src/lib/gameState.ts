@@ -3062,6 +3062,34 @@ export interface RepRules {
   // dalle d'île nécessite un Engin (ShopItem.category === 'vehicle') dans la besace tant que ce
   // réglage est actif ; sinon le déplacement est bloqué et un message l'explique au joueur.
   islandVehicleRequired: boolean; // Exige un Engin dans la besace pour accéder aux îles (défaut true)
+  // ─── Cadence de déplacement & course à la touche maintenue (voir GameCanvas2D.tsx/
+  // Platform3DWidget.tsx::move()/useHoldMovement) — remplace la dépendance à la répétition
+  // automatique native du clavier (variable selon l'OS, cause du bug "avance de 2 cases") par une
+  // cadence entièrement pilotée par le jeu : un appui court = exactement 1 case, un maintien
+  // continu (clavier, pavé directionnel virtuel ou bouton de souris) déclenche la marche au pas
+  // `movementWalkStepMs`, puis bascule sur la cadence de course `movementRunStepMs` après
+  // `movementRunHoldThresholdMs` de maintien ininterrompu.
+  movementWalkStepMs: number;          // Intervalle (ms) entre deux pas en maintien "marche" (défaut 220)
+  movementRunStepMs: number;           // Intervalle (ms) entre deux pas en maintien "course" (défaut 110)
+  movementRunHoldThresholdMs: number;  // Durée de maintien (ms) avant de passer en course (défaut 1500)
+  // ─── Collision avec les POI "obstacles" (voir worldTerrain.ts::OBSTACLE_POI_TYPES et
+  // GameCanvas2D.tsx/Platform3DWidget.tsx::move()) — bloque UNIQUEMENT le déplacement incrémental
+  // au clavier/pavé directionnel/souris maintenue vers une case portant un POI structurel (hutte,
+  // village, taverne, étable) ou un décor hutte/château généré : Synk le contourne au lieu de le
+  // traverser. Le clic direct sur un marqueur/une case lointaine (approche automatique via
+  // moveTo/teleport, voir onMarkerClick/onHutTileClick/onPortalTileClick) N'EST PAS concerné et
+  // continue de fonctionner à l'identique (sinon un joueur resterait bloqué en cliquant sur un
+  // village pour s'en approcher). Montagnes/roches restent volontairement franchissables (voir le
+  // mécanisme de saut de la Plateforme 3D) : elles ne font PAS partie des obstacles bloquants.
+  poiObstacleCollisionEnabled: boolean; // Active/désactive cette collision (défaut true)
+  // ─── Plateforme 3D — rendu de l'équipement de Synk, saut (franchissement de montagne) et
+  // redimensionnement de la fenêtre jusqu'au plein écran (voir Platform3DWidget.tsx). Ces trois
+  // réglages sont indépendants de `platform3dWidgetEnabled` (qui contrôle l'affichage du widget
+  // lui-même) : ils permettent de désactiver individuellement chacun de ces raffinements en cas de
+  // souci de performance ou de régression, sans devoir masquer tout le widget.
+  platform3dEquipmentRenderEnabled: boolean; // Affiche l'équipement (arme, bouclier, casque, etc.) sur le modèle 3D de Synk (défaut true)
+  platform3dJumpEnabled: boolean;            // Active le saut (barre espace) pour franchir montagnes/roches en 3D (défaut true)
+  platform3dResizableEnabled: boolean;       // Autorise le redimensionnement (jusqu'au plein écran) du widget 3D (défaut true)
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
   kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
                                          // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
@@ -3268,6 +3296,13 @@ export const DEFAULT_REP_RULES: RepRules = {
   depthAltitudePopupMountainTemplate: '',
   synkLimbAnimationEnabled: true,
   islandVehicleRequired: true,
+  movementWalkStepMs: 220,
+  movementRunStepMs: 110,
+  movementRunHoldThresholdMs: 1500,
+  poiObstacleCollisionEnabled: true,
+  platform3dEquipmentRenderEnabled: true,
+  platform3dJumpEnabled: true,
+  platform3dResizableEnabled: true,
   kingdomMinIntermediateSolved: 3,
   zorghonEnabled: true,
   zorghonAppearKingdomSolvedCount: 6,

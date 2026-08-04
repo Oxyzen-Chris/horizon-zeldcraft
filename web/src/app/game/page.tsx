@@ -538,7 +538,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       {/* Fenêtre flottante et déplaçable "Plateforme 3D" (Phase 3 Roadmap — Moteur de jeu) — rendu
           3D façon Minecraft de Synk et de son univers, synchronisé avec la Plateforme 2D
           isométrique et la Mapmonde (même position/décor/marqueurs, voir Platform3DWidget.tsx) */}
-      <Platform3DWidget stage={Number(stage)} enabled={repRules?.platform3dWidgetEnabled !== false} />
+      <Platform3DWidget stage={Number(stage)} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} enabled={repRules?.platform3dWidgetEnabled !== false} />
       {/* Fenêtre flottante et déplaçable "Statistiques" — duplique le tableau fixe ci-dessus */}
       <StatsWidget
         xp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} xpCap={xpCap}
