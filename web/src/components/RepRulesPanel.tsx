@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getRepRules, setRepRules, DEFAULT_REP_RULES, type RepRules } from '@/lib/gameState';
+import {
+  getRepRules, setRepRules, DEFAULT_REP_RULES, DEFAULT_PLATFORM3D_OBJECT_FLAGS, PLATFORM3D_OBJECT_KINDS,
+  type RepRules, type Platform3DObjectKind, type Platform3DObjectFlags,
+} from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 
 /**
@@ -35,6 +38,19 @@ export function RepRulesPanel() {
   /** Interrupteurs on/off (ex. fatigueEnabled) — valeur booléenne conservée telle quelle. */
   const setBool = (k: keyof RepRules, v: boolean) => {
     setRules(prev => ({ ...prev, [k]: v }));
+  };
+
+  /** Un des 3 interrupteurs (obstacle/climbable/water) du registre `platform3dObjectFlags` pour un
+   * type d'objet/décor donné (voir gameState.ts::Platform3DObjectKind/Platform3DObjectFlags) —
+   * merge défensif avec les valeurs par défaut si le type n'est pas encore présent en mémoire. */
+  const setObjectFlag = (kind: Platform3DObjectKind, flag: keyof Platform3DObjectFlags, v: boolean) => {
+    setRules(prev => ({
+      ...prev,
+      platform3dObjectFlags: {
+        ...prev.platform3dObjectFlags,
+        [kind]: { ...(prev.platform3dObjectFlags?.[kind] ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS[kind]), [flag]: v },
+      },
+    }));
   };
 
   const save = async () => {
@@ -498,6 +514,97 @@ export function RepRulesPanel() {
             onChange={e => setBool('platform3dResizableEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.platform3dResizableEnabled')}</span>
         </label>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🧗 {t('admin.repRules.platform3dClimbTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.platform3dClimbDescription')}</p>
+        <div className="grid md:grid-cols-3 gap-3 mb-1">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dCubeHeightM')}</span>
+            <input type="number" min="10" className="input mt-1 w-full"
+              value={rules.platform3dCubeHeightM} onChange={e => set('platform3dCubeHeightM', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dFallDamageMinCubes')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.platform3dFallDamageMinCubes} onChange={e => set('platform3dFallDamageMinCubes', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dFallDeathCubes')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.platform3dFallDeathCubes} onChange={e => set('platform3dFallDeathCubes', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dFallDamageHp')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.platform3dFallDamageHp} onChange={e => set('platform3dFallDamageHp', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dFallDamageXp')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.platform3dFallDamageXp} onChange={e => set('platform3dFallDamageXp', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dFallDeathXp')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.platform3dFallDeathXp} onChange={e => set('platform3dFallDeathXp', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dFallDeathReviveSec')}</span>
+            <input type="number" min="1" className="input mt-1 w-full"
+              value={rules.platform3dFallDeathReviveSec} onChange={e => set('platform3dFallDeathReviveSec', e.target.value)} />
+          </label>
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🧱 {t('admin.repRules.platform3dObjectFlagsTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.platform3dObjectFlagsDescription')}</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-400 text-left">
+                <th className="pb-1 pr-2">{t('admin.repRules.platform3dObjectFlagsKind')}</th>
+                <th className="pb-1 px-2 text-center">{t('admin.repRules.platform3dObjectFlagsObstacle')}</th>
+                <th className="pb-1 px-2 text-center">{t('admin.repRules.platform3dObjectFlagsClimbable')}</th>
+                <th className="pb-1 px-2 text-center">{t('admin.repRules.platform3dObjectFlagsWater')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PLATFORM3D_OBJECT_KINDS.map(kind => {
+                const flags = rules.platform3dObjectFlags?.[kind] ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS[kind];
+                return (
+                  <tr key={kind} className="border-t border-slate-800">
+                    <td className="py-1 pr-2 text-slate-300">{t(`admin.repRules.platform3dKind.${kind.replace(':', '_')}`)}</td>
+                    <td className="text-center"><input type="checkbox" checked={flags.obstacle} onChange={e => setObjectFlag(kind, 'obstacle', e.target.checked)} /></td>
+                    <td className="text-center"><input type="checkbox" checked={flags.climbable} onChange={e => setObjectFlag(kind, 'climbable', e.target.checked)} /></td>
+                    <td className="text-center"><input type="checkbox" checked={flags.water} onChange={e => setObjectFlag(kind, 'water', e.target.checked)} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🤿 {t('admin.repRules.platform3dUnderwaterTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.platform3dUnderwaterDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.platform3dUnderwaterWorldEnabled !== false}
+            onChange={e => setBool('platform3dUnderwaterWorldEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.platform3dUnderwaterWorldEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dUnderwaterFishCount')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.platform3dUnderwaterFishCount} onChange={e => set('platform3dUnderwaterFishCount', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dUnderwaterMonsterCount')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.platform3dUnderwaterMonsterCount} onChange={e => set('platform3dUnderwaterMonsterCount', e.target.value)} />
+          </label>
+        </div>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">📍 {t('admin.repRules.depthAltitudePopupTitle')}</h3>

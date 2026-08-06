@@ -8,9 +8,11 @@ import * as THREE from 'three';
 import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
   subscribePlayer, subscribeInventory, getKingdomQuestMarker, subscribeSolvedQuestIds,
-  getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment,
+  getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment, applyEffect,
+  DEFAULT_PLATFORM3D_OBJECT_FLAGS,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
   type ZorghonEncounterState, type SynkDirection, type EquipSlot, type EquippedItem,
+  type Platform3DObjectKind, type Platform3DObjectFlags,
 } from '@/lib/gameState';
 import {
   worldTileAt, clamp100, WORLD_SIZE, TERRAIN_COLOR, PROP_ICON, PROP_I18N_KEY, hashRand,
@@ -85,6 +87,65 @@ function directionFromDelta(dx: number, dy: number): SynkDirection | null {
   if (dx < 0) return dy < 0 ? 'up-left' : 'down-left';
   return dy < 0 ? 'up-right' : 'down-right';
 }
+
+/** Hauteur (unités 3D) de la surface sur laquelle Synk se tient DEBOUT pour une tuile donnée —
+ * réutilise EXACTEMENT les mêmes formules que `TerrainBlock`/`PropBlock` ci-dessus (roche : sommet
+ * du bloc surélevé ; eau : surface du bloc d'eau abaissé/assombri selon la profondeur ; prairie/
+ * sable/sentier : dalle plate à y=0), afin qu'aucune divergence visuelle ne puisse apparaître entre
+ * le décor et la position de Synk. Utilisée à la fois pour le rendu (voir SYNK_GROUND_OFFSET) et
+ * pour le calcul du dénivelé de saut/chute en « cubes » (voir tileClimbCubes). */
+function tileStandTopY(tile: Tile): number {
+  if (tile.terrain === 'rock') return Math.min(1.9, (tile.altitudeM ?? 300) / 2800);
+  if (tile.terrain === 'water') return -0.5 - Math.min(1, (tile.depthM ?? 1) / 300) * 0.3;
+  return 0;
+}
+
+/** Dénivelé exprimé en « cubes » (voir RepRules.platform3dCubeHeightM) pour le calcul des dégâts de
+ * chute/escalade en Plateforme 3D — basé sur l'altitude BRUTE en mètres (`tile.altitudeM`, non
+ * plafonnée par la formule de rendu ci-dessus) afin de conserver une plage utile pour distinguer une
+ * simple colline ambiante (quelques dizaines de mètres) d'un véritable sommet de montagne (jusqu'à
+ * `ALTITUDE_MAX_M` = 6000 m, voir worldTerrain.ts) — seules les dalles 'rock' ont une altitude (voir
+ * worldTileAt), toutes les autres valent conventionnellement 0 cube. */
+function tileClimbCubes(tile: Tile, cubeHeightM: number): number {
+  if (tile.terrain !== 'rock') return 0;
+  return (tile.altitudeM ?? 300) / Math.max(1, cubeHeightM);
+}
+
+/** Clé de registre `Platform3DObjectKind` correspondant au terrain/décor d'une tuile — voir
+ * gameState.ts::Platform3DObjectKind/DEFAULT_PLATFORM3D_OBJECT_FLAGS. */
+function platform3dTerrainKind(terrain: Tile['terrain']): Platform3DObjectKind {
+  return (`terrain:${terrain}`) as Platform3DObjectKind;
+}
+function platform3dPropKind(prop: NonNullable<Tile['prop']>): Platform3DObjectKind {
+  return (`prop:${prop}`) as Platform3DObjectKind;
+}
+
+/** Résout les 3 interrupteurs (obstacle/climbable/water) applicables à une tuile, en combinant le
+ * registre admin-paramétrable (`RepRules.platform3dObjectFlags`, voir RepRulesPanel.tsx) avec les
+ * valeurs par défaut (repli si le registre est incomplet) — un décor (arbre/hutte/château/portail)
+ * posé sur la tuile peut À LUI SEUL la rendre obstacle (ex: arbre), même si le terrain sous-jacent
+ * (prairie) ne l'est pas ; `climbable`/`water` restent des propriétés du TERRAIN uniquement (un
+ * décor ne rend jamais une case escaladable ou aquatique). */
+function platform3dTileFlags(tile: Tile, registry: Record<Platform3DObjectKind, Platform3DObjectFlags> | undefined): Platform3DObjectFlags {
+  const reg = registry ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS;
+  const terrainKind = platform3dTerrainKind(tile.terrain);
+  const terrainFlags = reg[terrainKind] ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS[terrainKind];
+  const propFlags = tile.prop ? (reg[platform3dPropKind(tile.prop)] ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS[platform3dPropKind(tile.prop)]) : undefined;
+  return {
+    obstacle: !!terrainFlags?.obstacle || !!propFlags?.obstacle,
+    climbable: !!terrainFlags?.climbable,
+    water: !!terrainFlags?.water,
+  };
+}
+
+/** Décalage vertical (unités 3D) entre le centre du groupe `SynkVoxel` et le sol : les bottes de
+ * Synk descendent jusqu'à y≈-0.41 en coordonnées locales (torse -0.03, jambes -0.15±0.12, bottes
+ * -0.32±0.06) alors que les dalles plates (prairie/sable/sentier) sont des blocs OPAQUES occupant
+ * tout l'espace y∈[-1,0] : sans ce décalage, le bas du corps de Synk est rendu À L'INTÉRIEUR du
+ * bloc de terrain et donc invisible (bug « jambes/pieds invisibles »). Appliqué en plus de la
+ * hauteur de la dalle courante (`standY`, voir tileStandTopY) pour que Synk tienne aussi correctement
+ * debout sur un bloc de montagne surélevé. */
+const SYNK_GROUND_OFFSET = 0.41;
 
 /** Bloc de terrain voxel (façon Minecraft) : prairie/sable/sentier en dalle plate, roche surélevée
  * selon `altitudeM` (relief), eau abaissée et assombrie selon `depthM` (profondeur) — réutilise TEL
@@ -190,9 +251,10 @@ function MarkerBlock({ kind, x, z, onClick }: { kind: string; x: number; z: numb
  * avec la mécanique Oxygène/Fatigue déjà pilotée par GameCanvas2D.tsx (celui-ci reste l'unique
  * moteur de décroissance/récupération — ce composant n'est qu'une vue supplémentaire, aucune
  * nouvelle mécanique n'est introduite ici, zéro risque de double-décompte). */
-function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equipment, equipmentRenderEnabled }: {
+function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equipment, equipmentRenderEnabled, standY, fullySubmerged }: {
   stage: number; walking: boolean; running: boolean; swimming: boolean; jumpTrigger: number; facing: SynkDirection;
   equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
+  standY?: number; fullySubmerged?: boolean;
 }) {
   const bobRef = useRef<THREE.Group>(null);
   const jumpRef = useRef<THREE.Group>(null);
@@ -201,11 +263,23 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
   const leftLegRef = useRef<THREE.Group>(null);
   const rightLegRef = useRef<THREE.Group>(null);
   const jumpStartRef = useRef<number | null>(null);
+  const groundRef = useRef<THREE.Group>(null);
+  const groundYRef = useRef((standY ?? 0) + SYNK_GROUND_OFFSET);
   useEffect(() => { if (jumpTrigger > 0) jumpStartRef.current = Date.now(); }, [jumpTrigger]);
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     const cadence = running ? 14 : 8;
+    // Suivi lissé du relief : Synk s'élève/descend en douceur vers la hauteur de la dalle courante
+    // (`standY`, voir tileStandTopY) + le décalage sol constant, ou s'immerge (mi-torse en nage,
+    // davantage si totalement plongé dans le monde sous-marin) — corrige le bug « jambes/pieds
+    // invisibles » ET permet de tenir debout/marcher sur un bloc de montagne escaladé.
+    if (groundRef.current) {
+      const base = standY ?? 0;
+      const target = fullySubmerged ? base - 1.3 : swimming ? base - 0.45 : base + SYNK_GROUND_OFFSET;
+      groundYRef.current += (target - groundYRef.current) * 0.16;
+      groundRef.current.position.y = groundYRef.current;
+    }
     if (bobRef.current) {
       if (walking && !swimming) bobRef.current.position.y = Math.abs(Math.sin(t * cadence)) * (running ? 0.11 : 0.08);
       else if (swimming) bobRef.current.position.y = Math.sin(t * 3) * 0.05;
@@ -240,7 +314,7 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
   const skin = '#f2c99d', hairColor = '#3b2412', pantsDefault = '#334155', bootDefault = '#5b3a1e';
 
   return (
-    <group position={[0, swimming ? -0.45 : 0, 0]} rotation={[0, angle, 0]}>
+    <group ref={groundRef} rotation={[0, angle, 0]}>
       <group ref={jumpRef}>
       <group ref={bobRef}>
         {/* ─── Tête : visage (yeux/nez/bouche/oreilles) + cheveux OU casque si équipé ─── */}
@@ -333,13 +407,13 @@ interface SceneMarker { id: string; kind: string; x: number; z: number; marker: 
  * onPortalTileClick3D/onHutTileClick3D/onTileClick dans le composant parent. */
 function Scene({
   centerCol, centerRow, poiPoints, sceneMarkers, stage, walking, running, swimming, jumpTrigger, facing,
-  equipment, equipmentRenderEnabled, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
+  equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
   sceneMarkers: SceneMarker[];
   stage: number; walking: boolean; running: boolean; swimming: boolean; jumpTrigger: number; facing: SynkDirection;
-  equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
+  equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean; standY: number;
   onTileClick: (wc: number, wr: number) => void;
   onPortalTileClick: (wc: number, wr: number) => void;
   onHutTileClick: (wc: number, wr: number) => void;
@@ -374,13 +448,101 @@ function Scene({
       {sceneMarkers.map(m => <MarkerBlock key={m.id} kind={m.kind} x={m.x} z={m.z} onClick={() => onMarkerClick(m.marker)} />)}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
-        facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled}
+        facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled} standY={standY}
       />
       <OrbitControls
         enablePan={false} enableDamping dampingFactor={0.12}
         minDistance={3} maxDistance={11} minPolarAngle={0.25} maxPolarAngle={1.35}
         target={[0, 0.3, 0]}
       />
+    </>
+  );
+}
+
+/** Noms de créatures marines inspirées de Donjons & Dragons (voir demande utilisateur), affichés
+ * dans la légende du monde sous-marin (voir overlay dans le composant parent) — registre purement
+ * cosmétique, extensible librement sans toucher au reste du code. */
+const SEA_MONSTER_NAMES = [
+  'Anguille-Spectre des Abysses', 'Kraken Juvénile', 'Léviathan de Corail Noir',
+  'Murène Runique', 'Requin-Dague d\'Obsidienne', 'Poulpe Ombrageux des Profondeurs',
+];
+
+/** Petit poisson décoratif nageant en orbite lissée autour du point de plongée — purement
+ * cosmétique (voir RepRules.platform3dUnderwaterFishCount). */
+function Fish({ seed }: { seed: number }) {
+  const ref = useRef<THREE.Group>(null);
+  const radius = 1.3 + (seed % 5) * 0.55;
+  const speed = 0.55 + (seed % 3) * 0.22;
+  const yBase = -0.5 - (seed % 4) * 0.35;
+  const color = ['#38bdf8', '#fbbf24', '#f472b6', '#34d399', '#a78bfa'][seed % 5];
+  useFrame((state) => {
+    if (!ref.current) return;
+    const t = state.clock.elapsedTime * speed + seed * 7;
+    ref.current.position.set(Math.cos(t) * radius, yBase + Math.sin(t * 2) * 0.15, Math.sin(t) * radius);
+    ref.current.rotation.y = -t + Math.PI / 2;
+  });
+  return (
+    <group ref={ref}>
+      <mesh castShadow><coneGeometry args={[0.09, 0.28, 6]} /><meshStandardMaterial color={color} /></mesh>
+      <mesh position={[0, 0, 0.16]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.07, 0.12, 4]} /><meshStandardMaterial color={color} /></mesh>
+    </group>
+  );
+}
+
+/** Créature marine (voir SEA_MONSTER_NAMES) nageant plus lentement, plus large, plus profondément
+ * que les poissons — silhouette générique (corps + museau + yeux luminescents), purement cosmétique
+ * (voir RepRules.platform3dUnderwaterMonsterCount). */
+function SeaMonster({ seed }: { seed: number }) {
+  const ref = useRef<THREE.Group>(null);
+  const radius = 2.8 + (seed % 3) * 0.7;
+  const speed = 0.16 + (seed % 2) * 0.07;
+  useFrame((state) => {
+    if (!ref.current) return;
+    const t = state.clock.elapsedTime * speed + seed * 4;
+    ref.current.position.set(Math.cos(t) * radius, -1.35 - (seed % 2) * 0.35, Math.sin(t) * radius);
+    ref.current.rotation.y = -t + Math.PI / 2;
+  });
+  return (
+    <group ref={ref}>
+      <mesh castShadow><boxGeometry args={[0.5, 0.35, 0.9]} /><meshStandardMaterial color="#4c1d95" emissive="#4c1d95" emissiveIntensity={0.15} /></mesh>
+      <mesh position={[0, 0, 0.55]}><coneGeometry args={[0.22, 0.4, 6]} /><meshStandardMaterial color="#4c1d95" /></mesh>
+      <mesh position={[-0.14, 0.05, 0.62]}><sphereGeometry args={[0.05, 8, 8]} /><meshStandardMaterial color="#f87171" emissive="#f87171" emissiveIntensity={0.8} /></mesh>
+      <mesh position={[0.14, 0.05, 0.62]}><sphereGeometry args={[0.05, 8, 8]} /><meshStandardMaterial color="#f87171" emissive="#f87171" emissiveIntensity={0.8} /></mesh>
+    </group>
+  );
+}
+
+/** Monde sous-marin (plongée totale, voir RepRules.platform3dUnderwaterWorldEnabled) — scène
+ * décorative/exploratoire séparée de `Scene` (fond sableux, eau sombre brumeuse, poissons et
+ * créatures marines générés procéduralement), affichée EN REMPLACEMENT de `Scene` dans le même
+ * `<Canvas>` tant que `underwaterMode` est actif côté composant parent. NE MODIFIE AUCUNE mécanique
+ * d'oxygène/fatigue existante (celles-ci restent intégralement pilotées par GameCanvas2D.tsx) :
+ * purement une nouvelle couche visuelle/d'exploration, sans risque de régression. */
+function UnderwaterScene({ stage, facing, equipment, equipmentRenderEnabled, fishCount, monsterCount }: {
+  stage: number; facing: SynkDirection;
+  equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
+  fishCount: number; monsterCount: number;
+}) {
+  const fishSeeds = useMemo(() => Array.from({ length: Math.max(0, fishCount) }, (_, i) => i), [fishCount]);
+  const monsterSeeds = useMemo(() => Array.from({ length: Math.max(0, monsterCount) }, (_, i) => i), [monsterCount]);
+  return (
+    <>
+      <color attach="background" args={['#082f49']} />
+      <fog attach="fog" args={['#082f49', 3, 13]} />
+      <ambientLight intensity={0.55} color="#7dd3fc" />
+      <directionalLight position={[3, 6, 2]} intensity={0.4} color="#38bdf8" />
+      <mesh position={[0, -2.4, 0]} receiveShadow>
+        <boxGeometry args={[24, 0.4, 24]} />
+        <meshStandardMaterial color="#78716c" />
+      </mesh>
+      {fishSeeds.map(s => <Fish key={`fish-${s}`} seed={s} />)}
+      {monsterSeeds.map(s => <SeaMonster key={`mon-${s}`} seed={s} />)}
+      <SynkVoxel
+        stage={stage} walking={false} running={false} swimming={true}
+        jumpTrigger={0} facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled}
+        standY={0} fullySubmerged
+      />
+      <OrbitControls enablePan={false} enableDamping dampingFactor={0.12} minDistance={2} maxDistance={9} target={[0, -1, 0]} />
     </>
   );
 }
@@ -510,6 +672,17 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
 
   const currentTile = useMemo(() => worldTileAt(centerCol, centerRow, poiPoints), [centerCol, centerRow, poiPoints]);
   const swimming = currentTile.terrain === 'water';
+  // Hauteur de la dalle sur laquelle Synk se tient debout (voir tileStandTopY) — permet à Synk de
+  // suivre visuellement le relief (montagne escaladée) et corrige le bug « jambes/pieds invisibles ».
+  const standY = useMemo(() => tileStandTopY(currentTile), [currentTile]);
+
+  // ─── Monde sous-marin (plongée totale) — voir RepRules.platform3dUnderwaterWorldEnabled/
+  // UnderwaterScene. Menu contextuel (clic droit) proposé uniquement quand Synk est sur une dalle
+  // d'eau ; "Nager" ferme simplement le menu (comportement par défaut, mi-torse immergé déjà en
+  // place), "Plonger" bascule vers le monde sous-marin décoratif (voir underwaterMode).
+  const [underwaterMode, setUnderwaterMode] = useState(false);
+  const [waterMenuPos, setWaterMenuPos] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => { if (!swimming && underwaterMode) setUnderwaterMode(false); }, [swimming, underwaterMode]);
 
   // Proxy évanouissement (oxygène/fatigue) : GameCanvas2D.tsx reste l'UNIQUE moteur de décroissance
   // et d'évanouissement (toujours monté dans game/page.tsx) — ce widget ne fait que lire l'état
@@ -526,6 +699,42 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
   const [isRunning, setIsRunning] = useState(false);
   const [jumpTrigger, setJumpTrigger] = useState(0);
   const walkStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ─── Dégâts de chute/escalade (voir RepRules.platform3dFallDamageMinCubes/platform3dFallDeathCubes)
+  // `fallDamagePopup` = pop-up temporaire (dégâts mineurs, auto-masqué). `fallDeath` = compte à
+  // rebours de la « chute mortelle » (bloque le déplacement comme un évanouissement, voir isFainting
+  // ci-dessus), suivi d'une réanimation à pleine Vie (voir finishFallDeath plus bas) — mécanique
+  // propre à ce widget UNIQUEMENT (n'interfère jamais avec fainting/fatigueFainting de GameCanvas2D).
+  const [fallDamagePopup, setFallDamagePopup] = useState<{ hp: number; xp: number } | null>(null);
+  const [fallDeath, setFallDeath] = useState<{ remaining: number } | null>(null);
+  const fallDeathRef = useRef(false);
+  useEffect(() => {
+    if (!fallDamagePopup) return;
+    const id = setTimeout(() => setFallDamagePopup(null), 3500);
+    return () => clearTimeout(id);
+  }, [fallDamagePopup]);
+
+  const finishFallDeath = useCallback(async () => {
+    try {
+      if (address) await applyEffect(address, { hp: 999999 }).catch(() => {}); // clampé à hpMax (voir applyEffect)
+    } finally {
+      fallDeathRef.current = false;
+      setFallDeath(null);
+    }
+  }, [address]);
+  const finishFallDeathRef = useRef(finishFallDeath);
+  useEffect(() => { finishFallDeathRef.current = finishFallDeath; }, [finishFallDeath]);
+  useEffect(() => {
+    if (!fallDeath) return;
+    const id = setInterval(() => {
+      setFallDeath(prev => {
+        if (!prev) return null;
+        if (prev.remaining <= 1) { finishFallDeathRef.current(); return null; }
+        return { remaining: prev.remaining - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [!!fallDeath]);
 
   // Touche Espace maintenue (voir RepRules.platform3dJumpEnabled) — permet de "sauter" pour
   // franchir une dalle de montagne/roche : sans Espace maintenu, avancer vers une telle dalle est
@@ -564,8 +773,31 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     setPlayerMapPos(address, DEFAULT_MAP_ID, x, y).catch(() => {});
   }, [address, rules?.islandVehicleRequired, hasVehicle, poiPoints, t]);
 
+  // ─── Déclenche les dégâts de chute/escalade selon le dénivelé en cubes franchi (voir
+  // tileClimbCubes/RepRules.platform3dFallDamageMinCubes/platform3dFallDeathCubes). N'est appelé
+  // QUE lors d'une montée (dénivelé positif, avec Espace maintenu) — descendre reste toujours libre
+  // et sans dégât, conformément à la demande utilisateur.
+  const triggerClimbDamage = useCallback((diffCubes: number) => {
+    if (!address || !rules) return;
+    const deathCubes = rules.platform3dFallDeathCubes ?? 10;
+    const minCubes = rules.platform3dFallDamageMinCubes ?? 4;
+    if (diffCubes > deathCubes) {
+      if (fallDeathRef.current) return; // pas deux morts par chute en même temps
+      fallDeathRef.current = true;
+      const xpLoss = Math.max(0, Math.round(rules.platform3dFallDeathXp ?? 300));
+      const durationSec = Math.max(1, Math.round(rules.platform3dFallDeathReviveSec ?? 51));
+      applyEffect(address, { xpBonus: -xpLoss, hp: -999999 }).catch(() => {});
+      setFallDeath({ remaining: durationSec });
+    } else if (diffCubes > minCubes) {
+      const hpLoss = Math.max(0, Math.round(rules.platform3dFallDamageHp ?? 20));
+      const xpLoss = Math.max(0, Math.round(rules.platform3dFallDamageXp ?? 50));
+      applyEffect(address, { xpBonus: -xpLoss, hp: -hpLoss }).catch(() => {});
+      setFallDamagePopup({ hp: hpLoss, xp: xpLoss });
+    }
+  }, [address, rules]);
+
   const move = useCallback((dx: number, dy: number) => {
-    if (isFainting) return; // Synk évanoui (noyade ou épuisement) : déplacement bloqué, comme en 2D
+    if (isFainting || fallDeath) return; // Synk évanoui (noyade/épuisement) ou en chute mortelle : déplacement bloqué
     const dir = directionFromDelta(dx, dy);
     if (dir) {
       setFacing(dir);
@@ -580,15 +812,28 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     // Collision POI "obstacle" (village/taverne/étable/hutte...) — identique à GameCanvas2D.tsx :
     // ne bloque QUE ce déplacement incrémental, jamais moveTo (clic d'approche/téléportation).
     if ((rules?.poiObstacleCollisionEnabled ?? true) && isObstacleAt(destWc, destWr, poiPoints, destTile)) return;
-    // Franchissement d'une dalle de montagne/roche à l'aide du saut (Espace) — voir
-    // RepRules.platform3dJumpEnabled : sans Espace maintenu, la dalle est bloquée comme un
-    // obstacle ; avec Espace maintenu, l'avancée est autorisée et déclenche l'arc de saut cosmétique.
-    if (destTile.terrain === 'rock' && (rules?.platform3dJumpEnabled ?? true)) {
+    // Registre admin-paramétrable des comportements par objet/décor (voir platform3dTileFlags) —
+    // un arbre (ou toute autre entrée marquée `obstacle`) bloque désormais le déplacement, comme
+    // n'importe quel obstacle existant (corrige le bug "je traverse les arbres").
+    const destFlags = platform3dTileFlags(destTile, rules?.platform3dObjectFlags);
+    if (destFlags.obstacle) return;
+    // Franchissement d'un dénivelé (montagne/roche) à l'aide du saut (Espace maintenu) — voir
+    // RepRules.platform3dJumpEnabled/platform3dObjectFlags['terrain:rock'].climbable : sans Espace
+    // maintenu (ou si la dalle n'est pas marquée escaladable), un dénivelé positif reste bloqué ;
+    // DESCENDRE (dénivelé nul ou négatif) reste TOUJOURS libre, comme redescendre naturellement sur
+    // la terre ferme. Le dénivelé franchi est ensuite converti en « cubes » (voir tileClimbCubes)
+    // pour appliquer d'éventuels dégâts de chute/escalade (voir triggerClimbDamage).
+    const curTileNow = worldTileAt(Math.round(clamp100(cur.x)), Math.round(clamp100(cur.y)), poiPoints);
+    const cubeHeightM = rules?.platform3dCubeHeightM ?? 400;
+    const diffCubes = tileClimbCubes(destTile, cubeHeightM) - tileClimbCubes(curTileNow, cubeHeightM);
+    if (diffCubes > 0.001) {
+      if (!(rules?.platform3dJumpEnabled ?? true) || !destFlags.climbable) return;
       if (!spaceDownRef.current) return;
       setJumpTrigger(v => v + 1);
+      triggerClimbDamage(diffCubes);
     }
     moveTo(nx, ny);
-  }, [moveTo, isFainting, rules?.poiObstacleCollisionEnabled, rules?.platform3dJumpEnabled, poiPoints]);
+  }, [moveTo, isFainting, fallDeath, rules, poiPoints, triggerClimbDamage]);
 
   const hold = useHoldMovement(move, {
     walkStepMs: rules?.movementWalkStepMs ?? 220,
@@ -761,6 +1006,17 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
 
   const dpadBtn = 'flex items-center justify-center rounded bg-lime-900/80 hover:bg-lime-700 active:bg-lime-600 border border-lime-600 text-lime-100 text-sm shadow select-none';
   const resizableEnabled = rules?.platform3dResizableEnabled ?? true;
+  const underwaterEnabled = rules?.platform3dUnderwaterWorldEnabled ?? true;
+
+  // Capture le pointeur dès l'appui sur un bouton du pavé directionnel virtuel : sans cela, un
+  // léger tremblement de souris sur ce petit bouton (~28px) peut déclencher un `pointerleave`
+  // natif prématuré qui relâche la touche AVANT le seuil de course (movementRunHoldThresholdMs),
+  // empêchant Synk de jamais se mettre à courir au pavé (corrige ce bug signalé par l'utilisateur).
+  // Une fois le pointeur capturé, seuls `pointerup`/`pointercancel` sur CE bouton y mettent fin.
+  const onDpadDown = (e: React.PointerEvent<HTMLButtonElement>, dx: number, dy: number) => {
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    hold.press(dx, dy);
+  };
 
   return (
     <div
@@ -787,35 +1043,104 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
         </div>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
-      <div ref={fullscreenRef} className="relative bg-slate-950" style={{ width: isFullscreen ? '100vw' : size.w, height: isFullscreen ? '100vh' : size.h }}>
+      <div
+        ref={fullscreenRef} className="relative bg-slate-950"
+        style={{ width: isFullscreen ? '100vw' : size.w, height: isFullscreen ? '100vh' : size.h }}
+        onContextMenu={(e) => {
+          // Menu "nager/plonger" (voir RepRules.platform3dUnderwaterWorldEnabled) proposé
+          // UNIQUEMENT quand Synk est déjà sur une dalle d'eau et pas encore en pleine plongée ;
+          // sinon on laisse l'événement remonter au conteneur du widget (menu de repositionnement
+          // existant, WidgetContextMenu — zéro régression en dehors de l'eau).
+          if (swimming && !underwaterMode && underwaterEnabled) {
+            e.preventDefault();
+            e.stopPropagation();
+            setWaterMenuPos({ x: e.clientX, y: e.clientY });
+          }
+        }}
+      >
         <Canvas shadows camera={{ position: [0, 3.2, 5.6], fov: 45 }}>
-          <Scene
-            centerCol={centerCol} centerRow={centerRow} poiPoints={poiPoints} sceneMarkers={sceneMarkers}
-            stage={stage} walking={isWalking} running={isRunning} swimming={swimming} jumpTrigger={jumpTrigger}
-            facing={facing} equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
-            onTileClick={onTileClick} onPortalTileClick={onPortalTileClick3D} onHutTileClick={onHutTileClick3D}
-            onMarkerClick={onMarkerClick3D}
-          />
+          {underwaterMode ? (
+            <UnderwaterScene
+              stage={stage} facing={facing} equipment={equipment}
+              equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
+              fishCount={rules?.platform3dUnderwaterFishCount ?? 10}
+              monsterCount={rules?.platform3dUnderwaterMonsterCount ?? 2}
+            />
+          ) : (
+            <Scene
+              centerCol={centerCol} centerRow={centerRow} poiPoints={poiPoints} sceneMarkers={sceneMarkers}
+              stage={stage} walking={isWalking} running={isRunning} swimming={swimming} jumpTrigger={jumpTrigger}
+              facing={facing} equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
+              standY={standY}
+              onTileClick={onTileClick} onPortalTileClick={onPortalTileClick3D} onHutTileClick={onHutTileClick3D}
+              onMarkerClick={onMarkerClick3D}
+            />
+          )}
         </Canvas>
+        {underwaterMode && (
+          <>
+            <div className="absolute top-1.5 left-1.5 right-1.5 bg-sky-950/80 rounded px-2 py-1 text-[10px] text-sky-200 pointer-events-none">
+              🤿 {t('game.platform3d.underwater.title')}
+              <span className="block text-[9px] text-sky-300/80 mt-0.5">{SEA_MONSTER_NAMES.join(' · ')}</span>
+            </div>
+            <button
+              className="absolute top-1.5 right-1.5 mt-6 bg-sky-700 hover:bg-sky-600 text-white text-[11px] rounded px-2 py-1 shadow z-10"
+              onClick={() => setUnderwaterMode(false)}
+            >⬆️ {t('game.platform3d.underwater.surface')}</button>
+          </>
+        )}
+        {waterMenuPos && (
+          <>
+            <div className="fixed inset-0 z-[90]" onClick={() => setWaterMenuPos(null)} onContextMenu={(e) => { e.preventDefault(); setWaterMenuPos(null); }} />
+            <div
+              className="fixed z-[91] bg-slate-900 border border-sky-500 rounded-lg shadow-xl py-1 text-sm"
+              style={{ left: waterMenuPos.x, top: waterMenuPos.y }}
+            >
+              <button className="block w-full text-left px-3 py-1.5 hover:bg-sky-800/60 text-sky-100" onClick={() => setWaterMenuPos(null)}>
+                🏊 {t('game.platform3d.underwater.swim')}
+              </button>
+              <button className="block w-full text-left px-3 py-1.5 hover:bg-sky-800/60 text-sky-100" onClick={() => { setUnderwaterMode(true); setWaterMenuPos(null); }}>
+                🤿 {t('game.platform3d.underwater.dive')}
+              </button>
+            </div>
+          </>
+        )}
+        {!underwaterMode && (
         <div className="absolute top-1.5 left-1.5 bg-slate-900/70 rounded px-2 py-1 text-[10px] text-lime-200 pointer-events-none">
           {swimming ? '🏊 ' + t('game.platform3d.swimming') : isRunning ? '🏃 ' + t('game.platform3d.running') : '🚶 ' + t('game.platform3d.walking')}
           {player && <span className="ml-2">💨 {Math.round(player.oxygen ?? 100)}% · 🔋 {Math.round(player.fatigue ?? 100)}%</span>}
         </div>
+        )}
         {islandBlockedMsg && (
           <div className="absolute top-8 left-1.5 right-1.5 bg-amber-900/90 text-amber-100 text-[11px] rounded px-2 py-1 text-center">
             {islandBlockedMsg}
           </div>
         )}
+        {fallDamagePopup && (
+          <div className="absolute top-8 left-1.5 right-1.5 bg-rose-900/90 text-rose-100 text-[11px] rounded px-2 py-1 text-center">
+            🩹 {t('game.platform3d.fallDamage', { hp: fallDamagePopup.hp, xp: fallDamagePopup.xp })}
+          </div>
+        )}
+        {fallDeath && (
+          <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-[95] p-3 text-center">
+            <div>
+              <p className="text-2xl mb-1">💀</p>
+              <h3 className="text-base font-bold text-rose-300 mb-1">{t('game.platform3d.fallDeath.title')}</h3>
+              <p className="text-[11px] text-slate-300 mb-2">{t('game.platform3d.fallDeath.description', { xp: rules?.platform3dFallDeathXp ?? 300 })}</p>
+              <p className="text-3xl font-mono text-rose-300">{fallDeath.remaining}s</p>
+            </div>
+          </div>
+        )}
         <div className="absolute bottom-2 left-2 grid grid-cols-3 grid-rows-3 gap-0.5 w-[84px] h-[84px] z-10" title={t('canvas2d.dpadTitle')}>
-          <button className={dpadBtn} onPointerDown={() => hold.press(-1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpLeft')}>↖</button>
-          <button className={dpadBtn} onPointerDown={() => hold.press(0, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUp')}>▲</button>
-          <button className={dpadBtn} onPointerDown={() => hold.press(1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpRight')}>↗</button>
-          <button className={dpadBtn} onPointerDown={() => hold.press(-1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadLeft')}>◀</button>
+          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpLeft')}>↖</button>
+          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUp')}>▲</button>
+          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpRight')}>↗</button>
+          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadLeft')}>◀</button>
           <div />
-          <button className={dpadBtn} onPointerDown={() => hold.press(1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadRight')}>▶</button>
-          <button className={dpadBtn} onPointerDown={() => hold.press(-1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownLeft')}>↙</button>
-          <button className={dpadBtn} onPointerDown={() => hold.press(0, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDown')}>▼</button>
-          <button className={dpadBtn} onPointerDown={() => hold.press(1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownRight')}>↘</button>
+          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadRight')}>▶</button>
+          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownLeft')}>↙</button>
+          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDown')}>▼</button>
+          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownRight')}>↘</button>
         </div>
         <p className="absolute bottom-2 right-2 text-[9px] text-slate-500 max-w-[180px] text-right pointer-events-none">
           {t('game.platform3d.hint')}

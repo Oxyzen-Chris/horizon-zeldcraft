@@ -2839,6 +2839,56 @@ export const CORNER_POSITION_CLASSES: Record<CornerPosition, string> = {
 export type SynkDirection = 'up' | 'down' | 'left' | 'right' | 'up-left' | 'up-right' | 'down-left' | 'down-right';
 
 /**
+ * Registre admin-paramétrable des comportements de déplacement par type d'objet/décor DANS LA
+ * PLATEFORME 3D UNIQUEMENT (voir Platform3DWidget.tsx::move()) — remplace la logique jusqu'ici
+ * figée en dur (montagne toujours franchissable au saut, eau toujours immergeante, arbres jamais
+ * bloquants) par un système de 3 interrupteurs par type d'objet (terrain OU décor), modifiable
+ * librement dans le menu Administration (rubrique "🧱 Comportements des objets — Plateforme 3D") :
+ *  - `obstacle`   : bloque le déplacement incrémental (clavier/pavé/souris maintenue) — Synk le
+ *                   contourne au lieu de le traverser (comme les huttes/villages, voir
+ *                   worldTerrain.ts::isObstacleAt, qui reste la mécanique 2D historique inchangée).
+ *  - `climbable`  : autorise à grimper DESSUS (nécessite Espace maintenu si le point d'arrivée est
+ *                   plus haut que la position courante de Synk — voir platform3dCubeHeightM et les
+ *                   seuils de dégâts de chute) ; si false, un dénivelé positif reste bloqué même
+ *                   avec Espace. Descendre (dénivelé nul ou négatif) ne nécessite JAMAIS Espace.
+ *  - `water`      : immerge Synk à mi-torse en y marchant (voir waterSurfaceY) et rend disponible
+ *                   le menu clic droit "Plonger" (voir platform3dUnderwaterWorldEnabled).
+ * Seuls les décors/terrains listés ci-dessous sont couverts ; tout nouveau type ajouté à
+ * `worldTerrain.ts::Terrain`/`PropKind` devra être ajouté ici avec un comportement par défaut
+ * raisonnable (aucune régression sur les types déjà listés).
+ */
+export type Platform3DObjectKind =
+  | 'terrain:grass' | 'terrain:sand' | 'terrain:path' | 'terrain:rock' | 'terrain:water'
+  | 'prop:tree' | 'prop:bamboo' | 'prop:baobab' | 'prop:palm' | 'prop:hut' | 'prop:castle' | 'prop:portal';
+
+export const PLATFORM3D_OBJECT_KINDS: Platform3DObjectKind[] = [
+  'terrain:grass', 'terrain:sand', 'terrain:path', 'terrain:rock', 'terrain:water',
+  'prop:tree', 'prop:bamboo', 'prop:baobab', 'prop:palm', 'prop:hut', 'prop:castle', 'prop:portal',
+];
+
+export interface Platform3DObjectFlags { obstacle: boolean; climbable: boolean; water: boolean }
+
+/** Comportement par défaut de chaque type d'objet/décor (voir Platform3DObjectFlags ci-dessus) —
+ * reproduit EXACTEMENT le comportement historique déjà en place (montagne franchissable au saut,
+ * eau immergeante, huttes/châteaux déjà bloqués via worldTerrain.ts::isObstacleAt) et AJOUTE les
+ * arbres/bambous/baobabs/palmiers comme obstacles (correctif du bug "je traverse les arbres"),
+ * modifiable ensuite librement par l'admin sans toucher au code. */
+export const DEFAULT_PLATFORM3D_OBJECT_FLAGS: Record<Platform3DObjectKind, Platform3DObjectFlags> = {
+  'terrain:grass': { obstacle: false, climbable: false, water: false },
+  'terrain:sand':  { obstacle: false, climbable: false, water: false },
+  'terrain:path':  { obstacle: false, climbable: false, water: false },
+  'terrain:rock':  { obstacle: false, climbable: true,  water: false },
+  'terrain:water': { obstacle: false, climbable: false, water: true },
+  'prop:tree':     { obstacle: true,  climbable: false, water: false },
+  'prop:bamboo':   { obstacle: true,  climbable: false, water: false },
+  'prop:baobab':   { obstacle: true,  climbable: false, water: false },
+  'prop:palm':     { obstacle: true,  climbable: false, water: false },
+  'prop:hut':      { obstacle: true,  climbable: false, water: false },
+  'prop:castle':   { obstacle: true,  climbable: false, water: false },
+  'prop:portal':   { obstacle: false, climbable: false, water: false },
+};
+
+/**
  * Barème de reconnaissance appliqué à chaque type de rencontre PNJ.
  * Chargé au démarrage du popup, paramétrable via le menu admin.
  * Clé RTDB : catalog/repRules
@@ -3090,6 +3140,37 @@ export interface RepRules {
   platform3dEquipmentRenderEnabled: boolean; // Affiche l'équipement (arme, bouclier, casque, etc.) sur le modèle 3D de Synk (défaut true)
   platform3dJumpEnabled: boolean;            // Active le saut (barre espace) pour franchir montagnes/roches en 3D (défaut true)
   platform3dResizableEnabled: boolean;       // Autorise le redimensionnement (jusqu'au plein écran) du widget 3D (défaut true)
+  // ─── Escalade/saut de montagne en Plateforme 3D (voir Platform3DWidget.tsx::move()) — grimper
+  // sur une dalle plus haute que la position courante de Synk nécessite de maintenir Espace (voir
+  // platform3dJumpEnabled/Platform3DObjectFlags.climbable) ; DESCENDRE reste toujours libre (jamais
+  // besoin d'Espace). Le dénivelé est converti en « cubes » via `platform3dCubeHeightM` (mètres par
+  // cube) à partir de `Tile.altitudeM` (terre ferme/eau = altitude 0) : au-delà de
+  // `platform3dFallDamageMinCubes` cubes de dénivelé en une seule fois, Synk perd immédiatement
+  // `platform3dFallDamageHp` PV et `platform3dFallDamageXp` XP (petite chute) ; au-delà de
+  // `platform3dFallDeathCubes` cubes, la chute est mortelle : Synk perd `platform3dFallDeathXp` XP
+  // et toute sa Vie, un pop-up "chute mortelle" reste affiché `platform3dFallDeathReviveSec`
+  // secondes (défaut 51, bloque le déplacement comme un évanouissement), puis Synk revit avec sa
+  // Vie entièrement restaurée (voir applyEffect). Entre les deux seuils : dégâts mineurs, pas de
+  // mort. En dessous du 1er seuil : aucune pénalité (simple saut/escalade).
+  platform3dCubeHeightM: number;           // Mètres d'altitude représentant "1 cube" pour ce calcul (défaut 400)
+  platform3dFallDamageMinCubes: number;    // Dénivelé (en cubes) déclenchant les dégâts mineurs de chute (défaut 4)
+  platform3dFallDamageHp: number;          // Vie perdue lors d'une chute mineure (défaut 20)
+  platform3dFallDamageXp: number;          // XP perdue lors d'une chute mineure (défaut 50)
+  platform3dFallDeathCubes: number;        // Dénivelé (en cubes) déclenchant la chute mortelle (défaut 10)
+  platform3dFallDeathXp: number;           // XP perdue lors d'une chute mortelle (défaut 300)
+  platform3dFallDeathReviveSec: number;    // Durée (s) du pop-up "chute mortelle" avant réanimation (défaut 51)
+  // ─── Registre des comportements par objet/décor (voir Platform3DObjectKind/Platform3DObjectFlags
+  // ci-dessus) — modifiable dans le menu Administration, rubrique "🧱 Comportements des objets".
+  platform3dObjectFlags: Record<Platform3DObjectKind, Platform3DObjectFlags>;
+  // ─── Monde sous-marin (plongée totale) en Plateforme 3D — quand Synk se trouve sur une dalle
+  // marquée `water: true` (voir platform3dObjectFlags), un clic droit propose de nager en surface
+  // (comportement par défaut, mi-torse immergé) OU de plonger entièrement pour explorer un paysage
+  // sous-marin généré (poissons et créatures marines inspirées de Donjons & Dragons) — purement
+  // exploratoire/cosmétique : ne modifie AUCUNE mécanique d'oxygène/fatigue existante (celles-ci
+  // restent intégralement pilotées par GameCanvas2D.tsx).
+  platform3dUnderwaterWorldEnabled: boolean;  // Active le menu clic droit "Plonger" et le monde sous-marin (défaut true)
+  platform3dUnderwaterFishCount: number;      // Nombre de poissons décoratifs générés (défaut 10)
+  platform3dUnderwaterMonsterCount: number;   // Nombre de créatures marines générées (défaut 2)
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
   kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
                                          // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
@@ -3303,6 +3384,17 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dEquipmentRenderEnabled: true,
   platform3dJumpEnabled: true,
   platform3dResizableEnabled: true,
+  platform3dCubeHeightM: 400,
+  platform3dFallDamageMinCubes: 4,
+  platform3dFallDamageHp: 20,
+  platform3dFallDamageXp: 50,
+  platform3dFallDeathCubes: 10,
+  platform3dFallDeathXp: 300,
+  platform3dFallDeathReviveSec: 51,
+  platform3dObjectFlags: DEFAULT_PLATFORM3D_OBJECT_FLAGS,
+  platform3dUnderwaterWorldEnabled: true,
+  platform3dUnderwaterFishCount: 10,
+  platform3dUnderwaterMonsterCount: 2,
   kingdomMinIntermediateSolved: 3,
   zorghonEnabled: true,
   zorghonAppearKingdomSolvedCount: 6,
@@ -3337,7 +3429,16 @@ export async function getRepRules(): Promise<RepRules> {
   if (!db) return DEFAULT_REP_RULES;
   const snap = await get(ref(db, 'catalog/repRules'));
   const v = snap.val() as Partial<RepRules> | null;
-  return { ...DEFAULT_REP_RULES, ...(v || {}) };
+  const merged: RepRules = { ...DEFAULT_REP_RULES, ...(v || {}) };
+  // Merge profond de platform3dObjectFlags : une sauvegarde Firebase partielle/ancienne (avant
+  // l'ajout d'un nouveau Platform3DObjectKind, ou tout simplement absente) ne doit JAMAIS faire
+  // disparaître les types par défaut — voir commentaire sur DEFAULT_PLATFORM3D_OBJECT_FLAGS.
+  const savedFlags = (v || {}).platform3dObjectFlags as Partial<Record<Platform3DObjectKind, Partial<Platform3DObjectFlags>>> | undefined;
+  merged.platform3dObjectFlags = PLATFORM3D_OBJECT_KINDS.reduce((acc, kind) => {
+    acc[kind] = { ...DEFAULT_PLATFORM3D_OBJECT_FLAGS[kind], ...(savedFlags?.[kind] || {}) };
+    return acc;
+  }, {} as Record<Platform3DObjectKind, Platform3DObjectFlags>);
+  return merged;
 }
 
 export async function setRepRules(rules: RepRules): Promise<void> {
