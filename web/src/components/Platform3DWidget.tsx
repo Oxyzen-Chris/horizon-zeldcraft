@@ -938,10 +938,29 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
   const cameraYawRef = useRef(0);
   const onCameraYaw = useCallback((yaw: number) => { cameraYawRef.current = yaw; }, []);
   const cameraRelativeMovement = rules?.platform3dCameraRelativeMovement ?? true;
+  // Mémorise la dernière entrée BRUTE (écran) et sa direction MONDE déjà calculée pour ce maintien
+  // en cours — corrige le déplacement erratique (diagonales/allers-retours parasites) observé en
+  // maintenant une touche : `OrbitControls.enableDamping` fait dériver légèrement l'angle de la
+  // caméra pendant quelques frames après toute rotation à la souris (inertie), et recalculer la
+  // rotation à CHAQUE pas du maintien (via `useHoldMovement`, cadence walkStepMs/runStepMs)
+  // ré-échantillonnait cet angle en léger mouvement, faisant parfois basculer la direction arrondie
+  // vers une case voisine en plein maintien. On ne ré-échantillonne désormais l'angle caméra que
+  // lorsque l'entrée BRUTE change réellement (nouvelle touche/diagonale), pas à chaque tick d'un
+  // maintien inchangé, ce qui fige la direction pour toute la durée d'un appui continu.
+  const lastRawDirRef = useRef<{ dx: number; dy: number } | null>(null);
+  const lastRotatedDirRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
   const dispatchMove = useCallback((dx: number, dy: number) => {
     if (underwaterMode && underwaterMoveEnabled) { moveUnderwater(dx, dy); return; }
     if (cameraRelativeMovement) {
-      const rotated = rotateInputByCameraYaw(dx, dy, cameraYawRef.current);
+      const last = lastRawDirRef.current;
+      let rotated: { dx: number; dy: number };
+      if (last && last.dx === dx && last.dy === dy) {
+        rotated = lastRotatedDirRef.current;
+      } else {
+        rotated = rotateInputByCameraYaw(dx, dy, cameraYawRef.current);
+        lastRawDirRef.current = { dx, dy };
+        lastRotatedDirRef.current = rotated;
+      }
       move(rotated.dx, rotated.dy);
     } else {
       move(dx, dy);
@@ -954,6 +973,15 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     runHoldThresholdMs: rules?.movementRunHoldThresholdMs ?? 1500,
     onRunChange: setIsRunning,
   });
+  // Relâchement d'un maintien de direction (clavier ou pavé virtuel) : on efface le cache de
+  // direction monde figée (voir lastRawDirRef ci-dessus) pour forcer un nouvel échantillonnage de
+  // l'angle caméra au PROCHAIN appui — sinon un appui identique (ex. de nouveau "Haut") après avoir
+  // orbité la caméra à la souris sans bouger entre-temps réutiliserait à tort l'ancienne direction
+  // monde mise en cache.
+  const releaseMovement = useCallback(() => {
+    lastRawDirRef.current = null;
+    hold.release();
+  }, [hold]);
   useEffect(() => () => { if (walkStopTimerRef.current) clearTimeout(walkStopTimerRef.current); }, []);
 
   // ─── Clic sur un marqueur (PNJ, familier, trésor, quête, monde, hutte) — même logique que
@@ -1038,7 +1066,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       if (!ALL.has(e.key)) return;
       keysDownRef.current.delete(e.key);
       const { dx, dy } = composite();
-      if (dx === 0 && dy === 0) hold.release(); else hold.update(dx, dy);
+      if (dx === 0 && dy === 0) releaseMovement(); else hold.update(dx, dy);
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKeyUp);
@@ -1046,9 +1074,9 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKeyUp);
       keysDownRef.current.clear();
-      hold.release();
+      releaseMovement();
     };
-  }, [collapsed, enabled, hold]);
+  }, [collapsed, enabled, hold, releaseMovement]);
 
   // ─── Redimensionnement à la souris (coin bas-droit, voir onResizePointerMove) + plein écran natif
   // du navigateur (voir RepRules.platform3dResizableEnabled) — le conteneur 3D `fullscreenRef` (et
@@ -1255,10 +1283,10 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
           </div>
         )}
         <div className="absolute bottom-2 left-2 grid grid-cols-3 grid-rows-3 gap-0.5 w-[84px] h-[84px] z-10" title={t('canvas2d.dpadTitle')}>
-          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpLeft')}>↖</button>
-          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUp')}>▲</button>
-          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpRight')}>↗</button>
-          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadLeft')}>◀</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, -1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadUpLeft')}>↖</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, -1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadUp')}>▲</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, -1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadUpRight')}>↗</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 0)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadLeft')}>◀</button>
           {jumpEnabled ? (
             <button
               tabIndex={-1}
@@ -1268,10 +1296,10 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               title={t('game.platform3d.jumpButton')}
             >⤴️</button>
           ) : <div />}
-          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadRight')}>▶</button>
-          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownLeft')}>↙</button>
-          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDown')}>▼</button>
-          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownRight')}>↘</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 0)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadRight')}>▶</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadDownLeft')}>↙</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, 1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadDown')}>▼</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadDownRight')}>↘</button>
         </div>
         <p className="absolute bottom-2 right-2 text-[9px] text-slate-500 max-w-[180px] text-right pointer-events-none">
           {t('game.platform3d.hint')}
