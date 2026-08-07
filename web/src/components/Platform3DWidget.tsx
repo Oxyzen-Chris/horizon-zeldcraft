@@ -88,6 +88,31 @@ function directionFromDelta(dx: number, dy: number): SynkDirection | null {
   return dy < 0 ? 'up-right' : 'down-right';
 }
 
+/** Convertit une direction d'entrée (clavier/pavé directionnel, ex. « Haut » = dx=0,dy=-1) — pensée
+ * comme relative à l'ÉCRAN (« s'éloigner de la caméra ») — en une direction MONDE (grille fixe
+ * col/row), en tenant compte de l'angle horizontal actuel de la caméra (`yaw`, voir
+ * OrbitControls::getAzimuthalAngle dans Scene ci-dessous). Corrige le bug persistant « Espace+Haut
+ * ne fait pas grimper la montagne qui semble pourtant en face » : la caméra pouvant être orbitée
+ * librement à la souris, "Haut" pointait auparavant TOUJOURS vers le nord du monde (dy=-1) quel que
+ * soit l'angle de vue, ce qui ne correspondait plus forcément à la case visuellement en face de
+ * Synk une fois la caméra tournée. Avec cette rotation, "Haut" désigne désormais TOUJOURS la case
+ * qui s'éloigne de la caméra à l'écran (donc "en face" de Synk du point de vue du joueur), et
+ * "Droite"/"Gauche" suivent la même logique — la sortie est ensuite alignée (arrondie) sur la plus
+ * proche des 8 directions de la grille (cardinales + diagonales), pour rester un pas de case entier
+ * valide. Paramétrable (voir RepRules.platform3dCameraRelativeMovement) pour revenir à l'ancien
+ * comportement (direction monde fixe) en un clic en cas de souci.
+ */
+function rotateInputByCameraYaw(dx: number, dy: number, yaw: number): { dx: number; dy: number } {
+  if (dx === 0 && dy === 0) return { dx: 0, dy: 0 };
+  // Angle de l'entrée BRUTE dans le repère écran (0 = "Haut" = s'éloigner de la caméra), au sens
+  // trigonométrique compatible avec l'angle azimutal de OrbitControls (voir Scene::onCameraYaw).
+  const inputAngle = Math.atan2(dx, -dy);
+  const worldAngle = inputAngle + yaw;
+  const step = Math.PI / 4;
+  const snapped = Math.round(worldAngle / step) * step;
+  return { dx: Math.round(Math.sin(snapped)), dy: Math.round(-Math.cos(snapped)) };
+}
+
 /** Hauteur (unités 3D) de la surface sur laquelle Synk se tient DEBOUT pour une tuile donnée —
  * réutilise EXACTEMENT les mêmes formules que `TerrainBlock`/`PropBlock` ci-dessus (roche : sommet
  * du bloc surélevé ; eau : surface du bloc d'eau abaissé/assombri selon la profondeur ; prairie/
@@ -411,6 +436,7 @@ interface SceneMarker { id: string; kind: string; x: number; z: number; marker: 
 function Scene({
   centerCol, centerRow, poiPoints, sceneMarkers, stage, walking, running, swimming, jumpTrigger, facing,
   equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
+  onCameraYaw,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
@@ -421,7 +447,17 @@ function Scene({
   onPortalTileClick: (wc: number, wr: number) => void;
   onHutTileClick: (wc: number, wr: number) => void;
   onMarkerClick: (m: MapMarker) => void;
+  onCameraYaw: (yaw: number) => void;
 }) {
+  // Ref vers l'instance OrbitControls (three.js), pour lire son angle azimutal (yaw) courant à
+  // chaque frame et le remonter au composant parent (voir rotateInputByCameraYaw) — un ref simple
+  // ET un callback (pas de state React) pour éviter tout re-rendu inutile à 60 fps.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const controlsRef = useRef<any>(null);
+  useFrame(() => {
+    if (controlsRef.current) onCameraYaw(controlsRef.current.getAzimuthalAngle());
+  });
+
   const tiles = useMemo(() => {
     const out: { tile: Tile; wc: number; wr: number; x: number; z: number }[] = [];
     for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
@@ -468,6 +504,7 @@ function Scene({
         facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled} standY={standY}
       />
       <OrbitControls
+        ref={controlsRef}
         enablePan={false} enableDamping dampingFactor={0.12}
         minDistance={3} maxDistance={11} minPolarAngle={0.25} maxPolarAngle={1.35}
         target={[0, 0.3, 0]}
@@ -894,11 +931,22 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
 
   // Aiguille le clavier/pavé directionnel/souris vers la nage sous-marine ou le déplacement normal,
   // selon la vue active — un SEUL point d'entrée partagé par useHoldMovement pour ne dupliquer
-  // aucune logique d'appui prolongé/course (voir useHoldMovement.ts).
+  // aucune logique d'appui prolongé/course (voir useHoldMovement.ts). En exploration normale,
+  // convertit d'abord l'entrée écran (Haut/Bas/Gauche/Droite) en direction MONDE selon l'angle
+  // actuel de la caméra (voir rotateInputByCameraYaw/cameraYawRef) — corrige "Espace+Haut ne fait
+  // pas grimper la montagne en face" quand la caméra a été orbitée à la souris.
+  const cameraYawRef = useRef(0);
+  const onCameraYaw = useCallback((yaw: number) => { cameraYawRef.current = yaw; }, []);
+  const cameraRelativeMovement = rules?.platform3dCameraRelativeMovement ?? true;
   const dispatchMove = useCallback((dx: number, dy: number) => {
-    if (underwaterMode && underwaterMoveEnabled) moveUnderwater(dx, dy);
-    else move(dx, dy);
-  }, [underwaterMode, underwaterMoveEnabled, moveUnderwater, move]);
+    if (underwaterMode && underwaterMoveEnabled) { moveUnderwater(dx, dy); return; }
+    if (cameraRelativeMovement) {
+      const rotated = rotateInputByCameraYaw(dx, dy, cameraYawRef.current);
+      move(rotated.dx, rotated.dy);
+    } else {
+      move(dx, dy);
+    }
+  }, [underwaterMode, underwaterMoveEnabled, moveUnderwater, move, cameraRelativeMovement]);
 
   const hold = useHoldMovement(dispatchMove, {
     walkStepMs: rules?.movementWalkStepMs ?? 220,
@@ -1148,7 +1196,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               facing={facing} equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
               standY={standY}
               onTileClick={onTileClick} onPortalTileClick={onPortalTileClick3D} onHutTileClick={onHutTileClick3D}
-              onMarkerClick={onMarkerClick3D}
+              onMarkerClick={onMarkerClick3D} onCameraYaw={onCameraYaw}
             />
           )}
         </Canvas>

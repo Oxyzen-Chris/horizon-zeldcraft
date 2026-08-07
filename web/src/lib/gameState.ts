@@ -3140,6 +3140,13 @@ export interface RepRules {
   platform3dEquipmentRenderEnabled: boolean; // Affiche l'équipement (arme, bouclier, casque, etc.) sur le modèle 3D de Synk (défaut true)
   platform3dJumpEnabled: boolean;            // Active le saut (barre espace) pour franchir montagnes/roches en 3D (défaut true)
   platform3dResizableEnabled: boolean;       // Autorise le redimensionnement (jusqu'au plein écran) du widget 3D (défaut true)
+  // La caméra 3D pouvant être librement orbitée (souris), "Haut"/"Bas"/"Gauche"/"Droite" désignent
+  // par défaut la direction ÉCRAN (s'éloigner/se rapprocher de la caméra) plutôt qu'une direction
+  // monde fixe — voir Platform3DWidget.tsx::rotateInputByCameraYaw. Corrige le bug "Espace+Haut ne
+  // fait pas grimper la montagne pourtant en face" (la case réellement ciblée par "Haut" ne
+  // correspondait plus à ce qui est visible à l'écran une fois la caméra tournée). Désactiver
+  // revient à l'ancien comportement (direction monde fixe, indépendante de la caméra).
+  platform3dCameraRelativeMovement: boolean; // Déplacements relatifs à l'angle de caméra (défaut true)
   // ─── Escalade/saut de montagne en Plateforme 3D (voir Platform3DWidget.tsx::move()) — grimper
   // sur une dalle plus haute que la position courante de Synk nécessite de maintenir Espace (voir
   // platform3dJumpEnabled/Platform3DObjectFlags.climbable) ; DESCENDRE reste toujours libre (jamais
@@ -3391,6 +3398,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dEquipmentRenderEnabled: true,
   platform3dJumpEnabled: true,
   platform3dResizableEnabled: true,
+  platform3dCameraRelativeMovement: true,
   platform3dCubeHeightM: 400,
   platform3dFallDamageMinCubes: 4,
   platform3dFallDamageHp: 20,
