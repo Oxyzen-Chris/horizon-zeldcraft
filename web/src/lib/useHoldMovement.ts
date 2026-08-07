@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 export interface HoldMovementOptions {
   /** Intervalle (ms) entre deux pas tant que la touche/le bouton reste maintenu(e) en "marche". */
@@ -83,5 +83,21 @@ export function useHoldMovement(move: (dx: number, dy: number) => void, opts: Ho
 
   useEffect(() => () => clearTimers(), [clearTimers]);
 
-  return { press, update, release, isRunning: () => runningRef.current, isActive: () => activeRef.current !== null };
+  // Objet retourné MÉMOÏSÉ (voir dépendances ci-dessous, toutes des useCallback à identité stable) —
+  // corrige le bug rapporté "je ne peux jamais me mettre à courir en maintenant une touche" :
+  // GameCanvas2D.tsx et Platform3DWidget.tsx référencent tous deux cet objet dans le tableau de
+  // dépendances de leur `useEffect` d'écoute clavier (ex. `}, [collapsed, hold]);`) pour pouvoir
+  // relâcher proprement le maintien au démontage/changement de vue. Sans mémoïsation, CE hook
+  // renvoyait un NOUVEL objet littéral à CHAQUE rendu du composant appelant — et comme `move(dx,dy)`
+  // change la position de Synk (donc re-render) à CHAQUE pas, cela réexécutait cet effet à chaque
+  // pas, dont le nettoyage appelait `release()` et annulait ainsi l'intervalle ET le minuteur de
+  // bascule marche→course AVANT que celui-ci (`runHoldThresholdMs`, ex. 1.5s) n'ait jamais le temps
+  // de se déclencher : la course ne pouvait donc jamais s'activer. `isRunning`/`isActive` restent
+  // des fermetures sur les refs internes (toujours à jour), donc aucune perte de fraîcheur des
+  // données malgré la mémoïsation.
+  return useMemo(() => ({
+    press, update, release,
+    isRunning: () => runningRef.current,
+    isActive: () => activeRef.current !== null,
+  }), [press, update, release]);
 }
