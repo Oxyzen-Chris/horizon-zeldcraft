@@ -173,6 +173,18 @@ export function ShopPanel() {
                       {c.rarity ? <span className="text-amber-400"> · {t(`equip.rarity.${c.rarity}`)}</span> : null}
                     </p>
                   )}
+                  {c.effect && (c.effect.hp || c.effect.hunger || c.effect.happiness || c.effect.force || c.effect.spells || c.effect.maxHp || c.effect.maxForce || c.effect.maxSpells) && (
+                    <p className="text-[10px] mb-1 text-rose-300">
+                      {c.effect.hp ? <span>❤️ +{c.effect.hp}</span> : null}
+                      {c.effect.maxHp ? <span> ❤️‍🔥 +{c.effect.maxHp} {t('game.shop.effectMax')}</span> : null}
+                      {c.effect.hunger ? <span> 🍗 +{c.effect.hunger}</span> : null}
+                      {c.effect.happiness ? <span> 😊 +{c.effect.happiness}</span> : null}
+                      {c.effect.force ? <span> 💪 +{c.effect.force}</span> : null}
+                      {c.effect.maxForce ? <span> 💪‍🔥 +{c.effect.maxForce} {t('game.shop.effectMax')}</span> : null}
+                      {c.effect.spells ? <span> ✨ +{c.effect.spells}</span> : null}
+                      {c.effect.maxSpells ? <span> ✨‍🔥 +{c.effect.maxSpells} {t('game.shop.effectMax')}</span> : null}
+                    </p>
+                  )}
                   <p className="text-[10px] text-emerald-400 mb-2">
                     ↩ {t('game.shop.resellAt')} {resell} 💰
                   </p>

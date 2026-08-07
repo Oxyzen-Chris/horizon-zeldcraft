@@ -620,6 +620,11 @@ export function RepRulesPanel() {
           <input type="number" min="1" className="input mt-1 w-full"
             value={rules.platform3dUnderwaterMoveRadius} onChange={e => set('platform3dUnderwaterMoveRadius', e.target.value)} />
         </label>
+        <label className="flex items-center gap-2 text-sm mt-3">
+          <input type="checkbox" checked={rules.defaultLakesEnabled !== false}
+            onChange={e => setBool('defaultLakesEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.defaultLakesEnabled')}</span>
+        </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">📍 {t('admin.repRules.depthAltitudePopupTitle')}</h3>

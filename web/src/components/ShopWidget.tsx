@@ -220,6 +220,18 @@ export function ShopWidget({ enabled = true }: { enabled?: boolean } = {}) {
                           {c.defense ? <span className="text-sky-400"> 🛡️ {c.defense}</span> : null}
                         </p>
                       )}
+                      {c.effect && (c.effect.hp || c.effect.hunger || c.effect.happiness || c.effect.force || c.effect.spells || c.effect.maxHp || c.effect.maxForce || c.effect.maxSpells) && (
+                        <p className="text-[9px] mb-1 text-rose-300">
+                          {c.effect.hp ? <span>❤️ +{c.effect.hp}</span> : null}
+                          {c.effect.maxHp ? <span> ❤️‍🔥 +{c.effect.maxHp} {t('game.shop.effectMax')}</span> : null}
+                          {c.effect.hunger ? <span> 🍗 +{c.effect.hunger}</span> : null}
+                          {c.effect.happiness ? <span> 😊 +{c.effect.happiness}</span> : null}
+                          {c.effect.force ? <span> 💪 +{c.effect.force}</span> : null}
+                          {c.effect.maxForce ? <span> 💪‍🔥 +{c.effect.maxForce} {t('game.shop.effectMax')}</span> : null}
+                          {c.effect.spells ? <span> ✨ +{c.effect.spells}</span> : null}
+                          {c.effect.maxSpells ? <span> ✨‍🔥 +{c.effect.maxSpells} {t('game.shop.effectMax')}</span> : null}
+                        </p>
+                      )}
                       <p className="text-[9px] text-emerald-400 mb-1">↩ {resell} 💰</p>
                       <button className="btn-primary text-[10px] w-full" disabled={!c.priceGame} onClick={() => askBuy(c)}>
                         {t('game.shop.buy')}

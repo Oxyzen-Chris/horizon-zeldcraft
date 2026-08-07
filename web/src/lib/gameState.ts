@@ -2198,19 +2198,50 @@ export interface MapMarker {
   fullMoonOnly?: boolean;
 }
 
+/** 10 grands lacs/étangs fixes, répartis sur toute la mapmonde (voir RepRules.defaultLakesEnabled)
+ * — corrige la demande utilisateur "créer des bassins/lacs assez larges pour laisser Synk y nager,
+ * en clairsemant la map d'une dizaine de grandes étendues d'eau". Positions choisies pour couvrir
+ * les 4 quadrants + le centre de la carte 100x100, avec un rayon généreux (`radius`, voir
+ * POI_RADIUS_BY_TYPE dans worldTerrain.ts) pour obtenir de vraies étendues nageables plutôt que de
+ * petites flaques ambiantes. Purement additif (voir getAllMapMarkers ci-dessous) : fusionné aux
+ * MapPoiDef saisis manuellement par l'admin, jamais à leur place — aucune régression sur le
+ * territoire déjà configuré en base. */
+export const DEFAULT_LAKE_POIS: { id: string; type: 'lake' | 'pond'; name: string; icon: string; x: number; y: number; radius: number }[] = [
+  { id: 'default_lake_1', type: 'lake', name: 'Lac des Brumes', icon: '💧', x: 15, y: 20, radius: 14 },
+  { id: 'default_lake_2', type: 'pond', name: 'Étang du Roseau', icon: '💧', x: 35, y: 15, radius: 8 },
+  { id: 'default_lake_3', type: 'lake', name: 'Lac Argenté', icon: '💧', x: 62, y: 12, radius: 13 },
+  { id: 'default_lake_4', type: 'pond', name: 'Étang des Grenouilles', icon: '💧', x: 85, y: 25, radius: 7 },
+  { id: 'default_lake_5', type: 'lake', name: 'Lac Zéphyria', icon: '💧', x: 20, y: 45, radius: 16 },
+  { id: 'default_lake_6', type: 'lake', name: 'Lac du Cœur', icon: '💧', x: 50, y: 50, radius: 12 },
+  { id: 'default_lake_7', type: 'pond', name: 'Étang du Vieux Saule', icon: '💧', x: 78, y: 55, radius: 9 },
+  { id: 'default_lake_8', type: 'lake', name: 'Lac Turquoise', icon: '💧', x: 12, y: 75, radius: 14 },
+  { id: 'default_lake_9', type: 'pond', name: 'Étang des Nénuphars', icon: '💧', x: 45, y: 80, radius: 8 },
+  { id: 'default_lake_10', type: 'lake', name: 'Lac Profond', icon: '💧', x: 72, y: 85, radius: 16 },
+];
+
 /** Construit la liste unifiée des marqueurs d'une carte (voir MapMarker). `season`/`unlockedWorlds`
  * sont facultatifs : sans eux, tous les éléments actifs sont renvoyés (repli permissif). */
 export async function getAllMapMarkers(
   mapId: string = DEFAULT_MAP_ID, season?: Season | null,
 ): Promise<MapMarker[]> {
-  const [pois, worlds, npcs, treasures, familiars, quests, packs] = await Promise.all([
-    getMapPoiDefs(mapId), getWorldDefs(), getNpcDefs(), getTreasureDefs(), getFamiliarDefs(), getQuestDefs(), getContentPackDefs(),
+  const [pois, worlds, npcs, treasures, familiars, quests, packs, rules] = await Promise.all([
+    getMapPoiDefs(mapId), getWorldDefs(), getNpcDefs(), getTreasureDefs(), getFamiliarDefs(), getQuestDefs(), getContentPackDefs(), getRepRules(),
   ]);
   const markers: MapMarker[] = [];
   for (const p of pois) {
     if (p.season && season !== undefined && p.season !== season) continue; // filtré finement par appelant si besoin (visité)
     if (!isContentPackVisible(p.contentPack, packs)) continue; // voir ContentPackDef (Extensions/DLC)
     markers.push({ id: p.id, kind: 'poi', name: p.name, icon: p.icon || '📍', x: p.x, y: p.y, poiType: p.type, radius: p.radius });
+  }
+  // Lacs/étangs par défaut (voir DEFAULT_LAKE_POIS ci-dessus) — uniquement pour `mapId ===
+  // DEFAULT_MAP_ID` (territoire principal de Synk) et seulement si l'admin n'a pas déjà créé un
+  // MapPoiDef portant le même id (permet de le personnaliser/remplacer sans doublon).
+  if ((rules.defaultLakesEnabled ?? true) && mapId === DEFAULT_MAP_ID) {
+    const existingIds = new Set(pois.map(p => p.id));
+    for (const l of DEFAULT_LAKE_POIS) {
+      if (existingIds.has(l.id)) continue;
+      markers.push({ id: l.id, kind: 'poi', name: l.name, icon: l.icon, x: l.x, y: l.y, poiType: l.type, radius: l.radius });
+    }
   }
   for (const w of worlds.filter(w2 => w2.active !== false && isContentPackVisible(w2.contentPack, packs))) {
     const x = w.mapX ?? 50, y = w.mapY ?? 50;
@@ -3185,6 +3216,12 @@ export interface RepRules {
   // (oxygène/fatigue restent intégralement pilotés par GameCanvas2D.tsx).
   platform3dUnderwaterMoveEnabled: boolean;   // Autorise à nager/se déplacer en plongée totale (défaut true)
   platform3dUnderwaterMoveRadius: number;     // Rayon d'exploration borné autour du point de plongée (défaut 6)
+  // ─── Grands lacs/bassins par défaut (voir demande utilisateur "créer une dizaine de grandes
+  // étendues d'eau pour nager") — DEFAULT_LAKE_POIS ci-dessus fournit une dizaine de lacs/étangs
+  // fixes, répartis sur toute la mapmonde, FUSIONNÉS à getAllMapMarkers() en plus des MapPoiDef
+  // saisis manuellement par l'admin (jamais à la place) : aucune régression sur les POI déjà créés
+  // en base. Désactivable ici si l'admin préfère composer entièrement son propre territoire aquatique.
+  defaultLakesEnabled: boolean;                // Affiche les 10 lacs/étangs par défaut (défaut true)
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
   kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
                                          // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
@@ -3412,6 +3449,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dUnderwaterMonsterCount: 2,
   platform3dUnderwaterMoveEnabled: true,
   platform3dUnderwaterMoveRadius: 6,
+  defaultLakesEnabled: true,
   kingdomMinIntermediateSolved: 3,
   zorghonEnabled: true,
   zorghonAppearKingdomSolvedCount: 6,

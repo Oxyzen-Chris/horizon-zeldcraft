@@ -215,6 +215,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const [oxygenTimer, setOxygenTimer] = useState<number | null>(null);
   const [oxygenRecovering, setOxygenRecovering] = useState(false);
   const [fainting, setFainting] = useState<{ remaining: number } | null>(null);
+  // Terrain à l'origine de CET évanouissement d'oxygène précis ('water' = noyade, 'rock' = manque
+  // d'air en altitude/montagne — la mécanique d'oxygène décroît sur CES DEUX terrains, voir l'effet
+  // de décroissance ci-dessous) — corrige le bug rapporté "le pop-up dit que Synk se noie alors
+  // qu'il était épuisé en haut d'une montagne" : le texte "noyade" était affiché À TORT même quand
+  // la cause réelle était la raréfaction de l'air en altitude (aucune eau à proximité). Figé au
+  // moment du déclenchement (et non recalculé en continu) pour rester cohérent pendant toute la
+  // durée de l'évanouissement, même si Synk est ensuite téléporté ailleurs par `finishFainting`.
+  const [oxygenFaintTerrain, setOxygenFaintTerrain] = useState<'water' | 'rock'>('water');
   const [faintResult, setFaintResult] = useState<{ xp: number; hp: number; itemName: string | null } | null>(null);
   const oxygenIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const oxygenRecoverIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -716,6 +724,10 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     if ((player.oxygen ?? 100) > threshold) return;
     if (faintingRef.current || fatigueFaintingRef.current) return; // pas deux évanouissements en même temps
     faintingRef.current = true;
+    // Détermine la cause d'affichage (voir oxygenFaintTerrain ci-dessus) depuis le terrain LIVE
+    // (currentTileRef), pas depuis `currentTerrain` (potentiellement obsolète dans la fermeture de
+    // cet effet) : 'rock' → manque d'air en altitude, sinon (eau ou tout autre cas résiduel) → noyade.
+    setOxygenFaintTerrain(currentTileRef.current.terrain === 'rock' ? 'rock' : 'water');
     if (oxygenIntervalRef.current) { clearInterval(oxygenIntervalRef.current); oxygenIntervalRef.current = null; }
     setOxygenTimer(null);
     const durationSec = Math.max(1, Math.round(rules.oxygenFaintDurationSec ?? 30));
@@ -1053,9 +1065,9 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       {fainting && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-4">
           <div className="bg-slate-900 border-2 border-sky-500 rounded-xl p-8 max-w-md w-full text-center">
-            <div className="text-7xl mb-4 animate-pulse">🫧</div>
-            <h3 className="text-2xl font-bold text-sky-300 mb-2">{t('oxygen.faint.title')}</h3>
-            <p className="text-sm text-slate-400 mb-6">{t('oxygen.faint.description')}</p>
+            <div className="text-7xl mb-4 animate-pulse">{oxygenFaintTerrain === 'rock' ? '🥶' : '🫧'}</div>
+            <h3 className="text-2xl font-bold text-sky-300 mb-2">{oxygenFaintTerrain === 'rock' ? t('oxygen.faint.title.altitude') : t('oxygen.faint.title')}</h3>
+            <p className="text-sm text-slate-400 mb-6">{oxygenFaintTerrain === 'rock' ? t('oxygen.faint.description.altitude') : t('oxygen.faint.description')}</p>
             <div className="bg-slate-800/60 rounded-lg p-4 mb-4">
               <p className="text-5xl font-mono text-sky-300">{fainting.remaining}s</p>
               <div className="w-full bg-slate-700 rounded-full h-2 mt-3">

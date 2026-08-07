@@ -883,6 +883,22 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     // n'importe quel obstacle existant (corrige le bug "je traverse les arbres").
     const destFlags = platform3dTileFlags(destTile, rules?.platform3dObjectFlags);
     if (destFlags.obstacle) return;
+    // Anti "coupe de coin" en diagonale (voir demande "certains arbres" traversés) : en déplacement
+    // diagonal (dx ET dy non nuls), la case de destination peut être libre alors que Synk coupe
+    // visuellement à travers l'ANGLE d'un arbre planté sur l'une des deux cases orthogonales
+    // adjacentes (celle "à côté" en x, celle "à côté" en y) — un jeu de cases/voxels façon Minecraft
+    // interdit classiquement cette coupe de coin. On bloque donc aussi la diagonale si l'une de ces
+    // deux cases orthogonales est elle-même un obstacle (arbre/hutte/château/POI), tout en laissant
+    // un déplacement cardinal (dx=0 ou dy=0) totalement inchangé (aucune régression).
+    if (dx !== 0 && dy !== 0) {
+      const sideAWc = Math.round(clamp100(cur.x + dx * STEP_PCT)), sideAWr = Math.round(clamp100(cur.y));
+      const sideBWc = Math.round(clamp100(cur.x)), sideBWr = Math.round(clamp100(cur.y + dy * STEP_PCT));
+      const sideATile = worldTileAt(sideAWc, sideAWr, poiPoints);
+      const sideBTile = worldTileAt(sideBWc, sideBWr, poiPoints);
+      const poiBlocked = (rules?.poiObstacleCollisionEnabled ?? true) && (isObstacleAt(sideAWc, sideAWr, poiPoints, sideATile) || isObstacleAt(sideBWc, sideBWr, poiPoints, sideBTile));
+      const propBlocked = platform3dTileFlags(sideATile, rules?.platform3dObjectFlags).obstacle || platform3dTileFlags(sideBTile, rules?.platform3dObjectFlags).obstacle;
+      if (poiBlocked || propBlocked) return;
+    }
     // Franchissement d'un dénivelé (montagne/roche) à l'aide du saut (Espace maintenu) — voir
     // RepRules.platform3dJumpEnabled/platform3dObjectFlags['terrain:rock'].climbable : sans Espace
     // maintenu (ou si la dalle n'est pas marquée escaladable), un dénivelé positif reste bloqué ;
