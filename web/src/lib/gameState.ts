@@ -3171,6 +3171,13 @@ export interface RepRules {
   platform3dUnderwaterWorldEnabled: boolean;  // Active le menu clic droit "Plonger" et le monde sous-marin (défaut true)
   platform3dUnderwaterFishCount: number;      // Nombre de poissons décoratifs générés (défaut 10)
   platform3dUnderwaterMonsterCount: number;   // Nombre de créatures marines générées (défaut 2)
+  // Déplacement réel de Synk une fois en plongée totale (voir UnderwaterScene/moveUnderwater dans
+  // Platform3DWidget.tsx) — corrige le bug rapporté "je ne peux pas me déplacer sous l'eau" (le
+  // monde sous-marin était jusqu'ici purement décoratif, Synk fixe au centre). Purement une
+  // progression visuelle bornée dans cette vue exploratoire, AUCUNE nouvelle mécanique de jeu
+  // (oxygène/fatigue restent intégralement pilotés par GameCanvas2D.tsx).
+  platform3dUnderwaterMoveEnabled: boolean;   // Autorise à nager/se déplacer en plongée totale (défaut true)
+  platform3dUnderwaterMoveRadius: number;     // Rayon d'exploration borné autour du point de plongée (défaut 6)
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
   kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
                                          // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
@@ -3395,6 +3402,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dUnderwaterWorldEnabled: true,
   platform3dUnderwaterFishCount: 10,
   platform3dUnderwaterMonsterCount: 2,
+  platform3dUnderwaterMoveEnabled: true,
+  platform3dUnderwaterMoveRadius: 6,
   kingdomMinIntermediateSolved: 3,
   zorghonEnabled: true,
   zorghonAppearKingdomSolvedCount: 6,

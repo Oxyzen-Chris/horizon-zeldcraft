@@ -605,6 +605,16 @@ export function RepRulesPanel() {
               value={rules.platform3dUnderwaterMonsterCount} onChange={e => set('platform3dUnderwaterMonsterCount', e.target.value)} />
           </label>
         </div>
+        <label className="flex items-center gap-2 text-sm mt-3 mb-2">
+          <input type="checkbox" checked={rules.platform3dUnderwaterMoveEnabled !== false}
+            onChange={e => setBool('platform3dUnderwaterMoveEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.platform3dUnderwaterMoveEnabled')}</span>
+        </label>
+        <label className="text-sm block max-w-xs">
+          <span className="text-slate-300">{t('admin.repRules.platform3dUnderwaterMoveRadius')}</span>
+          <input type="number" min="1" className="input mt-1 w-full"
+            value={rules.platform3dUnderwaterMoveRadius} onChange={e => set('platform3dUnderwaterMoveRadius', e.target.value)} />
+        </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">📍 {t('admin.repRules.depthAltitudePopupTitle')}</h3>

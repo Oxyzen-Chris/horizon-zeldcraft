@@ -187,11 +187,11 @@ const PROP_COLOR: Record<string, string> = {
   tree: '#2f6b27', castle: '#8a8577', hut: '#7a5230', portal: '#7c3aed',
   bamboo: '#6fae3f', baobab: '#7a5b2e', palm: '#3f8a3a',
 };
-function PropBlock({ kind, x, topY, z }: { kind: NonNullable<Tile['prop']>; x: number; topY: number; z: number }) {
+function PropBlock({ kind, x, topY, z, onClick }: { kind: NonNullable<Tile['prop']>; x: number; topY: number; z: number; onClick: () => void }) {
   const color = PROP_COLOR[kind] ?? '#2f6b27';
   if (kind === 'portal') {
     return (
-      <mesh position={[x, topY + 0.5, z]} rotation={[Math.PI / 2, 0, 0]}>
+      <mesh position={[x, topY + 0.5, z]} rotation={[Math.PI / 2, 0, 0]} onClick={onClick}>
         <torusGeometry args={[0.32, 0.08, 8, 20]} />
         <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} />
       </mesh>
@@ -199,15 +199,18 @@ function PropBlock({ kind, x, topY, z }: { kind: NonNullable<Tile['prop']>; x: n
   }
   if (kind === 'castle' || kind === 'hut') {
     return (
-      <mesh position={[x, topY + 0.3, z]} castShadow>
+      <mesh position={[x, topY + 0.3, z]} onClick={onClick} castShadow>
         <boxGeometry args={[0.6, 0.6, 0.6]} />
         <meshStandardMaterial color={color} />
       </mesh>
     );
   }
   // Arbres/bambou/baobab/palmier : tronc + houppier, silhouette générique déclinable par couleur.
+  // `onClick` posé sur le GROUPE entier (et non chaque mesh) : le tronc/houppier couvrant la même
+  // case que la dalle de terrain sous-jacente, un clic dessus doit produire EXACTEMENT le même
+  // comportement (déplacement/approche) que cliquer la dalle elle-même — voir onTileClick3D.
   return (
-    <group position={[x, topY, z]}>
+    <group position={[x, topY, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
       <mesh position={[0, 0.2, 0]}><cylinderGeometry args={[0.06, 0.08, 0.4, 6]} /><meshStandardMaterial color="#5b3a1e" /></mesh>
       <mesh position={[0, 0.5, 0]} castShadow><coneGeometry args={[0.32, 0.55, 7]} /><meshStandardMaterial color={color} /></mesh>
     </group>
@@ -423,7 +426,15 @@ function Scene({
     const out: { tile: Tile; wc: number; wr: number; x: number; z: number }[] = [];
     for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
       for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
-        const wc = clamp100(centerCol + dx), wr = clamp100(centerRow + dz);
+        // Coordonnées BRUTES (non bornées) : près d'un bord du mapmonde (0/100), `centerCol+dx`
+        // ou `centerRow+dz` peut sortir de la plage — on ignore alors cette case au lieu de la
+        // ramener (clamp) sur la dernière dalle valide, ce qui dupliquait sinon la même dalle/le
+        // même décor (ex. un arbre) à plusieurs positions écran distinctes tout en le faisant
+        // "glisser" au fil des déplacements de Synk près du bord (corrige le bug rapporté "les
+        // arbres se mettent à se déplacer avec Synk" observé en bordure de carte).
+        const rawWc = centerCol + dx, rawWr = centerRow + dz;
+        if (rawWc < 0 || rawWc > WORLD_SIZE || rawWr < 0 || rawWr > WORLD_SIZE) continue;
+        const wc = clamp100(rawWc), wr = clamp100(rawWr);
         out.push({ tile: worldTileAt(wc, wr, poiPoints), wc, wr, x: dx, z: dz });
       }
     }
@@ -441,7 +452,13 @@ function Scene({
         return (
           <group key={`${wc}-${wr}`}>
             <TerrainBlock tile={tile} x={x} z={z} onClick={onClick} />
-            {tile.prop && <PropBlock kind={tile.prop} x={x} z={z} topY={tile.terrain === 'rock' ? Math.min(1.9, (tile.altitudeM ?? 300) / 2800) : 0} />}
+            {tile.prop && (
+              <PropBlock
+                kind={tile.prop} x={x} z={z}
+                topY={tile.terrain === 'rock' ? Math.min(1.9, (tile.altitudeM ?? 300) / 2800) : 0}
+                onClick={onClick}
+              />
+            )}
           </group>
         );
       })}
@@ -517,11 +534,16 @@ function SeaMonster({ seed }: { seed: number }) {
  * créatures marines générés procéduralement), affichée EN REMPLACEMENT de `Scene` dans le même
  * `<Canvas>` tant que `underwaterMode` est actif côté composant parent. NE MODIFIE AUCUNE mécanique
  * d'oxygène/fatigue existante (celles-ci restent intégralement pilotées par GameCanvas2D.tsx) :
- * purement une nouvelle couche visuelle/d'exploration, sans risque de régression. */
-function UnderwaterScene({ stage, facing, equipment, equipmentRenderEnabled, fishCount, monsterCount }: {
+ * purement une nouvelle couche visuelle/d'exploration, sans risque de régression. Synk peut
+ * désormais s'y déplacer (voir `pos`, alimenté par moveUnderwater dans le composant parent — corrige
+ * le bug rapporté "je ne peux pas me déplacer sous l'eau") ; la caméra recentre sa cible sur lui à
+ * mesure qu'il nage, bornée à un petit rayon d'exploration (RepRules.platform3dUnderwaterMoveRadius)
+ * pour rester dans le champ des poissons/créatures/fond sableux généré. */
+function UnderwaterScene({ stage, facing, equipment, equipmentRenderEnabled, fishCount, monsterCount, pos, walking, running }: {
   stage: number; facing: SynkDirection;
   equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
   fishCount: number; monsterCount: number;
+  pos: { x: number; y: number }; walking: boolean; running: boolean;
 }) {
   const fishSeeds = useMemo(() => Array.from({ length: Math.max(0, fishCount) }, (_, i) => i), [fishCount]);
   const monsterSeeds = useMemo(() => Array.from({ length: Math.max(0, monsterCount) }, (_, i) => i), [monsterCount]);
@@ -537,12 +559,14 @@ function UnderwaterScene({ stage, facing, equipment, equipmentRenderEnabled, fis
       </mesh>
       {fishSeeds.map(s => <Fish key={`fish-${s}`} seed={s} />)}
       {monsterSeeds.map(s => <SeaMonster key={`mon-${s}`} seed={s} />)}
-      <SynkVoxel
-        stage={stage} walking={false} running={false} swimming={true}
-        jumpTrigger={0} facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled}
-        standY={0} fullySubmerged
-      />
-      <OrbitControls enablePan={false} enableDamping dampingFactor={0.12} minDistance={2} maxDistance={9} target={[0, -1, 0]} />
+      <group position={[pos.x, 0, pos.y]}>
+        <SynkVoxel
+          stage={stage} walking={walking} running={running} swimming={true}
+          jumpTrigger={0} facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled}
+          standY={0} fullySubmerged
+        />
+      </group>
+      <OrbitControls enablePan={false} enableDamping dampingFactor={0.12} minDistance={2} maxDistance={9} target={[pos.x, -1, pos.y]} />
     </>
   );
 }
@@ -739,8 +763,13 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
   // Touche Espace maintenue (voir RepRules.platform3dJumpEnabled) — permet de "sauter" pour
   // franchir une dalle de montagne/roche : sans Espace maintenu, avancer vers une telle dalle est
   // bloqué (comme un obstacle) ; avec Espace maintenu, l'avancée est autorisée et déclenche l'arc
-  // de saut cosmétique de SynkVoxel (voir jumpTrigger, incrémenté dans move() plus bas).
-  const spaceDownRef = useRef(false);
+  // de saut cosmétique de SynkVoxel (voir jumpTrigger, incrémenté dans move() plus bas). Renommé
+  // `jumpHeldRef` (au lieu de `spaceDownRef`) car il reflète maintenant DEUX sources equivalentes :
+  // la touche clavier Espace ET le nouveau bouton "Sauter" du pavé directionnel virtuel ci-dessous
+  // (corrige le bug rapporté "je n'arrive pas à monter sur un cube au pavé directionnel virtuel" —
+  // il n'existait auparavant AUCUN équivalent tactile à la touche Espace, rendant l'escalade
+  // impossible sans clavier physique).
+  const jumpHeldRef = useRef(false);
   useEffect(() => {
     if (collapsed || !enabled) return;
     const isSpace = (e: KeyboardEvent) => e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
@@ -749,15 +778,15 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       e.preventDefault();
-      spaceDownRef.current = true;
+      jumpHeldRef.current = true;
     };
-    const onKeyUp = (e: KeyboardEvent) => { if (isSpace(e)) spaceDownRef.current = false; };
+    const onKeyUp = (e: KeyboardEvent) => { if (isSpace(e)) jumpHeldRef.current = false; };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
-      spaceDownRef.current = false;
+      jumpHeldRef.current = false;
     };
   }, [collapsed, enabled]);
 
@@ -828,14 +857,50 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     const diffCubes = tileClimbCubes(destTile, cubeHeightM) - tileClimbCubes(curTileNow, cubeHeightM);
     if (diffCubes > 0.001) {
       if (!(rules?.platform3dJumpEnabled ?? true) || !destFlags.climbable) return;
-      if (!spaceDownRef.current) return;
+      if (!jumpHeldRef.current) return;
       setJumpTrigger(v => v + 1);
       triggerClimbDamage(diffCubes);
     }
     moveTo(nx, ny);
   }, [moveTo, isFainting, fallDeath, rules, poiPoints, triggerClimbDamage]);
 
-  const hold = useHoldMovement(move, {
+  // ─── Nage/déplacement en plongée totale (voir UnderwaterScene) ─────────────────────────────────
+  // Corrige le bug rapporté "je ne peux pas me déplacer sous l'eau" : le monde sous-marin
+  // (`underwaterMode`) était jusqu'ici purement décoratif (Synk fixe au centre, aucune réaction aux
+  // touches directionnelles/pavé). Ajoute une progression bornée dans ce petit monde exploratoire
+  // (voir RepRules.platform3dUnderwaterMoveRadius/platform3dUnderwaterMoveEnabled, paramétrables en
+  // Administration) — indépendante de `worldPos`/l'oxygène/la fatigue (qui restent intégralement
+  // pilotés par GameCanvas2D.tsx, AUCUNE nouvelle mécanique de jeu introduite ici, uniquement un
+  // déplacement visuel dans cette vue décorative).
+  const underwaterPosRef = useRef({ x: 0, y: 0 });
+  const [underwaterPos, setUnderwaterPos] = useState({ x: 0, y: 0 });
+  const underwaterMoveEnabled = rules?.platform3dUnderwaterMoveEnabled ?? true;
+  const underwaterMoveRadius = Math.max(1, rules?.platform3dUnderwaterMoveRadius ?? 6);
+  const moveUnderwater = useCallback((dx: number, dy: number) => {
+    if (isFainting || fallDeath) return;
+    const dir = directionFromDelta(dx, dy);
+    if (dir) {
+      setFacing(dir);
+      setIsWalking(true);
+      if (walkStopTimerRef.current) clearTimeout(walkStopTimerRef.current);
+      walkStopTimerRef.current = setTimeout(() => { setIsWalking(false); setIsRunning(false); }, WALK_STOP_DELAY_MS);
+    }
+    const cur = underwaterPosRef.current;
+    const nx = Math.max(-underwaterMoveRadius, Math.min(underwaterMoveRadius, cur.x + dx * 0.6));
+    const ny = Math.max(-underwaterMoveRadius, Math.min(underwaterMoveRadius, cur.y + dy * 0.6));
+    underwaterPosRef.current = { x: nx, y: ny };
+    setUnderwaterPos({ x: nx, y: ny });
+  }, [isFainting, fallDeath, underwaterMoveRadius]);
+
+  // Aiguille le clavier/pavé directionnel/souris vers la nage sous-marine ou le déplacement normal,
+  // selon la vue active — un SEUL point d'entrée partagé par useHoldMovement pour ne dupliquer
+  // aucune logique d'appui prolongé/course (voir useHoldMovement.ts).
+  const dispatchMove = useCallback((dx: number, dy: number) => {
+    if (underwaterMode && underwaterMoveEnabled) moveUnderwater(dx, dy);
+    else move(dx, dy);
+  }, [underwaterMode, underwaterMoveEnabled, moveUnderwater, move]);
+
+  const hold = useHoldMovement(dispatchMove, {
     walkStepMs: rules?.movementWalkStepMs ?? 220,
     runStepMs: rules?.movementRunStepMs ?? 110,
     runHoldThresholdMs: rules?.movementRunHoldThresholdMs ?? 1500,
@@ -1017,6 +1082,15 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     hold.press(dx, dy);
   };
+  const jumpEnabled = rules?.platform3dJumpEnabled ?? true;
+  // Bouton "Sauter" tactile (voir jumpHeldRef ci-dessus) : équivalent virtuel de la touche Espace,
+  // combinable avec le pavé directionnel virtuel (maintenir ce bouton PUIS presser une direction du
+  // pavé, comme au clavier Espace+flèche) — corrige l'absence totale d'équivalent tactile à Espace.
+  const onJumpDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    jumpHeldRef.current = true;
+  };
+  const onJumpUp = () => { jumpHeldRef.current = false; };
 
   return (
     <div
@@ -1065,6 +1139,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
               fishCount={rules?.platform3dUnderwaterFishCount ?? 10}
               monsterCount={rules?.platform3dUnderwaterMonsterCount ?? 2}
+              pos={underwaterPos} walking={isWalking} running={isRunning}
             />
           ) : (
             <Scene
@@ -1099,7 +1174,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               <button className="block w-full text-left px-3 py-1.5 hover:bg-sky-800/60 text-sky-100" onClick={() => setWaterMenuPos(null)}>
                 🏊 {t('game.platform3d.underwater.swim')}
               </button>
-              <button className="block w-full text-left px-3 py-1.5 hover:bg-sky-800/60 text-sky-100" onClick={() => { setUnderwaterMode(true); setWaterMenuPos(null); }}>
+              <button className="block w-full text-left px-3 py-1.5 hover:bg-sky-800/60 text-sky-100" onClick={() => { underwaterPosRef.current = { x: 0, y: 0 }; setUnderwaterPos({ x: 0, y: 0 }); setUnderwaterMode(true); setWaterMenuPos(null); }}>
                 🤿 {t('game.platform3d.underwater.dive')}
               </button>
             </div>
@@ -1132,15 +1207,23 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
           </div>
         )}
         <div className="absolute bottom-2 left-2 grid grid-cols-3 grid-rows-3 gap-0.5 w-[84px] h-[84px] z-10" title={t('canvas2d.dpadTitle')}>
-          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpLeft')}>↖</button>
-          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUp')}>▲</button>
-          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpRight')}>↗</button>
-          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadLeft')}>◀</button>
-          <div />
-          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadRight')}>▶</button>
-          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownLeft')}>↙</button>
-          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDown')}>▼</button>
-          <button className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownRight')}>↘</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpLeft')}>↖</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUp')}>▲</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, -1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadUpRight')}>↗</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadLeft')}>◀</button>
+          {jumpEnabled ? (
+            <button
+              tabIndex={-1}
+              className={dpadBtn + ' bg-amber-800/80 hover:bg-amber-600 border-amber-500'}
+              style={{ touchAction: 'none' }}
+              onPointerDown={onJumpDown} onPointerUp={onJumpUp} onPointerLeave={onJumpUp} onPointerCancel={onJumpUp}
+              title={t('game.platform3d.jumpButton')}
+            >⤴️</button>
+          ) : <div />}
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 0)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadRight')}>▶</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownLeft')}>↙</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDown')}>▼</button>
+          <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 1)} onPointerUp={hold.release} onPointerLeave={hold.release} onPointerCancel={hold.release} title={t('canvas2d.dpadDownRight')}>↘</button>
         </div>
         <p className="absolute bottom-2 right-2 text-[9px] text-slate-500 max-w-[180px] text-right pointer-events-none">
           {t('game.platform3d.hint')}
