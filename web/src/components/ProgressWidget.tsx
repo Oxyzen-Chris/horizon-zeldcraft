@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { getPlayerProgressLedger, type PlayerProgressLedger } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { ProgressLedgerView } from './ProgressLedgerView';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const POS_KEY = 'zc.progressWidgetPos';
 const COLLAPSED_KEY = 'zc.progressWidgetCollapsed';
@@ -28,7 +28,7 @@ const REFRESH_INTERVAL_MS = 15_000;
  */
 export function ProgressWidget({ enabled }: { enabled: boolean }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
   const {
     collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,

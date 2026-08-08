@@ -13,7 +13,10 @@
  */
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getDatabase, Database } from 'firebase/database';
-import { getAuth, signInAnonymously, onAuthStateChanged, Auth, User } from 'firebase/auth';
+import {
+  getAuth, signInAnonymously, onAuthStateChanged, Auth, User,
+  GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+} from 'firebase/auth';
 
 let app: FirebaseApp | null = null;
 let db: Database | null = null;
@@ -80,5 +83,45 @@ export function ensureAnonSignIn(): Promise<User | null> {
     });
   });
   return signInPromise;
+}
+
+// ─────────────────────── Accès Démo & fiat sans portefeuille crypto (voir docs/DEMO_FIAT.md) ───────────────────────
+// Ces fonctions authentifient un compte Firebase RÉEL (Google ou email), distinct de l'anonyme
+// ci-dessus (utilisé UNIQUEMENT pour satisfaire les règles RTDB `auth != null`) — nécessaire pour
+// que l'admin puisse identifier/approuver une demande d'accès Démo (voir requestDemoAccess côté
+// gameState.ts) ou pour qu'un paiement fiat soit rattaché à une vraie adresse e-mail.
+
+/** Connexion via un compte Google (fenêtre popup) — utilisée pour l'accès Démo approuvé et le
+ * paiement fiat "Jouer sans portefeuille". Retourne `null` si Firebase n'est pas configuré ou si
+ * l'utilisateur annule/refuse la popup. */
+export async function signInWithGoogle(): Promise<User | null> {
+  const a = getFirebaseAuth();
+  if (!a) return null;
+  try {
+    const cred = await signInWithPopup(a, new GoogleAuthProvider());
+    return cred.user;
+  } catch (err) {
+    console.error('[firebase] signInWithGoogle failed:', err);
+    return null;
+  }
+}
+
+/** Connexion/création de compte via e-mail + mot de passe — alternative à Google pour l'accès
+ * Démo/fiat. Tente d'abord une connexion ; si le compte n'existe pas encore, le crée à la volée. */
+export async function signInWithEmail(email: string, password: string): Promise<User | null> {
+  const a = getFirebaseAuth();
+  if (!a) return null;
+  try {
+    const cred = await signInWithEmailAndPassword(a, email, password);
+    return cred.user;
+  } catch {
+    try {
+      const cred = await createUserWithEmailAndPassword(a, email, password);
+      return cred.user;
+    } catch (err2) {
+      console.error('[firebase] signInWithEmail failed:', err2);
+      return null;
+    }
+  }
 }
 

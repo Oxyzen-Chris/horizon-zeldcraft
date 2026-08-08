@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAccount } from 'wagmi';
+import { useEffectiveAccount } from './effectiveAccount';
 import { trackWidgetUsage } from './gameState';
 
 export interface Pos { x: number; y: number }
@@ -79,7 +79,7 @@ export interface DraggableWidgetState {
  */
 export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWidgetState {
   const { posKey, collapsedKey, defaultPos, defaultCollapsed = true, onExpand } = opts;
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
 
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [pos, setPos] = useState<Pos | null>(null);

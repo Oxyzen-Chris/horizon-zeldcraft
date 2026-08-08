@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useAccount } from 'wagmi';
 import {
   computeKingdomProgress, subscribeSolvedQuestIds, submitQuestAnswerOffchain, getRepRules,
   getNextFullMoonDisplayDate, KINGDOM_CHAPTERS,
@@ -11,6 +10,7 @@ import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const POS_KEY = 'zc.kingdomWidgetPos';
 const COLLAPSED_KEY = 'zc.kingdomWidgetCollapsed';
@@ -30,7 +30,7 @@ const STATUS_ICON: Record<KingdomQuestStatus, string> = {
  */
 export function KingdomQuestsWidget({ enabled = true }: { enabled?: boolean } = {}) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
   const {
     collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,

@@ -2,15 +2,17 @@
 
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useAccount, useReadContract, useSendTransaction, useWaitForTransactionReceipt, useChainId } from 'wagmi';
+import { useReadContract, useSendTransaction, useWaitForTransactionReceipt, useChainId } from 'wagmi';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { parseEther } from 'viem';
 import { HORIZON_ABI } from '@/lib/contract';
 import { applyEffect, logTx, getTopupPresets, DEFAULT_TOPUP_PRESETS, type TopupPreset } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
+import { FiatTopupPanel } from './FiatTopupPanel';
 
 export function WalletPanel({ contract, wallet }: { contract: `0x${string}`; wallet: number }) {
   const { t, currency } = useI18n();
-  const { address } = useAccount();
+  const { address, accountType } = useEffectiveAccount();
   const chainId = useChainId();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<TopupPreset | null>(null);
@@ -69,28 +71,35 @@ export function WalletPanel({ contract, wallet }: { contract: `0x${string}`; wal
       <div className="bg-slate-900 border-2 border-amber-500 rounded-xl p-6 max-w-md w-full"
            onClick={e => e.stopPropagation()}>
         <h3 className="text-xl font-bold mb-2">💰 {t('game.wallet.topUp')}</h3>
-        <p className="text-sm text-slate-400 mb-4">
-          {t('game.wallet.topUpHint')} · {chainId === 1 ? 'Ethereum Mainnet' : 'Sepolia Testnet'}
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {presets.map(p => (
-            <button
-              key={p.fiat}
-              className="bg-slate-800 hover:bg-slate-700 border border-amber-500/40 rounded p-3 text-center transition disabled:opacity-50"
-              disabled={isPending || isConfirming}
-              onClick={() => buy(p)}
-            >
-              <p className="text-2xl font-bold text-amber-400">{p.fiat} {currency}</p>
-              <p className="text-xs text-slate-400">≈ {p.eth} ETH</p>
-              <p className="text-xs text-emerald-400 mt-1">+ {p.coins.toLocaleString()} 💰</p>
-            </button>
-          ))}
-        </div>
-        {(isPending || isConfirming) && (
-          <p className="text-sm text-cyan-400 mt-4 text-center">
-            {isPending ? '📝 ' + t('game.wallet.signing') : '⏳ ' + t('game.wallet.confirming')}
-          </p>
+        {accountType === 'wallet' ? (
+          <>
+            <p className="text-sm text-slate-400 mb-4">
+              {t('game.wallet.topUpHint')} · {chainId === 1 ? 'Ethereum Mainnet' : 'Sepolia Testnet'}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {presets.map(p => (
+                <button
+                  key={p.fiat}
+                  className="bg-slate-800 hover:bg-slate-700 border border-amber-500/40 rounded p-3 text-center transition disabled:opacity-50"
+                  disabled={isPending || isConfirming}
+                  onClick={() => buy(p)}
+                >
+                  <p className="text-2xl font-bold text-amber-400">{p.fiat} {currency}</p>
+                  <p className="text-xs text-slate-400">≈ {p.eth} ETH</p>
+                  <p className="text-xs text-emerald-400 mt-1">+ {p.coins.toLocaleString()} 💰</p>
+                </button>
+              ))}
+            </div>
+            {(isPending || isConfirming) && (
+              <p className="text-sm text-cyan-400 mt-4 text-center">
+                {isPending ? '📝 ' + t('game.wallet.signing') : '⏳ ' + t('game.wallet.confirming')}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-slate-400 mb-2">🎟️ {t('game.walletTopup.demoAccountHint')}</p>
         )}
+        <FiatTopupPanel address={address} />
         <div className="flex justify-end mt-4">
           <button className="btn-secondary text-sm" onClick={() => setOpen(false)} disabled={isPending || isConfirming}>
             {t('common.cancel')}

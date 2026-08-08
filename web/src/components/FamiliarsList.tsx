@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAccount } from 'wagmi';
 import {
   getFamiliarDefs, subscribeFamiliars, tameFamiliar, getShopCatalog,
   subscribeInventory, familiarKeyOf, type FamiliarDef, type InventoryItem,
@@ -9,6 +8,7 @@ import {
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DragonSkin, dragonKindFromId } from './DragonSkin';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 /**
  * Familiers — compagnons chimériques (dragons, elfes, etc.) rencontrés au fil de la progression
@@ -19,7 +19,7 @@ import { DragonSkin, dragonKindFromId } from './DragonSkin';
  */
 export function FamiliarsList({ playerXp }: { playerXp: number }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [familiars, setFamiliars] = useState<FamiliarDef[] | null>(null);
   const [owned, setOwned] = useState<Record<string, { obtainedAt: number }>>({});
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -71,7 +71,7 @@ function FamiliarCard({
   familiar: FamiliarDef; playerXp: number; owned: boolean; hasItem: boolean; itemName?: string;
 }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [isOwned, setIsOwned] = useState(owned);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [taming, setTaming] = useState(false);

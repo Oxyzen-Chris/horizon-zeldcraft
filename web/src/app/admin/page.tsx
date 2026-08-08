@@ -22,6 +22,8 @@ import { PlayerStats } from '@/components/PlayerStats';
 import { ChatHistory } from '@/components/ChatHistory';
 import { RepRulesPanel } from '@/components/RepRulesPanel';
 import { TopupPresetsPanel } from '@/components/TopupPresetsPanel';
+import { FiatTopupPresetsPanel } from '@/components/FiatTopupPresetsPanel';
+import { DemoAccessRequestsPanel } from '@/components/DemoAccessRequestsPanel';
 import { FamiliarsAdminPanel } from '@/components/FamiliarsAdminPanel';
 import { ChatScriptsAdminPanel } from '@/components/ChatScriptsAdminPanel';
 import { CustomWidgetsAdminPanel } from '@/components/CustomWidgetsAdminPanel';
@@ -54,6 +56,8 @@ const ADMIN_TOC_SECTIONS: { id: string; labelKey: string; icon?: string }[] = [
   { id: 'admin-sec-chatHistory', labelKey: 'admin.chatHistory.title' },
   { id: 'admin-sec-repRules', labelKey: 'admin.repRules.title', icon: '⭐' },
   { id: 'admin-sec-topup', labelKey: 'admin.topup.title', icon: '💰' },
+  { id: 'admin-sec-fiatTopup', labelKey: 'admin.fiatTopup.title', icon: '💳' },
+  { id: 'admin-sec-demoRequests', labelKey: 'admin.demoRequests.title', icon: '🎟️' },
   { id: 'admin-sec-familiars', labelKey: 'admin.familiars.title' },
   { id: 'admin-sec-equipment', labelKey: 'admin.equipment.title', icon: '⚔️' },
   { id: 'admin-sec-food', labelKey: 'admin.food.title', icon: '🍎' },
@@ -402,6 +406,8 @@ export default function AdminPage() {
           {contract && <div id="admin-sec-chatHistory" className="scroll-mt-6"><ChatHistory contract={contract} /></div>}
           <div id="admin-sec-repRules" className="scroll-mt-6"><RepRulesPanel /></div>
           <div id="admin-sec-topup" className="scroll-mt-6"><TopupPresetsPanel /></div>
+          <div id="admin-sec-fiatTopup" className="scroll-mt-6"><FiatTopupPresetsPanel /></div>
+          <div id="admin-sec-demoRequests" className="scroll-mt-6"><DemoAccessRequestsPanel /></div>
           <div id="admin-sec-familiars" className="scroll-mt-6"><FamiliarsAdminPanel /></div>
           <div id="admin-sec-equipment" className="scroll-mt-6"><EquipmentAdminPanel /></div>
           <div id="admin-sec-food" className="scroll-mt-6"><FoodAdminPanel /></div>

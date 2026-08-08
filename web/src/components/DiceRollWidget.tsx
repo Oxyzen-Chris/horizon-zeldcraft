@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useAccount } from 'wagmi';
 import {
   getRepRules, getOrCreatePlayer, computePlayerDiceBonus, rollD20,
   hasRolledDailyLuck, markDailyLuckRolled, applyEffect, DEFAULT_REP_RULES, type RepRules,
@@ -10,6 +9,7 @@ import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const POS_KEY = 'zc.diceWidgetPos';
 const COLLAPSED_KEY = 'zc.diceWidgetCollapsed';
@@ -112,7 +112,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
   enabled?: boolean;
 } = {}) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [rules, setRules] = useState<RepRules | null>(null);
   const { z, bringToFront } = useWindowZIndex();
   const {

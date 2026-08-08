@@ -6,6 +6,7 @@ import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
 import '@rainbow-me/rainbowkit/styles.css';
 import { wagmiConfig } from '@/lib/wagmi';
 import { I18nProvider } from '@/lib/i18n';
+import { EffectiveAccountProvider } from '@/lib/effectiveAccount';
 import { ReactNode, useState } from 'react';
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -14,7 +15,9 @@ export function Providers({ children }: { children: ReactNode }) {
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider theme={darkTheme({ accentColor: '#7dd3fc', borderRadius: 'large' })}>
-          <I18nProvider>{children}</I18nProvider>
+          <I18nProvider>
+            <EffectiveAccountProvider>{children}</EffectiveAccountProvider>
+          </I18nProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount, useReadContract, useSendTransaction, useWaitForTransactionReceipt, useChainId } from 'wagmi';
+import { useReadContract, useSendTransaction, useWaitForTransactionReceipt, useChainId } from 'wagmi';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { parseEther } from 'viem';
 import { HORIZON_ABI } from '@/lib/contract';
 import { applyEffect, logTx, getTopupPresets, DEFAULT_TOPUP_PRESETS, subscribePlayer, type TopupPreset, type PlayerState } from '@/lib/gameState';
@@ -9,6 +10,7 @@ import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
+import { FiatTopupPanel } from './FiatTopupPanel';
 
 const POS_KEY = 'zc.walletTopupWidgetPos';
 const COLLAPSED_KEY = 'zc.walletTopupWidgetCollapsed';
@@ -24,7 +26,7 @@ const COLLAPSED_KEY = 'zc.walletTopupWidgetCollapsed';
  */
 export function WalletTopupWidget({ contract, enabled = true }: { contract: `0x${string}`; enabled?: boolean }) {
   const { t, currency } = useI18n();
-  const { address } = useAccount();
+  const { address, accountType } = useEffectiveAccount();
   const chainId = useChainId();
   const { z, bringToFront } = useWindowZIndex();
   const {
@@ -124,29 +126,38 @@ export function WalletTopupWidget({ contract, enabled = true }: { contract: `0x$
       <div className="p-3">
         <p className="text-xs text-slate-400">{t('game.wallet.balance')} :</p>
         <p className="text-2xl font-bold text-amber-400 mt-1 mb-2">{(player?.wallet ?? 0).toLocaleString()} 💰</p>
-        <p className="text-[10px] text-slate-400 mb-2">
-          {t('game.wallet.topUpHint')} · {chainId === 1 ? 'Ethereum Mainnet' : 'Sepolia Testnet'}
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {presets.map((p) => (
-            <button
-              key={p.fiat}
-              className="bg-slate-800 hover:bg-slate-700 border border-amber-500/40 rounded p-2 text-center transition disabled:opacity-50"
-              disabled={isPending || isConfirming || !treasury}
-              onClick={() => buy(p)}
-            >
-              <p className="text-base font-bold text-amber-400">{p.fiat} {currency}</p>
-              <p className="text-[10px] text-slate-400">≈ {p.eth} ETH</p>
-              <p className="text-[10px] text-emerald-400 mt-0.5">+ {p.coins.toLocaleString()} 💰</p>
-            </button>
-          ))}
-        </div>
-        {(isPending || isConfirming) && (
-          <p className="text-xs text-cyan-400 mt-3 text-center">
-            {isPending ? '📝 ' + t('game.wallet.signing') : '⏳ ' + t('game.wallet.confirming')}
-          </p>
+        {accountType === 'wallet' ? (
+          <>
+            <p className="text-[10px] text-slate-400 mb-2">
+              {t('game.wallet.topUpHint')} · {chainId === 1 ? 'Ethereum Mainnet' : 'Sepolia Testnet'}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {presets.map((p) => (
+                <button
+                  key={p.fiat}
+                  className="bg-slate-800 hover:bg-slate-700 border border-amber-500/40 rounded p-2 text-center transition disabled:opacity-50"
+                  disabled={isPending || isConfirming || !treasury}
+                  onClick={() => buy(p)}
+                >
+                  <p className="text-base font-bold text-amber-400">{p.fiat} {currency}</p>
+                  <p className="text-[10px] text-slate-400">≈ {p.eth} ETH</p>
+                  <p className="text-[10px] text-emerald-400 mt-0.5">+ {p.coins.toLocaleString()} 💰</p>
+                </button>
+              ))}
+            </div>
+            {(isPending || isConfirming) && (
+              <p className="text-xs text-cyan-400 mt-3 text-center">
+                {isPending ? '📝 ' + t('game.wallet.signing') : '⏳ ' + t('game.wallet.confirming')}
+              </p>
+            )}
+            {feedback && <p className="text-xs text-emerald-400 mt-2 text-center">{feedback}</p>}
+          </>
+        ) : (
+          <p className="text-[10px] text-slate-400 mb-2">🎟️ {t('game.walletTopup.demoAccountHint')}</p>
         )}
-        {feedback && <p className="text-xs text-emerald-400 mt-2 text-center">{feedback}</p>}
+        {/* Paiement fiat (CB/PayPal/Apple Pay/Google Pay) — proposé à TOUS les comptes, y compris
+            les portefeuilles crypto qui préfèrent payer par carte (voir docs/DEMO_FIAT.md). */}
+        <FiatTopupPanel address={address} />
       </div>
     </div>
   );

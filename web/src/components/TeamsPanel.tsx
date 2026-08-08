@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useQueryClient } from '@tanstack/react-query';
 import { HORIZON_ABI } from '@/lib/contract';
 import { getRepRules, type RepRules } from '@/lib/gameState';
@@ -9,7 +10,7 @@ import { useI18n } from '@/lib/i18n';
 
 export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address, accountType } = useEffectiveAccount();
   const queryClient = useQueryClient();
 
   const { data: teamId, queryKey } = useReadContract({
@@ -46,6 +47,15 @@ export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
     <div className="card">
       <h3 className="text-lg font-semibold mb-3">{t('game.teams.section')}</h3>
 
+      {/* Comptes Démo/Fiat (sans portefeuille crypto) : la création/adhésion d'équipe est un
+          appel on-chain nécessitant un vrai signataire — fonctionnalité réservée aux portefeuilles
+          crypto connectés (voir docs/DEMO_FIAT.md § Limites connues). */}
+      {accountType !== 'wallet' ? (
+        <p className="text-sm text-slate-400 bg-slate-800/60 border border-slate-600/40 rounded p-3">
+          🔒 {t('game.teams.walletOnlyHint')}
+        </p>
+      ) : (
+      <>
       {/* Info tarifaire (purement indicative pour l'instant — aucun paiement débité) */}
       {rules && (
         <p className="text-xs text-amber-300 bg-amber-900/20 border border-amber-700/40 rounded p-2 mb-3">
@@ -102,6 +112,8 @@ export function TeamsPanel({ contract }: { contract: `0x${string}` }) {
           </div>
           <p className="text-xs text-slate-400">💬 {t('game.teams.useWidgetHint')}</p>
         </div>
+      )}
+      </>
       )}
     </div>
   );

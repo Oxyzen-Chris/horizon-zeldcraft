@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useAccount } from 'wagmi';
 import {
   subscribeEquipment, subscribeInventory, equipItem, unequipSlot, equipFamiliar, consumeInventoryItem,
   getRepRules, subscribeFamiliars, getFamiliarDefs, familiarKeyOf, FAMILIAR_DRAG_PREFIX,
@@ -14,6 +13,7 @@ import { DragonSkin, dragonKindFromId } from './DragonSkin';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const POS_KEY = 'zc.equipWidgetPos';
 const COLLAPSED_KEY = 'zc.equipWidgetCollapsed';
@@ -169,7 +169,7 @@ function InlineSlot({ slot, equipped, t, onUnequip, dragOverSlot, onDragOverSlot
  */
 export function EquipmentWidget({ stage = 0, enabled = true }: { stage?: number; enabled?: boolean }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
   const {
     collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,

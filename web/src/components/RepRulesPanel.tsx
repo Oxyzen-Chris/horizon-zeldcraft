@@ -735,6 +735,80 @@ export function RepRulesPanel() {
             value={rules.playtimeHeartbeatSec} onChange={e => set('playtimeHeartbeatSec', e.target.value)} />
         </label>
       </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🎟️ {t('admin.repRules.demoTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.demoDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.demoAccessEnabled !== false}
+            onChange={e => setBool('demoAccessEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.demoAccessEnabled')}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.demoAnonymousEnabled !== false}
+            disabled={rules.demoAccessEnabled === false}
+            onChange={e => setBool('demoAnonymousEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.demoAnonymousEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-3 gap-3">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.demoMaxConcurrentSessions')}</span>
+            <input type="number" min="0" className="input mt-1 w-full" disabled={rules.demoAccessEnabled === false}
+              value={rules.demoMaxConcurrentSessions} onChange={e => set('demoMaxConcurrentSessions', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.demoAnonymousMaxConcurrentSessions')}</span>
+            <input type="number" min="0" className="input mt-1 w-full" disabled={rules.demoAnonymousEnabled === false}
+              value={rules.demoAnonymousMaxConcurrentSessions} onChange={e => set('demoAnonymousMaxConcurrentSessions', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.demoInitialCoins')}</span>
+            <input type="number" min="0" className="input mt-1 w-full" disabled={rules.demoAccessEnabled === false}
+              value={rules.demoInitialCoins} onChange={e => set('demoInitialCoins', e.target.value)} />
+          </label>
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">💳 {t('admin.repRules.fiatTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.fiatDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.fiatPaymentEnabled !== false}
+            onChange={e => setBool('fiatPaymentEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.fiatPaymentEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-2 mb-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={rules.fiatMethodCardEnabled !== false}
+              disabled={rules.fiatPaymentEnabled === false}
+              onChange={e => setBool('fiatMethodCardEnabled', e.target.checked)} />
+            <span className="text-slate-300">💳 {t('admin.repRules.fiatMethodCardEnabled')}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={rules.fiatMethodPaypalEnabled !== false}
+              disabled={rules.fiatPaymentEnabled === false}
+              onChange={e => setBool('fiatMethodPaypalEnabled', e.target.checked)} />
+            <span className="text-slate-300">🅿️ {t('admin.repRules.fiatMethodPaypalEnabled')}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={rules.fiatMethodApplePayEnabled !== false}
+              disabled={rules.fiatPaymentEnabled === false}
+              onChange={e => setBool('fiatMethodApplePayEnabled', e.target.checked)} />
+            <span className="text-slate-300"> {t('admin.repRules.fiatMethodApplePayEnabled')}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={rules.fiatMethodGooglePayEnabled !== false}
+              disabled={rules.fiatPaymentEnabled === false}
+              onChange={e => setBool('fiatMethodGooglePayEnabled', e.target.checked)} />
+            <span className="text-slate-300">G {t('admin.repRules.fiatMethodGooglePayEnabled')}</span>
+          </label>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={rules.fiatSimulationMode !== false}
+            disabled={rules.fiatPaymentEnabled === false}
+            onChange={e => setBool('fiatSimulationMode', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.fiatSimulationMode')}</span>
+        </label>
+        <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.fiatSimulationModeHint')}</p>
+      </div>
       <div className="flex gap-3 mt-4">
         <button className="btn-primary" disabled={saving} onClick={save}>
           {saving ? '⏳' : t('admin.actions.apply')}

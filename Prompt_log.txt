@@ -322,12 +322,32 @@ Dans le widget de la boutique des terres de Zeldcraft, il faudrait que tu ajoute
 -----------------------------------------------------------------------------------------------------------------
 - Dans le widget "Plateforme 3D" :
 	- Il y a un bug de déplacement dans le widget "Plateforme 3D" qui se répercute ensuite dans le widget "Plateforme 2D isométrique". Je t'avais déjà demandé d'y travailler mais tu n'avais pas pu le solutionner et je crois que tu étais revenu en arrière ou tu avais trouvé une autre solution : Il y a un bug de déplacement qui bloque Synk, le fait sauter erratiquement de case en case dès nouveau déplacement, rendant toute progression impossible que ce soit dans le widget "Plateforme 3D" ou le widget "Plateforme 2D isométrique" a moins de se repositionner dans le widget "Plateforme 3D" et bouger la caméra à l'aide d'un clique gauche souris+déplacement à la  souris dans la fenêtre du widget "Plateforme 3D" pour repositionner clairement la vue caméra avec les déplacements de Synk ! Il y a donc ce bug qui apparait lorsque l'on change de vue/caméra dans lafenêtre 3D avec des répercussion sur la feneêtre widget "Plateforme 2D isométrique" mais peut-être ce effet de borde ce constate aussi par ailleurs, donc il faudra approfondir la recherche et la résolution de ce bug. Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
-
 - Dans le widget "Plateforme 3D" :
 	Ton précédent correctif semble fonctionner, mais le joueur pourrait être perdu à l'usage donc je verrai bien un mécanisme qui dés lors que Synk se déplace, refixe/déplace automatiquement la caméra dans le bon sens de déplacement de Synk derrière lui, Synk vu de dos) ce qui fait que même si le joueur modifie le point de vue et la caméra dans le widget 3D, l'observateur et la caméra reviendront à leur point d'origine pour ne pas perturber l'expérience de déplacement et de jeu du joueur ! Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
 	
 	Il y a un autre très gros bug qui m'empêche de sortir d'une zone où je suis coiné dans un labyrinthe entouré de montagnes sans possibilité de sorties : coincé entre deux blocs de montagnes, j'ai tenté de sauter par dessus en apuyant sur la touche espace (qui ne fonctionne toujours pas correctement) + la flêche haut et j'ai eu un pop-op "Synk est épuisé" m'informant que je venais de tomber de plusieurs blocs (chute -20 PV, -50XP), alors que j'étais sur le sol, et d'attendre le temps de me regénérer. La touche espace pour sauter sur le bloc pour faire monter Synk sur le bloc de montagne ne fonctionne toujours pas. Il m'est impossible désormais de monter sur un seul bloc de montagne dans le widget 3D, je ne peux le faire qu'a partir du widget "Plateforme 2D isométrique" en y déplacant Synk. Il y a plusieurs bug non solutionné et probablement liés, a voir si c'est le cas ? Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
+-----------------------------------------------------------------------------------------------------------------
+- Complètes et mets la documentation github à jour avec les derniers travaux fait (voir les todos), les dernières fonctionnalités ou évolutions . Complètes et mets également à jour l'aide en ligne dans le jeu et le widget "Aides"
+-----------------------------------------------------------------------------------------------------------------
+- Créer un moyen de paiement supplémentaire autre que l'usage d'un portefeuille de cryptomonnaie (car certaines personnes ne possèdes pas de portefeuilles de cryptomonaies) pour jouer au jeu avec la possibilité de payer par CB, PayPal, ApplePay, AndroidPay. Tu ajouteras ces nouveaux moyens de paiements sur le premier écran lors du choix initiale du portefeuille de cryptomonnaie. Au besoin bien sûr, tu adapteras la mécanique de paiements dans l'écran principale du jeu "Rechargement du portefeuille" ou dans le widget "Rechargement du portefeuille" ou à tout autre endroit du jeu ou du menu Administration qui nécessitent d'ajouter ces nouveaux moyens de paiements (CB, PayPal, ApplePay, AndroidPay) sans oublier de prendre en compte la dette technique connue — redéploiement du smart contract qui sera a prévoir comme indiqué dans la roadmap https://github.com/Oxyzen-Chris/horizon-zeldcraft/blob/main/docs/ROADMAP.md. Il faudra que tu effectues ce travail conjointement avec la deuxième partie (plus bas) de ma demande sur "Créer un accès Démo".
+Il faut donc que tu fasses une investigations profondes dans le développement/code/stratégie du jeu ainsi que des tests avancés pour t'assurer de ne pas crééer de bug ou de régression de code. Il s'agit d'une grosse adaptation structurelle. Tu rendras tous ces éléments paramétrables dans le menu Administration. Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
+- Créer un accès Démo (Démonstration) sur la page d'accueil du jeu que je pourrais activer ou désactiver dans le menu Administration pour permettre en avant-première aux invités gueststars de jouer au jeu mais sans avoir de portefeuille crypto (Metamask, etc...). Je donnerai ainsi un accès gratuit en avant première à ceux qui financeront mon jeu une fois que j'en ferai la promotion sur un site de développement et d'aides aux financement ! Il faudra donc mettre en place un système d'autorisation que je validerai dès que je recevrais la demande par mail ou dans le menu Administration pour valider l'accès au jeu à la personne qui se signera à l'aide de son compte gmail, applepay ou de son adresse de messagerie. L'accès au jeu sera limité à 90 connexions simultanées mais paramétrable pour étendre à plus et sans limite. Juste que Firebird n'autorise que 100 connexions dans son offre gratuite et que pour le moment, je ne fais pas évoluer vers une offre plus élevée, le temps de la conception et du lancement du jeu. Autorise aussi un mode de connexion anonyme sans aucune authentification mais limitée à 40 connexions (paramétrable là aussi dans le menu Administration) que je pourrais activer ou désactiver dans le menu Administration.
+Alimente au besoin le portefeuille virtuel du jeu de 4000 coins (paramétrable dans le menu Administration) du jeu pour permettra au joueur de tester et jouer. Rend possible et exclusivement dans le cas de la mdémo, le nourrissage de Synk sans faire appel à une transaction sur la blockchain ethereum et donc appel au smartcontract, tu simuleras donc une transaction pour le ou les utilisateurs gueststars et comme pour tous les joueurs du jeu, tu loggeras les statistiques de chacun des joueurs etc... afin de suivre leur parcours, leur évolution, savoir ce qu'ils ont fait dans le jeu, par où ils sont passés, les quêtes qu'ils ont fait, les objets qu'ils ont achétés, etc... afin d'auditer finement leur parcours et connaitre leur gameplay et les parties du jeu qui leur ont plu et sur lequelles ils ont passés du temps.
 
+
+
+
+
+-Rechercher une plateforme de financement en ligne sur ce type de projet et mettre en place la promotion du jeu sur cette plateforme. Tu rendras tous ces éléments paramétrables dans le menu Administration. Tu rendras tous ces éléments paramétrables dans le menu Administration, dans une nouvelle rubrique "Démonstration). Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
+
+
+
+
+Dans la roadmap https://github.com/Oxyzen-Chris/horizon-zeldcraft/blob/main/docs/ROADMAP.md, traite et met en place les points suivants :
+ Prototype donjon 1 (Forêt de Zephyria) : déplacement, combat, loot (au-delà de l'exploration libre déjà couverte par le widget « Plateforme 3D »)
+ Boss & PNJ scriptés en 3D (au-delà des scripts de dialogue textuels actuels et de la matérialisation statique déjà en place dans le widget « Plateforme 3D »)
+ Multi-joueur (Nakama server)
+Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu" mais expliques moi a quoi il doit servir ?
 
 
 
@@ -340,6 +360,9 @@ Agrandir la carte
 Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
 
 
+
+
+
 -----------------------------------------------------------------------------------------------------------------
 Tu permettras d'activer ou désactiver cette option dans le menu Administration. Tu rendras tous ces éléments paramétrables dans le menu Administration. Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
 -----------------------------------------------------------------------------------------------------------------
@@ -347,23 +370,6 @@ Tu permettras d'activer ou désactiver cette option dans le menu Administration.
 
 
 
-
-- Duplique la fenêtre widget "Plateforme 2D isométrique" en une nouvelle fenêtre widget qui s'appelera "Plateforme Godot 2D/3D (Future release). Tu rendras tous ces éléments paramétrables dans le menu Administration. Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
-
-
-
-
-
-
-	
-- Créer un accès Démo (Démonstration) sur la page d'accueil du jeu que je pourrais activer ou désactiver dans le menu Administration pour permettre en avant-première aux invités gueststars de jouer au jeu mais sans avoir de portefeuille crypto (Metamask, etc...). Je donnerai ainsi un accès gratuit en avant première à ceux qui financeront mon jeu une fois que j'en ferai la promotion sur un site de développement et d'aides aux financement ! Il faudra donc mettre en place un système d'autorisation que je validerai dès que je recevrais la demande par mail ou dans le menu Administration pour valider l'accès au jeu à la personne qui se signera à l'aide de son compte gmail, applepay ou de son adresse de messagerie. L'accès au jeu sera limité à 90 connexions simultanées mais paramétrable pour étendre à plus et sans limite. Juste que Firebird n'autorise que 100 connexions dans son offre gratuite et que pour le moment, je ne fais pas évoluer vers une offre plus élevée, le temps de la conception et du lancement du jeu. Autorise aussi un mode de connexion anonyme sans aucune authentification mais limitée à 40 connexions (paramétrable là aussi dans le menu Administration) que je pourrais activer ou désactiver dans le menu Administration.
-Alimente au besoin le portefeuille crypto de 2000 coins du jeu pour permettra au joueur de tester et jouer. Rend possible et exclusivement dans le cas de la mdémo, le nourrissage de Synk sans faire appel à une transaction sur la blockchain ethereum et donc appel au smartcontract, tu simuleras donc une transaction pour le ou les utilisateurs gueststars et comme pour tous les joueurs tu loggeras les statistiques de chacun des joueurs etc... afin de suivre leur parcours, leur évolution, savoir ce qu'ils ont fait dans le jeu, par où ils sont passés, les quêtes qu'ils ont fait, les objets qu'ils ont achétés, etc... afin d'auditer finement leur parcours et connaitre leur gameplay et les parties du jeu qui leur ont plut et surlequel où ils ont passés du temps.
--Rechercher une plateforme de financement en ligne sur ce type de projet. Tu rendras tous ces éléments paramétrables dans le menu Administration. Tu rendras tous ces éléments paramétrables dans le menu Administration, dans une nouvelle rubrique "Démonstration). Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
-
-
-
-
-- Créer un moyen de paiement supplémentaire pour jouer au jeu avec la possibilité de payer par CB, PayPal, ApplePay, AndroidPay. Tu rendras tous ces éléments paramétrables dans le menu Administration. Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
 
 - Dessine moi en fond d'écran dans la Mapmonde, un décors valonné de montagnes, plaines, ruisseau, lac, étang, cours d'eau, route et petit chemin, etc... comme la mapmonde du monde de Zelda ou de Azeroth dans World of Warcraft afin de rendre l'affichage de la carte plus réaliste. Tu rendras tous ces éléments paramétrables dans le menu Administration. Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
 

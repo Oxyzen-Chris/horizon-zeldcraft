@@ -449,9 +449,10 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
                             {tx.hash}
                           </p>
                         </div>
-                        <a className="btn-secondary text-[10px] px-2 py-1 shrink-0"
-                          target="_blank" rel="noopener" href={txBase + tx.hash}>
-                          {t('admin.stats.viewEtherscan')} ↗
+                        <a className={`btn-secondary text-[10px] px-2 py-1 shrink-0 ${tx.offchain ? 'opacity-40 pointer-events-none' : ''}`}
+                          target="_blank" rel="noopener" href={tx.offchain ? undefined : txBase + tx.hash}
+                          title={tx.offchain ? t('admin.stats.offchainTx') : undefined}>
+                          {tx.offchain ? `💳 ${t('admin.stats.offchainTx')}` : `${t('admin.stats.viewEtherscan')} ↗`}
                         </a>
                       </div>
                     </div>

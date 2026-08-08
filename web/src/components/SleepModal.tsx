@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { updatePlayer, applyEffect, DEFAULT_REP_RULES, type PlayerState, type RepRules } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 /**
  * Popup de repos forcé : quand HP ≤ `rules.sleepHpThreshold`, verrouille l'interface pendant
@@ -13,7 +13,7 @@ import { useI18n } from '@/lib/i18n';
  */
 export function SleepModal({ player, rules }: { player: PlayerState | null; rules?: RepRules | null }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const r = rules ?? DEFAULT_REP_RULES;
   const durationSec = Math.max(1, r.sleepDurationSec ?? 50);
   const [asleep, setAsleep] = useState(false);

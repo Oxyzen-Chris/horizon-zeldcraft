@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { getCustomWidgets, applyEffect, type CustomWidgetDef, type CustomWidgetButton } from '@/lib/gameState';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 interface Pos { x: number; y: number }
 
@@ -117,7 +117,7 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
  * `TeamChatWidget`, mais entièrement paramétrable sans code (titre, contenu, animation, boutons).
  */
 export function CustomWidgetsRenderer({ playerXp }: { playerXp: number }) {
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [widgets, setWidgets] = useState<CustomWidgetDef[]>([]);
 
   useEffect(() => { getCustomWidgets().then(setWidgets).catch(() => {}); }, []);

@@ -86,7 +86,8 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 ### Écran de jeu — 15 fenêtres flottantes déplaçables
 - 🗡️ Création de Synk (~15–20 € en ETH, paramétrable admin)
 - 🍖 Nourrissage journalier / hebdo / mensuel / annuel avec cooldowns **indépendants par type** et compte-à-rebours — rubrique masquable par l'admin, boutons on-chain désactivables séparément (voir Bugs corrigés)
-- 💰 **Rechargement du portefeuille** (nouveau) : fenêtre flottante dédiée à l'achat de monnaie de jeu contre ETH (mêmes presets/trésorerie que la rubrique « Portefeuille » fixe), déplaçable/réductible comme tous les autres widgets
+- 💰 **Rechargement du portefeuille** (nouveau) : fenêtre flottante dédiée à l'achat de monnaie de jeu contre ETH (mêmes presets/trésorerie que la rubrique « Portefeuille » fixe), déplaçable/réductible comme tous les autres widgets, avec en complément un **paiement fiat** (CB/PayPal/Apple Pay/Google Pay, voir ci-dessous) accessible à tous les comptes
+- 🎟️💳 **Accès Démo & paiement fiat, sans portefeuille crypto** (nouveau — voir `docs/DEMO_FIAT.md`) : deux boutons sur la page d'accueil, à côté de la connexion wallet classique — « 🎟️ Accès Démo » (connexion Google avec validation admin dans une file d'attente dédiée, ou mode 100% anonyme instantané, tous deux plafonnés en connexions simultanées) et « 💳 Jouer sans portefeuille » (Google ou e-mail, accès immédiat, rechargement des coins par CB/PayPal/Apple Pay/Google Pay). Identité virtuelle transparente pour tous les widgets de jeu (`useEffectiveAccount()`) — **zéro changement pour les joueurs crypto existants**
 - 📊 **Statistiques** : XP · Vie · Faim · Bonheur · Force · Sortilèges · **Oxygène** · **Fatigue** · Portefeuille · Reconnaissance
 - 🌤️ Météo dynamique cohérente avec le **cycle des 4 saisons** (calendrier réel), impact sur le bonheur
 - 🌕 Pleine lune (calendrier réel + override admin) débloquant des quêtes spéciales
@@ -110,8 +111,8 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 🗂️ **Sommaire vertical** de navigation rapide entre toutes les rubriques (ancre `#admin-sec-xxx`)
 - 💰 Solde trésorerie + solde contrat (temps réel)
 - 📊 **Statistiques par joueur** fiables (correction du bug XP désynchronisé), incluant désormais le **temps total de jeu** et le **temps de jeu sur 24 h glissantes** (suivi paramétrable) + génération de **factures PDF** (jsPDF, historique on-chain + liens Etherscan)
-- ⭐ **Barème de reconnaissance** (~20 sous-sections : combat, humeur/météo/saisons, équipement, huttes, sommeil, oxygène, fatigue, altitude, profondeur, îles, pop-up profondeur/altitude, Royaume, Zorghon, onboarding, widget « État d'avancement »…), incluant désormais la **cadence de déplacement** (intervalle marche/course + seuil de maintien avant de courir, 1,5 s par défaut, partagé Plateforme 2D/3D) et la **Plateforme 3D** (équipement visible sur Synk, saut/escalade, seuils de dégâts/mort par chute en cubes, redimensionnement, caméra suiveuse, monde sous-marin, et un tableau de flags par objet — obstacle/escaladable/aquatique — pour tout décor du jeu)
-- 💳 Presets de rechargement wallet · 🐲 Catalogue Familiers · ⚔️ Catalogue Équipement · 🍖 Catalogue Nourriture · 🧪 Catalogue Potions & Sortilèges
+- ⭐ **Barème de reconnaissance** (~20 sous-sections : combat, humeur/météo/saisons, équipement, huttes, sommeil, oxygène, fatigue, altitude, profondeur, îles, pop-up profondeur/altitude, Royaume, Zorghon, onboarding, widget « État d'avancement »…), incluant désormais la **cadence de déplacement** (intervalle marche/course + seuil de maintien avant de courir, 1,5 s par défaut, partagé Plateforme 2D/3D), la **Plateforme 3D** (équipement visible sur Synk, saut/escalade, seuils de dégâts/mort par chute en cubes, redimensionnement, caméra suiveuse, monde sous-marin, et un tableau de flags par objet — obstacle/escaladable/aquatique — pour tout décor du jeu) ainsi que l'**Accès Démo & paiement fiat** (activation, plafonds de connexions simultanées, portefeuille virtuel de départ, moyens de paiement fiat activables individuellement, mode simulation)
+- 💳 Presets de rechargement wallet · 💳 Presets de paiement fiat (CB/PayPal/Apple Pay/Google Pay) · 🎟️ **Demandes d'accès Démo** (file d'attente valider/rejeter) · 🐲 Catalogue Familiers · ⚔️ Catalogue Équipement · 🍖 Catalogue Nourriture · 🧪 Catalogue Potions & Sortilèges
 - 🗺️ Filtres Mapmonde par défaut · 🧭 Navigation Mapmonde (zoom/pan) · 💬 Scripts de dialogue PNJ · 🧩 **Widgets personnalisés** (créés par l'admin **et** activation/désactivation des widgets flottants existants du jeu) · 📦 DLC / Packs de contenu (saisons narratives)
 - 🧙 Ajouter quêtes énigmes / PNJ / trésors / mondes / points d'intérêt carte
 - ⚔️ Difficulté globale · 🌤️ Météo forcée · 🍂 Saisons · 🌕 Pleine lune · 🧙 Fréquence PNJ · 💰 Prix de nourrissage · ⏱️ **Cooldowns de nourrissage** (par type + interrupteur d'affichage de la rubrique « Nourrir Synk » + interrupteur des boutons on-chain)
@@ -152,6 +153,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - [Déploiement + variables d'environnement Vercel/contrats](./docs/DEPLOYMENT.md)
 - [Firebase (chat + off-chain) + **règles de sécurité RTDB à jour**](./docs/FIREBASE_CHAT.md) ← **à republier à chaque merge touchant les chemins RTDB**
 - [Lore & univers Synk](./docs/LORE.md)
+- [Accès Démo & Paiement fiat (sans portefeuille crypto)](./docs/DEMO_FIAT.md)
 - [Roadmap Phases 2/3/4](./docs/ROADMAP.md)
 
 ## 📸 Communauté

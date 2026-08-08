@@ -1,6 +1,6 @@
 'use client';
 
-import { useAccount, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, FEED_TYPES, STAGE_NAMES, WEATHER, WEATHER_KEYS } from '@/lib/contract';
+import { useEffectiveAccount, useEffectiveSession } from '@/lib/effectiveAccount';
 import { SynkSkin } from '@/components/SynkSkin';
 import { Countdown } from '@/components/Countdown';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -48,37 +49,56 @@ import { useI18n } from '@/lib/i18n';
 import {
   getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, getPlayerActivityStats,
   computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex, trackPlaytimeHeartbeat,
+  computeOffchainStageLevel,
   type PlayerState, type RepRules, type PlayerActivityStats, type Season,
 } from '@/lib/gameState';
 
+/** Construit un tuple `v` équivalent à `voxlyns(tokenId)` on-chain, à partir du PlayerState
+ * Firebase d'un compte Démo/Fiat (sans portefeuille crypto — voir docs/DEMO_FIAT.md). Alimente
+ * VoxlynDashboard EXACTEMENT comme un vrai Voxlyn miné, sans aucune modification de ce composant :
+ * `xp` on-chain est forcé à 0 ici car TOUTE la progression de ces comptes est déjà portée par
+ * `player.xpBonus` (voir `Math.max(0, Number(xp) + (player?.xpBonus ?? 0))` plus bas, qui donne
+ * alors exactement `xpBonus`) ; `level`/`stage` sont recalculés en conséquence côté client. */
+function synthesizeOffchainVoxlyn(p: PlayerState): [string, string, string, bigint, bigint, bigint, bigint, bigint, bigint] {
+  const { level, stageIndex } = computeOffchainStageLevel(p.xpBonus ?? 0);
+  return [
+    p.displayName || 'Synk', '', '',
+    0n, BigInt(Math.round(p.hp ?? 100)), BigInt(Math.round(p.happiness ?? 60)), BigInt(Math.round(p.hunger ?? 80)),
+    BigInt(level), BigInt(stageIndex),
+  ];
+}
+
 export default function GamePage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, accountType } = useEffectiveAccount();
+  const session = useEffectiveSession();
   const chainId = useChainId();
   const contract = CONTRACT_ADDRESSES[chainId];
   const { t } = useI18n();
   const [name, setName] = useState('');
   const queryClient = useQueryClient();
+  const isVirtual = accountType !== 'wallet'; // compte Démo/Fiat, sans portefeuille crypto connecté
 
-  // Détection propriétaire du contrat (pour afficher le bouton admin)
+  // Détection propriétaire du contrat (pour afficher le bouton admin) — jamais un compte
+  // Démo/Fiat (isVirtual), qui n'a par définition aucune clé privée réelle.
   const { data: ownerAddr } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'owner',
     query: { enabled: !!contract },
   });
-  const isOwner = !!(isConnected && ownerAddr && address &&
+  const isOwner = !isVirtual && !!(isConnected && ownerAddr && address &&
     (ownerAddr as string).toLowerCase() === address.toLowerCase());
 
   const { data: tokenId, queryKey: tokenIdKey } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'voxlynOf',
     args: address ? [address] : undefined,
-    query: { enabled: !!address && !!contract },
+    query: { enabled: !!address && !!contract && !isVirtual },
   });
 
-  const hasVoxlyn = !!tokenId && (tokenId as bigint) > 0n;
+  const hasVoxlynChain = !!tokenId && (tokenId as bigint) > 0n;
 
   const { data: voxlyn, queryKey: voxlynKey } = useReadContract({
     address: contract, abi: HORIZON_ABI, functionName: 'voxlyns',
-    args: hasVoxlyn ? [tokenId as bigint] : undefined,
-    query: { enabled: hasVoxlyn },
+    args: hasVoxlynChain ? [tokenId as bigint] : undefined,
+    query: { enabled: hasVoxlynChain },
   });
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
@@ -111,12 +131,42 @@ export default function GamePage() {
     }).data as bigint | undefined;
   });
 
+  // ─── Comptes Démo/Fiat (sans portefeuille crypto) — voir docs/DEMO_FIAT.md ───
+  // Remplace le mint on-chain : crée/retrouve directement le PlayerState Firebase (idempotent —
+  // `getOrCreatePlayer` ne réinitialise jamais un compte existant). Les pièces `demoInitialCoins`
+  // ne sont créditées qu'à la toute première création (voir gameState.ts::getOrCreatePlayer).
+  const [virtualPlayer, setVirtualPlayer] = useState<PlayerState | null>(null);
+  useEffect(() => {
+    if (!isVirtual || !address) return;
+    let cancelled = false;
+    (async () => {
+      const rules = await getRepRules().catch(() => null);
+      const p = await getOrCreatePlayer(address, session?.displayName || undefined, {
+        accountType: accountType as 'demo' | 'fiat',
+        initialWallet: accountType === 'demo' ? (rules?.demoInitialCoins ?? 4000) : 0,
+      }).catch(() => null);
+      if (!cancelled && p) setVirtualPlayer(p);
+    })();
+    return () => { cancelled = true; };
+  }, [isVirtual, address, accountType, session?.displayName]);
+  // Synchronisation temps réel du joueur virtuel une fois créé (mêmes mises à jour que
+  // VoxlynDashboard, nécessaire ICI pour recalculer le tuple `v` synthétique à chaque évolution).
+  useEffect(() => {
+    if (!isVirtual || !address) return;
+    return subscribePlayer(address, setVirtualPlayer);
+  }, [isVirtual, address]);
+
+  const hasVoxlyn = isVirtual ? !!virtualPlayer : hasVoxlynChain;
+
   if (!isConnected) {
     return (
       <main className="min-h-screen flex items-center justify-center p-6">
         <div className="card text-center">
           <p className="mb-4">{t('connect.description')}</p>
           <ConnectButton />
+          <p className="text-xs text-slate-400 mt-4">
+            {t('connect.noWalletHint')} <Link href="/" className="text-cyan-400 underline">{t('connect.noWalletLink')}</Link>
+          </p>
         </div>
       </main>
     );
@@ -131,13 +181,23 @@ export default function GamePage() {
           <SeasonWidget />
           <MoonWidget />
           <LanguageSwitcher />
-          <NetworkSwitcher />
+          {!isVirtual && <NetworkSwitcher />}
           {isOwner && <Link href="/admin" className="btn-secondary text-sm">⚙️ {t('admin.title')}</Link>}
-          <ConnectButton />
+          {isVirtual ? (
+            <span className="text-xs px-3 py-1.5 rounded-full bg-purple-900/40 border border-purple-500/40 text-purple-200">
+              🎟️ {t(accountType === 'demo' ? 'connect.demoBadge' : 'connect.fiatBadge')}
+            </span>
+          ) : <ConnectButton />}
         </div>
       </header>
 
       {!hasVoxlyn ? (
+        isVirtual ? (
+          <section className="card max-w-md mx-auto text-center">
+            <SynkSkin stage={0} size={180} />
+            <p className="mt-4">{t('common.loading')}</p>
+          </section>
+        ) : (
         <section className="card max-w-md mx-auto text-center">
           <SynkSkin stage={0} size={180} />
           <h2 className="text-xl font-bold mt-4 mb-3">{t('game.mint.title')}</h2>
@@ -163,10 +223,11 @@ export default function GamePage() {
             </p>
           )}
         </section>
-      ) : voxlyn ? (
+        )
+      ) : (isVirtual ? !!virtualPlayer : !!voxlyn) ? (
         <VoxlynDashboard
-          tokenId={tokenId as bigint}
-          v={voxlyn as any}
+          tokenId={isVirtual ? 0n : (tokenId as bigint)}
+          v={isVirtual ? synthesizeOffchainVoxlyn(virtualPlayer!) : (voxlyn as any)}
           contract={contract as `0x${string}`}
           feedPrices={feedPrices}
           voxlynKey={voxlynKey}
@@ -180,7 +241,7 @@ export default function GamePage() {
 
 function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address, accountType } = useEffectiveAccount();
   const chainId = useChainId();
   const queryClient = useQueryClient();
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
@@ -421,7 +482,16 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       {repRules?.feedSectionEnabled !== false && (
       <section className="card md:col-span-2">
         <h3 className="text-lg font-semibold mb-4">{t('game.feed.title')}</h3>
-        {repRules?.onchainFeedButtonsEnabled !== true ? (
+        {accountType !== 'wallet' ? (
+          // Comptes Démo/Fiat (sans portefeuille crypto) : aucun appel on-chain possible (pas de
+          // signataire réel derrière l'adresse virtuelle) — le nourrissage passe exclusivement par
+          // la Boutique hors-chaîne (voir ShopPanel.tsx/ShopWidget.tsx), quel que soit l'état du
+          // réglage `onchainFeedButtonsEnabled` (voir docs/DEMO_FIAT.md § Limites connues).
+          <div className="bg-purple-950/20 border border-purple-700/40 rounded p-3 text-center">
+            <p className="text-sm font-semibold text-purple-300">🎟️ {t('game.feed.demoAccountTitle')}</p>
+            <p className="text-xs text-slate-400 mt-1">{t('game.feed.demoAccountMessage')}</p>
+          </div>
+        ) : repRules?.onchainFeedButtonsEnabled !== true ? (
           // Section masquée par défaut : bug connu de cooldown partagé sur le contrat Sepolia
           // déployé (voir RepRules.onchainFeedButtonsEnabled). Réactivable depuis Administration
           // > Widgets personnalisés une fois le correctif redéployé (ou volontairement plus tôt).

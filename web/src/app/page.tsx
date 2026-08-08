@@ -1,15 +1,16 @@
 'use client';
 
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount } from 'wagmi';
 import Link from 'next/link';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { SynkSkin } from '@/components/SynkSkin';
+import { NoWalletAccessPanel } from '@/components/NoWalletAccessPanel';
 import { useI18n } from '@/lib/i18n';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 export default function Home() {
-  const { isConnected } = useAccount();
+  const { isConnected } = useEffectiveAccount();
   const { t } = useI18n();
 
   return (
@@ -38,7 +39,10 @@ export default function Home() {
             → {t('nav.game')}
           </Link>
         ) : (
-          <div className="flex justify-center"><ConnectButton /></div>
+          <>
+            <div className="flex justify-center"><ConnectButton /></div>
+            <NoWalletAccessPanel />
+          </>
         )}
       </section>
 

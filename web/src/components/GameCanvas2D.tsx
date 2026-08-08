@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAccount } from 'wagmi';
 import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
   getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem, subscribeInventory,
@@ -28,6 +27,7 @@ import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
 import { NPC_SKINS } from '@/lib/contract';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const POS_KEY = 'zc.iso2dWidgetPos';
 const SIZE_KEY = 'zc.iso2dWidgetSize';
@@ -164,7 +164,7 @@ function computeRarefactionFactor(rules: RepRules, tile: Tile): number {
  */
 export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: number; playerXp?: number; encounterNpc?: EncounterMarkerInfo }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
   const {
     collapsed, pos, onPointerDown: onHeaderPointerDown, onPointerMove: onHeaderPointerMove,

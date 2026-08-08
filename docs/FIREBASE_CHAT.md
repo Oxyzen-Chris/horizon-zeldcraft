@@ -68,6 +68,9 @@ Chemins RTDB utilisés par l'application (à jour au 2026-08) :
 | `catalog/analytics/faintHeatmapGlobal/{map}/{gridKey}`, `/faintCauseGlobal/{cause}` | `trackFaintEvent` (`runTransaction`) | `getFaintHeatmap`, `getFaintCauseBreakdown` |
 | `catalog/aiAnalyticsSettings`            | admin `AiGameplayIntelligencePanel` (rubrique Paramètres) | toutes les fonctions `analytics*`/`trackX` (activation, taille de maille, fenêtre de rétention, fournisseur IA) |
 | `catalog/aiInsightsCache`                | `AiGameplayIntelligencePanel` (bouton « Générer une analyse », résultat de `/api/ai/insights`) | `AiGameplayIntelligencePanel` (affichage + anti-spam) |
+| `catalog/fiatTopupPresets`               | admin `FiatTopupPresetsPanel`                 | `FiatTopupPanel` (widget « Rechargement du portefeuille » + page Portefeuille, paiement fiat CB/PayPal/Apple Pay/Google Pay) |
+| `demoAccessRequests/{uid}`               | `requestDemoAccess` (page d'accueil, connexion Google), `approveDemoAccess`/`rejectDemoAccess` (admin) | `DemoAccessRequestsPanel` (file d'attente admin), `NoWalletAccessPanel` (`getDemoAccessRequest`, vérifie si déjà validé) — voir `docs/DEMO_FIAT.md` |
+| `demoSessions/{kind}/{uid}` (`kind` = `demo`\|`anon`) | `registerDemoSession` (présence + `onDisconnect().remove()`), `releaseDemoSession` | `countActiveDemoSessions` (plafonds `RepRules.demoMaxConcurrentSessions`/`demoAnonymousMaxConcurrentSessions`) — voir `docs/DEMO_FIAT.md` |
 
 ## 1. Créer le projet Firebase (gratuit)
 
@@ -95,6 +98,9 @@ NEXT_PUBLIC_FIREBASE_APP_ID=1:1234567890:web:abcdef
 
 1. Console Firebase → **Build → Authentication**
 2. Onglet **Sign-in method** → **Anonyme** → **Activer** → **Enregistrer**
+3. Depuis l'ajout de l'Accès Démo / Paiement fiat (voir `docs/DEMO_FIAT.md`), activer également
+   **Google** et **E-mail/Mot de passe** dans ce même onglet (nécessaires pour les boutons
+   « 🎟️ Accès Démo » et « 💳 Jouer sans portefeuille » de la page d'accueil).
 
 Chaque visiteur reçoit un `uid` anonyme au premier chargement (via `ensureAnonSignIn()` dans
 `web/src/lib/firebase.ts`). Ce `uid` est vérifié par les règles pour toutes les écritures.
@@ -141,6 +147,14 @@ Chaque visiteur reçoit un `uid` anonyme au premier chargement (via `ensureAnonS
     "catalog": {
       ".read":  true,
       ".write": "auth != null"
+    },
+    "demoAccessRequests": {
+      ".read":  "auth != null",
+      ".write": "auth != null"
+    },
+    "demoSessions": {
+      ".read":  "auth != null",
+      ".write": "auth != null"
     }
   }
 }
@@ -160,6 +174,15 @@ Clique **Publier**.
 > sous-chemins de ces deux arbres. **Aucune republication des règles n'est nécessaire pour ces
 > fonctionnalités** — seul un nouveau chemin racine (hors
 > `chats`/`chatIndex`/`players`/`playerIndex`/`catalog`) demanderait une mise à jour du JSON ci-dessus.
+
+> ⚠️ **Accès Démo / Paiement fiat (voir `docs/DEMO_FIAT.md`)** : `catalog/fiatTopupPresets` est un
+> simple sous-chemin de `catalog` (déjà couvert), mais `demoAccessRequests/*` et `demoSessions/*`
+> sont deux NOUVEAUX chemins racine — ils ont été ajoutés au bloc JSON du § 4 ci-dessus
+> (`auth != null` en lecture/écriture, même niveau de protection que `catalog`). **Republier les
+> règles est nécessaire** si ce n'est pas encore fait sur l'environnement de production. Il faut
+> également activer, dans Firebase Console → Authentication → Sign-in method, les fournisseurs
+> **Google** et **E-mail/Mot de passe** (en plus du fournisseur **Anonyme** déjà requis) pour que
+> les boutons « 🎟️ Accès Démo » et « 💳 Jouer sans portefeuille » de la page d'accueil fonctionnent.
 
 ### Ce que ces règles verrouillent
 

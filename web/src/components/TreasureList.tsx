@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { getTreasureDefs, subscribeFoundTreasureIds, openTreasureOffchain, claimMissingTreasureItem, getCurrentSeason, RKEY, type TreasureDef, type Season } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 /**
  * Trésors — 100% hors-chaîne (voir gameState.ts::TreasureDef). Ouverture manuelle une fois le
@@ -14,7 +14,7 @@ import { useI18n, localizeName } from '@/lib/i18n';
  */
 export function TreasureList({ playerXp }: { playerXp: number }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [defs, setDefs] = useState<TreasureDef[] | null>(null);
   const [found, setFound] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);

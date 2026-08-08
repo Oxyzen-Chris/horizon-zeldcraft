@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { getWorldDefs, subscribeUnlockedWorldIds, discoverWorldOffchain, RKEY, type WorldDef } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 /**
  * Mondes — 100% hors-chaîne (voir gameState.ts::WorldDef). Remplace l'ancienne version on-chain
@@ -12,7 +12,7 @@ import { useI18n, localizeName } from '@/lib/i18n';
  */
 export function WorldList({ playerXp }: { playerXp: number }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [defs, setDefs] = useState<WorldDef[] | null>(null);
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);

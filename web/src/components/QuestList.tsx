@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAccount } from 'wagmi';
 import {
   getQuestDefs, getSolvedQuest, submitQuestAnswerOffchain, subscribeUnlockedQuestIds,
   getRepRules, getCurrentSeason, type QuestDef, type Season,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 /**
  * Quêtes à énigmes — 100% hors-chaîne (Firebase) : catalogue, réponse (hash) et récompense
@@ -21,7 +21,7 @@ import { useI18n, localizeName } from '@/lib/i18n';
  */
 export function QuestList({ playerXp }: { playerXp: number }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [quests, setQuests] = useState<QuestDef[] | null>(null);
   const [unlocked, setUnlocked] = useState<Set<string> | null>(null);
   const [season, setSeason] = useState<Season | null>(null);
@@ -74,7 +74,7 @@ export function QuestList({ playerXp }: { playerXp: number }) {
 
 function QuestCard({ quest, playerXp, npcUnlocked }: { quest: QuestDef; playerXp: number; npcUnlocked: boolean }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [answer, setAnswer] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);

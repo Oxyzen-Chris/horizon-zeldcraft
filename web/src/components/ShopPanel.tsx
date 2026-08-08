@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { getShopCatalog, addToInventory, applyEffect, subscribePlayer, subscribeInventory,
   removeFromInventory, subscribeFamiliars, getFamiliarDefs, familiarKeyOf,
   type ShopItem, type PlayerState, type InventoryItem, type FamiliarDef } from '@/lib/gameState';
@@ -9,6 +8,7 @@ import { ITEM_TAB_CATEGORIES, ITEM_TAB_ORDER, ITEM_TAB_ICON, type ItemTab } from
 import { useI18n, itemLabel, localizeName } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DragonSkin, dragonKindFromId } from './DragonSkin';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 /**
  * Boutique — achat/vente d'objets. Utilise la monnaie de jeu (wallet) pour éviter
@@ -18,7 +18,7 @@ import { DragonSkin, dragonKindFromId } from './DragonSkin';
  */
 export function ShopPanel() {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [catalog, setCatalog] = useState<ShopItem[]>([]);
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);

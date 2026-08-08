@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { useAccount } from 'wagmi';
 import {
   getMapPoiDefs, getWorldDefs, setPlayerMapPos, subscribePlayerMapPos, subscribeUnlockedWorldIds,
   getVisitedMapPoiIds, visitMapPoi, discoverWorldOffchain, getInventoryOnce, getRepRules,
@@ -26,6 +25,7 @@ import { SynkSkin } from './SynkSkin';
 import { NPC_SKINS } from '@/lib/contract';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const POS_KEY = 'zc.mapWidgetPos';
 const SIZE_KEY = 'zc.mapWidgetSize';
@@ -59,7 +59,7 @@ const POI_TYPE_FALLBACK_ICON: Record<string, string> = {
  */
 export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { playerXp: number; encounterNpc?: EncounterMarkerInfo; enabled?: boolean }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
   const {
     collapsed, pos, onPointerDown: onHeaderPointerDown, onPointerMove: onHeaderPointerMove,

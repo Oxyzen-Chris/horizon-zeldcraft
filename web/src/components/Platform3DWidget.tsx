@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -27,6 +26,7 @@ import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const POS_KEY = 'zc.platform3dWidgetPos';
 const COLLAPSED_KEY = 'zc.platform3dWidgetCollapsed';
@@ -673,7 +673,7 @@ function UnderwaterScene({ stage, facing, equipment, equipmentRenderEnabled, fis
  */
 export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stage: number; playerXp?: number; enabled?: boolean }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
   const {
     collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,

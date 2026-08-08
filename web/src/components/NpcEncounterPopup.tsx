@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useAccount, useChainId } from 'wagmi';
+import { useChainId } from 'wagmi';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { ref, get } from 'firebase/database';
 import { NPC_SKINS, NPC_NAME_SUFFIXES, NPC_SUFFIX_KEYS } from '@/lib/contract';
 import {
@@ -218,7 +219,7 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
   onCombatActiveChange?: (active: boolean) => void;
 }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const chainId = useChainId();
   const [current, setCurrent] = useState<PopupNpc | null>(null);
   const [rules, setRules] = useState<RepRules | null>(null);

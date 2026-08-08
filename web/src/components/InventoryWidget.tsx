@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
 import {
   subscribeInventory, getRepRules, subscribeFamiliars, getFamiliarDefs, familiarKeyOf,
   consumeInventoryItem, equipItem, equipFamiliar, FAMILIAR_DRAG_PREFIX,
@@ -14,6 +13,7 @@ import { DragonSkin, dragonKindFromId } from './DragonSkin';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const POS_KEY = 'zc.inventoryWidgetPos';
 const COLLAPSED_KEY = 'zc.inventoryWidgetCollapsed';
@@ -40,7 +40,7 @@ type ConfirmAction =
  */
 export function InventoryWidget({ enabled = true }: { enabled?: boolean } = {}) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
   const {
     collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,

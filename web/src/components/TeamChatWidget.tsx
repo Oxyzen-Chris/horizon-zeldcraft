@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useAccount, useReadContract } from 'wagmi';
+import { useReadContract } from 'wagmi';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { HORIZON_ABI } from '@/lib/contract';
 import { getFirebaseDb, isFirebaseConfigured, ensureAnonSignIn } from '@/lib/firebase';
 import { ref, push, query, orderByChild, limitToLast, onValue, off, serverTimestamp, update } from 'firebase/database';
@@ -37,7 +38,7 @@ type Msg = {
  */
 export function TeamChatWidget({ contract, defaultName, enabled = true }: { contract: `0x${string}`; defaultName?: string; enabled?: boolean }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
   const {
     collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,

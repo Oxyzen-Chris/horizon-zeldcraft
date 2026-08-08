@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
 import {
   subscribeInventory, applyEffect, removeFromInventory, activateInvisibility, getRepRules,
   subscribeFamiliars, getFamiliarDefs, familiarKeyOf, consumeInventoryItem, equipItem, equipFamiliar,
@@ -11,6 +10,7 @@ import { ITEM_TAB_CATEGORIES as TAB_CATEGORIES, ITEM_TAB_ORDER as TAB_ORDER, ITE
 import { useI18n, itemLabel, localizeName } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DragonSkin, dragonKindFromId } from './DragonSkin';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 /** Catégories équipables via un simple bouton "Équiper" (en plus du glisser-déposer) — armes/
  * protections/flèches restent volontairement drag-only (comportement historique), tandis
@@ -33,7 +33,7 @@ type ConfirmAction =
  * comme méthode alternative au glisser-déposer. */
 export function InventoryPanel() {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);

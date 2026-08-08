@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { getShopCatalog, addToInventory, applyEffect, subscribePlayer, subscribeInventory,
   removeFromInventory, subscribeFamiliars, getFamiliarDefs, familiarKeyOf,
   type ShopItem, type PlayerState, type InventoryItem, type FamiliarDef } from '@/lib/gameState';
@@ -12,6 +11,7 @@ import { DragonSkin, dragonKindFromId } from './DragonSkin';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const POS_KEY = 'zc.shopWidgetPos';
 const COLLAPSED_KEY = 'zc.shopWidgetCollapsed';
@@ -27,7 +27,7 @@ const COLLAPSED_KEY = 'zc.shopWidgetCollapsed';
  */
 export function ShopWidget({ enabled = true }: { enabled?: boolean } = {}) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
   const {
     collapsed, pos, onPointerDown, onPointerMove, onPointerUp, onToggleClick, toggleCollapsed,

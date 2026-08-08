@@ -202,8 +202,28 @@ raison impérieuse, pour éviter de réintroduire l'une de ces régressions.
 
 ## 💳 Phase 4 — Paiements fiat
 
-- [ ] Intégration Stripe (CB, Apple Pay)
-- [ ] PayPal SDK
+- [x] **Paiement fiat sans intégration Stripe/PayPal réelle (mode simulation)** : boutons CB/PayPal/
+      Apple Pay/Google Pay disponibles dès aujourd'hui dans le widget « Rechargement du
+      portefeuille » et la page Portefeuille, pour TOUS les comptes (portefeuille crypto, Démo,
+      Fiat) — voir `docs/DEMO_FIAT.md`. Crédite instantanément la monnaie de jeu hors-chaîne
+      (`RepRules.fiatSimulationMode`, `true` par défaut), sans gas ni portefeuille requis.
+      Bascule 1 pour 1 vers un vrai Stripe Checkout Session (carte + PayPal + Apple Pay + Google Pay
+      en une seule intégration) une fois les clés API fournies, sans changement d'UI/de logique
+      métier côté joueur (`useFiatTopup.ts`).
+- [x] **Accès Démo / compte sans portefeuille crypto** (voir `docs/DEMO_FIAT.md`) : nouveau bouton
+      « 🎟️ Accès Démo » (connexion Google, en attente de validation manuelle par l'admin — file
+      d'attente dans `Administration > Demandes d'accès Démo` — ou mode 100% anonyme instantané)
+      et bouton « 💳 Jouer sans portefeuille » (Google ou e-mail, accès fiat immédiat sans
+      validation) sur la page d'accueil, à côté du `<ConnectButton />` RainbowKit existant.
+      Identité virtuelle dérivée d'un UID Firebase Auth (`deriveVirtualAddress`), portée par un
+      nouveau hook `useEffectiveAccount()` qui bascule transparemment tous les widgets de jeu entre
+      portefeuille réel et session Démo/Fiat — **zéro changement de comportement pour les joueurs
+      crypto existants**. Plafonds de connexions simultanées paramétrables admin
+      (`RepRules.demoMaxConcurrentSessions` = 90, `demoAnonymousMaxConcurrentSessions` = 40, en
+      lien avec la limite de 100 connexions du plan gratuit Firebase), portefeuille virtuel de
+      départ paramétrable (`RepRules.demoInitialCoins` = 4000 coins).
+- [ ] Intégration Stripe réelle (CB, Apple Pay) — clés API + `api/payments/checkout/route.ts`
+- [ ] PayPal SDK réel (au-delà du mode simulation déjà livré)
 - [ ] On-ramp crypto (MoonPay, Ramp)
 - [ ] KYC si volume > 1000€ (conformité MiCA UE)
 

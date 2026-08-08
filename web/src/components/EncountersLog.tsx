@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { ref, onValue, off } from 'firebase/database';
 import { getFirebaseDb, isFirebaseConfigured, ensureAnonSignIn } from '@/lib/firebase';
 import { NPC_SKINS } from '@/lib/contract';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import type { EncounterRecord } from '@/lib/gameState';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 const ALIGN_ICONS = { friendly: '😇', neutral: '🙂', hostile: '👿', unknown: '❓' };
 const OFFER_ICONS = { trade: '💰', quest: '📜', fight: '⚔️', chat: '💬' };
@@ -19,7 +19,7 @@ const OFFER_ICONS = { trade: '💰', quest: '📜', fight: '⚔️', chat: '💬
  */
 export function EncountersLog() {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const [all, setAll] = useState<EncounterRecord[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<string>(''); // timestamp de la rencontre choisie

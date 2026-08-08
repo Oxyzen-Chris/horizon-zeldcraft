@@ -87,6 +87,19 @@ export interface PlayerState {
   invisibleUntil?: number; // horodatage de fin d'invisibilité (cape d'invisibilité — voir activateInvisibility)
   createdAt?: number;
   updatedAt?: number;
+  // ─── Comptes sans portefeuille crypto (accès Démo / paiement fiat — voir docs/DEMO_FIAT.md) ───
+  // 'wallet' (défaut, absent = wallet) : joueur connecté via un vrai portefeuille crypto (Sepolia/
+  // Mainnet), identité = adresse EVM réelle. 'demo' : invité gueststar approuvé par l'admin ou
+  // session anonyme (voir RepRules.demoAccessEnabled/demoAnonymousEnabled), identité = adresse
+  // virtuelle dérivée de son UID Firebase Auth (voir deriveVirtualAddress). 'fiat' : joueur ayant
+  // payé par CB/PayPal/Apple Pay/Google Pay (voir RepRules.fiatPaymentEnabled), même mécanisme
+  // d'adresse virtuelle que 'demo' mais sans plafond de sessions concurrentes ni pièces offertes.
+  // Dans les deux cas 'demo'/'fiat', AUCUN appel on-chain (mint/feed/topup) n'est jamais tenté :
+  // toute la progression (xp/niveau/objets/portefeuille) est 100% portée par ce PlayerState
+  // Firebase, le tuple `v` normalement lu depuis le smart contract est synthétisé côté client
+  // (voir synthesizeOffchainVoxlyn dans game/page.tsx).
+  accountType?: 'wallet' | 'demo' | 'fiat';
+  demoApproved?: boolean;   // true une fois la demande d'accès Démo validée par l'admin (voir approveDemoAccess)
 }
 
 /**
@@ -174,13 +187,19 @@ export interface EquippedItem {
 
 export interface TxRecord {
   hash: string;
-  type: 'mint' | 'feed' | 'buy' | 'sell' | 'quest' | 'other';
+  type: 'mint' | 'feed' | 'buy' | 'sell' | 'quest' | 'other' | 'fiat_topup';
   label: string;
-  valueEth: string;    // en ETH lisible (ex "0.0001")
+  valueEth: string;    // en ETH lisible (ex "0.0001") — "0" pour une transaction fiat/simulée
   gasEth?: string;     // frais réseau (gasUsed * gasPrice) en ETH
   timestamp: number;
   chainId: number;
   status?: 'pending' | 'confirmed' | 'failed';
+  // ─── Paiement fiat / démo (voir WalletTopupWidget.tsx, docs/DEMO_FIAT.md) ───
+  // `offchain: true` = pas de transaction blockchain réelle (compte 'demo'/'fiat' ou nourrissage
+  // simulé) : PlayerStats.tsx masque le lien Etherscan pour ces lignes (aucun hash exploitable).
+  offchain?: boolean;
+  provider?: 'card' | 'paypal' | 'apple_pay' | 'google_pay' | 'demo_seed'; // moyen de paiement fiat utilisé
+  valueFiat?: string;  // montant affiché en devise fiat (ex "4.99 €"), si provider défini
 }
 
 export interface EncounterRecord {
@@ -238,8 +257,15 @@ const KEY = (addr: string) => addr.toLowerCase();
  * segment de chemin est assaini, pour ne jamais planter sur un id admin mal formé. */
 export const RKEY = (id: string) => id.toLowerCase().replace(/[.#$[\]]/g, '_');
 
-/** Récupère ou crée le PlayerState. */
-export async function getOrCreatePlayer(address: string, displayName?: string): Promise<PlayerState> {
+/** Récupère ou crée le PlayerState.
+ * `opts.accountType` ('demo'|'fiat') et `opts.initialWallet` permettent de créer un compte sans
+ * portefeuille crypto (voir docs/DEMO_FIAT.md) — n'affecte JAMAIS la création d'un compte 'wallet'
+ * classique (comportement 100% inchangé, `opts` omis partout ailleurs dans le code existant). */
+export async function getOrCreatePlayer(
+  address: string,
+  displayName?: string,
+  opts?: { accountType?: 'demo' | 'fiat'; initialWallet?: number },
+): Promise<PlayerState> {
   const db = getFirebaseDb();
   if (!db) throw new Error('Firebase non configuré');
   await ensureAnonSignIn();
@@ -262,9 +288,10 @@ export async function getOrCreatePlayer(address: string, displayName?: string): 
     spells: 5, spellsMax: 100,
     oxygen: 100, oxygenMax: 100,
     fatigue: 100, fatigueMax: 100,
-    reputation: 0, wallet: 100,
+    reputation: 0, wallet: opts?.initialWallet ?? 100,
     score: 0,
     lastTick: now, createdAt: now, updatedAt: now,
+    ...(opts?.accountType ? { accountType: opts.accountType } : {}),
   };
   await set(ref(db, `players/${k}`), initial);
   await set(ref(db, `playerIndex/${k}`), true);
@@ -3311,6 +3338,38 @@ export interface RepRules {
   // s'il souhaite malgré tout autoriser le nourrissage on-chain (le bug de cooldown partagé
   // persistera alors jusqu'au redéploiement).
   onchainFeedButtonsEnabled: boolean; // défaut false
+
+  // ─── Accès Démo & paiement fiat sans portefeuille crypto (voir docs/DEMO_FIAT.md) ───
+  // Permet de jouer sans Metamask/Rainbow/etc. via une identité virtuelle dérivée d'un compte
+  // Firebase Auth (Google/email) — voir deriveVirtualAddress(). Deux entrées indépendantes :
+  // 1) « Démo » (accès gratuit accordé par l'admin, en avant-première, à des gueststars) ;
+  // 2) « Fiat » (paiement réel CB/PayPal/Apple Pay/Google Pay, aucune limite de sessions).
+  // Interrupteur général : masque/affiche le bouton "Accès Démo" sur la page d'accueil.
+  demoAccessEnabled: boolean;          // défaut true
+  // Sous-mode "anonyme" (aucune authentification, ni email ni Google) — accès instantané sans
+  // validation admin, mais plafonné bas et clairement annoncé comme temporaire/non persistant
+  // d'une session à l'autre (l'UID anonyme Firebase change si le navigateur est vidé).
+  demoAnonymousEnabled: boolean;       // défaut true
+  // Plafond de connexions simultanées "Démo approuvée" (Google/email, validée par l'admin) — la
+  // Realtime Database gratuite (plan Spark) n'autorise que 100 connexions simultanées au total ;
+  // on se garde une marge de 10 pour l'admin/l'usage interne.
+  demoMaxConcurrentSessions: number;   // défaut 90
+  // Plafond de connexions simultanées "Démo anonyme" (distinct du précédent, cumulable avec lui).
+  demoAnonymousMaxConcurrentSessions: number; // défaut 40
+  // Pièces de jeu offertes à la création d'un compte Démo (voir getOrCreatePlayer opts.initialWallet).
+  demoInitialCoins: number;            // défaut 4000
+  // Interrupteur général : affiche/masque le bouton "Jouer sans portefeuille (paiement)" sur la
+  // page d'accueil et l'option fiat dans le widget "Rechargement du portefeuille".
+  fiatPaymentEnabled: boolean;         // défaut true
+  fiatMethodCardEnabled: boolean;      // défaut true — Carte Bancaire (Stripe Checkout)
+  fiatMethodPaypalEnabled: boolean;    // défaut true — PayPal (Stripe Checkout)
+  fiatMethodApplePayEnabled: boolean;  // défaut true — Apple Pay (Stripe Checkout)
+  fiatMethodGooglePayEnabled: boolean; // défaut true — Google Pay (Stripe Checkout)
+  // Mode simulation : aucune clé Stripe/PayPal réelle fournie pour l'instant (voir ROADMAP.md) —
+  // les paiements fiat créditent directement le portefeuille de jeu sans appel à une API de
+  // paiement externe. Passer à `false` dès que de vraies clés Stripe seront configurées côté
+  // serveur (web/src/app/api/payments/*) pour basculer sur un vrai Stripe Checkout Session.
+  fiatSimulationMode: boolean;         // défaut true
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -3483,6 +3542,17 @@ export const DEFAULT_REP_RULES: RepRules = {
   // Défaut false (voir commentaire sur l'interface RepRules) : bug de cooldown partagé sur le
   // contrat Sepolia actuellement déployé, correctif écrit mais en attente de redéploiement.
   onchainFeedButtonsEnabled: false,
+  demoAccessEnabled: true,
+  demoAnonymousEnabled: true,
+  demoMaxConcurrentSessions: 90,
+  demoAnonymousMaxConcurrentSessions: 40,
+  demoInitialCoins: 4000,
+  fiatPaymentEnabled: true,
+  fiatMethodCardEnabled: true,
+  fiatMethodPaypalEnabled: true,
+  fiatMethodApplePayEnabled: true,
+  fiatMethodGooglePayEnabled: true,
+  fiatSimulationMode: true,
 }
 
 export async function getRepRules(): Promise<RepRules> {
@@ -4059,6 +4129,38 @@ export async function setTopupPresets(presets: TopupPreset[]): Promise<void> {
   if (!db) return;
   await ensureAnonSignIn();
   await set(ref(db, 'catalog/topupPresets'), presets);
+}
+
+/**
+ * Presets de recharge fiat (CB/PayPal/Apple Pay/Google Pay → coins de jeu, sans passer par ETH).
+ * Paramétrable via l'admin (catalog/fiatTopupPresets), même esprit que TopupPreset ci-dessus.
+ * Voir RepRules.fiatPaymentEnabled/fiatSimulationMode et WalletTopupWidget.tsx.
+ */
+export interface FiatTopupPreset {
+  priceLabel: string; // prix affiché (ex "4,99 €") — informatif tant que fiatSimulationMode=true
+  coins: number;       // crédit monnaie du jeu
+}
+
+export const DEFAULT_FIAT_TOPUP_PRESETS: FiatTopupPreset[] = [
+  { priceLabel: '0,99 €', coins: 500 },
+  { priceLabel: '3,99 €', coins: 2000 },
+  { priceLabel: '8,99 €', coins: 5000 },
+  { priceLabel: '19,99 €', coins: 12000 },
+];
+
+export async function getFiatTopupPresets(): Promise<FiatTopupPreset[]> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_FIAT_TOPUP_PRESETS;
+  const snap = await get(ref(db, 'catalog/fiatTopupPresets'));
+  const v = snap.val() as FiatTopupPreset[] | null;
+  return Array.isArray(v) && v.length > 0 ? v : DEFAULT_FIAT_TOPUP_PRESETS;
+}
+
+export async function setFiatTopupPresets(presets: FiatTopupPreset[]): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/fiatTopupPresets'), presets);
 }
 
 // ───────────────────────────────────── Widgets personnalisés ─────────────────────────────────────
@@ -4734,5 +4836,138 @@ export async function setAiInsightsCache(cache: AiInsightsCache): Promise<void> 
   if (!db) return;
   await ensureAnonSignIn();
   await set(ref(db, 'catalog/aiInsightsCache'), cache);
+}
+
+// ═══════════════════════ Accès Démo & paiement fiat sans portefeuille crypto ═══════════════════════
+// Voir docs/DEMO_FIAT.md pour la vue d'ensemble. Chemins RTDB :
+//   demoAccessRequests/{uid}     → DemoAccessRequest (demande d'accès Démo, à valider par l'admin)
+//   demoSessions/demo/{uid}      → { startedAt } + onDisconnect (compteur de sessions Démo approuvées actives)
+//   demoSessions/anon/{uid}      → { startedAt } + onDisconnect (compteur de sessions Démo anonymes actives)
+// L'adresse virtuelle (jamais une vraie clé privée) est dérivée de façon déterministe de l'UID
+// Firebase Auth : keccak256(uid) tronqué à 20 octets, formaté en adresse EVM — permet de réutiliser
+// TOUTE l'infrastructure existante (players/{addr}, txs, inventaire...) sans aucune modification.
+
+/** Dérive une adresse EVM virtuelle stable à partir d'un UID Firebase Auth (Google/email/anonyme).
+ * Ne correspond à AUCUNE clé privée réelle : sert uniquement de clé Firebase pour les comptes
+ * 'demo'/'fiat', afin de réutiliser tel quel le modèle `players/{addr}` existant. */
+export function deriveVirtualAddress(uid: string): string {
+  const hash = keccak256(toBytes(`horizon-zeldcraft-virtual:${uid}`)); // 0x + 64 hex chars
+  return `0x${hash.slice(-40)}`;
+}
+
+/** Reproduit côté client la formule de progression du smart contract (voir
+ * contracts/contracts/HorizonZeldCraft.sol::_levelFromXp/_stageFromLevel) pour calculer le
+ * niveau/stade d'un compte 'demo'/'fiat' dont TOUTE la progression est portée par `xpBonus`
+ * (aucune lecture on-chain possible, ces comptes n'ayant pas de Voxlyn minté). `stageIndex`
+ * correspond directement à l'index dans STAGE_NAMES (contract.ts) : 0=egg, 1=hatched, 2=juvenile,
+ * 3=adult, 4=ancient — même convention que le champ `stage` du tuple on-chain `voxlyns(tokenId)`. */
+export function computeOffchainStageLevel(totalXp: number): { level: number; stageIndex: number } {
+  let level = 1;
+  let threshold = 10;
+  let xp = Math.max(0, Math.floor(totalXp));
+  while (xp >= threshold) {
+    xp -= threshold;
+    level++;
+    threshold += level * 10;
+  }
+  const stageIndex = level >= 100 ? 4 : level >= 50 ? 3 : level >= 20 ? 2 : level >= 5 ? 1 : 0;
+  return { level, stageIndex };
+}
+
+/** Demande d'accès "Démo" en attente/traitée par l'admin (voir menu Administration §Accès Démo). */
+export interface DemoAccessRequest {
+  uid: string;              // UID Firebase Auth (Google ou lien email)
+  address: string;          // adresse virtuelle dérivée (voir deriveVirtualAddress)
+  displayName?: string;
+  email?: string;
+  method: 'google' | 'email' | 'apple';
+  status: 'pending' | 'approved' | 'rejected';
+  requestedAt: number;
+  decidedAt?: number;
+}
+
+/** Enregistre une demande d'accès Démo (idempotent — écrase la précédente si déjà en attente). */
+export async function requestDemoAccess(req: Omit<DemoAccessRequest, 'status' | 'requestedAt'>): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const existing = await get(ref(db, `demoAccessRequests/${RKEY(req.uid)}`));
+  const prev = existing.val() as DemoAccessRequest | null;
+  if (prev?.status === 'approved') return; // déjà validé, ne pas régresser vers 'pending'
+  await set(ref(db, `demoAccessRequests/${RKEY(req.uid)}`), {
+    ...req, status: 'pending', requestedAt: Date.now(),
+  } as DemoAccessRequest);
+}
+
+/** Écoute en temps réel toutes les demandes d'accès Démo (panneau Administration). */
+export function subscribeDemoAccessRequests(cb: (list: DemoAccessRequest[]) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb([]); return () => {}; }
+  const r = ref(db, 'demoAccessRequests');
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, DemoAccessRequest> | null;
+    cb(v ? Object.values(v).sort((a, b) => b.requestedAt - a.requestedAt) : []);
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/** Lecture ponctuelle d'UNE demande d'accès Démo (voir page d'accueil — vérifie si déjà validée). */
+export async function getDemoAccessRequest(uid: string): Promise<DemoAccessRequest | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+  const snap = await get(ref(db, `demoAccessRequests/${RKEY(uid)}`));
+  return (snap.val() as DemoAccessRequest | null) ?? null;
+}
+
+/** Valide une demande d'accès Démo — crée/seed le compte joueur (`demoInitialCoins`, voir RepRules). */
+export async function approveDemoAccess(uid: string, rules: RepRules): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const snap = await get(ref(db, `demoAccessRequests/${RKEY(uid)}`));
+  const req = snap.val() as DemoAccessRequest | null;
+  if (!req) return;
+  await update(ref(db, `demoAccessRequests/${RKEY(uid)}`), { status: 'approved', decidedAt: Date.now() });
+  await getOrCreatePlayer(req.address, req.displayName, { accountType: 'demo', initialWallet: rules.demoInitialCoins });
+  await update(ref(db, `players/${KEY(req.address)}`), { demoApproved: true });
+}
+
+/** Rejette une demande d'accès Démo. */
+export async function rejectDemoAccess(uid: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await update(ref(db, `demoAccessRequests/${RKEY(uid)}`), { status: 'rejected', decidedAt: Date.now() });
+}
+
+/** Nombre de sessions Démo actives simultanément, par sous-mode ('demo' approuvé vs 'anon' anonyme)
+ * — alimenté par registerDemoSession/releaseDemoSession (présence Firebase `onDisconnect`). */
+export async function countActiveDemoSessions(kind: 'demo' | 'anon'): Promise<number> {
+  const db = getFirebaseDb();
+  if (!db) return 0;
+  const snap = await get(ref(db, `demoSessions/${kind}`));
+  const v = snap.val() as Record<string, { startedAt: number }> | null;
+  return v ? Object.keys(v).length : 0;
+}
+
+/** Enregistre la présence d'une session Démo active — utilise `onDisconnect()` pour être retirée
+ * automatiquement si l'onglet se ferme/perd la connexion (respect strict des plafonds concurrents
+ * RepRules.demoMaxConcurrentSessions / demoAnonymousMaxConcurrentSessions). */
+export async function registerDemoSession(kind: 'demo' | 'anon', uid: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const path = ref(db, `demoSessions/${kind}/${RKEY(uid)}`);
+  await set(path, { startedAt: Date.now() });
+  const { onDisconnect } = await import('firebase/database');
+  onDisconnect(path).remove().catch(() => {});
+}
+
+/** Libère explicitement une session Démo (déconnexion volontaire, avant fermeture d'onglet). */
+export async function releaseDemoSession(kind: 'demo' | 'anon', uid: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await set(ref(db, `demoSessions/${kind}/${RKEY(uid)}`), null);
 }
 

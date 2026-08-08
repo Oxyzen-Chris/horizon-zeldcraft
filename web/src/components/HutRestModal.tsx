@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useAccount } from 'wagmi';
 import { restAtHut, updatePlayer, type RepRules } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
+import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 /**
  * Pop-up de repos volontaire dans une hutte — déclenché en cliquant sur une hutte adjacente à
@@ -20,7 +20,7 @@ export function HutRestModal({
   onDone: (result: 'ok' | 'cooldown') => void;
 }) {
   const { t } = useI18n();
-  const { address } = useAccount();
+  const { address } = useEffectiveAccount();
   const durationSec = Math.max(1, rules.hutRestDurationSec);
   const [remaining, setRemaining] = useState(durationSec);
   const timerRef = useRef<any>(null);
