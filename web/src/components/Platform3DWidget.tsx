@@ -23,6 +23,7 @@ import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
+import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
@@ -637,6 +638,16 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
   const [rules, setRules] = useState<RepRules | null>(null);
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
 
+  // Signale au registre partagé (voir lib/platform3dActive.ts) que la Plateforme 3D est la source
+  // ACTIVE de déplacement clavier tant qu'elle reste dépliée/activée — corrige le bug rapporté
+  // "déplacement erratique/bloqué, réparti entre Plateforme 3D et 2D isométrique" causé par les DEUX
+  // écouteurs clavier indépendants qui se disputaient la position de Synk. Réinitialisé à `false` au
+  // repli/désactivation/démontage pour rendre immédiatement la main au clavier de GameCanvas2D.
+  useEffect(() => {
+    setPlatform3DActive(!collapsed && enabled);
+    return () => setPlatform3DActive(false);
+  }, [collapsed, enabled]);
+
   const [player, setPlayer] = useState<PlayerState | null>(null);
   useEffect(() => {
     if (!address) { setPlayer(null); return; }
@@ -1084,11 +1095,21 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       const { dx, dy } = composite();
       if (dx === 0 && dy === 0) releaseMovement(); else hold.update(dx, dy);
     };
+    // Relâche tout maintien clavier en cours si la fenêtre perd le focus (ex. Alt+Tab, changement
+    // d'onglet) : sans cela, si le `keyup` correspondant n'est jamais livré à la page (cas classique
+    // du focus perdu pendant qu'une touche reste physiquement enfoncée), `keysDownRef` gardait
+    // indéfiniment cette touche "fantôme", faisant dériver toute pression future en une direction
+    // composite inattendue (contribue au bug rapporté "déplacement erratique qui bloque Synk").
+    const onBlur = () => { keysDownRef.current.clear(); releaseMovement(); };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('visibilitychange', onBlur);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onBlur);
       keysDownRef.current.clear();
       releaseMovement();
     };

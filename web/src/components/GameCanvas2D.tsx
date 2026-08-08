@@ -20,6 +20,7 @@ import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { useWindowZIndex } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
+import { isPlatform3DActive } from '@/lib/platform3dActive';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
 import { SynkSkin } from './SynkSkin';
@@ -976,6 +977,12 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (!ARROWS.has(e.key)) return;
+      // Corrige le bug rapporté "déplacement erratique/bloqué entre Plateforme 3D et 2D
+      // isométrique" (voir lib/platform3dActive.ts) : quand la Plateforme 3D est dépliée, ELLE
+      // seule pilote le clavier (elle gère aussi la rotation caméra-relative) — GameCanvas2D
+      // s'efface pour ne pas déclencher un second déplacement concurrent sur la même touche
+      // physique. Il continue d'afficher la position reçue via subscribePlayerMapPos (inchangé).
+      if (isPlatform3DActive()) return;
       e.preventDefault();
       if (e.repeat) return;
       const wasIdle = keysDownRef.current.size === 0;
@@ -986,15 +993,21 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (!ARROWS.has(e.key)) return;
+      if (isPlatform3DActive()) return;
       keysDownRef.current.delete(e.key);
       const { dx, dy } = composite();
       if (dx === 0 && dy === 0) hold.release(); else hold.update(dx, dy);
     };
+    const onBlur = () => { keysDownRef.current.clear(); hold.release(); };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('visibilitychange', onBlur);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onBlur);
       keysDownRef.current.clear();
       hold.release();
     };
