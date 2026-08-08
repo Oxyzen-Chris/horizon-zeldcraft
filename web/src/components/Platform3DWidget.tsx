@@ -466,27 +466,29 @@ function Scene({
   // doit donc s'orbiter au même angle + π (le côté opposé). Seul le THETA (azimut) est ajusté : la
   // distance/l'inclinaison choisies par le joueur (zoom/tilt) restent intactes, aucune régression
   // sur l'orbite libre au repos (l'ajustement ne s'applique que pendant que `walking` est vrai).
+  //
+  // IMPORTANT : `<OrbitControls enableDamping>` (voir @react-three/drei) appelle DÉJÀ
+  // `controls.update()` automatiquement à CHAQUE frame (son propre `useFrame`, priorité -1). Une
+  // première version de ce correctif repositionnait la caméra elle-même PUIS appelait `update()`
+  // une seconde fois manuellement — deux mises à jour concurrentes de la même caméra dans la même
+  // frame, qui entraient en conflit avec l'amortissement interne (`_sphericalDelta`, notamment tout
+  // reliquat d'un glissé souris récent) et provoquaient des rotations erratiques/« frénétiques »
+  // tout en empêchant Synk d'avancer (bug rapporté). Le correctif ci-dessous n'appelle JAMAIS
+  // `update()` lui-même ni ne touche à `object.position` : il se contente d'injecter une petite
+  // impulsion dans `_sphericalDelta.theta` — EXACTEMENT le mécanisme interne qu'utilise déjà
+  // OrbitControls pour un glissé de souris (ou son propre `autoRotate`) — laissant l'unique boucle
+  // `update()` de drei gérer position/amorti de façon cohérente (une seule source de vérité).
   useFrame(() => {
     if (!controlsRef.current) return;
-    onCameraYaw(controlsRef.current.getAzimuthalAngle());
+    const controls = controlsRef.current;
+    onCameraYaw(controls.getAzimuthalAngle());
     if (chaseCameraEnabled && walking) {
-      const controls = controlsRef.current;
       const targetTheta = (FACING_ANGLE[facing] ?? 0) + Math.PI;
       const current = controls.getAzimuthalAngle();
       let delta = targetTheta - current;
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
-      const nextTheta = current + delta * 0.12; // lissage progressif (≈ quelques centaines de ms)
-      const phi = controls.getPolarAngle();
-      const radius = controls.getDistance();
-      const target = controls.target;
-      const sinPhiR = Math.sin(phi) * radius;
-      controls.object.position.set(
-        target.x + sinPhiR * Math.sin(nextTheta),
-        target.y + Math.cos(phi) * radius,
-        target.z + sinPhiR * Math.cos(nextTheta),
-      );
-      controls.update();
+      if (Math.abs(delta) > 0.001) controls._sphericalDelta.theta += delta * 0.05;
     }
   });
 
