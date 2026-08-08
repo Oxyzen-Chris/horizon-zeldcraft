@@ -437,7 +437,7 @@ interface SceneMarker { id: string; kind: string; x: number; z: number; marker: 
 function Scene({
   centerCol, centerRow, poiPoints, sceneMarkers, stage, walking, running, swimming, jumpTrigger, facing,
   equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
-  onCameraYaw,
+  onCameraYaw, chaseCameraEnabled,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
@@ -449,14 +449,45 @@ function Scene({
   onHutTileClick: (wc: number, wr: number) => void;
   onMarkerClick: (m: MapMarker) => void;
   onCameraYaw: (yaw: number) => void;
+  chaseCameraEnabled: boolean;
 }) {
   // Ref vers l'instance OrbitControls (three.js), pour lire son angle azimutal (yaw) courant à
   // chaque frame et le remonter au composant parent (voir rotateInputByCameraYaw) — un ref simple
   // ET un callback (pas de state React) pour éviter tout re-rendu inutile à 60 fps.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const controlsRef = useRef<any>(null);
+  // ─── Caméra suiveuse ("chase cam", voir RepRules.platform3dChaseCameraEnabled) ─────────────────
+  // Dès que Synk marche, ramène en douceur l'angle azimutal de la caméra derrière lui (vu de dos,
+  // dans son sens de déplacement), même si le joueur a manuellement réorbité la vue — corrige la
+  // demande "l'observateur et la caméra reviendront à leur point d'origine pour ne pas perturber
+  // l'expérience". Le modèle de Synk (voir SynkVoxel) a son visage tourné vers +Z au repos (angle=0,
+  // voir FACING_ANGLE) ; une fois pivoté de `FACING_ANGLE[facing]` autour de Y, son vecteur "visage"
+  // pointe vers (sin(angle), 0, cos(angle)) — la caméra, pour rester DERRIÈRE lui (voir son dos),
+  // doit donc s'orbiter au même angle + π (le côté opposé). Seul le THETA (azimut) est ajusté : la
+  // distance/l'inclinaison choisies par le joueur (zoom/tilt) restent intactes, aucune régression
+  // sur l'orbite libre au repos (l'ajustement ne s'applique que pendant que `walking` est vrai).
   useFrame(() => {
-    if (controlsRef.current) onCameraYaw(controlsRef.current.getAzimuthalAngle());
+    if (!controlsRef.current) return;
+    onCameraYaw(controlsRef.current.getAzimuthalAngle());
+    if (chaseCameraEnabled && walking) {
+      const controls = controlsRef.current;
+      const targetTheta = (FACING_ANGLE[facing] ?? 0) + Math.PI;
+      const current = controls.getAzimuthalAngle();
+      let delta = targetTheta - current;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      const nextTheta = current + delta * 0.12; // lissage progressif (≈ quelques centaines de ms)
+      const phi = controls.getPolarAngle();
+      const radius = controls.getDistance();
+      const target = controls.target;
+      const sinPhiR = Math.sin(phi) * radius;
+      controls.object.position.set(
+        target.x + sinPhiR * Math.sin(nextTheta),
+        target.y + Math.cos(phi) * radius,
+        target.z + sinPhiR * Math.cos(nextTheta),
+      );
+      controls.update();
+    }
   });
 
   const tiles = useMemo(() => {
@@ -918,12 +949,25 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     // pour appliquer d'éventuels dégâts de chute/escalade (voir triggerClimbDamage).
     const curTileNow = worldTileAt(Math.round(clamp100(cur.x)), Math.round(clamp100(cur.y)), poiPoints);
     const cubeHeightM = rules?.platform3dCubeHeightM ?? 400;
-    const diffCubes = tileClimbCubes(destTile, cubeHeightM) - tileClimbCubes(curTileNow, cubeHeightM);
-    if (diffCubes > 0.001) {
+    const destCubes = tileClimbCubes(destTile, cubeHeightM);
+    // La génération procédurale du terrain (voir worldTerrain.ts::worldTileAt) tire le TYPE de
+    // chaque dalle (roche ou non) case par case, indépendamment de ses voisines : une dalle de
+    // prairie peut donc jouxter une dalle de roche déjà TRÈS élevée (proche du cœur d'une chaîne de
+    // montagne), sans dénivelé "intermédiaire" progressif. Sans ce garde-fou, ce tout premier pas
+    // depuis la terre ferme vers LE premier cube de la montagne pouvait être compté comme un
+    // dénivelé énorme (parfois mortel) alors qu'il s'agit exactement du geste décrit par l'
+    // utilisateur ("sauter sur le cube de montagne") — corrige le bug rapporté "impossible de
+    // monter sur un seul bloc de montagne" (faux dégâts de chute/mort bloquant tout mouvement
+    // pendant `platform3dFallDeathReviveSec`). Les dégâts de chute/franchissement ne s'appliquent
+    // donc qu'en enchaînant plusieurs cubes en étant DÉJÀ sur la roche (roche → roche) ; le premier
+    // pas prairie/sable/sentier → roche ne coûte jamais de PV/XP (juste le saut habituel).
+    const curCubes = curTileNow.terrain === 'rock' ? tileClimbCubes(curTileNow, cubeHeightM) : 0;
+    const risingOntoRock = destTile.terrain === 'rock' && destCubes > curCubes + 0.001;
+    if (risingOntoRock) {
       if (!(rules?.platform3dJumpEnabled ?? true) || !destFlags.climbable) return;
       if (!jumpHeldRef.current) return;
       setJumpTrigger(v => v + 1);
-      triggerClimbDamage(diffCubes);
+      if (curTileNow.terrain === 'rock') triggerClimbDamage(destCubes - curCubes);
     }
     moveTo(nx, ny);
   }, [moveTo, isFainting, fallDeath, rules, poiPoints, triggerClimbDamage]);
@@ -1262,6 +1306,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               standY={standY}
               onTileClick={onTileClick} onPortalTileClick={onPortalTileClick3D} onHutTileClick={onHutTileClick3D}
               onMarkerClick={onMarkerClick3D} onCameraYaw={onCameraYaw}
+              chaseCameraEnabled={rules?.platform3dChaseCameraEnabled ?? true}
             />
           )}
         </Canvas>

@@ -3178,6 +3178,11 @@ export interface RepRules {
   // correspondait plus à ce qui est visible à l'écran une fois la caméra tournée). Désactiver
   // revient à l'ancien comportement (direction monde fixe, indépendante de la caméra).
   platform3dCameraRelativeMovement: boolean; // Déplacements relatifs à l'angle de caméra (défaut true)
+  // Caméra suiveuse ("chase cam") : dès que Synk marche, ramène automatiquement la caméra derrière
+  // lui (vu de dos, dans son sens de déplacement), même si le joueur a manuellement réorbité la vue
+  // — voir Platform3DWidget.tsx::Scene (useFrame de chase-cam). Ne s'applique QUE pendant la marche ;
+  // à l'arrêt, l'orbite libre à la souris reste entièrement disponible (aucune régression).
+  platform3dChaseCameraEnabled: boolean;     // Active la caméra suiveuse automatique (défaut true)
   // ─── Escalade/saut de montagne en Plateforme 3D (voir Platform3DWidget.tsx::move()) — grimper
   // sur une dalle plus haute que la position courante de Synk nécessite de maintenir Espace (voir
   // platform3dJumpEnabled/Platform3DObjectFlags.climbable) ; DESCENDRE reste toujours libre (jamais
@@ -3436,6 +3441,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dJumpEnabled: true,
   platform3dResizableEnabled: true,
   platform3dCameraRelativeMovement: true,
+  platform3dChaseCameraEnabled: true,
   platform3dCubeHeightM: 400,
   platform3dFallDamageMinCubes: 4,
   platform3dFallDamageHp: 20,

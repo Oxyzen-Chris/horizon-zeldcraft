@@ -504,6 +504,7 @@
   "admin.repRules.platform3dJumpEnabled": "Ativar o salto (barra de espaço) para escalar montanhas/rochas",
   "admin.repRules.platform3dResizableEnabled": "Permitir redimensionar (até tela cheia) o widget 3D",
   "admin.repRules.platform3dCameraRelativeMovement": "Movimento relativo ao ângulo da câmera (\"Cima\" = afastar-se da câmera, mesmo após orbitá-la com o mouse) — caso contrário, direção fixa do mundo (norte/sul/leste/oeste)",
+  "admin.repRules.platform3dChaseCameraEnabled": "Câmera de perseguição automática: assim que Synk anda, a câmera se reposiciona atrás dele (visto de costas) mesmo se o jogador reorientou a vista — desative para permitir sempre a órbita livre",
   "admin.repRules.platform3dClimbTitle": "Plataforma 3D — escalada, queda e dano",
   "admin.repRules.platform3dClimbDescription": "Escalar (Espaço pressionado) até uma tile mais alta que Synk pode, conforme o desnível superado de uma vez (convertido em «cubos»), infligir dano menor ou até uma queda mortal. Descer é sempre livre e sem dano.",
   "admin.repRules.platform3dCubeHeightM": "Altura (m) que representa 1 cubo",

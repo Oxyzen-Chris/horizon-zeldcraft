@@ -504,6 +504,7 @@
   "admin.repRules.platform3dJumpEnabled": "Enable jump (space bar) to climb mountains/rocks",
   "admin.repRules.platform3dResizableEnabled": "Allow resizing (up to full screen) of the 3D widget",
   "admin.repRules.platform3dCameraRelativeMovement": "Camera-relative movement (\"Up\" = move away from the camera, even after orbiting it with the mouse) — otherwise fixed world direction (north/south/east/west)",
+  "admin.repRules.platform3dChaseCameraEnabled": "Automatic chase camera: as soon as Synk walks, the camera resets behind him (seen from behind) even if the player has re-orbited the view — disable to always allow free orbiting",
   "admin.repRules.platform3dClimbTitle": "3D Platform — climbing, falls & damage",
   "admin.repRules.platform3dClimbDescription": "Climbing (hold Space) onto a tile higher than Synk can, depending on the height difference crossed in one go (converted to \"cubes\"), inflict minor damage or even a fatal fall. Descending is always free and damage-free.",
   "admin.repRules.platform3dCubeHeightM": "Height (m) representing 1 cube",
