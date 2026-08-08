@@ -473,22 +473,38 @@ function Scene({
   // une seconde fois manuellement — deux mises à jour concurrentes de la même caméra dans la même
   // frame, qui entraient en conflit avec l'amortissement interne (`_sphericalDelta`, notamment tout
   // reliquat d'un glissé souris récent) et provoquaient des rotations erratiques/« frénétiques »
-  // tout en empêchant Synk d'avancer (bug rapporté). Le correctif ci-dessous n'appelle JAMAIS
-  // `update()` lui-même ni ne touche à `object.position` : il se contente d'injecter une petite
-  // impulsion dans `_sphericalDelta.theta` — EXACTEMENT le mécanisme interne qu'utilise déjà
-  // OrbitControls pour un glissé de souris (ou son propre `autoRotate`) — laissant l'unique boucle
-  // `update()` de drei gérer position/amorti de façon cohérente (une seule source de vérité).
+  // tout en empêchant Synk d'avancer (bug rapporté). Une deuxième version n'injectait qu'une petite
+  // impulsion dans `_sphericalDelta.theta` (le mécanisme interne d'un glissé de souris) MAIS
+  // continuait de remonter l'angle RÉEL (encore en cours de rotation) via `onCameraYaw` — or cet
+  // angle alimente `cameraYawRef` utilisé par `rotateInputByCameraYaw` au moment d'échantillonner
+  // une NOUVELLE entrée clavier (voir dispatchMove/lastRawDirRef) : pendant que la chase-cam tournait
+  // encore la caméra vers sa cible, tout nouvel échantillonnage (ex. relâcher puis ré-appuyer une
+  // touche, ou après avoir réorbité à la souris juste avant de marcher) lisait un angle DIFFÉRENT à
+  // chaque frame, produisant une direction "monde" tantôt correcte tantôt fausse/bloquée — Synk
+  // marchait sur place (`isWalking`/`facing` mis à jour mais `moveTo` jamais atteint) et la course
+  // ne pouvait jamais progresser puisque la position ne changeait pas (bug rapporté "il fait du
+  // surplace" / "ne peut plus courir"). Correctif définitif : PENDANT que la chase-cam est engagée
+  // (Synk marche), `onCameraYaw` ne remonte plus l'angle réel (encore en transition) mais la CIBLE
+  // analytique de la chase-cam (`FACING_ANGLE[facing] + π`, une valeur stable et immédiate, pas
+  // besoin d'attendre la convergence visuelle) — la caméra continue de tourner en douceur à l'écran
+  // (cosmétique, via `_sphericalDelta`), mais la résolution de direction n'observe plus JAMAIS cette
+  // transition, éliminant toute boucle de rétroaction. Au repos (Synk immobile), `onCameraYaw`
+  // reprend l'angle RÉEL de la caméra (orbite libre à la souris toujours prise en compte normalement,
+  // aucune régression).
   useFrame(() => {
     if (!controlsRef.current) return;
     const controls = controlsRef.current;
-    onCameraYaw(controls.getAzimuthalAngle());
-    if (chaseCameraEnabled && walking) {
+    const chasing = chaseCameraEnabled && walking;
+    if (chasing) {
       const targetTheta = (FACING_ANGLE[facing] ?? 0) + Math.PI;
+      onCameraYaw(targetTheta);
       const current = controls.getAzimuthalAngle();
       let delta = targetTheta - current;
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
       if (Math.abs(delta) > 0.001) controls._sphericalDelta.theta += delta * 0.05;
+    } else {
+      onCameraYaw(controls.getAzimuthalAngle());
     }
   });
 
