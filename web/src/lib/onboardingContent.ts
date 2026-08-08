@@ -59,6 +59,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
       { icon: '🧪', titleKey: 'onboarding.topic.potions.title', bodyKey: 'onboarding.topic.potions.body' },
       { icon: '🗺️', titleKey: 'onboarding.topic.mapmonde.title', bodyKey: 'onboarding.topic.mapmonde.body' },
       { icon: '🌊', titleKey: 'onboarding.topic.waterMountain.title', bodyKey: 'onboarding.topic.waterMountain.body' },
+      { icon: '🧱', titleKey: 'onboarding.topic.platform3d.title', bodyKey: 'onboarding.topic.platform3d.body' },
       { icon: '🎒', titleKey: 'onboarding.topic.bagEquip.title', bodyKey: 'onboarding.topic.bagEquip.body' },
       { icon: '🐾', titleKey: 'onboarding.topic.familiars.title', bodyKey: 'onboarding.topic.familiars.body' },
       { icon: '🛒', titleKey: 'onboarding.topic.shop.title', bodyKey: 'onboarding.topic.shop.body' },

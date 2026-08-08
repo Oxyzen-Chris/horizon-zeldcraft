@@ -94,6 +94,38 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
     5. Communiquer aux joueurs (Instagram, in-game) la réinitialisation de leur Voxlyn on-chain
        avant de redéployer.
 
+### 🎥 Historique — stabilisation des déplacements & de la caméra en Plateforme 3D
+
+Plusieurs itérations ont été nécessaires pour fiabiliser complètement le déplacement/la caméra du
+widget « Plateforme 3D » (et par ricochet la Plateforme 2D isométrique, qui partage le même moteur
+de déplacement `useHoldMovement.ts`) :
+
+- **Faux blocage d'escalade / mort par chute alors que Synk était au sol** : `worldTerrain.ts`
+  attribue le type de terrain de chaque dalle indépendamment (pas de lissage avec les dalles
+  voisines), si bien qu'une dalle d'herbe pouvait jouxter directement une dalle de montagne de très
+  haute altitude. Corrigé en ne calculant un dénivelé (et donc des dégâts/mort de chute) qu'entre
+  deux dalles **toutes deux** de type montagne (jamais sur le tout premier pas sol → montagne, qui
+  reste gratuit mais toujours soumis au saut + `climbable`).
+- **Caméra suiveuse instable (rotation erratique, immobilisait Synk)** : `@react-three/drei`
+  `<OrbitControls enableDamping>` appelle déjà `controls.update()` automatiquement à chaque frame ;
+  une première version de la caméra suiveuse appelait `update()` une seconde fois après avoir
+  positionné la caméra manuellement, créant une double mise à jour concurrente. Corrigé en
+  n'injectant qu'une petite impulsion dans `controls._sphericalDelta.theta` (le mécanisme interne
+  qu'utilise déjà OrbitControls pour un glissé de souris), sans jamais toucher à `object.position`
+  ni appeler `update()` soi-même.
+- **Course impossible en maintenant une touche / Synk marchait sur place après une rotation
+  manuelle de la caméra** : la caméra suiveuse remontait l'angle RÉEL (encore en cours de rotation)
+  au module de résolution de direction (`rotateInputByCameraYaw`), qui pouvait alors échantillonner
+  une valeur transitoire/instable au moment d'un nouvel appui clavier, résolvant parfois une
+  direction bloquée. Corrigé en ne remontant, PENDANT que la caméra suiveuse est engagée, que sa
+  cible analytique stable (`FACING_ANGLE[facing] + π`) plutôt que l'angle réel en transition —
+  l'angle réel reste utilisé normalement dès que Synk est à l'arrêt (orbite libre inchangée).
+
+**Résultat validé par le porteur du projet** : Synk grimpe désormais correctement sur les blocs de
+montagne avec Espace + direction Haut, y compris caméra suiveuse active. Cette configuration
+(`Scene`'s `useFrame` dans `Platform3DWidget.tsx`) est la référence à ne plus modifier sans une
+raison impérieuse, pour éviter de réintroduire l'une de ces régressions.
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la
@@ -126,6 +158,32 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
       ce widget n'étant qu'une vue et un canal de déplacement supplémentaires — zéro nouvelle
       mécanique, zéro risque de double-décompte. Activable/désactivable dans
       `Administration > Widgets personnalisés` (`RepRules.platform3dWidgetEnabled`).
+  - [x] **Synk détaillé et articulé** : yeux, nez, bouche, oreilles, cheveux/casque, torse, deux bras
+        et deux jambes qui se balancent naturellement en marche/course, plus l'équipement
+        RÉELLEMENT porté (voir `EquipmentWidget.tsx`) rendu en 3D sur le modèle — épée/arc dans le
+        dos, flèches en carquois, bouclier, casque/bonnet, amulette, ceinture, chausses, bottes,
+        gants — désactivable (`RepRules.platform3dEquipmentRenderEnabled`).
+  - [x] **Maintien = marche, maintien prolongé (1,5 s, réglable) = course**, identique clavier/
+        pavé virtuel/souris et partagé avec la Plateforme 2D isométrique (`useHoldMovement.ts`,
+        `RepRules.movementWalkStepMs/movementRunStepMs/movementRunHoldThresholdMs`).
+  - [x] **Obstacles & flags par objet paramétrables admin** : arbres, rochers, PNJ et tout autre
+        décor peuvent être marqués individuellement « obstacle » (bloque le passage, clic gauche
+        pour interagir comme en 2D), « escaladable » ou « aquatique » depuis
+        `Administration > Widgets personnalisés` (`RepRules.platform3dObjectFlags`).
+  - [x] **Escalade par cubes avec Espace + direction** : saut arqué sur un bloc de montagne en face
+        puis marche sur le relief (hauteur suivie dynamiquement), descente libre ; limites de
+        dénivelé configurables déclenchant dégâts mineurs ou chute mortelle avec réanimation
+        automatique (`RepRules.platform3dCubeHeightM/platform3dFallDamage*/platform3dFallDeath*`).
+  - [x] **Immersion & monde sous-marin** : mi-torse automatique sur une dalle d'eau, menu clic droit
+        pour plonger entièrement et explorer un monde sous-marin dédié (poissons/créatures marines
+        générés, nage libre bornée), dont une dizaine de lacs/bassins ajoutés à la carte pour
+        varier les zones de baignade (`RepRules.platform3dUnderwater*`).
+  - [x] **Caméra suiveuse (« chase cam »)** : se replace en douceur derrière Synk dans son sens de
+        déplacement pendant la marche/course (même si le joueur a réorbité manuellement à la
+        souris), sans jamais entrer en conflit avec l'orbite libre au repos ni avec la résolution de
+        direction du déplacement relatif à la caméra — activable/désactivable
+        (`RepRules.platform3dChaseCameraEnabled`).
+  - [x] **Fenêtre redimensionnable jusqu'au plein écran** (`RepRules.platform3dResizableEnabled`).
 - [ ] Prototype donjon 1 (Forêt de Zephyria) : déplacement, combat, loot (au-delà de l'exploration
       libre déjà couverte par le widget « Plateforme 3D »)
 - [ ] Sync inventaire on-chain ↔ jeu

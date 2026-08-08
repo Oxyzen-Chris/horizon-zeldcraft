@@ -1317,6 +1317,8 @@
   "onboarding.topic.mapmonde.body": "La Mapmonde (zoom molette, glisser-clic droit, filtres par type) et la Plateforme 2D isométrique sont synchronisées en temps réel pour explorer le royaume.",
   "onboarding.topic.waterMountain.title": "Eau, montagne & oxygène",
   "onboarding.topic.waterMountain.body": "En mer ou en altitude, l'oxygène de Synk diminue progressivement (l'air se raréfie en montagne) ; regagne une dalle de terre à temps pour récupérer !",
+  "onboarding.topic.platform3d.title": "Plateforme 3D façon Minecraft",
+  "onboarding.topic.platform3d.body": "Synk et tout son univers (PNJ, familiers, huttes, arbres, montagnes, lacs) prennent vie en voxels 3D, synchronisés avec la Plateforme 2D et la Mapmonde. Mêmes touches directionnelles (clavier, souris, pavé virtuel) : maintiens-les 1,5 s pour passer en course. Arbres, rochers et PNJ bloquent le passage (clic gauche pour interagir, comme en 2D). Espace + ↑ face à un bloc de montagne pour sauter dessus et l'escalader — attention, une chute de plus de 4 cubes blesse Synk, et de plus de 10 cubes peut lui être fatale (réanimation automatique). Sur une dalle d'eau, Synk s'immerge à mi-torse ; clic droit pour plonger entièrement et explorer un monde sous-marin peuplé de poissons et créatures marines. La caméra se replace automatiquement derrière Synk pendant qu'il marche. Fenêtre agrandissable jusqu'au plein écran, arme/bouclier/casque et autres équipements visibles directement sur le modèle.",
   "onboarding.topic.bagEquip.title": "Sac / Besace & Équipement",
   "onboarding.topic.bagEquip.body": "Range armes, protections, nourriture, potions, engins, trésors, selles et familiers dans ta besace, puis glisse-les sur Synk pour les équiper.",
   "onboarding.topic.familiars.title": "Familiers",

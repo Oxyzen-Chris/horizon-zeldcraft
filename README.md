@@ -2,7 +2,7 @@
 
 > Un Tamagotchi Web3 crypté sur la blockchain Ethereum. Nourris ton **Synk** (jeune héros façon Link, en pixel-art) chaque jour, semaine, mois et année pour le faire évoluer, débloquer des sorts, skins, familiers, mondes et quêtes épiques inspirés de **Minecraft Dungeons**, **The Legend of Zelda: BOTW/TOTK** et **World of Warcraft**.
 
-![status](https://img.shields.io/badge/status-v3.1%20%E2%80%94%20IA%20GamePlay%20%26%20Widgets-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![solidity](https://img.shields.io/badge/solidity-0.8.24-orange) ![nextjs](https://img.shields.io/badge/Next.js-14-black)
+![status](https://img.shields.io/badge/status-v3.2%20%E2%80%94%20Plateforme%203D%20%26%20cam%C3%A9ra%20suiveuse-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![solidity](https://img.shields.io/badge/solidity-0.8.24-orange) ![nextjs](https://img.shields.io/badge/Next.js-14-black)
 
 ## 📦 Monorepo
 
@@ -74,7 +74,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 
 **Garantie de persistance :** les données Firebase sont indexées par **adresse wallet**, jamais par adresse de contrat. Redéployer le smart contract ne perd rien du parcours joueur (stats, inventaire, chat, transactions).
 
-## 🎮 Fonctionnalités v3.1
+## 🎮 Fonctionnalités v3.2
 
 ### Trame narrative
 - 👹 **Zorghon le Maléfique** a enlevé la princesse **PocaPoka** et son lutin des sables **El Pipo** — objectif final du jeu
@@ -96,7 +96,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 🛒 **Boutique des terres de ZeldCraft** : armes, protections, casques/habits/gants/bottes (120+ articles inspirés Tolkien/WoW/Zelda/Minecraft), nourriture, potions & sortilèges, engins, trésors, selles
 - 🗺️ **Mapmonde** zoomable avec filtres par catégorie, mers/océans/îles/archipels, pop-up profondeur/altitude clignotant
 - 🧍 **Plateforme 2D isométrique** : déplacement et articulation de Synk en **8 directions**, dalles d'eau (profondeur) et de montagne (altitude 0–6000 m) avec raréfaction de l'air, mécaniques d'oxygène/fatigue
-- 🧊 **Plateforme 3D** (nouveau, Phase 2 Roadmap) : rendu 3D façon Minecraft (voxels/blocs) de Synk et de tout son univers (PNJ, familiers, Zorghon/PocaPoka/El Pipo, huttes, eau, montagnes, trésors), bâti en **Three.js/React Three Fiber**, synchronisé en temps réel avec la Plateforme 2D isométrique et la Mapmonde (même position/décor/marqueurs), mêmes contrôles clavier/souris/pavé directionnel, immersion visuelle en nage sur les dalles d'eau — activable/désactivable dans `Administration > Widgets personnalisés`
+- 🧊 **Plateforme 3D** (Phase 2 Roadmap, désormais mature) : rendu 3D façon Minecraft (voxels/blocs) de Synk — **détaillé et articulé** (yeux, nez, bouche, oreilles, cheveux/casque, bras et jambes qui se balancent naturellement en marche/course) avec **l'équipement réellement porté visible sur le modèle** (épée/arc dans le dos, bouclier, casque, amulette, ceinture, chausses, bottes, gants) — et de tout son univers (PNJ, familiers, Zorghon/PocaPoka/El Pipo, huttes, arbres, montagnes, lacs, trésors), synchronisé en temps réel avec la Plateforme 2D isométrique et la Mapmonde. **Maintien 1,5 s (réglable) pour passer de la marche à la course**, identique clavier/pavé virtuel/souris et partagé avec la Plateforme 2D. **Arbres, rochers et PNJ = obstacles** (paramétrable objet par objet dans Administration), clic gauche pour interagir comme en 2D. **Escalade Espace + direction Haut** : saut arqué sur un bloc de montagne en face puis marche sur le relief, avec limites de dénivelé configurables (dégâts mineurs ou chute mortelle + réanimation automatique). **Immersion sur dalle d'eau** (mi-torse) ou **plongée totale** (clic droit) dans un monde sous-marin dédié avec poissons/créatures marines, une dizaine de lacs/bassins ajoutés à la carte. **Caméra suiveuse** : se replace automatiquement derrière Synk pendant qu'il marche/court, sans jamais bloquer le déplacement ni entrer en conflit avec l'orbite libre à la souris au repos. Fenêtre redimensionnable jusqu'au plein écran — activable/désactivable ainsi que chacune de ces mécaniques dans `Administration > Widgets personnalisés`
 - 🐲 **Familiers** (Dragon d'Or…) et selles pour les chevaucher
 - 👑 Widget **« Quêtes du Royaume »** : suivi des 400 quêtes/40 chapitres
 - 🧭 Widget **« Quêtes de ZeldaCraft »** (nouveau) : récapitulatif dépliable par thème de **toutes** les quêtes du jeu en un seul endroit — PNJ rencontrés, quêtes classiques, quêtes PNJ, quêtes d'archipel, quêtes d'îles sauvages, Quêtes du Royaume
@@ -110,7 +110,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 🗂️ **Sommaire vertical** de navigation rapide entre toutes les rubriques (ancre `#admin-sec-xxx`)
 - 💰 Solde trésorerie + solde contrat (temps réel)
 - 📊 **Statistiques par joueur** fiables (correction du bug XP désynchronisé), incluant désormais le **temps total de jeu** et le **temps de jeu sur 24 h glissantes** (suivi paramétrable) + génération de **factures PDF** (jsPDF, historique on-chain + liens Etherscan)
-- ⭐ **Barème de reconnaissance** (~20 sous-sections : combat, humeur/météo/saisons, équipement, huttes, sommeil, oxygène, fatigue, altitude, profondeur, îles, pop-up profondeur/altitude, Royaume, Zorghon, onboarding, widget « État d'avancement »…)
+- ⭐ **Barème de reconnaissance** (~20 sous-sections : combat, humeur/météo/saisons, équipement, huttes, sommeil, oxygène, fatigue, altitude, profondeur, îles, pop-up profondeur/altitude, Royaume, Zorghon, onboarding, widget « État d'avancement »…), incluant désormais la **cadence de déplacement** (intervalle marche/course + seuil de maintien avant de courir, 1,5 s par défaut, partagé Plateforme 2D/3D) et la **Plateforme 3D** (équipement visible sur Synk, saut/escalade, seuils de dégâts/mort par chute en cubes, redimensionnement, caméra suiveuse, monde sous-marin, et un tableau de flags par objet — obstacle/escaladable/aquatique — pour tout décor du jeu)
 - 💳 Presets de rechargement wallet · 🐲 Catalogue Familiers · ⚔️ Catalogue Équipement · 🍖 Catalogue Nourriture · 🧪 Catalogue Potions & Sortilèges
 - 🗺️ Filtres Mapmonde par défaut · 🧭 Navigation Mapmonde (zoom/pan) · 💬 Scripts de dialogue PNJ · 🧩 **Widgets personnalisés** (créés par l'admin **et** activation/désactivation des widgets flottants existants du jeu) · 📦 DLC / Packs de contenu (saisons narratives)
 - 🧙 Ajouter quêtes énigmes / PNJ / trésors / mondes / points d'intérêt carte
@@ -138,6 +138,13 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 | Glisser un widget flottant l'ouvrait toujours accidentellement | `useDraggableWidget.ts` : distinction fiable clic/glissé via un `movedRef` (ref, pas state) |
 | Widget « Quêtes du Royaume » affichant 0% pour des quêtes déjà réussies | Lecture de la progression harmonisée sur la même clé Firebase que celle utilisée pour l'écrire |
 | Nourrir Synk en journalier bloquait à tort le festin hebdomadaire (et le banquet mensuel / rituel annuel) | Cooldown on-chain désormais suivi **par type de repas** (`lastFedAtByType`) au lieu d'un unique horodatage partagé — correctif prêt, en attente de redéploiement du contrat Sepolia (voir docs/ROADMAP.md) ; boutons on-chain masqués par défaut en attendant, nourrissage possible via la Boutique |
+| Plateforme 3D : Synk bloqué/« mort par chute » en posant le premier pied sur une dalle de montagne alors qu'il était au sol | `worldTerrain.ts` attribue le terrain de chaque dalle sans lissage avec ses voisines (herbe pouvant jouxter une dalle de très haute altitude) — les dégâts/mort de chute ne se calculent désormais qu'entre deux dalles **toutes deux** de type montagne, jamais sur le premier pas sol → montagne |
+| Plateforme 3D : jambes/pieds de Synk invisibles, arbres traversables, doublons de tuiles en bordure | Décalage de sol ajouté au modèle 3D, système de **flags par objet** (obstacle/escaladable/aquatique) appliqué aux arbres/rochers/PNJ, correction du calcul de bordure de tuiles |
+| Plateforme 3D : la course ne se déclenchait jamais en maintenant une touche/le pavé virtuel | `useHoldMovement.ts` mémoïsé pour éviter que l'effet clavier ne le recrée (et n'annule le minuteur de course) à chaque rendu ; `setPointerCapture`/`preventDefault` sur le pavé virtuel pour éviter un relâchement prématuré |
+| Plateforme 3D/2D : déplacement erratique (diagonales/allers-retours parasites) en maintenant une touche | Direction monde figée pour toute la durée d'un maintien (ré-échantillonnage de l'angle caméra uniquement sur un changement réel de touche, pas à chaque tick) |
+| Plateforme 3D : caméra suiveuse instable (rotation erratique, bloquait tout déplacement) | `OrbitControls` (drei) appelle déjà `update()` à chaque frame — la caméra suiveuse n'injecte plus qu'une impulsion dans `controls._sphericalDelta.theta` au lieu de repositionner la caméra et rappeler `update()` elle-même |
+| Plateforme 3D : course impossible / Synk marchait sur place après une rotation manuelle de la caméra | La caméra suiveuse remontait l'angle réel encore en transition à la résolution de direction (`rotateInputByCameraYaw`), créant une boucle de rétroaction — elle remonte désormais sa cible analytique stable (`facing + π`) pendant la marche, l'angle réel dès que Synk est à l'arrêt |
+| Plateforme 3D : second pop-up « Synk se noie » affiché en haut d'une montagne (épuisement, pas noyade) | Le pop-up de noyade ne s'affiche désormais que si Synk est réellement dans l'eau |
 
 ## 📚 Documentation
 

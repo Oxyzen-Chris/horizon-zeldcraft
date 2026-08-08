@@ -1317,6 +1317,8 @@
   "onboarding.topic.mapmonde.body": "The World Map (mouse-wheel zoom, right-click drag, filters by type) and the isometric 2D Platform are synced in real time to explore the realm.",
   "onboarding.topic.waterMountain.title": "Water, mountains & oxygen",
   "onboarding.topic.waterMountain.body": "At sea or at altitude, Synk's oxygen gradually decreases (the air thins in the mountains); reach a land tile in time to recover!",
+  "onboarding.topic.platform3d.title": "Minecraft-style 3D Platform",
+  "onboarding.topic.platform3d.body": "Synk and his whole world (NPCs, familiars, huts, trees, mountains, lakes) come to life in 3D voxels, synced with the 2D Platform and World Map. Same directional keys (keyboard, mouse, virtual pad): hold for 1.5s to start running. Trees, rocks and NPCs block the way (left-click to interact, just like in 2D). Space + ↑ facing a mountain block to jump onto it and climb — beware, falling more than 4 cubes hurts Synk, and more than 10 cubes can be fatal (auto-revive). On a water tile, Synk sinks to chest height; right-click to dive fully and explore an underwater world full of fish and sea creatures. The camera automatically snaps back behind Synk while he walks. The window can be resized up to fullscreen, and equipped weapon/shield/helmet and other gear are visible directly on the model.",
   "onboarding.topic.bagEquip.title": "Bag & Equipment",
   "onboarding.topic.bagEquip.body": "Store weapons, armor, food, potions, vehicles, treasures, saddles and familiars in your bag, then drag them onto Synk to equip them.",
   "onboarding.topic.familiars.title": "Familiars",
