@@ -154,24 +154,35 @@ Trois bugs sérieux ont été identifiés après la mise en production initiale 
    bloquait l'accès Démo anonyme. Corrigé en authentifiant d'abord.
 5. **« Continuer avec Google » échouait avec une erreur générique** (« Une erreur est survenue lors
    de la connexion. Réessaie. »), aussi bien depuis « 🎟️ Accès Démo » que « 💳 Jouer sans
-   portefeuille ». Cause racine : `signInWithPopup()` (Firebase Auth) ouvre une popup vers
-   `accounts.google.com`, puis surveille en interne la fermeture de cette popup
-   (`window.closed`) pour détecter la fin de connexion — or les navigateurs Chromium récents
-   appliquent une politique **Cross-Origin-Opener-Policy** qui bloque cette vérification
-   (`Cross-Origin-Opener-Policy policy would block the window.closed call`), un bug connu du SDK
-   Firebase JS (voir [firebase/firebase-js-sdk#6716](https://github.com/firebase/firebase-js-sdk/issues/6716)).
-   Résultat : même quand l'utilisateur se connecte correctement dans la popup, le SDK peut ne pas
-   détecter la fin du flux et renvoyer une erreur (`auth/popup-closed-by-user` ou équivalent). Le
-   même problème peut aussi survenir si la popup est directement bloquée par le navigateur
-   (`auth/popup-blocked`). **Correctif** : `signInWithGoogle()` (`lib/firebase.ts`) tente d'abord
-   `signInWithPopup()`, et **bascule automatiquement sur `signInWithRedirect()`** dès que la popup
-   échoue pour n'importe quelle raison — le flux redirection (navigation pleine page, sans popup)
-   n'est pas affecté par ce problème COOP. `NoWalletAccessPanel.tsx` mémorise l'intention en cours
-   (Démo approuvée ou Jouer sans portefeuille) dans `sessionStorage` avant la redirection, puis la
-   reprend au retour via `consumeGoogleRedirectResult()` une fois les règles admin (`RepRules`)
-   chargées, pour appliquer les mêmes quotas/validations que le flux popup. Validé par un test
-   Playwright simulant une popup bloquée (`window.open` renvoie `null`) : le repli vers
-   `signInWithRedirect()` se déclenche bien et la navigation vers `accounts.google.com` aboutit.
+   portefeuille ». Deux causes distinctes ont été identifiées et corrigées :
+   - **(a) Faux-négatif COOP** : `signInWithPopup()` (Firebase Auth) ouvre une popup vers
+     `accounts.google.com`, puis surveille en interne la fermeture de cette popup
+     (`window.closed`) pour détecter la fin de connexion — or les navigateurs Chromium récents
+     appliquent une politique **Cross-Origin-Opener-Policy** qui bloque cette vérification
+     (`Cross-Origin-Opener-Policy policy would block the window.closed call`), un bug connu du SDK
+     Firebase JS (voir [firebase/firebase-js-sdk#6716](https://github.com/firebase/firebase-js-sdk/issues/6716)).
+     **Correctif** : `signInWithGoogle()` (`lib/firebase.ts`) tente d'abord `signInWithPopup()`, et
+     **bascule automatiquement sur `signInWithRedirect()`** dès que la popup échoue pour n'importe
+     quelle raison — le flux redirection (navigation pleine page, sans popup) n'est pas affecté par
+     ce problème COOP. `NoWalletAccessPanel.tsx` mémorise l'intention en cours (Démo approuvée ou
+     Jouer sans portefeuille) dans `sessionStorage` avant la redirection, puis la reprend au retour
+     via `consumeGoogleRedirectResult()` une fois les règles admin (`RepRules`) chargées.
+   - **(b) Domaine de production non autorisé côté Firebase (root cause réelle du bug signalé)** :
+     Firebase Authentication n'autorise par défaut que `localhost` et les domaines Firebase Hosting
+     (`horizon-zeldcraft.firebaseapp.com`, `horizon-zeldcraft.web.app`) — le domaine de production
+     Vercel (`horizon-zeldcraft.vercel.app`) n'y était **pas** inclus. Résultat : `auth/unauthorized-domain`
+     dès l'ouverture de la popup (ou de la redirection, le blocage étant au niveau du domaine, pas
+     du mécanisme popup/redirect), d'où une fenêtre qui semblait s'ouvrir puis se fermer
+     immédiatement en production, alors que tout fonctionnait en local (`localhost` déjà autorisé).
+     **Correctif : ajout de `horizon-zeldcraft.vercel.app` dans Firebase Console → Authentication →
+     Settings → Authorized domains** (action manuelle, aucun accès CLI/API en écriture disponible
+     pour ce paramètre). Si un domaine personnalisé est ajouté plus tard sur Vercel, il faudra
+     l'ajouter de la même façon dans cette liste.
+
+   Validé via l'API publique `identitytoolkit/v3/relyingparty/getProjectConfig` (confirme la liste
+   `authorizedDomains`) et un test Playwright direct sur `https://horizon-zeldcraft.vercel.app` :
+   après l'ajout du domaine, la popup Google s'ouvre et atteint l'écran de connexion réel
+   (`accounts.google.com/v3/signin/identifier`) sans erreur affichée dans l'app.
 
 Ces correctifs ont été validés avec Playwright (parcours complet : accès démo anonyme → jeu
 chargé et réactif → déconnexion → retour à l'écran de choix → session bien effacée du

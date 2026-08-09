@@ -105,9 +105,12 @@ export function ensureAnonSignIn(): Promise<User | null> {
  * Retourne `{ user, usedRedirect: false }` si la popup a réussi immédiatement, ou
  * `{ user: null, usedRedirect: true }` si on bascule en redirection (la page va naviguer : plus
  * rien à faire ici, le résultat sera récupéré via `consumeGoogleRedirectResult()` au retour sur la
- * page — l'appelant doit alors avoir mémorisé son intention, ex. dans `sessionStorage`).
+ * page — l'appelant doit alors avoir mémorisé son intention, ex. dans `sessionStorage`). Si les
+ * DEUX tentatives échouent, `errorCode` porte le code Firebase de la dernière erreur (ex.
+ * `auth/unauthorized-domain`, `auth/operation-not-allowed`) pour affichage d'un message précis
+ * côté UI — voir `describeGoogleAuthErrorKey()` ci-dessous.
  */
-export async function signInWithGoogle(): Promise<{ user: User | null; usedRedirect: boolean }> {
+export async function signInWithGoogle(): Promise<{ user: User | null; usedRedirect: boolean; errorCode?: string }> {
   const a = getFirebaseAuth();
   if (!a) return { user: null, usedRedirect: false };
   try {
@@ -115,13 +118,33 @@ export async function signInWithGoogle(): Promise<{ user: User | null; usedRedir
     return { user: cred.user, usedRedirect: false };
   } catch (err) {
     console.error('[firebase] signInWithGoogle (popup) failed, falling back to redirect:', err);
+    // Un domaine non autorisé (auth/unauthorized-domain) ou un provider Google désactivé
+    // (auth/operation-not-allowed) sont des erreurs de CONFIGURATION Firebase : re-tenter en
+    // redirection échouera exactement pareil (le blocage est au niveau du projet/domaine, pas du
+    // mécanisme popup/redirect). On l'affiche quand même explicitement dans l'UI via errorCode
+    // plutôt que de masquer la vraie cause derrière un message générique.
+    const code = (err as { code?: string } | null)?.code;
     try {
       await signInWithRedirect(a, new GoogleAuthProvider());
       return { user: null, usedRedirect: true };
     } catch (err2) {
       console.error('[firebase] signInWithGoogle (redirect) failed:', err2);
-      return { user: null, usedRedirect: false };
+      const code2 = (err2 as { code?: string } | null)?.code;
+      return { user: null, usedRedirect: false, errorCode: code2 || code };
     }
+  }
+}
+
+/** Traduit un code d'erreur Firebase Auth (voir `errorCode` de `signInWithGoogle()`) en suffixe de
+ * clé i18n (`home.demo.authError<Suffix>`), pour afficher un message actionnable plutôt qu'un
+ * message générique — utile pour diagnostiquer rapidement un problème de configuration Firebase
+ * (domaine non autorisé, provider désactivé) sans avoir à consulter les logs serveur. */
+export function describeGoogleAuthErrorKey(errorCode?: string): string {
+  switch (errorCode) {
+    case 'auth/unauthorized-domain': return 'home.demo.authErrorUnauthorizedDomain';
+    case 'auth/operation-not-allowed': return 'home.demo.authErrorOperationNotAllowed';
+    case 'auth/popup-blocked': return 'home.demo.authErrorPopupBlocked';
+    default: return 'home.demo.authError';
   }
 }
 

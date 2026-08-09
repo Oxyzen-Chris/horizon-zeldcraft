@@ -28,7 +28,7 @@ import {
 } from '@/lib/gameState';
 import {
   getFirebaseAuth, ensureAnonSignIn, signInWithGoogle, signInWithEmail,
-  consumeGoogleRedirectResult,
+  consumeGoogleRedirectResult, describeGoogleAuthErrorKey,
 } from '@/lib/firebase';
 
 type ModalKind = null | 'demo' | 'fiat';
@@ -111,13 +111,13 @@ export function NoWalletAccessPanel() {
   const startApprovedDemo = async () => {
     setBusy(true); setMessage(null);
     try {
-      const { user, usedRedirect } = await signInWithGoogle();
+      const { user, usedRedirect, errorCode } = await signInWithGoogle();
       // La popup a échoué (souvent une fausse alerte Cross-Origin-Opener-Policy — voir
       // firebase.ts) : on est déjà en train de naviguer vers accounts.google.com via
       // signInWithRedirect. On mémorise juste l'intention ; le résultat sera traité par l'effet
       // `consumeGoogleRedirectResult` ci-dessous, au retour sur cette page.
       if (usedRedirect) { sessionStorage.setItem(PENDING_GOOGLE_KEY, 'demo'); return; }
-      if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
+      if (!user) { setMessage(t(describeGoogleAuthErrorKey(errorCode))); setBusy(false); return; }
       await completeApprovedDemo(user);
     } catch (e) {
       console.error('[NoWalletAccessPanel] startApprovedDemo failed:', e);
@@ -136,9 +136,9 @@ export function NoWalletAccessPanel() {
   const startFiatWithGoogle = async () => {
     setBusy(true); setMessage(null);
     try {
-      const { user, usedRedirect } = await signInWithGoogle();
+      const { user, usedRedirect, errorCode } = await signInWithGoogle();
       if (usedRedirect) { sessionStorage.setItem(PENDING_GOOGLE_KEY, 'fiat'); return; }
-      if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
+      if (!user) { setMessage(t(describeGoogleAuthErrorKey(errorCode))); setBusy(false); return; }
       completeFiatWithGoogle(user);
     } catch (e) {
       console.error('[NoWalletAccessPanel] startFiatWithGoogle failed:', e);
