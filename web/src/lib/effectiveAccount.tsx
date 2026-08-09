@@ -22,6 +22,8 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { useAccount } from 'wagmi';
+import { releaseDemoSession } from './gameState';
+import { signOutFirebase } from './firebase';
 
 export type EffectiveAccountKind = 'wallet' | 'demo' | 'fiat';
 
@@ -46,13 +48,20 @@ function readStoredSession(): EffectiveSession | null {
 interface EffectiveAccountContextValue {
   session: EffectiveSession | null;
   setSession: (s: EffectiveSession | null) => void;
+  /** Termine proprement une session Démo/Fiat active (libère le slot de concurrence + déconnecte
+   * Firebase Auth) — voir EffectiveAccountBadge.tsx (bouton "Se déconnecter") et l'effet
+   * d'auto-nettoyage ci-dessous (connexion d'un vrai portefeuille). */
+  disconnectSession: () => Promise<void>;
 }
 
-const EffectiveAccountContext = createContext<EffectiveAccountContextValue>({ session: null, setSession: () => {} });
+const EffectiveAccountContext = createContext<EffectiveAccountContextValue>({
+  session: null, setSession: () => {}, disconnectSession: async () => {},
+});
 
 /** À placer une seule fois, haut dans l'arbre (voir providers.tsx) — englobe TOUTE l'app. */
 export function EffectiveAccountProvider({ children }: { children: ReactNode }) {
   const [session, setSessionState] = useState<EffectiveSession | null>(null);
+  const wagmiAccount = useAccount();
 
   useEffect(() => { setSessionState(readStoredSession()); }, []);
 
@@ -63,7 +72,29 @@ export function EffectiveAccountProvider({ children }: { children: ReactNode }) 
     else window.localStorage.removeItem(STORAGE_KEY);
   }, []);
 
-  const value = useMemo(() => ({ session, setSession }), [session, setSession]);
+  const disconnectSession = useCallback(async () => {
+    if (!session) return;
+    if (session.kind === 'demo') {
+      await releaseDemoSession(session.demoMode === 'anonymous' ? 'anon' : 'demo', session.uid).catch(() => {});
+    }
+    await signOutFirebase().catch(() => {});
+    setSession(null);
+  }, [session, setSession]);
+
+  // ⚠️ Bug corrigé : une session Démo/Fiat oubliée (localStorage) survivait indéfiniment — si le
+  // joueur connectait ensuite un VRAI portefeuille puis le déconnectait, l'app retombait
+  // silencieusement sur l'ancienne session Démo/Fiat au lieu de réafficher l'écran de choix complet
+  // (impossible de retester une autre méthode, ex. Google, après un essai anonyme). Un vrai
+  // portefeuille connecté termine donc désormais explicitement toute session Démo/Fiat restante.
+  useEffect(() => {
+    if (wagmiAccount.isConnected && session) disconnectSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wagmiAccount.isConnected]);
+
+  const value = useMemo(
+    () => ({ session, setSession, disconnectSession }),
+    [session, setSession, disconnectSession],
+  );
   return <EffectiveAccountContext.Provider value={value}>{children}</EffectiveAccountContext.Provider>;
 }
 

@@ -222,6 +222,13 @@ raison impérieuse, pour éviter de réintroduire l'une de ces régressions.
       (`RepRules.demoMaxConcurrentSessions` = 90, `demoAnonymousMaxConcurrentSessions` = 40, en
       lien avec la limite de 100 connexions du plan gratuit Firebase), portefeuille virtuel de
       départ paramétrable (`RepRules.demoInitialCoins` = 4000 coins).
+- [x] **Correctifs post-lancement Démo/Fiat** (voir `docs/DEMO_FIAT.md` § Correctifs) : gel/lenteur
+      extrême en mode Démo corrigé (boucle infinie Firebase due à une dépendance instable dans
+      `game/page.tsx`) ; nouveau menu de déconnexion pour les sessions Démo/Fiat
+      (`EffectiveAccountBadge.tsx`) ; nettoyage automatique d'une session Démo/Fiat oubliée dès la
+      connexion d'un vrai portefeuille (évite qu'une ancienne session ne bloque le retour à l'écran
+      de choix) ; ordre d'authentification corrigé dans `startAnonymousDemo()`. Validé par des
+      scénarios Playwright (chargement, réactivité, déconnexion, non-régression).
 - [ ] Intégration Stripe réelle (CB, Apple Pay) — clés API + `api/payments/checkout/route.ts`
 - [ ] PayPal SDK réel (au-delà du mode simulation déjà livré)
 - [ ] On-ramp crypto (MoonPay, Ramp)

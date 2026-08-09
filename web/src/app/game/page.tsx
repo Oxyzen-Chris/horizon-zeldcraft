@@ -13,6 +13,7 @@ import { SynkSkin } from '@/components/SynkSkin';
 import { Countdown } from '@/components/Countdown';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
+import { EffectiveAccountBadge } from '@/components/EffectiveAccountBadge';
 import { WeatherWidget } from '@/components/WeatherWidget';
 import { SeasonWidget } from '@/components/SeasonWidget';
 import { MoonWidget } from '@/components/MoonWidget';
@@ -183,11 +184,7 @@ export default function GamePage() {
           <LanguageSwitcher />
           {!isVirtual && <NetworkSwitcher />}
           {isOwner && <Link href="/admin" className="btn-secondary text-sm">⚙️ {t('admin.title')}</Link>}
-          {isVirtual ? (
-            <span className="text-xs px-3 py-1.5 rounded-full bg-purple-900/40 border border-purple-500/40 text-purple-200">
-              🎟️ {t(accountType === 'demo' ? 'connect.demoBadge' : 'connect.fiatBadge')}
-            </span>
-          ) : <ConnectButton />}
+          {isVirtual ? <EffectiveAccountBadge /> : <ConnectButton />}
         </div>
       </header>
 
@@ -292,12 +289,19 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   useEffect(() => {
     getRepRules().then((r) => { setXpCap(r.xpCap); setRepRules(r); }).catch(() => {});
   }, []);
+  // ⚠️ Ne PAS dépendre de `v` (le tuple entier) ici : pour les comptes Démo/Fiat, `v` est
+  // recalculé (nouvelle référence) à CHAQUE rendu de GamePage — y compris à chaque écho du
+  // `subscribePlayer` ci-dessous. Dépendre de `v` provoquait donc une boucle infinie
+  // getOrCreatePlayer → markPlayerActiveToday (écrit `lastSeenAt`) → onValue → nouveau rendu →
+  // nouveau `v` → nouvel appel… qui gelait le jeu en mode démo (bug de lenteur/freeze). Seul le nom
+  // (primitif stable, comparé par valeur) doit redéclencher un resync explicite du displayName.
+  const voxlynName = v?.[0] as string | undefined;
   useEffect(() => {
     if (!address) return;
-    getOrCreatePlayer(address, v?.[0]).catch(console.error);
+    getOrCreatePlayer(address, voxlynName).catch(console.error);
     const unsub = subscribePlayer(address, (p) => setPlayer(p));
     return unsub;
-  }, [address, v]);
+  }, [address, voxlynName]);
 
   // Statistiques d'activité (rencontres du jour, familiers, combats gagnés) pour pondérer l'humeur
   useEffect(() => {

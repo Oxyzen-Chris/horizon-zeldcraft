@@ -16,6 +16,7 @@ import { getDatabase, Database } from 'firebase/database';
 import {
   getAuth, signInAnonymously, onAuthStateChanged, Auth, User,
   GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  signOut,
 } from 'firebase/auth';
 
 let app: FirebaseApp | null = null;
@@ -122,6 +123,26 @@ export async function signInWithEmail(email: string, password: string): Promise<
       console.error('[firebase] signInWithEmail failed:', err2);
       return null;
     }
+  }
+}
+
+/**
+ * Déconnexion explicite d'une session Démo/Fiat (bouton "Se déconnecter" — voir
+ * EffectiveAccountBadge.tsx / effectiveAccount.tsx::disconnectSession). Réinitialise aussi le cache
+ * interne `signInPromise` d'`ensureAnonSignIn()` : sans cela, un futur appel à `ensureAnonSignIn()`
+ * (ex. relance immédiate d'un accès Démo anonyme) renverrait l'ancien utilisateur déjà déconnecté
+ * au lieu de ré-authentifier — c'est ce qui empêchait de rebasculer vers Google après un essai en
+ * mode anonyme (bug corrigé).
+ */
+export async function signOutFirebase(): Promise<void> {
+  const a = getFirebaseAuth();
+  if (!a) return;
+  try {
+    await signOut(a);
+  } catch (err) {
+    console.error('[firebase] signOut failed:', err);
+  } finally {
+    signInPromise = null;
   }
 }
 

@@ -115,6 +115,49 @@ contract (`_levelFromXp`/`_stageFromLevel`).
 - **Mint du Voxlyn** : les comptes Démo/Fiat n'appellent jamais `mintVoxlyn()` — leur Voxlyn est
   entièrement simulé côté client/Firebase (voir § ci-dessus).
 
+## 🔧 Correctifs post-lancement (gel démo, déconnexion, session fantôme)
+
+Trois bugs sérieux ont été identifiés après la mise en production initiale et corrigés :
+
+1. **Gel/lenteur extrême en mode Démo** (freeze, pop-up « page non réactive »). Cause racine :
+   `VoxlynDashboard` (dans `game/page.tsx`) avait un `useEffect` qui dépendait du tuple `v`
+   entier (`synthesizeOffchainVoxlyn(virtualPlayer)`), recréé — nouvelle référence — à CHAQUE
+   rendu pour un compte virtuel. Or `getOrCreatePlayer()` appelle `markPlayerActiveToday()`, qui
+   écrit inconditionnellement `lastSeenAt` sous `players/{addr}/analytics` à chaque appel ; cette
+   écriture redéclenchait les deux abonnements `subscribePlayer()` (celui de `GamePage` et celui de
+   `VoxlynDashboard`), ce qui recalculait `v` (nouvelle référence) → refaisait tourner l'effet →
+   nouvelle écriture → boucle infinie de lecture/écriture Firebase et de re-rendus React, saturant
+   le thread principal. Les comptes portefeuille n'étaient jamais touchés car leur `v` (lecture
+   on-chain via wagmi/tanstack-query) reste une référence stable tant que la donnée n'a pas changé.
+   **Correctif** : l'effet ne dépend plus que du nom (`v?.[0]`, primitif comparé par valeur), pas du
+   tuple entier — voir `game/page.tsx`.
+2. **Aucune déconnexion possible en session Démo/Fiat**. Le `<ConnectButton />` de RainbowKit
+   propose nativement une déconnexion pour un vrai portefeuille, mais rien d'équivalent n'existait
+   pour les sessions Démo/Fiat (aucun moyen de revenir à l'écran de choix sans vider le
+   `localStorage` à la main). **Correctif** : nouveau composant
+   `components/EffectiveAccountBadge.tsx` (menu déroulant « 🚪 Se déconnecter »), affiché à la
+   place du badge statique dans l'en-tête du jeu et sur la page d'accueil. Il libère le slot de
+   concurrence (`releaseDemoSession`), déconnecte Firebase Auth (`signOutFirebase`) et efface la
+   session (`disconnectSession()` — voir `lib/effectiveAccount.tsx`).
+3. **Session Démo/Fiat fantôme après (dé)connexion d'un vrai portefeuille**. Rien ne nettoyait la
+   session Démo/Fiat stockée en `localStorage` quand un vrai portefeuille se connectait : après
+   déconnexion du portefeuille, l'app retombait silencieusement sur l'ancienne session Démo/Fiat au
+   lieu de réafficher l'écran de choix complet — rendant impossible de tester une autre méthode
+   (ex. Google) après un essai anonyme. **Correctif** : un nouvel effet dans
+   `EffectiveAccountProvider` (`lib/effectiveAccount.tsx`) termine automatiquement toute session
+   Démo/Fiat restante dès qu'un vrai portefeuille wagmi devient connecté
+   (`wagmiAccount.isConnected`). `signOutFirebase()` réinitialise aussi le cache interne de
+   `ensureAnonSignIn()` (`firebase.ts`), qui renvoyait sinon l'ancien utilisateur déjà déconnecté.
+4. **Bug latent connexe** : dans `NoWalletAccessPanel.tsx`, `startAnonymousDemo()` lisait le
+   compteur `demoSessions/anon` (règle RTDB `auth != null`) AVANT d'appeler `ensureAnonSignIn()` —
+   sur un navigateur sans session Firebase déjà persistée, cela levait un « Permission denied » et
+   bloquait l'accès Démo anonyme. Corrigé en authentifiant d'abord.
+
+Ces correctifs ont été validés avec Playwright (parcours complet : accès démo anonyme → jeu
+chargé et réactif → déconnexion → retour à l'écran de choix → session bien effacée du
+`localStorage`) et un scénario de non-régression (rechargement de page en session Démo, sans
+portefeuille connecté, conserve bien la session — comportement inchangé).
+
 ## 🔐 Sécurité & suivi
 
 - L'adresse virtuelle (`deriveVirtualAddress`) est un simple hash déterministe : elle ne correspond

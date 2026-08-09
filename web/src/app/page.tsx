@@ -6,11 +6,12 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { NetworkSwitcher } from '@/components/NetworkSwitcher';
 import { SynkSkin } from '@/components/SynkSkin';
 import { NoWalletAccessPanel } from '@/components/NoWalletAccessPanel';
+import { EffectiveAccountBadge } from '@/components/EffectiveAccountBadge';
 import { useI18n } from '@/lib/i18n';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 export default function Home() {
-  const { isConnected } = useEffectiveAccount();
+  const { isConnected, accountType } = useEffectiveAccount();
   const { t } = useI18n();
 
   return (
@@ -22,7 +23,7 @@ export default function Home() {
         <div className="flex flex-wrap gap-3 items-center">
           <LanguageSwitcher />
           <NetworkSwitcher />
-          <ConnectButton />
+          {accountType !== 'wallet' && isConnected ? <EffectiveAccountBadge /> : <ConnectButton />}
         </div>
       </header>
 

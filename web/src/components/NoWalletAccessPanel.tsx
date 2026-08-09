@@ -48,11 +48,15 @@ export function NoWalletAccessPanel() {
   const startAnonymousDemo = async () => {
     setBusy(true); setMessage(null);
     try {
+      // ⚠️ L'authentification anonyme DOIT précéder la lecture de `demoSessions` : les règles
+      // RTDB exigent `auth != null` sur ce chemin (voir docs/FIREBASE_CHAT.md § 4). Sur un
+      // navigateur neuf (aucune session Firebase persistée), lire le compteur AVANT de
+      // s'authentifier levait un "Permission denied" et bloquait tout accès Démo anonyme.
+      const user = await ensureAnonSignIn();
+      if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
       const count = await countActiveDemoSessions('anon');
       const cap = rules?.demoAnonymousMaxConcurrentSessions ?? 40;
       if (count >= cap) { setMessage(t('home.demo.fullAnonymous')); setBusy(false); return; }
-      const user = await ensureAnonSignIn();
-      if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
       const address = deriveVirtualAddress(user.uid) as `0x${string}`;
       await registerDemoSession('anon', user.uid);
       setSession({ kind: 'demo', uid: user.uid, address, demoMode: 'anonymous' });
