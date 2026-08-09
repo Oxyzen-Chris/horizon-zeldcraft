@@ -152,6 +152,26 @@ Trois bugs sérieux ont été identifiés après la mise en production initiale 
    compteur `demoSessions/anon` (règle RTDB `auth != null`) AVANT d'appeler `ensureAnonSignIn()` —
    sur un navigateur sans session Firebase déjà persistée, cela levait un « Permission denied » et
    bloquait l'accès Démo anonyme. Corrigé en authentifiant d'abord.
+5. **« Continuer avec Google » échouait avec une erreur générique** (« Une erreur est survenue lors
+   de la connexion. Réessaie. »), aussi bien depuis « 🎟️ Accès Démo » que « 💳 Jouer sans
+   portefeuille ». Cause racine : `signInWithPopup()` (Firebase Auth) ouvre une popup vers
+   `accounts.google.com`, puis surveille en interne la fermeture de cette popup
+   (`window.closed`) pour détecter la fin de connexion — or les navigateurs Chromium récents
+   appliquent une politique **Cross-Origin-Opener-Policy** qui bloque cette vérification
+   (`Cross-Origin-Opener-Policy policy would block the window.closed call`), un bug connu du SDK
+   Firebase JS (voir [firebase/firebase-js-sdk#6716](https://github.com/firebase/firebase-js-sdk/issues/6716)).
+   Résultat : même quand l'utilisateur se connecte correctement dans la popup, le SDK peut ne pas
+   détecter la fin du flux et renvoyer une erreur (`auth/popup-closed-by-user` ou équivalent). Le
+   même problème peut aussi survenir si la popup est directement bloquée par le navigateur
+   (`auth/popup-blocked`). **Correctif** : `signInWithGoogle()` (`lib/firebase.ts`) tente d'abord
+   `signInWithPopup()`, et **bascule automatiquement sur `signInWithRedirect()`** dès que la popup
+   échoue pour n'importe quelle raison — le flux redirection (navigation pleine page, sans popup)
+   n'est pas affecté par ce problème COOP. `NoWalletAccessPanel.tsx` mémorise l'intention en cours
+   (Démo approuvée ou Jouer sans portefeuille) dans `sessionStorage` avant la redirection, puis la
+   reprend au retour via `consumeGoogleRedirectResult()` une fois les règles admin (`RepRules`)
+   chargées, pour appliquer les mêmes quotas/validations que le flux popup. Validé par un test
+   Playwright simulant une popup bloquée (`window.open` renvoie `null`) : le repli vers
+   `signInWithRedirect()` se déclenche bien et la navigation vers `accounts.google.com` aboutit.
 
 Ces correctifs ont été validés avec Playwright (parcours complet : accès démo anonyme → jeu
 chargé et réactif → déconnexion → retour à l'écran de choix → session bien effacée du

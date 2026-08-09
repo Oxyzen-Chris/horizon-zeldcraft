@@ -17,17 +17,26 @@
  *    validation admin, l'achat de monnaie de jeu se fait ensuite normalement dans le jeu (voir
  *    FiatTopupPanel.tsx).
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import type { User } from 'firebase/auth';
 import { useI18n } from '@/lib/i18n';
 import { useEffectiveSessionControls } from '@/lib/effectiveAccount';
 import {
   getRepRules, deriveVirtualAddress, requestDemoAccess, getDemoAccessRequest,
   countActiveDemoSessions, registerDemoSession, type RepRules,
 } from '@/lib/gameState';
-import { getFirebaseAuth, ensureAnonSignIn, signInWithGoogle, signInWithEmail } from '@/lib/firebase';
+import {
+  getFirebaseAuth, ensureAnonSignIn, signInWithGoogle, signInWithEmail,
+  consumeGoogleRedirectResult,
+} from '@/lib/firebase';
 
 type ModalKind = null | 'demo' | 'fiat';
+
+// Mémorise l'intention (Démo approuvée vs Fiat) lorsqu'on bascule sur `signInWithRedirect` (voir
+// signInWithGoogle côté firebase.ts) — la page navigue entièrement vers accounts.google.com puis
+// revient, donc tout état React est perdu ; seul `sessionStorage` survit à cet aller-retour.
+const PENDING_GOOGLE_KEY = 'zc.pendingGoogleAction';
 
 export function NoWalletAccessPanel() {
   const { t } = useI18n();
@@ -69,11 +78,11 @@ export function NoWalletAccessPanel() {
   };
 
   // ─── Accès Démo approuvé (Google) — demande à valider par l'admin si pas déjà fait ───
-  const startApprovedDemo = async () => {
+  // Extrait en fonction réutilisable : appelée aussi bien juste après une popup réussie que lors du
+  // retour de redirection (voir l'effet `consumeGoogleRedirectResult` plus bas).
+  const completeApprovedDemo = useCallback(async (user: User) => {
     setBusy(true); setMessage(null);
     try {
-      const user = await signInWithGoogle();
-      if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
       const address = deriveVirtualAddress(user.uid) as `0x${string}`;
       const existing = await getDemoAccessRequest(user.uid);
       if (existing?.status === 'rejected') { setMessage(t('home.demo.rejected')); setBusy(false); return; }
@@ -93,6 +102,24 @@ export function NoWalletAccessPanel() {
       setSession({ kind: 'demo', uid: user.uid, address, demoMode: 'approved', displayName: user.displayName || undefined });
       router.push('/game');
     } catch (e) {
+      console.error('[NoWalletAccessPanel] completeApprovedDemo failed:', e);
+      setMessage(t('home.demo.authError'));
+      setBusy(false);
+    }
+  }, [rules, router, setSession, t]);
+
+  const startApprovedDemo = async () => {
+    setBusy(true); setMessage(null);
+    try {
+      const { user, usedRedirect } = await signInWithGoogle();
+      // La popup a échoué (souvent une fausse alerte Cross-Origin-Opener-Policy — voir
+      // firebase.ts) : on est déjà en train de naviguer vers accounts.google.com via
+      // signInWithRedirect. On mémorise juste l'intention ; le résultat sera traité par l'effet
+      // `consumeGoogleRedirectResult` ci-dessous, au retour sur cette page.
+      if (usedRedirect) { sessionStorage.setItem(PENDING_GOOGLE_KEY, 'demo'); return; }
+      if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
+      await completeApprovedDemo(user);
+    } catch (e) {
       console.error('[NoWalletAccessPanel] startApprovedDemo failed:', e);
       setMessage(t('home.demo.authError'));
       setBusy(false);
@@ -100,20 +127,50 @@ export function NoWalletAccessPanel() {
   };
 
   // ─── Paiement fiat sans portefeuille (Google ou e-mail) — accès immédiat, sans plafond ───
+  const completeFiatWithGoogle = useCallback((user: User) => {
+    const address = deriveVirtualAddress(user.uid) as `0x${string}`;
+    setSession({ kind: 'fiat', uid: user.uid, address, displayName: user.displayName || undefined });
+    router.push('/game');
+  }, [router, setSession]);
+
   const startFiatWithGoogle = async () => {
     setBusy(true); setMessage(null);
     try {
-      const user = await signInWithGoogle();
+      const { user, usedRedirect } = await signInWithGoogle();
+      if (usedRedirect) { sessionStorage.setItem(PENDING_GOOGLE_KEY, 'fiat'); return; }
       if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
-      const address = deriveVirtualAddress(user.uid) as `0x${string}`;
-      setSession({ kind: 'fiat', uid: user.uid, address, displayName: user.displayName || undefined });
-      router.push('/game');
+      completeFiatWithGoogle(user);
     } catch (e) {
       console.error('[NoWalletAccessPanel] startFiatWithGoogle failed:', e);
       setMessage(t('home.demo.authError'));
       setBusy(false);
     }
   };
+
+  // Retour de navigation depuis accounts.google.com après une bascule signInWithRedirect (voir
+  // startApprovedDemo/startFiatWithGoogle ci-dessus) — reprend automatiquement le flux interrompu.
+  // Ne fait rien si aucune redirection Google n'était en cours (cas normal, immense majorité des
+  // visites). L'utilisateur récupéré est mis en attente (`pendingGoogleUser`) le temps que
+  // `rules` (RepRules, chargé en parallèle) soit disponible, pour respecter les plafonds
+  // paramétrés par l'admin même dans ce cas de reprise après navigation complète.
+  const [pendingGoogleUser, setPendingGoogleUser] = useState<{ user: User; kind: 'demo' | 'fiat' } | null>(null);
+  useEffect(() => {
+    const pending = sessionStorage.getItem(PENDING_GOOGLE_KEY) as 'demo' | 'fiat' | null;
+    if (!pending) return;
+    sessionStorage.removeItem(PENDING_GOOGLE_KEY);
+    setBusy(true); setModal(pending);
+    consumeGoogleRedirectResult().then((user) => {
+      if (!user) { setBusy(false); return; } // redirection annulée/échouée : écran normal, pas d'erreur bruyante
+      setPendingGoogleUser({ user, kind: pending });
+    }).catch(() => setBusy(false));
+  }, []);
+  useEffect(() => {
+    if (!pendingGoogleUser || !rules) return;
+    const { user, kind } = pendingGoogleUser;
+    setPendingGoogleUser(null);
+    if (kind === 'demo') completeApprovedDemo(user);
+    else completeFiatWithGoogle(user);
+  }, [pendingGoogleUser, rules, completeApprovedDemo, completeFiatWithGoogle]);
 
   const startFiatWithEmail = async () => {
     if (!email || !password) return;
