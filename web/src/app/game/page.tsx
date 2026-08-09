@@ -136,6 +136,9 @@ export default function GamePage() {
   // Remplace le mint on-chain : crée/retrouve directement le PlayerState Firebase (idempotent —
   // `getOrCreatePlayer` ne réinitialise jamais un compte existant). Les pièces `demoInitialCoins`
   // ne sont créditées qu'à la toute première création (voir gameState.ts::getOrCreatePlayer).
+  // `uid`/`email` (session.uid/session.email) sont aussi enregistrés à la création, pour que
+  // l'admin puisse identifier ce joueur et libérer sa session lors d'une suppression (voir menu
+  // Administration §"Statistiques par joueur" / §"Demandes d'accès Démo").
   const [virtualPlayer, setVirtualPlayer] = useState<PlayerState | null>(null);
   useEffect(() => {
     if (!isVirtual || !address) return;
@@ -145,11 +148,12 @@ export default function GamePage() {
       const p = await getOrCreatePlayer(address, session?.displayName || undefined, {
         accountType: accountType as 'demo' | 'fiat',
         initialWallet: accountType === 'demo' ? (rules?.demoInitialCoins ?? 4000) : 0,
+        uid: session?.uid, email: session?.email,
       }).catch(() => null);
       if (!cancelled && p) setVirtualPlayer(p);
     })();
     return () => { cancelled = true; };
-  }, [isVirtual, address, accountType, session?.displayName]);
+  }, [isVirtual, address, accountType, session?.displayName, session?.uid, session?.email]);
   // Synchronisation temps réel du joueur virtuel une fois créé (mêmes mises à jour que
   // VoxlynDashboard, nécessaire ICI pour recalculer le tuple `v` synthétique à chaque évolution).
   useEffect(() => {

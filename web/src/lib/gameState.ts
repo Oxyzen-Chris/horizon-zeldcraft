@@ -51,7 +51,7 @@
  * génériques publiées, voir docs/FIREBASE_CHAT.md §4 — aucune republication requise).
  */
 import {
-  ref, get, set, update, onValue, off, push, runTransaction, serverTimestamp, DataSnapshot,
+  ref, get, set, update, remove, onValue, off, push, runTransaction, serverTimestamp, DataSnapshot,
 } from 'firebase/database';
 import { keccak256, toBytes } from 'viem';
 import { getFirebaseDb, ensureAnonSignIn } from './firebase';
@@ -89,8 +89,8 @@ export interface PlayerState {
   updatedAt?: number;
   // ─── Comptes sans portefeuille crypto (accès Démo / paiement fiat — voir docs/DEMO_FIAT.md) ───
   // 'wallet' (défaut, absent = wallet) : joueur connecté via un vrai portefeuille crypto (Sepolia/
-  // Mainnet), identité = adresse EVM réelle. 'demo' : invité gueststar approuvé par l'admin ou
-  // session anonyme (voir RepRules.demoAccessEnabled/demoAnonymousEnabled), identité = adresse
+  // Mainnet), identité = adresse EVM réelle. 'demo' : invité gueststar avec accès immédiat (Google)
+  // ou session anonyme (voir RepRules.demoAccessEnabled/demoAnonymousEnabled), identité = adresse
   // virtuelle dérivée de son UID Firebase Auth (voir deriveVirtualAddress). 'fiat' : joueur ayant
   // payé par CB/PayPal/Apple Pay/Google Pay (voir RepRules.fiatPaymentEnabled), même mécanisme
   // d'adresse virtuelle que 'demo' mais sans plafond de sessions concurrentes ni pièces offertes.
@@ -99,7 +99,14 @@ export interface PlayerState {
   // Firebase, le tuple `v` normalement lu depuis le smart contract est synthétisé côté client
   // (voir synthesizeOffchainVoxlyn dans game/page.tsx).
   accountType?: 'wallet' | 'demo' | 'fiat';
-  demoApproved?: boolean;   // true une fois la demande d'accès Démo validée par l'admin (voir approveDemoAccess)
+  demoApproved?: boolean;   // conservé pour compat historique — l'accès Démo/fiat est désormais immédiat (voir logAccountAccess)
+  // UID Firebase Auth (Google/e-mail) et e-mail associés à ce compte 'demo'/'fiat' — permet à
+  // l'admin d'identifier le joueur (menu Administration §"Statistiques par joueur") et de libérer
+  // sa session/son entrée `demoAccessRequests` lors d'une suppression (voir deletePlayerAccount).
+  // Renseignés une seule fois, à la création du compte (jamais réécrits ensuite, même logique que
+  // `accountType` ci-dessus — voir getOrCreatePlayer). Absents pour un compte 'wallet'.
+  uid?: string;
+  email?: string;
 }
 
 /**
@@ -260,11 +267,14 @@ export const RKEY = (id: string) => id.toLowerCase().replace(/[.#$[\]]/g, '_');
 /** Récupère ou crée le PlayerState.
  * `opts.accountType` ('demo'|'fiat') et `opts.initialWallet` permettent de créer un compte sans
  * portefeuille crypto (voir docs/DEMO_FIAT.md) — n'affecte JAMAIS la création d'un compte 'wallet'
- * classique (comportement 100% inchangé, `opts` omis partout ailleurs dans le code existant). */
+ * classique (comportement 100% inchangé, `opts` omis partout ailleurs dans le code existant).
+ * `opts.uid`/`opts.email` (compte 'demo'/'fiat' uniquement) sont enregistrés une seule fois, à la
+ * création, pour permettre à l'admin d'identifier le joueur et de libérer sa session/son entrée
+ * `demoAccessRequests` lors d'une suppression (voir deletePlayerAccount, menu Administration). */
 export async function getOrCreatePlayer(
   address: string,
   displayName?: string,
-  opts?: { accountType?: 'demo' | 'fiat'; initialWallet?: number },
+  opts?: { accountType?: 'demo' | 'fiat'; initialWallet?: number; uid?: string; email?: string },
 ): Promise<PlayerState> {
   const db = getFirebaseDb();
   if (!db) throw new Error('Firebase non configuré');
@@ -292,6 +302,8 @@ export async function getOrCreatePlayer(
     score: 0,
     lastTick: now, createdAt: now, updatedAt: now,
     ...(opts?.accountType ? { accountType: opts.accountType } : {}),
+    ...(opts?.uid ? { uid: opts.uid } : {}),
+    ...(opts?.email ? { email: opts.email } : {}),
   };
   await set(ref(db, `players/${k}`), initial);
   await set(ref(db, `playerIndex/${k}`), true);
@@ -2575,6 +2587,77 @@ export async function getPlayer(address: string): Promise<PlayerState | null> {
   return snap.val();
 }
 
+/** Entrée légère pour le menu déroulant "Statistiques par joueur" (menu Administration) — voir
+ * `listPlayersWithMeta()` ci-dessous. `label` affiche l'e-mail (comptes Démo/fiat Google/e-mail)
+ * ou le pseudo, avec repli sur l'adresse tronquée pour un compte portefeuille classique. */
+export interface PlayerListEntry {
+  address: string;
+  label: string;
+  accountType?: 'wallet' | 'demo' | 'fiat';
+  email?: string;
+}
+
+/** Liste tous les joueurs enregistrés avec leurs métadonnées d'affichage (e-mail/pseudo/mode
+ * d'accès) — une seule lecture de tout le nœud `players` (pas un aller-retour par joueur), pour le
+ * menu déroulant de "📊 Statistiques par joueur" (voir PlayerStats.tsx). Complète `listPlayers()`
+ * ci-dessus (conservée telle quelle pour les usages existants qui n'ont besoin que des adresses). */
+export async function listPlayersWithMeta(): Promise<PlayerListEntry[]> {
+  const db = getFirebaseDb();
+  if (!db) return [];
+  await ensureAnonSignIn();
+  const snap = await get(ref(db, 'players'));
+  const v = snap.val() as Record<string, PlayerState> | null;
+  if (!v) return [];
+  return Object.entries(v)
+    .map(([addr, p]) => ({
+      address: addr,
+      accountType: p?.accountType,
+      email: p?.email,
+      label: p?.email || p?.displayName || `${addr.slice(0, 10)}…${addr.slice(-6)}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/**
+ * Supprime définitivement un joueur : son PlayerState (`players/{addr}`, y compris tout ce qui y
+ * est imbriqué — inventaire, équipement, transactions, rencontres…), son entrée d'index
+ * (`playerIndex/{addr}`) et, pour un compte Démo/fiat (voir PlayerState.uid), son entrée de
+ * registre (`demoAccessRequests/{uid}`) et sa session active éventuelle (`demoSessions/demo|anon/
+ * {uid}`) — ce qui libère immédiatement un emplacement de connexion concurrente (menu
+ * Administration §"Statistiques par joueur" / §"Demandes d'accès Démo"). Un compte 'wallet' n'a pas
+ * d'UID Firebase : seules les deux premières suppressions s'appliquent alors. */
+export async function deletePlayerAccount(address: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const k = KEY(address);
+  const snap = await get(ref(db, `players/${k}`));
+  const p = snap.val() as PlayerState | null;
+  const ops = [remove(ref(db, `players/${k}`)), remove(ref(db, `playerIndex/${k}`))];
+  if (p?.uid) {
+    const ru = RKEY(p.uid);
+    ops.push(remove(ref(db, `demoAccessRequests/${ru}`)));
+    ops.push(remove(ref(db, `demoSessions/demo/${ru}`)));
+    ops.push(remove(ref(db, `demoSessions/anon/${ru}`)));
+  }
+  await Promise.all(ops);
+}
+
+/** Réinitialise TOUT le jeu à zéro : supprime la totalité des joueurs, de l'index, du registre
+ * d'accès Démo/fiat et des sessions actives. Action destructive et irréversible, réservée au menu
+ * Administration §"Statistiques par joueur" (double confirmation côté UI — voir PlayerStats.tsx). */
+export async function deleteAllPlayers(): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await Promise.all([
+    remove(ref(db, 'players')),
+    remove(ref(db, 'playerIndex')),
+    remove(ref(db, 'demoAccessRequests')),
+    remove(ref(db, 'demoSessions')),
+  ]);
+}
+
 // ─────────────────────────────────────── Shop catalog ───────────────────────────────────────
 
 /** Butin possible lors d'une victoire de combat PNJ (récupéré sur le PNJ vaincu) — voir
@@ -4840,8 +4923,8 @@ export async function setAiInsightsCache(cache: AiInsightsCache): Promise<void> 
 
 // ═══════════════════════ Accès Démo & paiement fiat sans portefeuille crypto ═══════════════════════
 // Voir docs/DEMO_FIAT.md pour la vue d'ensemble. Chemins RTDB :
-//   demoAccessRequests/{uid}     → DemoAccessRequest (demande d'accès Démo, à valider par l'admin)
-//   demoSessions/demo/{uid}      → { startedAt } + onDisconnect (compteur de sessions Démo approuvées actives)
+//   demoAccessRequests/{uid}     → DemoAccessRequest (registre des comptes Démo/fiat — accès immédiat, voir logAccountAccess)
+//   demoSessions/demo/{uid}      → { startedAt } + onDisconnect (compteur de sessions Démo actives)
 //   demoSessions/anon/{uid}      → { startedAt } + onDisconnect (compteur de sessions Démo anonymes actives)
 // L'adresse virtuelle (jamais une vraie clé privée) est dérivée de façon déterministe de l'UID
 // Firebase Auth : keccak256(uid) tronqué à 20 octets, formaté en adresse EVM — permet de réutiliser
@@ -4874,45 +4957,78 @@ export function computeOffchainStageLevel(totalXp: number): { level: number; sta
   return { level, stageIndex };
 }
 
-/** Demande d'accès "Démo" en attente/traitée par l'admin (voir menu Administration §Accès Démo). */
+/** Compte "Démo"/"fiat" (sans portefeuille crypto) enregistré au registre admin — voir menu
+ * Administration §"Demandes d'accès Démo". Historiquement une file d'attente à valider/rejeter ;
+ * l'accès Google/e-mail est désormais accordé IMMÉDIATEMENT sans validation (voir
+ * `logAccountAccess` ci-dessous), ce panneau sert maintenant de REGISTRE/AUDIT (une ligne par
+ * compte, avec le nombre de connexions et la dernière date) et permet à l'admin de mettre en pause
+ * ou de supprimer un compte a posteriori (ex. abus, tricherie). */
 export interface DemoAccessRequest {
-  uid: string;              // UID Firebase Auth (Google ou lien email)
+  uid: string;              // UID Firebase Auth (Google ou e-mail)
   address: string;          // adresse virtuelle dérivée (voir deriveVirtualAddress)
   displayName?: string;
   email?: string;
   method: 'google' | 'email' | 'apple';
-  status: 'pending' | 'approved' | 'rejected';
-  requestedAt: number;
-  decidedAt?: number;
+  accessMode: 'demo' | 'fiat'; // bouton utilisé : "🎟️ Accès Démo" ou "💳 Jouer sans portefeuille"
+  status: 'pending' | 'approved' | 'rejected'; // conservé pour compat d'affichage — toujours 'approved' pour un nouveau compte (accès immédiat, voir logAccountAccess)
+  paused?: boolean;          // true = admin a mis ce compte en pause (accès bloqué, données conservées)
+  requestedAt: number;       // date de première connexion
+  decidedAt?: number;        // conservé pour compat (anciennes entrées 'approved'/'rejected' pré-auto-accès)
+  lastLoginAt?: number;      // date de la dernière connexion (mise à jour à chaque login)
+  loginCount?: number;       // nombre total de connexions
 }
 
-/** Enregistre une demande d'accès Démo (idempotent — écrase la précédente si déjà en attente). */
-export async function requestDemoAccess(req: Omit<DemoAccessRequest, 'status' | 'requestedAt'>): Promise<void> {
+/**
+ * Enregistre/actualise l'accès d'un compte Démo/fiat (Google ou e-mail) — appelée à CHAQUE
+ * connexion réussie (voir NoWalletAccessPanel.tsx). L'accès est désormais accordé immédiatement,
+ * sans validation admin : cette fonction sert uniquement à journaliser le compte (e-mail, mode
+ * d'accès, dates) dans le registre affiché au menu Administration §"Demandes d'accès Démo", et à
+ * vérifier si l'admin a mis ce compte en pause (`paused: true`) — auquel cas l'appelant DOIT
+ * refuser l'accès (voir le retour `{ paused }`). Idempotente : une reconnexion incrémente juste
+ * `loginCount`/`lastLoginAt` sans jamais régresser un compte en pause vers actif.
+ */
+export async function logAccountAccess(entry: {
+  uid: string; address: string; displayName?: string; email?: string;
+  method: 'google' | 'email' | 'apple'; accessMode: 'demo' | 'fiat';
+}): Promise<{ paused: boolean }> {
   const db = getFirebaseDb();
-  if (!db) return;
+  if (!db) return { paused: false };
   await ensureAnonSignIn();
-  const existing = await get(ref(db, `demoAccessRequests/${RKEY(req.uid)}`));
-  const prev = existing.val() as DemoAccessRequest | null;
-  if (prev?.status === 'approved') return; // déjà validé, ne pas régresser vers 'pending'
-  await set(ref(db, `demoAccessRequests/${RKEY(req.uid)}`), {
-    ...req, status: 'pending', requestedAt: Date.now(),
-  } as DemoAccessRequest);
+  const r = ref(db, `demoAccessRequests/${RKEY(entry.uid)}`);
+  const existing = (await get(r)).val() as DemoAccessRequest | null;
+  if (existing?.paused) return { paused: true }; // compte bloqué par l'admin : ne pas réactiver silencieusement
+  const now = Date.now();
+  const displayName = entry.displayName ?? existing?.displayName;
+  const email = entry.email ?? existing?.email;
+  const merged: DemoAccessRequest = {
+    uid: entry.uid, address: entry.address,
+    method: entry.method, accessMode: entry.accessMode,
+    status: 'approved', paused: false,
+    requestedAt: existing?.requestedAt ?? now,
+    lastLoginAt: now,
+    loginCount: (existing?.loginCount ?? 0) + 1,
+    ...(displayName ? { displayName } : {}),
+    ...(email ? { email } : {}),
+    ...(existing?.decidedAt ? { decidedAt: existing.decidedAt } : {}),
+  };
+  await set(r, merged);
+  return { paused: false };
 }
 
-/** Écoute en temps réel toutes les demandes d'accès Démo (panneau Administration). */
+/** Écoute en temps réel tous les comptes Démo/fiat enregistrés (panneau Administration). */
 export function subscribeDemoAccessRequests(cb: (list: DemoAccessRequest[]) => void): () => void {
   const db = getFirebaseDb();
   if (!db) { cb([]); return () => {}; }
   const r = ref(db, 'demoAccessRequests');
   const handler = (snap: DataSnapshot) => {
     const v = snap.val() as Record<string, DemoAccessRequest> | null;
-    cb(v ? Object.values(v).sort((a, b) => b.requestedAt - a.requestedAt) : []);
+    cb(v ? Object.values(v).sort((a, b) => (b.lastLoginAt ?? b.requestedAt) - (a.lastLoginAt ?? a.requestedAt)) : []);
   };
   onValue(r, handler);
   return () => off(r, 'value', handler);
 }
 
-/** Lecture ponctuelle d'UNE demande d'accès Démo (voir page d'accueil — vérifie si déjà validée). */
+/** Lecture ponctuelle d'UN compte Démo/fiat (voir page d'accueil — vérifie s'il est en pause). */
 export async function getDemoAccessRequest(uid: string): Promise<DemoAccessRequest | null> {
   const db = getFirebaseDb();
   if (!db) return null;
@@ -4920,25 +5036,15 @@ export async function getDemoAccessRequest(uid: string): Promise<DemoAccessReque
   return (snap.val() as DemoAccessRequest | null) ?? null;
 }
 
-/** Valide une demande d'accès Démo — crée/seed le compte joueur (`demoInitialCoins`, voir RepRules). */
-export async function approveDemoAccess(uid: string, rules: RepRules): Promise<void> {
+/** Met en pause (ou réactive) un compte Démo/fiat — bloque/débloque sa future connexion (voir
+ * `logAccountAccess` ci-dessus) SANS supprimer ses données (contrairement à `deletePlayerAccount`).
+ * Utile pour suspendre temporairement un joueur (abus, tricherie suspectée) sans effacer sa
+ * progression, réversible via un second appel avec `paused: false`. */
+export async function pauseAccountAccess(uid: string, paused: boolean): Promise<void> {
   const db = getFirebaseDb();
   if (!db) return;
   await ensureAnonSignIn();
-  const snap = await get(ref(db, `demoAccessRequests/${RKEY(uid)}`));
-  const req = snap.val() as DemoAccessRequest | null;
-  if (!req) return;
-  await update(ref(db, `demoAccessRequests/${RKEY(uid)}`), { status: 'approved', decidedAt: Date.now() });
-  await getOrCreatePlayer(req.address, req.displayName, { accountType: 'demo', initialWallet: rules.demoInitialCoins });
-  await update(ref(db, `players/${KEY(req.address)}`), { demoApproved: true });
-}
-
-/** Rejette une demande d'accès Démo. */
-export async function rejectDemoAccess(uid: string): Promise<void> {
-  const db = getFirebaseDb();
-  if (!db) return;
-  await ensureAnonSignIn();
-  await update(ref(db, `demoAccessRequests/${RKEY(uid)}`), { status: 'rejected', decidedAt: Date.now() });
+  await update(ref(db, `demoAccessRequests/${RKEY(uid)}`), { paused });
 }
 
 /** Nombre de sessions Démo actives simultanément, par sous-mode ('demo' approuvé vs 'anon' anonyme)

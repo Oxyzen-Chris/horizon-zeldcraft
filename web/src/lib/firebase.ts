@@ -89,7 +89,7 @@ export function ensureAnonSignIn(): Promise<User | null> {
 // ─────────────────────── Accès Démo & fiat sans portefeuille crypto (voir docs/DEMO_FIAT.md) ───────────────────────
 // Ces fonctions authentifient un compte Firebase RÉEL (Google ou email), distinct de l'anonyme
 // ci-dessus (utilisé UNIQUEMENT pour satisfaire les règles RTDB `auth != null`) — nécessaire pour
-// que l'admin puisse identifier/approuver une demande d'accès Démo (voir requestDemoAccess côté
+// que l'admin puisse identifier/auditer un compte Démo/fiat (voir logAccountAccess côté
 // gameState.ts) ou pour qu'un paiement fiat soit rattaché à une vraie adresse e-mail.
 
 /**

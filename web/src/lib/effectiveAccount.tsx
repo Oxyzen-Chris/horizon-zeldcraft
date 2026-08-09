@@ -33,6 +33,9 @@ export interface EffectiveSession {
   address: `0x${string}`;    // adresse virtuelle dérivée (voir deriveVirtualAddress)
   demoMode?: 'approved' | 'anonymous'; // sous-mode, uniquement pour kind === 'demo'
   displayName?: string;
+  email?: string;             // e-mail du compte Google/e-mail (absent pour l'accès anonyme) —
+                               // reporté sur PlayerState.email par getOrCreatePlayer (voir
+                               // game/page.tsx), pour affichage dans le menu Administration.
 }
 
 const STORAGE_KEY = 'zc.effectiveSession';

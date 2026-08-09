@@ -9,13 +9,15 @@
  * fonctionne alors exactement comme pour un vrai portefeuille, sans aucune modification.
  *
  * Deux entrées indépendantes, chacune activable/désactivable dans le menu Administration :
- *  - 🎟️ Accès Démo : gratuit, en avant-première, approuvé par l'admin (Google/e-mail) OU
- *    totalement anonyme (aucune authentification) — toutes deux plafonnées en connexions
- *    simultanées (RepRules.demoMaxConcurrentSessions / demoAnonymousMaxConcurrentSessions).
+ *  - 🎟️ Accès Démo : gratuit, accès IMMÉDIAT (Google) sans validation admin, OU totalement
+ *    anonyme (aucune authentification) — toutes deux plafonnées en connexions simultanées
+ *    (RepRules.demoMaxConcurrentSessions / demoAnonymousMaxConcurrentSessions). Chaque connexion
+ *    Google/e-mail est journalisée dans le registre admin "Demandes d'accès Démo" (e-mail, mode
+ *    d'accès, dates), qui permet de mettre un compte en pause ou de le supprimer a posteriori.
  *  - 💳 Jouer sans portefeuille : paiement fiat (CB/PayPal/Apple Pay/Google Pay, mode simulation
- *    tant qu'aucune clé Stripe réelle n'est configurée) — accès immédiat, sans plafond ni
- *    validation admin, l'achat de monnaie de jeu se fait ensuite normalement dans le jeu (voir
- *    FiatTopupPanel.tsx).
+ *    tant qu'aucune clé Stripe réelle n'est configurée) — accès immédiat, sans plafond, également
+ *    journalisé dans le même registre admin. L'achat de monnaie de jeu se fait ensuite normalement
+ *    dans le jeu (voir FiatTopupPanel.tsx).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -23,7 +25,7 @@ import type { User } from 'firebase/auth';
 import { useI18n } from '@/lib/i18n';
 import { useEffectiveSessionControls } from '@/lib/effectiveAccount';
 import {
-  getRepRules, deriveVirtualAddress, requestDemoAccess, getDemoAccessRequest,
+  getRepRules, deriveVirtualAddress, logAccountAccess,
   countActiveDemoSessions, registerDemoSession, type RepRules,
 } from '@/lib/gameState';
 import {
@@ -77,29 +79,28 @@ export function NoWalletAccessPanel() {
     }
   };
 
-  // ─── Accès Démo approuvé (Google) — demande à valider par l'admin si pas déjà fait ───
+  // ─── Accès Démo (Google) — accès IMMÉDIAT, sans validation admin (voir logAccountAccess) ───
   // Extrait en fonction réutilisable : appelée aussi bien juste après une popup réussie que lors du
   // retour de redirection (voir l'effet `consumeGoogleRedirectResult` plus bas).
   const completeApprovedDemo = useCallback(async (user: User) => {
     setBusy(true); setMessage(null);
     try {
       const address = deriveVirtualAddress(user.uid) as `0x${string}`;
-      const existing = await getDemoAccessRequest(user.uid);
-      if (existing?.status === 'rejected') { setMessage(t('home.demo.rejected')); setBusy(false); return; }
-      if (existing?.status !== 'approved') {
-        await requestDemoAccess({
-          uid: user.uid, address, displayName: user.displayName || undefined,
-          email: user.email || undefined, method: 'google',
-        });
-        setMessage(t('home.demo.pendingApproval'));
-        setBusy(false);
-        return;
-      }
+      // Journalise le compte dans le registre admin ("Demandes d'accès Démo") — l'accès est
+      // accordé immédiatement, SAUF si l'admin a explicitement mis ce compte en pause.
+      const { paused } = await logAccountAccess({
+        uid: user.uid, address, displayName: user.displayName || undefined,
+        email: user.email || undefined, method: 'google', accessMode: 'demo',
+      });
+      if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
       const count = await countActiveDemoSessions('demo');
       const cap = rules?.demoMaxConcurrentSessions ?? 90;
       if (count >= cap) { setMessage(t('home.demo.fullApproved')); setBusy(false); return; }
       await registerDemoSession('demo', user.uid);
-      setSession({ kind: 'demo', uid: user.uid, address, demoMode: 'approved', displayName: user.displayName || undefined });
+      setSession({
+        kind: 'demo', uid: user.uid, address, demoMode: 'approved',
+        displayName: user.displayName || undefined, email: user.email || undefined,
+      });
       router.push('/game');
     } catch (e) {
       console.error('[NoWalletAccessPanel] completeApprovedDemo failed:', e);
@@ -127,11 +128,26 @@ export function NoWalletAccessPanel() {
   };
 
   // ─── Paiement fiat sans portefeuille (Google ou e-mail) — accès immédiat, sans plafond ───
-  const completeFiatWithGoogle = useCallback((user: User) => {
-    const address = deriveVirtualAddress(user.uid) as `0x${string}`;
-    setSession({ kind: 'fiat', uid: user.uid, address, displayName: user.displayName || undefined });
-    router.push('/game');
-  }, [router, setSession]);
+  const completeFiatWithGoogle = useCallback(async (user: User) => {
+    setBusy(true); setMessage(null);
+    try {
+      const address = deriveVirtualAddress(user.uid) as `0x${string}`;
+      const { paused } = await logAccountAccess({
+        uid: user.uid, address, displayName: user.displayName || undefined,
+        email: user.email || undefined, method: 'google', accessMode: 'fiat',
+      });
+      if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
+      setSession({
+        kind: 'fiat', uid: user.uid, address,
+        displayName: user.displayName || undefined, email: user.email || undefined,
+      });
+      router.push('/game');
+    } catch (e) {
+      console.error('[NoWalletAccessPanel] completeFiatWithGoogle failed:', e);
+      setMessage(t('home.demo.authError'));
+      setBusy(false);
+    }
+  }, [router, setSession, t]);
 
   const startFiatWithGoogle = async () => {
     setBusy(true); setMessage(null);
@@ -139,7 +155,7 @@ export function NoWalletAccessPanel() {
       const { user, usedRedirect, errorCode } = await signInWithGoogle();
       if (usedRedirect) { sessionStorage.setItem(PENDING_GOOGLE_KEY, 'fiat'); return; }
       if (!user) { setMessage(t(describeGoogleAuthErrorKey(errorCode))); setBusy(false); return; }
-      completeFiatWithGoogle(user);
+      await completeFiatWithGoogle(user);
     } catch (e) {
       console.error('[NoWalletAccessPanel] startFiatWithGoogle failed:', e);
       setMessage(t('home.demo.authError'));
@@ -179,7 +195,12 @@ export function NoWalletAccessPanel() {
       const user = await signInWithEmail(email, password);
       if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
       const address = deriveVirtualAddress(user.uid) as `0x${string}`;
-      setSession({ kind: 'fiat', uid: user.uid, address, displayName: user.email || undefined });
+      const userEmail = user.email || email;
+      const { paused } = await logAccountAccess({
+        uid: user.uid, address, email: userEmail, method: 'email', accessMode: 'fiat',
+      });
+      if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
+      setSession({ kind: 'fiat', uid: user.uid, address, displayName: userEmail, email: userEmail });
       router.push('/game');
     } catch (e) {
       console.error('[NoWalletAccessPanel] startFiatWithEmail failed:', e);

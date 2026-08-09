@@ -8,11 +8,11 @@ import { HORIZON_ABI, STAGE_NAMES, WEATHER, WEATHER_KEYS } from '@/lib/contract'
 import { useI18n } from '@/lib/i18n';
 import { useIdsList } from './useIdsList';
 import {
-  listPlayers, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
+  listPlayersWithMeta, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
   computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex, getPlayerProgressLedger,
-  getPlayerPlaytimeStats,
+  getPlayerPlaytimeStats, computeOffchainStageLevel, deletePlayerAccount, deleteAllPlayers,
   type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules, type Season,
-  type PlayerProgressLedger, type PlaytimeStats,
+  type PlayerProgressLedger, type PlaytimeStats, type PlayerListEntry,
 } from '@/lib/gameState';
 import { ProgressLedgerView } from './ProgressLedgerView';
 
@@ -92,7 +92,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const chainId = useChainId();
   const [addr, setAddr] = useState('');
   const [target, setTarget] = useState<`0x${string}` | null>(null);
-  const [players, setPlayers] = useState<string[]>([]);
+  const [players, setPlayers] = useState<PlayerListEntry[]>([]);
   const [dbPlayer, setDbPlayer] = useState<PlayerState | null>(null);
   const [txs, setTxs] = useState<TxRecord[]>([]);
   const [loadingTxs, setLoadingTxs] = useState(false);
@@ -101,9 +101,11 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const [repRules, setRepRulesState] = useState<RepRules | null>(null);
   const [progressLedger, setProgressLedger] = useState<PlayerProgressLedger | null>(null);
   const [playtime, setPlaytime] = useState<PlaytimeStats | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
+  const reloadPlayers = () => listPlayersWithMeta().then(setPlayers).catch(() => {});
   useEffect(() => {
-    listPlayers().then(setPlayers).catch(() => {});
+    reloadPlayers();
     getRepRules().then(setRepRulesState).catch(() => {});
   }, []);
 
@@ -275,6 +277,38 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const addrBase = ETHERSCAN_ADDR[chainId] || ETHERSCAN_ADDR[11155111];
   const hasEtherscanKey = !!process.env.NEXT_PUBLIC_ETHERSCAN_KEY;
 
+  // Compte 'demo'/'fiat' (sans portefeuille crypto, voir docs/DEMO_FIAT.md) : jamais de Voxlyn
+  // on-chain (`hasVox` toujours false), mais TOUTE sa progression existe côté Firebase (xpBonus) —
+  // on synthétise donc ici le même niveau/stade que celui affiché en jeu (game/page.tsx ::
+  // synthesizeOffchainVoxlyn) pour que ce panneau admin ne reste plus vide pour ces comptes.
+  const isVirtualAccount = dbPlayer?.accountType === 'demo' || dbPlayer?.accountType === 'fiat';
+  const offchainStage = dbPlayer ? computeOffchainStageLevel(dbPlayer.xpBonus ?? 0) : null;
+
+  // ─── Zone de danger : suppression d'un compte / réinitialisation totale (menu Administration) ───
+  // Partage `deletePlayerAccount()` avec DemoAccessRequestsPanel.tsx (source unique de la logique
+  // de nettoyage — voir gameState.ts). Applicable à TOUT type de compte (wallet/demo/fiat) : pour
+  // un compte 'wallet', seuls players/{addr} et playerIndex/{addr} sont concernés (pas d'UID Firebase).
+  const deleteSelected = async () => {
+    if (!target) return;
+    if (!window.confirm(t('admin.stats.deletePlayerConfirm'))) return;
+    setDeleting(true);
+    try {
+      await deletePlayerAccount(target);
+      setTarget(null); setDbPlayer(null); setTxs([]); setAddr('');
+      await reloadPlayers();
+    } finally { setDeleting(false); }
+  };
+  const deleteAll = async () => {
+    if (!window.confirm(t('admin.stats.deleteAllConfirm1'))) return;
+    if (!window.confirm(t('admin.stats.deleteAllConfirm2'))) return;
+    setDeleting(true);
+    try {
+      await deleteAllPlayers();
+      setTarget(null); setDbPlayer(null); setTxs([]); setAddr('');
+      await reloadPlayers();
+    } finally { setDeleting(false); }
+  };
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">{t('admin.stats.title')}</h2>
@@ -284,7 +318,11 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
         <div className="flex gap-2 mb-3">
           <select className="input flex-1" value={target ?? ''} onChange={e => e.target.value && load(e.target.value)}>
             <option value="">{t('admin.stats.pick')}</option>
-            {players.map(p => <option key={p} value={p}>{p.slice(0, 10)}…{p.slice(-6)}</option>)}
+            {players.map(p => (
+              <option key={p.address} value={p.address}>
+                {p.label}{p.accountType && p.accountType !== 'wallet' ? ` — ${t(`admin.accessMode.${p.accountType}`)}` : ''}
+              </option>
+            ))}
           </select>
         </div>
       )}
@@ -295,7 +333,44 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
         <button className="btn-primary" onClick={() => load()}>{t('admin.stats.load')}</button>
       </div>
 
-      {target && !hasVox && <p className="text-amber-400 text-sm">{t('admin.stats.noVoxlyn')}</p>}
+      {target && !hasVox && !isVirtualAccount && <p className="text-amber-400 text-sm">{t('admin.stats.noVoxlyn')}</p>}
+
+      {/* Identité du compte (e-mail + mode d'accès) — affichée pour tout compte Démo/fiat sans
+          portefeuille crypto (voir docs/DEMO_FIAT.md). Un compte 'wallet' classique n'a pas
+          d'e-mail : ce bloc n'apparaît alors pas. */}
+      {target && dbPlayer && (dbPlayer.email || isVirtualAccount) && (
+        <div className="grid md:grid-cols-3 gap-3 text-sm mb-3">
+          {dbPlayer.email && <StatRow label={t('admin.stats.email')} value={dbPlayer.email} color="text-cyan-300" />}
+          {dbPlayer.accountType && (
+            <StatRow label={t('admin.stats.accessMode')} value={t(`admin.accessMode.${dbPlayer.accountType}`)} color="text-purple-300" />
+          )}
+        </div>
+      )}
+
+      {/* Compte Démo/fiat (sans Voxlyn on-chain) : synthèse des stats principales à partir de
+          Firebase uniquement (xpBonus → niveau/stade, voir computeOffchainStageLevel ci-dessus),
+          pour que ce panneau admin ne reste plus vide pour ces comptes. */}
+      {target && !hasVox && isVirtualAccount && dbPlayer && offchainStage && (
+        <div className="grid md:grid-cols-3 gap-3 text-sm">
+          <StatRow label={t('admin.stats.owner')} value={target.slice(0, 10) + '…' + target.slice(-6)} />
+          <StatRow label={t('admin.stats.name')} value={dbPlayer.displayName || dbPlayer.email || '—'} />
+          <StatRow label={t('admin.stats.level')} value={String(offchainStage.level)} color="text-emerald-400" />
+          <StatRow label={t('admin.stats.xp')} value={String(Math.max(0, dbPlayer.xpBonus ?? 0))} color="text-purple-400" />
+          <StatRow label={t('admin.stats.stage')} value={t(`stage.${STAGE_NAMES[offchainStage.stageIndex]}`)} />
+          <StatRow label={t('game.stats.hp')}      value={`${dbPlayer.hp      ?? 100} / ${dbPlayer.hpMax      ?? 100}`} color="text-rose-400" />
+          <StatRow label={t('game.stats.hunger')}  value={`${dbPlayer.hunger  ?? 100} / ${dbPlayer.hungerMax  ?? 100}`} color="text-orange-400" />
+          <StatRow label={t('game.stats.oxygen')}  value={`${dbPlayer.oxygen  ?? 100} / ${dbPlayer.oxygenMax  ?? 100}`} color="text-sky-400" />
+          <StatRow label={t('game.stats.fatigue')} value={`${dbPlayer.fatigue ?? 100} / ${dbPlayer.fatigueMax ?? 100}`} color="text-amber-400" />
+          <StatRow label={t('game.stats.reputation')} value={String(dbPlayer.reputation ?? 0)} color="text-amber-400" />
+          <StatRow label={t('game.stats.wallet')}     value={String(dbPlayer.wallet ?? 0)}     color="text-amber-400" />
+          {playtime && (
+            <>
+              <StatRow label={`⏱️ ${t('admin.stats.playtimeTotal')}`} value={fmtDuration(playtime.totalMs)} color="text-teal-400" />
+              <StatRow label={`⏱️ ${t('admin.stats.playtimeToday')}`} value={fmtDuration(playtime.todayMs)} color="text-teal-400" />
+            </>
+          )}
+        </div>
+      )}
 
       {target && hasVox && voxlyn && (
         <div className="grid md:grid-cols-3 gap-3 text-sm">
@@ -461,6 +536,28 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Zone de danger — suppression d'un compte joueur / réinitialisation totale (menu
+          Administration). Réutilise deletePlayerAccount()/deleteAllPlayers() (gameState.ts),
+          partagées avec DemoAccessRequestsPanel.tsx. Supprimer un compte Démo/fiat libère aussi
+          immédiatement un emplacement de connexion concurrente (voir docs/DEMO_FIAT.md). */}
+      {(target || players.length > 0) && (
+        <div className="mt-6 border-t border-rose-900/50 pt-4">
+          <h3 className="text-sm font-semibold mb-2 text-rose-400">⚠️ {t('admin.stats.dangerZone')}</h3>
+          <div className="flex flex-wrap gap-2">
+            {target && (
+              <button className="btn-secondary text-xs text-rose-400" disabled={deleting} onClick={deleteSelected}>
+                🗑️ {t('admin.stats.deletePlayer')}
+              </button>
+            )}
+            {players.length > 0 && (
+              <button className="btn-secondary text-xs text-rose-500" disabled={deleting} onClick={deleteAll}>
+                💥 {t('admin.stats.deleteAll')}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </section>

@@ -38,9 +38,14 @@ Ce hook est utilisé dans TOUS les composants de jeu **sauf** :
 
 ## 🎟️ Accès Démo — deux sous-modes
 
+> **Mise à jour (accès instantané)** : depuis la v2.x, la connexion Google/e-mail donne un accès
+> **IMMÉDIAT** au jeu, sans file d'attente à valider par l'administrateur (voir justification et
+> détails dans la section « 📋 Registre & modération » ci-dessous). Le tableau ci-dessous reflète ce
+> nouveau comportement.
+
 | Sous-mode | Authentification | Validation admin ? | Plafond (paramétrable) |
 |---|---|---|---|
-| **Approuvé** | Connexion Google | Oui — file d'attente dans `Administration > Demandes d'accès Démo` | `RepRules.demoMaxConcurrentSessions` (défaut 90) |
+| **Google/e-mail** | Connexion Google (Accès Démo ou Jouer sans portefeuille) ou e-mail/mot de passe | **Non — accès immédiat**, journalisé dans `Administration > Demandes d'accès Démo` (registre a posteriori, pause/suppression possibles) | `RepRules.demoMaxConcurrentSessions` (défaut 90), uniquement pour le sous-mode « 🎟️ Accès Démo » |
 | **Anonyme** | Aucune (Firebase Auth anonyme) | Non — accès instantané | `RepRules.demoAnonymousMaxConcurrentSessions` (défaut 40) |
 
 Pourquoi ces plafonds précis : le plan gratuit **Spark** de Firebase limite à **100 connexions RTDB
@@ -49,20 +54,44 @@ crypto classiques tant que le projet n'est pas passé au plan payant **Blaze**. 
 (ainsi que l'activation de chaque sous-mode) sont ajustables sans redéploiement dans
 `Administration`.
 
-Parcours « Approuvé » :
+Parcours « 🎟️ Accès Démo » (Google) :
 1. Le joueur clique « 🎟️ Accès Démo » sur la page d'accueil → « Continuer avec Google ».
-2. `requestDemoAccess()` enregistre une `DemoAccessRequest` (statut `pending`) dans
-   `demoAccessRequests/{uid}`.
-3. L'administrateur reçoit la demande dans `Administration > Demandes d'accès Démo`
-   (`DemoAccessRequestsPanel`, écoute temps réel) et clique **Valider** ou **Rejeter**.
-4. `approveDemoAccess()` crée/seed le compte joueur (`getOrCreatePlayer` avec
-   `accountType: 'demo'`, portefeuille virtuel initial = `RepRules.demoInitialCoins`, défaut 4000
-   coins) et marque `players/{addr}.demoApproved = true`.
-5. Au prochain essai de connexion (ou immédiatement si déjà sur la page), le joueur est
-   automatiquement redirigé vers `/game` une fois la capacité vérifiée.
+2. `logAccountAccess()` enregistre/actualise une `DemoAccessRequest` (`demoAccessRequests/{uid}`,
+   `accessMode: 'demo'`, `status: 'approved'` automatique, `loginCount`/`lastLoginAt` mis à jour) —
+   **sauf si l'admin a préalablement mis ce compte en pause** (`paused: true`), auquel cas l'accès
+   est refusé avec un message explicite (`home.demo.pausedByAdmin`).
+3. Si la capacité `demoMaxConcurrentSessions` n'est pas atteinte, `getOrCreatePlayer()` crée/seed le
+   compte joueur (`accountType: 'demo'`, portefeuille virtuel initial = `RepRules.demoInitialCoins`,
+   défaut 4000 coins, `uid`/`email` enregistrés pour l'audit admin) et le joueur est immédiatement
+   redirigé vers `/game`.
+4. L'administrateur peut à tout moment consulter ce compte, le mettre en pause (bloque une future
+   reconnexion sans effacer sa progression) ou le supprimer définitivement (voir section suivante).
 
-Parcours « Anonyme » : identique mais sans étape 2-4 — connexion Firebase anonyme instantanée,
-sous réserve de place disponible (`countActiveDemoSessions('anon') < demoAnonymousMaxConcurrentSessions`).
+Parcours « Anonyme » : identique mais sans authentification ni journalisation nominative —
+connexion Firebase anonyme instantanée, sous réserve de place disponible
+(`countActiveDemoSessions('anon') < demoAnonymousMaxConcurrentSessions`).
+
+## 📋 Registre & modération (Administration > Demandes d'accès Démo)
+
+Le panneau `DemoAccessRequestsPanel` (menu Administration) a changé de rôle : ce n'est plus une file
+d'attente à valider/rejeter, mais un **registre d'audit** de tous les comptes Google/e-mail
+connectés sans portefeuille crypto (Accès Démo **et** Jouer sans portefeuille), avec :
+- Un **compteur de sessions actives en direct** (rafraîchi toutes les 15 s) : `X / 90` sessions
+  Démo, dont `Y / 40` anonymes, et le nombre de places restantes avant d'atteindre chaque plafond.
+- Pour chaque compte : e-mail, méthode (Google/e-mail), mode d'accès (Accès Démo / Jouer sans
+  portefeuille), date de première connexion, date de dernière connexion, nombre total de connexions.
+- Un bouton **⏸ Mettre en pause / ▶️ Réactiver** (`pauseAccountAccess`) : bloque/débloque la
+  prochaine tentative de connexion de ce compte, **sans supprimer sa progression** — réversible.
+- Un bouton **🗑️ Supprimer** (`deletePlayerAccount`) : supprime définitivement le compte joueur
+  (`players/{addr}` et tout ce qui y est imbriqué), son entrée de registre et sa session active
+  éventuelle — ce qui **libère immédiatement un emplacement de connexion concurrente**.
+
+Le même mécanisme de suppression est disponible dans `Administration > Statistiques par joueur`
+(`PlayerStats.tsx`), qui affiche désormais aussi l'e-mail et le mode d'accès de chaque compte
+Démo/Fiat dans la liste déroulante et dans les statistiques détaillées (synthèse de niveau/XP/stade
+hors-chaîne via `computeOffchainStageLevel`, ces comptes n'ayant jamais de Voxlyn on-chain). Une
+« Zone de danger » permet de supprimer un joueur individuellement ou de réinitialiser
+**intégralement** tous les joueurs du jeu (double confirmation requise, action irréversible).
 
 ## 💳 Paiement fiat — sans portefeuille crypto
 
@@ -70,8 +99,9 @@ Un joueur qui ne souhaite pas utiliser d'ETH peut :
 1. Cliquer « 💳 Jouer sans portefeuille » sur la page d'accueil.
 2. Se connecter avec Google ou un couple e-mail/mot de passe (`signInWithGoogle`/`signInWithEmail`,
    `web/src/lib/firebase.ts`).
-3. Accéder **immédiatement** au jeu (`accountType: 'fiat'`, pas de validation admin — un joueur
-   payant n'a pas à attendre d'autorisation).
+3. Accéder **immédiatement** au jeu (`accountType: 'fiat'`, `logAccountAccess()` journalise le
+   compte pour l'audit admin mais n'exige aucune validation — un joueur payant n'a pas à attendre
+   d'autorisation, sauf s'il a été explicitement mis en pause par l'admin).
 4. Recharger sa monnaie de jeu par CB, PayPal, Apple Pay ou Google Pay via le composant
    `FiatTopupPanel.tsx`, intégré à la fois dans le widget flottant « Rechargement du portefeuille »
    (`WalletTopupWidget.tsx`) et la page « Portefeuille » (`WalletPanel.tsx`) — **visible aussi pour
@@ -197,6 +227,10 @@ portefeuille connecté, conserve bien la session — comportement inchangé).
   GamePlay (`AiGameplayIntelligencePanel`) — DAU/rétention, temps par widget, entonnoir de quêtes,
   heatmaps — ce qui permet d'auditer finement le parcours des joueurs Démo/Fiat au même titre que
   les joueurs crypto (voir `docs/ROADMAP.md` § Phase 1.5).
+- Un compte Google/e-mail jugé abusif (triche, spam…) peut être **mis en pause** (bloque sa
+  prochaine connexion, conserve sa progression, réversible) ou **supprimé définitivement**
+  (`deletePlayerAccount`, efface tout et libère sa session) depuis `Administration > Demandes
+  d'accès Démo` ou `Administration > Statistiques par joueur` — voir § « Registre & modération ».
 - Voir `docs/FIREBASE_CHAT.md` pour les règles de sécurité RTDB des chemins
   `demoAccessRequests/*` et `demoSessions/*`, et les fournisseurs d'authentification Firebase
   (Google, E-mail/Mot de passe) à activer en plus de l'anonyme déjà requis.
@@ -207,9 +241,9 @@ portefeuille connecté, conserve bien la session — comportement inchangé).
 |---|---|---|
 | `demoAccessEnabled` | `true` | Affiche/masque le bouton « 🎟️ Accès Démo » sur la page d'accueil |
 | `demoAnonymousEnabled` | `true` | Active/désactive le sous-mode anonyme (nécessite `demoAccessEnabled`) |
-| `demoMaxConcurrentSessions` | `90` | Plafond de connexions Démo approuvées simultanées |
+| `demoMaxConcurrentSessions` | `90` | Plafond de connexions Démo (Google) simultanées — accès immédiat tant que non atteint |
 | `demoAnonymousMaxConcurrentSessions` | `40` | Plafond de connexions anonymes simultanées |
-| `demoInitialCoins` | `4000` | Portefeuille virtuel de départ offert à un compte Démo validé |
+| `demoInitialCoins` | `4000` | Portefeuille virtuel de départ offert à un nouveau compte Démo |
 | `fiatPaymentEnabled` | `true` | Affiche/masque le bouton « 💳 Jouer sans portefeuille » + le panneau `FiatTopupPanel` partout |
 | `fiatMethodCardEnabled` / `fiatMethodPaypalEnabled` / `fiatMethodApplePayEnabled` / `fiatMethodGooglePayEnabled` | `true` | Active/désactive chaque moyen de paiement individuellement |
 | `fiatSimulationMode` | `true` | Mode simulation (aucun paiement réel) — à désactiver seulement après intégration d'une vraie passerelle |
