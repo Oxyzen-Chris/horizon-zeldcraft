@@ -108,7 +108,7 @@ export function NoWalletAccessPanel() {
       await registerDemoSession('demo', user.uid);
       setSession({
         kind: 'demo', uid: user.uid, address, demoMode: 'approved',
-        displayName: user.displayName || undefined, email: user.email || undefined,
+        displayName: user.displayName || undefined, email: user.email || undefined, authMethod: 'google',
       });
       router.push('/game');
     } catch (e) {
@@ -148,7 +148,7 @@ export function NoWalletAccessPanel() {
       if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
       setSession({
         kind: 'fiat', uid: user.uid, address,
-        displayName: user.displayName || undefined, email: user.email || undefined,
+        displayName: user.displayName || undefined, email: user.email || undefined, authMethod: 'google',
       });
       router.push('/game');
     } catch (e) {
@@ -210,7 +210,7 @@ export function NoWalletAccessPanel() {
         uid: user.uid, address, email: userEmail, method: 'email', accessMode: 'fiat',
       });
       if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
-      setSession({ kind: 'fiat', uid: user.uid, address, displayName: userEmail, email: userEmail });
+      setSession({ kind: 'fiat', uid: user.uid, address, displayName: userEmail, email: userEmail, authMethod: 'email' });
       router.push('/game');
     } catch (e) {
       console.error('[NoWalletAccessPanel] startFiatEmailLogin failed:', e);
@@ -247,7 +247,7 @@ export function NoWalletAccessPanel() {
         }).catch(() => {}); // best-effort — ne bloque jamais la création de compte si l'e-mail échoue
       }
       if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
-      setSession({ kind: 'fiat', uid: user.uid, address, displayName: userEmail, email: userEmail });
+      setSession({ kind: 'fiat', uid: user.uid, address, displayName: userEmail, email: userEmail, authMethod: 'email' });
       router.push('/game');
     } catch (e) {
       console.error('[NoWalletAccessPanel] startFiatEmailCreate failed:', e);

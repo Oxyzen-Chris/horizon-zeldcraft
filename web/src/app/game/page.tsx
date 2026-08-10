@@ -149,12 +149,12 @@ export default function GamePage() {
       const p = await getOrCreatePlayer(address, session?.displayName || undefined, {
         accountType: accountType as 'demo' | 'fiat',
         initialWallet: accountType === 'demo' ? (rules?.demoInitialCoins ?? 4000) : 0,
-        uid: session?.uid, email: session?.email, lang: locale,
+        uid: session?.uid, email: session?.email, authMethod: session?.authMethod, lang: locale,
       }).catch(() => null);
       if (!cancelled && p) setVirtualPlayer(p);
     })();
     return () => { cancelled = true; };
-  }, [isVirtual, address, accountType, session?.displayName, session?.uid, session?.email, locale]);
+  }, [isVirtual, address, accountType, session?.displayName, session?.uid, session?.email, session?.authMethod, locale]);
   // Synchronisation temps réel du joueur virtuel une fois créé (mêmes mises à jour que
   // VoxlynDashboard, nécessaire ICI pour recalculer le tuple `v` synthétique à chaque évolution).
   useEffect(() => {

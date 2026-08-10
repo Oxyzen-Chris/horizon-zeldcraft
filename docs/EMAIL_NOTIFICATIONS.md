@@ -15,6 +15,8 @@ automatiques ») et `Administration > Statistiques par joueur` (sous-panneau `Pl
 | Rapport de progression **programmé** (récurrent) | `api/email/cron-reports` (Vercel Cron, voir `vercel.json`) |
 | Message personnalisé à un joueur ou à tous (maintenance, actu…) | `api/email/send` (`kind: 'broadcast'`) |
 | Bandeau « annonce en direct » in-game (ciblé ou global) | `gameState.ts` (`*Announcement*`) + `AnnouncementBanner.tsx` |
+| Reset mot de passe forcé par l'admin | `api/admin/reset-password` + `api/email/send` (`kind: 'password-reset'`) |
+| Changement de mot de passe volontaire par le joueur | `PasswordResetModal.tsx` + `lib/firebase.ts::selfUpdatePassword` + `api/email/send` (`kind: 'password-changed'`) |
 
 Fournisseur d'envoi : **[Resend](https://resend.com)**, via son API REST directement (`fetch`),
 sans SDK npm — même logique que `api/ai/insights/route.ts` pour les fournisseurs IA : on garde le
@@ -44,8 +46,64 @@ explicite dans `NoWalletAccessPanel.tsx` :
   (`players/{addr}`, adresse virtuelle dérivée de son UID Firebase) est retrouvée normalement, sans
   rien recréer.
 
-**Aucun mot de passe n'est jamais envoyé par e-mail** (ni en clair, ni haché) — l'e-mail de
-bienvenue confirme uniquement la création du compte.
+**Aucun mot de passe n'est jamais envoyé par e-mail lors de la création de compte** (ni en clair,
+ni haché) — l'e-mail de bienvenue confirme uniquement la création du compte. La seule exception est
+le reset de mot de passe forcé par l'admin (voir § « 🔑 Reset mot de passe » ci-dessous), qui
+communique intentionnellement le nouveau mot de passe en clair au joueur pour qu'il puisse se
+reconnecter.
+
+## 🔑 Reset mot de passe (admin-forcé + auto-service joueur)
+
+Deux flux distincts, réservés aux comptes « Jouer sans portefeuille » créés par e-mail/mot de passe
+(`PlayerState.authMethod === 'email'` — absent/`'google'` pour les comptes liés à Google, qui n'ont
+pas de mot de passe Firebase à réinitialiser).
+
+### 1. Reset forcé par l'admin (`Administration > Statistiques par joueur > Zone de danger`)
+
+Bouton « 🔑 Reset mot de passe », visible uniquement si le joueur sélectionné a
+`authMethod === 'email'` :
+
+```
+PlayerStats.tsx → POST /api/admin/reset-password { uid } → { ok, newPassword }
+```
+
+- Le SDK Auth **client** ne peut modifier que le mot de passe de l'utilisateur *actuellement
+  connecté* — impossible de réinitialiser le compte d'un *autre* joueur depuis le navigateur admin.
+  La route utilise donc le **Firebase Admin SDK** (`firebase-admin`, `lib/firebaseAdmin.ts`), qui
+  nécessite ses propres identifiants serveur : `FIREBASE_ADMIN_CLIENT_EMAIL` +
+  `FIREBASE_ADMIN_PRIVATE_KEY` (voir `docs/DEPLOYMENT.md`), distincts du `FIREBASE_DB_SECRET` déjà
+  utilisé pour les rapports programmés (celui-ci n'a aucun droit sur Firebase Auth).
+- `generateStrongPassword(12)` génère un mot de passe aléatoire cryptographiquement sûr (12
+  caractères : au moins une majuscule, une minuscule, un chiffre, un caractère spécial, mélangés),
+  en excluant les caractères visuellement ambigus (`I`, `l`, `O`, `0`, `1`) pour rester lisible une
+  fois affiché/copié.
+- Le mot de passe généré est renvoyé **une seule fois** dans la réponse de l'API et affiché en clair
+  dans le panneau admin (zone de danger) — **jamais persisté en base** (ni RTDB ni ailleurs) : une
+  fois la page rechargée ou l'admin reparti, il n'est plus récupérable et il faut regénérer un
+  nouveau mot de passe si besoin.
+- Un e-mail (`kind: 'password-reset'`, `buildPasswordResetEmail`) est envoyé au joueur avec son
+  nouveau mot de passe en clair, pour qu'il puisse se reconnecter.
+- `PlayerState.passwordResetCount` (compteur partagé avec le flux ci-dessous) et
+  `lastPasswordResetAt` sont incrémentés/mis à jour et affichés dans les statistiques du joueur.
+- Si les identifiants Admin SDK ne sont pas configurés, la route répond `501` et le panneau affiche
+  un message explicite invitant à consulter `docs/DEPLOYMENT.md` — aucune autre fonctionnalité du
+  jeu n'est affectée (dégradation gracieuse, comme pour les autres clés optionnelles du projet).
+
+### 2. Changement volontaire par le joueur (bouton à côté de l'adresse virtuelle en jeu)
+
+Nouveau bouton « 🔑 Reset mot de passe » dans le menu déroulant de `EffectiveAccountBadge.tsx`
+(visible uniquement pour un compte fiat par e-mail), ouvrant `PasswordResetModal.tsx` :
+
+- 100% côté client via `lib/firebase.ts::selfUpdatePassword()` (`updatePassword()` du SDK Auth sur
+  l'utilisateur courant — aucun besoin du SDK Admin ici).
+- Demande le nouveau mot de passe + sa confirmation. Si Firebase exige une reconnexion récente
+  (`auth/requires-recent-login`, opération sensible), la pop-up affiche automatiquement un champ
+  « mot de passe actuel » et retente avec `reauthenticateWithCredential`.
+- Envoie un e-mail de confirmation (`kind: 'password-changed'`, `buildPasswordChangedEmail`) — **ne
+  révèle jamais le nouveau mot de passe** (le joueur vient de le choisir lui-même), juste une alerte
+  de sécurité confirmant le changement.
+- Incrémente le même compteur `passwordResetCount` que le flux admin (« nombre de fois où le mot de
+  passe a été changé », peu importe qui a déclenché le changement).
 
 ## 📨 E-mail de bienvenue
 
@@ -151,6 +209,8 @@ Toutes ajoutées à `docs/DEPLOYMENT.md` (tableau des variables d'environnement)
 | `RESEND_FROM_NAME` | Nom d'expéditeur (fallback si `emailFromName` non défini en base) | Libre |
 | `FIREBASE_DB_SECRET` | Rapports **programmés** uniquement (cron) | Console Firebase → Paramètres du projet → Comptes de service → onglet « Legacy » (Database secrets) |
 | `CRON_SECRET` | Sécurisation optionnelle de `/api/email/cron-reports` | Valeur aléatoire de ton choix |
+| `FIREBASE_ADMIN_CLIENT_EMAIL` | Reset mot de passe **forcé par l'admin** uniquement (§ ci-dessus) | Console Firebase → Comptes de service → « Générer une nouvelle clé privée » → champ `client_email` |
+| `FIREBASE_ADMIN_PRIVATE_KEY` | Reset mot de passe **forcé par l'admin** uniquement (§ ci-dessus) | Même fichier JSON que ci-dessus → champ `private_key` |
 
 Si `RESEND_API_KEY` est absent : les routes `/api/email/*` répondent explicitement en **501**
 (plutôt que de planter) et un avertissement (⚠️) s'affiche dans le panneau Administration —

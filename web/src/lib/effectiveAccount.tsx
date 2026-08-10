@@ -36,6 +36,9 @@ export interface EffectiveSession {
   email?: string;             // e-mail du compte Google/e-mail (absent pour l'accès anonyme) —
                                // reporté sur PlayerState.email par getOrCreatePlayer (voir
                                // game/page.tsx), pour affichage dans le menu Administration.
+  authMethod?: 'google' | 'email'; // méthode d'authentification Firebase utilisée — reportée sur
+                               // PlayerState.authMethod (voir getOrCreatePlayer), détermine si le
+                               // bouton "Reset mot de passe" est affiché (voir EffectiveAccountBadge.tsx).
 }
 
 const STORAGE_KEY = 'zc.effectiveSession';

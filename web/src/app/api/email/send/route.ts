@@ -11,6 +11,11 @@
  *    masse (tous les joueurs ayant un e-mail), ex : annonce de maintenance/nouveauté.
  *  - api/email/cron-reports/route.ts (kind: 'report') — envois programmés (voir
  *    PlayerState.scheduledReport).
+ *  - PlayerStats.tsx (kind: 'password-reset') — juste après un reset de mot de passe forcé par
+ *    l'admin (bouton "🔑 Reset mot de passe", zone de danger) : transmet le nouveau mot de passe
+ *    en clair au joueur (voir api/admin/reset-password/route.ts, lib/firebaseAdmin.ts).
+ *  - EffectiveAccountBadge.tsx (kind: 'password-changed') — confirmation (sans mot de passe) après
+ *    un changement volontaire du joueur en jeu (voir lib/firebase.ts::selfUpdatePassword).
  *
  * Comme web/src/app/api/ai/insights/route.ts, cette route ne fait AUCUNE vérification serveur de
  * rôle admin (le menu Administration est déjà gardé côté client par `isOwner`, voir
@@ -20,7 +25,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { isEmailConfigured, sendEmail, sendEmailBatch } from '@/lib/email/resend';
-import { buildWelcomeEmail, buildPlayerReportEmail, buildBroadcastEmail, type EmailLocale, type PlayerReportData } from '@/lib/email/templates';
+import { buildWelcomeEmail, buildPlayerReportEmail, buildBroadcastEmail, buildPasswordResetEmail, buildPasswordChangedEmail, type EmailLocale, type PlayerReportData } from '@/lib/email/templates';
 
 export const runtime = 'nodejs';
 
@@ -35,7 +40,9 @@ function isValidEmail(s: unknown): s is string {
 type Body =
   | { kind: 'welcome'; to: string; locale?: string; bannerImageUrl?: string }
   | { kind: 'report'; to: string; locale?: string; stats: PlayerReportData; customMessage?: string; customImageUrl?: string; bannerImageUrl?: string }
-  | { kind: 'broadcast'; recipients: { to: string; locale?: string }[]; message: string; imageUrl?: string; bannerImageUrl?: string; subject?: string };
+  | { kind: 'broadcast'; recipients: { to: string; locale?: string }[]; message: string; imageUrl?: string; bannerImageUrl?: string; subject?: string }
+  | { kind: 'password-reset'; to: string; locale?: string; newPassword: string; bannerImageUrl?: string }
+  | { kind: 'password-changed'; to: string; locale?: string; bannerImageUrl?: string };
 
 export async function POST(req: NextRequest) {
   if (!isEmailConfigured()) {
@@ -89,6 +96,23 @@ export async function POST(req: NextRequest) {
       });
       const sent = results.filter((r) => r.result.ok).length;
       return NextResponse.json({ ok: sent > 0, sent, total: results.length, failed: results.filter((r) => !r.result.ok).map((r) => r.to) });
+    }
+
+    if (body.kind === 'password-reset') {
+      if (!isValidEmail(body.to)) return NextResponse.json({ error: 'bad-request', message: 'E-mail invalide.' }, { status: 400 });
+      if (!body.newPassword || typeof body.newPassword !== 'string') {
+        return NextResponse.json({ error: 'bad-request', message: 'Champ "newPassword" manquant.' }, { status: 400 });
+      }
+      const { subject, html } = buildPasswordResetEmail({ locale: safeLocale(body.locale), email: body.to, newPassword: body.newPassword, bannerImageUrl: body.bannerImageUrl });
+      const result = await sendEmail({ to: body.to, subject, html });
+      return NextResponse.json(result, { status: result.ok ? 200 : 502 });
+    }
+
+    if (body.kind === 'password-changed') {
+      if (!isValidEmail(body.to)) return NextResponse.json({ error: 'bad-request', message: 'E-mail invalide.' }, { status: 400 });
+      const { subject, html } = buildPasswordChangedEmail({ locale: safeLocale(body.locale), email: body.to, bannerImageUrl: body.bannerImageUrl });
+      const result = await sendEmail({ to: body.to, subject, html });
+      return NextResponse.json(result, { status: result.ok ? 200 : 502 });
     }
 
     return NextResponse.json({ error: 'bad-request', message: 'Champ "kind" invalide.' }, { status: 400 });

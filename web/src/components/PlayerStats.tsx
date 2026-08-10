@@ -11,6 +11,7 @@ import {
   listPlayersWithMeta, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
   computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex, getPlayerProgressLedger,
   getPlayerPlaytimeStats, computeOffchainStageLevel, deletePlayerAccount, deleteAllPlayers,
+  incrementPasswordResetCount,
   type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules, type Season,
   type PlayerProgressLedger, type PlaytimeStats, type PlayerListEntry,
 } from '@/lib/gameState';
@@ -103,6 +104,8 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const [progressLedger, setProgressLedger] = useState<PlayerProgressLedger | null>(null);
   const [playtime, setPlaytime] = useState<PlaytimeStats | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [resettingPw, setResettingPw] = useState(false);
+  const [resetPwResult, setResetPwResult] = useState<string | null>(null);
 
   const reloadPlayers = () => listPlayersWithMeta().then(setPlayers).catch(() => {});
   useEffect(() => {
@@ -188,6 +191,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     setTarget(val as `0x${string}`);
     setLoadingTxs(true);
     setProgressLedger(null);
+    setResetPwResult(null);
     // Charge parallèlement DB player, Firebase txs, Etherscan history, stats d'activité, le ledger
     // complet de progression et le temps de jeu total/quotidien (voir getPlayerPlaytimeStats() —
     // rubrique "Statistiques par joueur").
@@ -323,6 +327,45 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     } finally { setDeleting(false); }
   };
 
+  // ─── Reset forcé du mot de passe d'un joueur "Jouer sans portefeuille" (e-mail/mot de passe) ───
+  // Requiert le SDK Admin Firebase côté serveur (voir /api/admin/reset-password, firebaseAdmin.ts) :
+  // le SDK client ne peut modifier QUE le mot de passe de l'utilisateur actuellement connecté, donc
+  // impossible de le faire depuis ce panneau admin sans passer par une route serveur dédiée.
+  const resetPlayerPassword = async () => {
+    if (!target || !dbPlayer?.uid) return;
+    if (!window.confirm(t('admin.stats.resetPasswordConfirm'))) return;
+    setResettingPw(true);
+    setResetPwResult(null);
+    try {
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: dbPlayer.uid }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.error === 'not-configured' ? t('admin.stats.resetPasswordNotConfigured') : t('admin.stats.resetPasswordError'));
+        return;
+      }
+      setResetPwResult(data.newPassword);
+      await incrementPasswordResetCount(target).catch(() => {});
+      if (dbPlayer.email) {
+        fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'password-reset', to: dbPlayer.email, newPassword: data.newPassword, locale: dbPlayer.lang || 'fr' }),
+        }).catch(() => {}); // best-effort — le mot de passe reste valide même si l'e-mail échoue
+      }
+      await load(target);
+      setResetPwResult(data.newPassword); // load() ci-dessus réinitialise resetPwResult — on le réaffiche après rechargement
+    } catch (e) {
+      console.error('[PlayerStats] resetPlayerPassword failed:', e);
+      alert(t('admin.stats.resetPasswordError'));
+    } finally {
+      setResettingPw(false);
+    }
+  };
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">{t('admin.stats.title')}</h2>
@@ -357,6 +400,9 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
           {dbPlayer.email && <StatRow label={t('admin.stats.email')} value={dbPlayer.email} color="text-cyan-300" />}
           {dbPlayer.accountType && (
             <StatRow label={t('admin.stats.accessMode')} value={t(`admin.accessMode.${dbPlayer.accountType}`)} color="text-purple-300" />
+          )}
+          {dbPlayer.authMethod === 'email' && (
+            <StatRow label={t('admin.stats.passwordResetCount')} value={String(dbPlayer.passwordResetCount ?? 0)} color="text-amber-300" />
           )}
         </div>
       )}
@@ -574,6 +620,11 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
         <div className="mt-6 border-t border-rose-900/50 pt-4">
           <h3 className="text-sm font-semibold mb-2 text-rose-400">⚠️ {t('admin.stats.dangerZone')}</h3>
           <div className="flex flex-wrap gap-2">
+            {target && dbPlayer?.authMethod === 'email' && (
+              <button className="btn-secondary text-xs text-amber-400" disabled={resettingPw} onClick={resetPlayerPassword}>
+                🔑 {resettingPw ? t('common.loading') : t('admin.stats.resetPassword')}
+              </button>
+            )}
             {target && (
               <button className="btn-secondary text-xs text-rose-400" disabled={deleting} onClick={deleteSelected}>
                 🗑️ {t('admin.stats.deletePlayer')}
@@ -585,6 +636,12 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
               </button>
             )}
           </div>
+          {resetPwResult && (
+            <div className="mt-3 p-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-sm">
+              <p className="text-amber-300 mb-1">{t('admin.stats.resetPasswordSuccess')}</p>
+              <code className="text-amber-100 font-mono text-base select-all">{resetPwResult}</code>
+            </div>
+          )}
         </div>
       )}
     </section>

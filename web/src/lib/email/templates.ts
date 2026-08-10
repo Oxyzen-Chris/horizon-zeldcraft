@@ -28,6 +28,14 @@ const STR: Record<EmailLocale, Record<string, string>> = {
     reportCta: 'Reprendre l\'aventure',
     broadcastSubject: 'Message de l\'équipe Horizon ZeldCraft 📢',
     broadcastHeading: 'Un message de l\'équipe',
+    pwResetSubject: 'Ton mot de passe Horizon ZeldCraft a été réinitialisé 🔑',
+    pwResetHeading: 'Nouveau mot de passe',
+    pwResetIntro: 'À la demande de l\'administrateur du jeu, ton mot de passe a été réinitialisé. Voici ton nouveau mot de passe :',
+    pwResetHint: 'Nous te recommandons de le changer toi-même dès ta prochaine connexion (bouton "Reset mot de passe" à côté de ton adresse en jeu).',
+    pwResetCta: 'Se connecter',
+    pwChangedSubject: 'Ton mot de passe Horizon ZeldCraft a été modifié 🔒',
+    pwChangedHeading: 'Mot de passe modifié',
+    pwChangedBody: 'Ton mot de passe vient d\'être changé avec succès. Si tu n\'es pas à l\'origine de cette modification, contacte immédiatement l\'administrateur du jeu.',
     footer: 'Horizon ZeldCraft — un compagnon magique à faire grandir chaque jour.',
     footerUnsub: 'Tu reçois cet e-mail car tu possèdes un compte sur Horizon ZeldCraft.',
   },
@@ -44,6 +52,14 @@ const STR: Record<EmailLocale, Record<string, string>> = {
     reportCta: 'Resume the adventure',
     broadcastSubject: 'Message from the Horizon ZeldCraft team 📢',
     broadcastHeading: 'A message from the team',
+    pwResetSubject: 'Your Horizon ZeldCraft password has been reset 🔑',
+    pwResetHeading: 'New password',
+    pwResetIntro: 'At the game administrator\'s request, your password has been reset. Here is your new password:',
+    pwResetHint: 'We recommend changing it yourself at your next login ("Reset password" button next to your address in-game).',
+    pwResetCta: 'Sign in',
+    pwChangedSubject: 'Your Horizon ZeldCraft password has been changed 🔒',
+    pwChangedHeading: 'Password changed',
+    pwChangedBody: 'Your password was just changed successfully. If you did not make this change, please contact the game administrator immediately.',
     footer: 'Horizon ZeldCraft — a magical companion to grow every day.',
     footerUnsub: 'You are receiving this email because you have an account on Horizon ZeldCraft.',
   },
@@ -60,6 +76,14 @@ const STR: Record<EmailLocale, Record<string, string>> = {
     reportCta: 'Retomar la aventura',
     broadcastSubject: 'Mensaje del equipo de Horizon ZeldCraft 📢',
     broadcastHeading: 'Un mensaje del equipo',
+    pwResetSubject: 'Se ha restablecido tu contraseña de Horizon ZeldCraft 🔑',
+    pwResetHeading: 'Nueva contraseña',
+    pwResetIntro: 'A petición del administrador del juego, se ha restablecido tu contraseña. Aquí tienes tu nueva contraseña:',
+    pwResetHint: 'Te recomendamos cambiarla tú mismo en tu próxima conexión (botón "Restablecer contraseña" junto a tu dirección en el juego).',
+    pwResetCta: 'Iniciar sesión',
+    pwChangedSubject: 'Tu contraseña de Horizon ZeldCraft ha sido modificada 🔒',
+    pwChangedHeading: 'Contraseña modificada',
+    pwChangedBody: 'Tu contraseña acaba de cambiarse con éxito. Si no has sido tú quien ha hecho este cambio, contacta inmediatamente con el administrador del juego.',
     footer: 'Horizon ZeldCraft — un compañero mágico que crece cada día.',
     footerUnsub: 'Recibes este correo porque tienes una cuenta en Horizon ZeldCraft.',
   },
@@ -76,6 +100,14 @@ const STR: Record<EmailLocale, Record<string, string>> = {
     reportCta: 'Retomar a aventura',
     broadcastSubject: 'Mensagem da equipa Horizon ZeldCraft 📢',
     broadcastHeading: 'Uma mensagem da equipa',
+    pwResetSubject: 'A tua palavra-passe do Horizon ZeldCraft foi redefinida 🔑',
+    pwResetHeading: 'Nova palavra-passe',
+    pwResetIntro: 'A pedido do administrador do jogo, a tua palavra-passe foi redefinida. Aqui está a tua nova palavra-passe:',
+    pwResetHint: 'Recomendamos que a alteres tu mesmo no próximo início de sessão (botão "Redefinir palavra-passe" junto ao teu endereço no jogo).',
+    pwResetCta: 'Iniciar sessão',
+    pwChangedSubject: 'A tua palavra-passe do Horizon ZeldCraft foi alterada 🔒',
+    pwChangedHeading: 'Palavra-passe alterada',
+    pwChangedBody: 'A tua palavra-passe acabou de ser alterada com sucesso. Se não foste tu a fazer esta alteração, contacta imediatamente o administrador do jogo.',
     footer: 'Horizon ZeldCraft — um companheiro mágico para fazer crescer todos os dias.',
     footerUnsub: 'Recebes este e-mail porque tens uma conta no Horizon ZeldCraft.',
   },
@@ -210,6 +242,37 @@ export function buildBroadcastEmail(opts: {
     ${ctaButton(tr(locale, 'reportCta'), GAME_URL)}
   `);
   return { subject: subject?.trim() || tr(locale, 'broadcastSubject'), html };
+}
+
+/** E-mail de reset de mot de passe FORCÉ PAR L'ADMIN (voir api/admin/reset-password/route.ts,
+ * PlayerStats.tsx zone de danger). ⚠️ Contient volontairement le nouveau mot de passe EN CLAIR
+ * (demande explicite utilisateur) : un reset admin est un scénario de type "compte perdu", où le
+ * joueur n'a par définition plus accès à son mot de passe — il doit pouvoir le lire quelque part.
+ * À la différence de `buildWelcomeEmail` (qui ne divulgue jamais de mot de passe), ce cas précis le
+ * justifie. Toujours suivi de la recommandation de le changer soi-même dès la reconnexion. */
+export function buildPasswordResetEmail(opts: { locale: EmailLocale; email: string; newPassword: string; bannerImageUrl?: string }): { subject: string; html: string } {
+  const { locale, newPassword, bannerImageUrl } = opts;
+  const html = wrapHtml({ locale, bannerImageUrl }, tr(locale, 'pwResetHeading'), `
+    <p style="font-size:15px;line-height:1.6;">${tr(locale, 'pwResetIntro')}</p>
+    <div style="text-align:center;margin:20px 0;">
+      <span style="display:inline-block;background:#0f172a;border:1px dashed #7c3aed;color:#f0abfc;font-family:'Courier New',monospace;font-size:20px;letter-spacing:2px;padding:14px 22px;border-radius:8px;">${escapeHtml(newPassword)}</span>
+    </div>
+    <p style="font-size:13px;line-height:1.5;color:#94a3b8;">${tr(locale, 'pwResetHint')}</p>
+    ${ctaButton(tr(locale, 'pwResetCta'), GAME_URL)}
+  `);
+  return { subject: tr(locale, 'pwResetSubject'), html };
+}
+
+/** E-mail de confirmation de changement de mot de passe VOLONTAIRE (le joueur a lui-même choisi un
+ * nouveau mot de passe en jeu, voir EffectiveAccountBadge.tsx / selfUpdatePassword). Ne contient
+ * JAMAIS le mot de passe (le joueur vient de le saisir lui-même, il le connaît déjà) : sert
+ * uniquement d'alerte de sécurité (détection d'un changement non désiré). */
+export function buildPasswordChangedEmail(opts: { locale: EmailLocale; email: string; bannerImageUrl?: string }): { subject: string; html: string } {
+  const { locale, bannerImageUrl } = opts;
+  const html = wrapHtml({ locale, bannerImageUrl }, tr(locale, 'pwChangedHeading'), `
+    <p style="font-size:15px;line-height:1.6;">${tr(locale, 'pwChangedBody')}</p>
+  `);
+  return { subject: tr(locale, 'pwChangedSubject'), html };
 }
 
 function escapeHtml(s: string): string {

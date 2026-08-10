@@ -13,15 +13,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useI18n } from '@/lib/i18n';
-import { useEffectiveAccount, useEffectiveSessionControls } from '@/lib/effectiveAccount';
+import { useEffectiveAccount, useEffectiveSession, useEffectiveSessionControls } from '@/lib/effectiveAccount';
+import { PasswordResetModal } from './PasswordResetModal';
 
 export function EffectiveAccountBadge() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const router = useRouter();
-  const { accountType, isConnected } = useEffectiveAccount();
+  const { accountType, isConnected, address } = useEffectiveAccount();
+  const session = useEffectiveSession();
   const { disconnectSession } = useEffectiveSessionControls();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Ferme le menu si clic en dehors (même comportement qu'un menu natif de portefeuille)
@@ -64,7 +67,24 @@ export function EffectiveAccountBadge() {
           >
             🚪 {busy ? t('common.loading') : t('connect.disconnect')}
           </button>
+          {accountType === 'fiat' && session?.authMethod === 'email' && (
+            <button
+              type="button"
+              className="w-full text-left text-sm px-3 py-2 hover:bg-slate-800 rounded-lg disabled:opacity-50"
+              onClick={() => { setOpen(false); setShowPasswordReset(true); }}
+            >
+              🔑 {t('connect.passwordResetButton')}
+            </button>
+          )}
         </div>
+      )}
+      {showPasswordReset && address && (
+        <PasswordResetModal
+          email={session?.email}
+          address={address}
+          locale={locale}
+          onClose={() => setShowPasswordReset(false)}
+        />
       )}
     </div>
   );

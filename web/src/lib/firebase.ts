@@ -17,6 +17,7 @@ import {
   getAuth, signInAnonymously, onAuthStateChanged, Auth, User,
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  updatePassword, reauthenticateWithCredential, EmailAuthProvider,
 } from 'firebase/auth';
 
 let app: FirebaseApp | null = null;
@@ -236,6 +237,44 @@ export function describeEmailAuthErrorKey(errorCode?: string): string {
     case 'auth/invalid-credential': return 'home.fiat.emailErrorWrongPassword';
     case 'auth/user-not-found': return 'home.fiat.emailErrorNotFound';
     default: return 'home.demo.authError';
+  }
+}
+
+/**
+ * Changement VOLONTAIRE du mot de passe par le joueur lui-même, depuis le jeu (voir
+ * EffectiveAccountBadge.tsx, bouton "🔑 Reset mot de passe" à côté de l'adresse — uniquement pour
+ * un compte "Jouer sans portefeuille" par e-mail/mot de passe, `PlayerState.authMethod === 'email'`).
+ * Utilise `updatePassword()` du SDK client (ne peut modifier QUE le mot de passe de l'utilisateur
+ * actuellement connecté — voir lib/firebaseAdmin.ts::adminSetUserPassword pour le reset forcé par
+ * l'admin sur un AUTRE utilisateur, impossible ici).
+ *
+ * Gère `auth/requires-recent-login` : Firebase exige une connexion "récente" pour ce type
+ * d'opération sensible ; si la session est trop ancienne, on demande le mot de passe ACTUEL
+ * (`currentPassword`) pour ré-authentifier (`reauthenticateWithCredential`) puis on retente. Si
+ * `currentPassword` n'est pas fourni la première fois et que cette erreur survient, on renvoie
+ * `errorCode: 'auth/requires-recent-login'` pour que l'appelant affiche le champ supplémentaire.
+ */
+export async function selfUpdatePassword(newPassword: string, currentPassword?: string): Promise<{ ok: boolean; errorCode?: string }> {
+  const a = getFirebaseAuth();
+  const user = a?.currentUser;
+  if (!a || !user) return { ok: false, errorCode: 'auth/no-current-user' };
+  try {
+    await updatePassword(user, newPassword);
+    return { ok: true };
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'auth/requires-recent-login' && currentPassword && user.email) {
+      try {
+        await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+        await updatePassword(user, newPassword);
+        return { ok: true };
+      } catch (err2) {
+        console.error('[firebase] selfUpdatePassword (reauth) failed:', err2);
+        return { ok: false, errorCode: (err2 as { code?: string } | null)?.code };
+      }
+    }
+    console.error('[firebase] selfUpdatePassword failed:', err);
+    return { ok: false, errorCode: code };
   }
 }
 

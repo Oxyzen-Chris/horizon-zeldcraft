@@ -107,6 +107,18 @@ export interface PlayerState {
   // `accountType` ci-dessus — voir getOrCreatePlayer). Absents pour un compte 'wallet'.
   uid?: string;
   email?: string;
+  // Méthode d'authentification Firebase Auth utilisée pour ce compte 'demo'/'fiat' : 'google' (pas
+  // de mot de passe, aucun reset possible) ou 'email' (compte e-mail/mot de passe — voir
+  // NoWalletAccessPanel.tsx). Détermine si le bouton "Reset mot de passe" (admin et en jeu) est
+  // affiché — voir docs/EMAIL_NOTIFICATIONS.md § Réinitialisation de mot de passe. Renseignée une
+  // seule fois à la création (même logique que uid/email/accountType), absente pour un compte
+  // 'wallet' ou une session Démo anonyme (aucun credential Firebase avec mot de passe).
+  authMethod?: 'google' | 'email';
+  // Nombre de fois où le mot de passe de ce compte a été changé (reset admin OU changement
+  // volontaire du joueur en jeu) et date du dernier changement — affichés dans "Statistiques par
+  // joueur" (menu Administration). Incrémenté par `incrementPasswordResetCount()` ci-dessous.
+  passwordResetCount?: number;
+  lastPasswordResetAt?: number;
   // Langue de préférence au moment de la création du compte (capturée depuis le sélecteur de
   // langue de la page d'accueil, voir i18n.tsx::Locale) — utilisée pour localiser les emails
   // transactionnels (bienvenue, rapports, annonces). Absente = 'fr' par défaut (voir
@@ -293,7 +305,7 @@ export const RKEY = (id: string) => id.toLowerCase().replace(/[.#$[\]]/g, '_');
 export async function getOrCreatePlayer(
   address: string,
   displayName?: string,
-  opts?: { accountType?: 'demo' | 'fiat'; initialWallet?: number; uid?: string; email?: string; lang?: 'fr' | 'en' | 'es' | 'pt' },
+  opts?: { accountType?: 'demo' | 'fiat'; initialWallet?: number; uid?: string; email?: string; authMethod?: 'google' | 'email'; lang?: 'fr' | 'en' | 'es' | 'pt' },
 ): Promise<PlayerState> {
   const db = getFirebaseDb();
   if (!db) throw new Error('Firebase non configuré');
@@ -323,6 +335,7 @@ export async function getOrCreatePlayer(
     ...(opts?.accountType ? { accountType: opts.accountType } : {}),
     ...(opts?.uid ? { uid: opts.uid } : {}),
     ...(opts?.email ? { email: opts.email } : {}),
+    ...(opts?.authMethod ? { authMethod: opts.authMethod } : {}),
     ...(opts?.lang ? { lang: opts.lang } : {}),
   };
   await set(ref(db, `players/${k}`), initial);
@@ -2616,6 +2629,7 @@ export interface PlayerListEntry {
   accountType?: 'wallet' | 'demo' | 'fiat';
   email?: string;
   lang?: 'fr' | 'en' | 'es' | 'pt';
+  authMethod?: 'google' | 'email';
 }
 
 /** Liste tous les joueurs enregistrés avec leurs métadonnées d'affichage (e-mail/pseudo/mode
@@ -2635,6 +2649,7 @@ export async function listPlayersWithMeta(): Promise<PlayerListEntry[]> {
       accountType: p?.accountType,
       email: p?.email,
       lang: p?.lang,
+      authMethod: p?.authMethod,
       label: p?.email || p?.displayName || `${addr.slice(0, 10)}…${addr.slice(-6)}`,
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
@@ -2772,6 +2787,26 @@ export async function setPlayerScheduledReport(
     ...(cfg.customMessage ? { customMessage: cfg.customMessage } : {}),
     ...(cfg.imageUrl ? { imageUrl: cfg.imageUrl } : {}),
   });
+}
+
+/** Incrémente `PlayerState.passwordResetCount` et met à jour `lastPasswordResetAt` — appelée après
+ * CHAQUE changement de mot de passe réussi d'un compte "Jouer sans portefeuille" par e-mail/mot de
+ * passe, que ce soit un reset forcé par l'admin (menu Administration §"Statistiques par joueur",
+ * zone de danger) ou un changement volontaire du joueur en jeu (voir EffectiveAccountBadge.tsx,
+ * docs/EMAIL_NOTIFICATIONS.md § Réinitialisation de mot de passe). Écriture via le SDK client
+ * Firebase (comme le reste des mutations admin de ce fichier) : ne nécessite aucun secret serveur,
+ * contrairement au changement du mot de passe Firebase Auth lui-même (voir
+ * lib/firebaseAdmin.ts::adminSetUserPassword, réservé au reset forcé par l'admin). */
+export async function incrementPasswordResetCount(address: string): Promise<number> {
+  const db = getFirebaseDb();
+  if (!db) return 0;
+  await ensureAnonSignIn();
+  const k = KEY(address);
+  const snap = await get(ref(db, `players/${k}/passwordResetCount`));
+  const next = (snap.val() as number | null ?? 0) + 1;
+  await set(ref(db, `players/${k}/passwordResetCount`), next);
+  await set(ref(db, `players/${k}/lastPasswordResetAt`), Date.now());
+  return next;
 }
 
 // ─────────────────────────────────────── Shop catalog ───────────────────────────────────────
