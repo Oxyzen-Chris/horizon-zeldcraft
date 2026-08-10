@@ -15,6 +15,7 @@ import {
   type PlayerProgressLedger, type PlaytimeStats, type PlayerListEntry,
 } from '@/lib/gameState';
 import { ProgressLedgerView } from './ProgressLedgerView';
+import { PlayerEmailPanel, type ReportStats } from './PlayerEmailPanel';
 
 const ETHERSCAN_TX: Record<number, string> = {
   1: 'https://etherscan.io/tx/',
@@ -284,6 +285,19 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const isVirtualAccount = dbPlayer?.accountType === 'demo' || dbPlayer?.accountType === 'fiat';
   const offchainStage = dbPlayer ? computeOffchainStageLevel(dbPlayer.xpBonus ?? 0) : null;
 
+  // Rapport de progression par e-mail (voir PlayerEmailPanel.tsx) — synthèse commune aux deux
+  // branches (compte on-chain avec Voxlyn vs compte Démo/fiat hors-chaîne), réutilisant les
+  // données déjà chargées ci-dessus (aucun appel réseau supplémentaire).
+  const reportStats: ReportStats | null = dbPlayer ? {
+    level: hasVox ? Number((voxlyn as any)?.[7] ?? 1) : (offchainStage?.level ?? 1),
+    xp: hasVox ? Math.max(0, Number((voxlyn as any)?.[3] ?? 0) + (dbPlayer.xpBonus ?? 0)) : Math.max(0, dbPlayer.xpBonus ?? 0),
+    stage: t(`stage.${STAGE_NAMES[hasVox ? Number((voxlyn as any)?.[8] ?? 0) : (offchainStage?.stageIndex ?? 0)]}`),
+    wallet: dbPlayer.wallet ?? 0,
+    quests: activity ? String(activity.questsSolved) : '0',
+    npcs: String(npcsMetFb),
+    playtime: playtime ? fmtDuration(playtime.totalMs) : '—',
+  } : null;
+
   // ─── Zone de danger : suppression d'un compte / réinitialisation totale (menu Administration) ───
   // Partage `deletePlayerAccount()` avec DemoAccessRequestsPanel.tsx (source unique de la logique
   // de nettoyage — voir gameState.ts). Applicable à TOUT type de compte (wallet/demo/fiat) : pour
@@ -537,6 +551,19 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
             </div>
           )}
         </div>
+      )}
+
+      {/* E-mails & annonces — rapport de progression, message personnalisé, envoi de masse,
+          bandeau live en jeu (voir docs/EMAIL_NOTIFICATIONS.md). Toujours affiché dès qu'au moins
+          un joueur existe, pour permettre l'envoi de masse même sans joueur sélectionné. */}
+      {players.length > 0 && (
+        <PlayerEmailPanel
+          target={target}
+          dbPlayer={dbPlayer}
+          reportStats={reportStats}
+          players={players}
+          onScheduleSaved={() => target && load(target)}
+        />
       )}
 
       {/* Zone de danger — suppression d'un compte joueur / réinitialisation totale (menu

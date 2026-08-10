@@ -211,10 +211,10 @@ raison impérieuse, pour éviter de réintroduire l'une de ces régressions.
       en une seule intégration) une fois les clés API fournies, sans changement d'UI/de logique
       métier côté joueur (`useFiatTopup.ts`).
 - [x] **Accès Démo / compte sans portefeuille crypto** (voir `docs/DEMO_FIAT.md`) : nouveau bouton
-      « 🎟️ Accès Démo » (connexion Google, en attente de validation manuelle par l'admin — file
-      d'attente dans `Administration > Demandes d'accès Démo` — ou mode 100% anonyme instantané)
-      et bouton « 💳 Jouer sans portefeuille » (Google ou e-mail, accès fiat immédiat sans
-      validation) sur la page d'accueil, à côté du `<ConnectButton />` RainbowKit existant.
+      « 🎟️ Accès Démo » et bouton « 💳 Jouer sans portefeuille » (Google ou e-mail/mot de passe,
+      accès **immédiat sans validation admin préalable** — journalisé a posteriori dans
+      `Administration > Demandes d'accès Démo`, avec pause/suppression de compte possibles) sur la
+      page d'accueil, à côté du `<ConnectButton />` RainbowKit existant.
       Identité virtuelle dérivée d'un UID Firebase Auth (`deriveVirtualAddress`), portée par un
       nouveau hook `useEffectiveAccount()` qui bascule transparemment tous les widgets de jeu entre
       portefeuille réel et session Démo/Fiat — **zéro changement de comportement pour les joueurs
@@ -229,6 +229,14 @@ raison impérieuse, pour éviter de réintroduire l'une de ces régressions.
       connexion d'un vrai portefeuille (évite qu'une ancienne session ne bloque le retour à l'écran
       de choix) ; ordre d'authentification corrigé dans `startAnonymousDemo()`. Validé par des
       scénarios Playwright (chargement, réactivité, déconnexion, non-régression).
+- [x] **Compte e-mail/mot de passe sécurisé + e-mails automatiques + annonces en direct** (voir
+      `docs/EMAIL_NOTIFICATIONS.md`) : flux explicite « Se connecter » / « Créer un compte » avec
+      confirmation de mot de passe pour « Jouer sans portefeuille » ; e-mail de bienvenue (Resend,
+      sans jamais divulguer le mot de passe) ; rapport de progression joueur envoyable
+      immédiatement ou **programmé** (quotidien/hebdomadaire/mensuel/annuel, cron Vercel) depuis
+      `Administration > Statistiques par joueur` ; message personnalisé ou envoi de masse à tous
+      les joueurs (ex. maintenance) ; bandeau d'annonce en direct in-game (ciblé ou global). Tout
+      paramétrable dans `Administration > Barème & règles` (section « ✉️ E-mails automatiques »).
 - [ ] Intégration Stripe réelle (CB, Apple Pay) — clés API + `api/payments/checkout/route.ts`
 - [ ] PayPal SDK réel (au-delà du mode simulation déjà livré)
 - [ ] On-ramp crypto (MoonPay, Ramp)

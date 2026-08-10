@@ -177,22 +177,65 @@ export async function consumeGoogleRedirectResult(): Promise<User | null> {
   }
 }
 
-/** Connexion/création de compte via e-mail + mot de passe — alternative à Google pour l'accès
- * Démo/fiat. Tente d'abord une connexion ; si le compte n'existe pas encore, le crée à la volée. */
-export async function signInWithEmail(email: string, password: string): Promise<User | null> {
+/** Format d'e-mail valide et suffisamment strict (local@domaine.suffixe) — utilisé côté client
+ * avant toute tentative Firebase (message d'erreur immédiat, sans aller-retour réseau) ET côté
+ * serveur (route `/api/email/*`, où l'input n'est jamais fiable). Volontairement simple : Firebase
+ * Auth revalide de toute façon le format côté serveur (erreur `auth/invalid-email` sinon). */
+export function isValidEmailFormat(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+/**
+ * Connexion via e-mail + mot de passe — pour un compte "Jouer sans portefeuille" DÉJÀ créé (voir
+ * `createAccountWithEmail` ci-dessous pour la création). Distinguer explicitement connexion et
+ * création (au lieu de l'ancien fallback silencieux login→create) permet : (1) d'afficher un
+ * message d'erreur clair si le mot de passe est faux plutôt que de créer par erreur un second
+ * compte, (2) de ne déclencher l'e-mail de bienvenue QUE lors d'une création réelle (voir
+ * `createAccountWithEmail`), jamais lors d'une reconnexion.
+ */
+export async function signInWithEmailLogin(email: string, password: string): Promise<{ user: User | null; errorCode?: string }> {
   const a = getFirebaseAuth();
-  if (!a) return null;
+  if (!a) return { user: null };
   try {
     const cred = await signInWithEmailAndPassword(a, email, password);
-    return cred.user;
-  } catch {
-    try {
-      const cred = await createUserWithEmailAndPassword(a, email, password);
-      return cred.user;
-    } catch (err2) {
-      console.error('[firebase] signInWithEmail failed:', err2);
-      return null;
-    }
+    return { user: cred.user };
+  } catch (err) {
+    console.error('[firebase] signInWithEmailLogin failed:', err);
+    return { user: null, errorCode: (err as { code?: string } | null)?.code };
+  }
+}
+
+/**
+ * Création d'un nouveau compte "Jouer sans portefeuille" (e-mail + mot de passe choisi par le
+ * joueur). L'appelant (NoWalletAccessPanel.tsx) est responsable d'avoir déjà vérifié le format de
+ * l'e-mail (`isValidEmailFormat`) et la correspondance des deux champs mot de passe/confirmation
+ * AVANT d'appeler cette fonction. En cas de succès, l'appelant doit déclencher l'envoi de l'e-mail
+ * de bienvenue via `POST /api/email/send` (voir web/src/lib/email/templates.ts) — jamais fait ici,
+ * pour garder ce module Firebase indépendant de l'infrastructure e-mail (Resend).
+ */
+export async function createAccountWithEmail(email: string, password: string): Promise<{ user: User | null; errorCode?: string }> {
+  const a = getFirebaseAuth();
+  if (!a) return { user: null };
+  try {
+    const cred = await createUserWithEmailAndPassword(a, email, password);
+    return { user: cred.user };
+  } catch (err) {
+    console.error('[firebase] createAccountWithEmail failed:', err);
+    return { user: null, errorCode: (err as { code?: string } | null)?.code };
+  }
+}
+
+/** Traduit un code d'erreur Firebase Auth email/mot de passe en suffixe de clé i18n
+ * (`home.fiat.emailError<Suffix>`), même logique que `describeGoogleAuthErrorKey` ci-dessus. */
+export function describeEmailAuthErrorKey(errorCode?: string): string {
+  switch (errorCode) {
+    case 'auth/email-already-in-use': return 'home.fiat.emailErrorAlreadyInUse';
+    case 'auth/invalid-email': return 'home.fiat.emailErrorInvalid';
+    case 'auth/weak-password': return 'home.fiat.emailErrorWeakPassword';
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential': return 'home.fiat.emailErrorWrongPassword';
+    case 'auth/user-not-found': return 'home.fiat.emailErrorNotFound';
+    default: return 'home.demo.authError';
   }
 }
 

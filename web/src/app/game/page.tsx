@@ -46,6 +46,7 @@ import { SleepModal } from '@/components/SleepModal';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { HelpWidget } from '@/components/HelpWidget';
 import { ProgressWidget } from '@/components/ProgressWidget';
+import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { useI18n } from '@/lib/i18n';
 import {
   getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, getPlayerActivityStats,
@@ -74,7 +75,7 @@ export default function GamePage() {
   const session = useEffectiveSession();
   const chainId = useChainId();
   const contract = CONTRACT_ADDRESSES[chainId];
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [name, setName] = useState('');
   const queryClient = useQueryClient();
   const isVirtual = accountType !== 'wallet'; // compte Démo/Fiat, sans portefeuille crypto connecté
@@ -148,12 +149,12 @@ export default function GamePage() {
       const p = await getOrCreatePlayer(address, session?.displayName || undefined, {
         accountType: accountType as 'demo' | 'fiat',
         initialWallet: accountType === 'demo' ? (rules?.demoInitialCoins ?? 4000) : 0,
-        uid: session?.uid, email: session?.email,
+        uid: session?.uid, email: session?.email, lang: locale,
       }).catch(() => null);
       if (!cancelled && p) setVirtualPlayer(p);
     })();
     return () => { cancelled = true; };
-  }, [isVirtual, address, accountType, session?.displayName, session?.uid, session?.email]);
+  }, [isVirtual, address, accountType, session?.displayName, session?.uid, session?.email, locale]);
   // Synchronisation temps réel du joueur virtuel une fois créé (mêmes mises à jour que
   // VoxlynDashboard, nécessaire ICI pour recalculer le tuple `v` synthétique à chaque évolution).
   useEffect(() => {
@@ -179,6 +180,7 @@ export default function GamePage() {
 
   return (
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
+      <AnnouncementBanner address={address} />
       <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <Link href="/" className="text-2xl font-bold text-voxlyn-crystal">🐉 {t('app.title')}</Link>
         <div className="flex flex-wrap gap-3 items-center">

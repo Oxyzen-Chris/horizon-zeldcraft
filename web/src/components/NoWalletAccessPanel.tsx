@@ -29,7 +29,8 @@ import {
   countActiveDemoSessions, registerDemoSession, type RepRules,
 } from '@/lib/gameState';
 import {
-  getFirebaseAuth, ensureAnonSignIn, signInWithGoogle, signInWithEmail,
+  getFirebaseAuth, ensureAnonSignIn, signInWithGoogle,
+  signInWithEmailLogin, createAccountWithEmail, isValidEmailFormat, describeEmailAuthErrorKey,
   consumeGoogleRedirectResult, describeGoogleAuthErrorKey,
 } from '@/lib/firebase';
 
@@ -41,7 +42,7 @@ type ModalKind = null | 'demo' | 'fiat';
 const PENDING_GOOGLE_KEY = 'zc.pendingGoogleAction';
 
 export function NoWalletAccessPanel() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const router = useRouter();
   const { setSession } = useEffectiveSessionControls();
   const [rules, setRules] = useState<RepRules | null>(null);
@@ -50,10 +51,18 @@ export function NoWalletAccessPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  // 'login' (compte déjà créé) vs 'create' (nouveau compte + mot de passe à définir) — voir
+  // demande utilisateur : distinguer explicitement les deux flux plutôt que l'ancien fallback
+  // silencieux login→create (createAccountWithEmail/signInWithEmailLogin, voir firebase.ts).
+  const [emailMode, setEmailMode] = useState<'login' | 'create'>('login');
 
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
 
-  const closeModal = () => { setModal(null); setMessage(null); setBusy(false); setEmail(''); setPassword(''); };
+  const closeModal = () => {
+    setModal(null); setMessage(null); setBusy(false);
+    setEmail(''); setPassword(''); setConfirmPassword(''); setEmailMode('login');
+  };
 
   // ─── Accès Démo anonyme (aucune authentification, plafond bas) ───
   const startAnonymousDemo = async () => {
@@ -188,12 +197,13 @@ export function NoWalletAccessPanel() {
     else completeFiatWithGoogle(user);
   }, [pendingGoogleUser, rules, completeApprovedDemo, completeFiatWithGoogle]);
 
-  const startFiatWithEmail = async () => {
+  // ─── "Jouer sans portefeuille" par e-mail — connexion (compte déjà créé) ───
+  const startFiatEmailLogin = async () => {
     if (!email || !password) return;
     setBusy(true); setMessage(null);
     try {
-      const user = await signInWithEmail(email, password);
-      if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
+      const { user, errorCode } = await signInWithEmailLogin(email, password);
+      if (!user) { setMessage(t(describeEmailAuthErrorKey(errorCode))); setBusy(false); return; }
       const address = deriveVirtualAddress(user.uid) as `0x${string}`;
       const userEmail = user.email || email;
       const { paused } = await logAccountAccess({
@@ -203,7 +213,44 @@ export function NoWalletAccessPanel() {
       setSession({ kind: 'fiat', uid: user.uid, address, displayName: userEmail, email: userEmail });
       router.push('/game');
     } catch (e) {
-      console.error('[NoWalletAccessPanel] startFiatWithEmail failed:', e);
+      console.error('[NoWalletAccessPanel] startFiatEmailLogin failed:', e);
+      setMessage(t('home.demo.authError'));
+      setBusy(false);
+    }
+  };
+
+  // ─── "Jouer sans portefeuille" par e-mail — création d'un NOUVEAU compte + mot de passe ───
+  // Valide le format de l'e-mail ET la correspondance mot de passe/confirmation AVANT tout appel
+  // Firebase (message d'erreur immédiat, sans aller-retour réseau) — voir demande utilisateur.
+  // Déclenche l'e-mail de bienvenue (RepRules.welcomeEmailEnabled) exactement une fois, uniquement
+  // lors d'une création réussie : confirme que l'adresse existe bien, sans jamais y faire figurer
+  // le mot de passe en clair (voir templates.ts::buildWelcomeEmail).
+  const startFiatEmailCreate = async () => {
+    if (!email || !password) return;
+    setMessage(null);
+    if (!isValidEmailFormat(email)) { setMessage(t('home.fiat.emailErrorInvalid')); return; }
+    if (password !== confirmPassword) { setMessage(t('home.fiat.passwordMismatch')); return; }
+    setBusy(true);
+    try {
+      const { user, errorCode } = await createAccountWithEmail(email, password);
+      if (!user) { setMessage(t(describeEmailAuthErrorKey(errorCode))); setBusy(false); return; }
+      const address = deriveVirtualAddress(user.uid) as `0x${string}`;
+      const userEmail = user.email || email;
+      const { paused } = await logAccountAccess({
+        uid: user.uid, address, email: userEmail, method: 'email', accessMode: 'fiat',
+      });
+      if (rules?.welcomeEmailEnabled !== false) {
+        fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'welcome', to: userEmail, locale, bannerImageUrl: rules?.emailBannerImageUrl || undefined }),
+        }).catch(() => {}); // best-effort — ne bloque jamais la création de compte si l'e-mail échoue
+      }
+      if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
+      setSession({ kind: 'fiat', uid: user.uid, address, displayName: userEmail, email: userEmail });
+      router.push('/game');
+    } catch (e) {
+      console.error('[NoWalletAccessPanel] startFiatEmailCreate failed:', e);
       setMessage(t('home.demo.authError'));
       setBusy(false);
     }
@@ -257,15 +304,40 @@ export function NoWalletAccessPanel() {
                   </button>
                 </div>
                 <p className="text-xs text-slate-500 mb-2 text-center">— {t('common.or')} —</p>
+                <div className="flex gap-2 mb-2">
+                  <button
+                    className={`flex-1 text-xs rounded px-2 py-1 border ${emailMode === 'login' ? 'bg-purple-700 border-purple-500' : 'bg-slate-800 border-slate-600 text-slate-400'}`}
+                    onClick={() => { setEmailMode('login'); setMessage(null); }}
+                  >
+                    {t('home.fiat.emailModeLogin')}
+                  </button>
+                  <button
+                    className={`flex-1 text-xs rounded px-2 py-1 border ${emailMode === 'create' ? 'bg-purple-700 border-purple-500' : 'bg-slate-800 border-slate-600 text-slate-400'}`}
+                    onClick={() => { setEmailMode('create'); setMessage(null); }}
+                  >
+                    {t('home.fiat.emailModeCreate')}
+                  </button>
+                </div>
                 <input value={email} onChange={(e) => setEmail(e.target.value)} type="email"
                   placeholder={t('home.fiat.emailPlaceholder')}
                   className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 mb-2 text-sm" />
                 <input value={password} onChange={(e) => setPassword(e.target.value)} type="password"
                   placeholder={t('home.fiat.passwordPlaceholder')}
-                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 mb-3 text-sm" />
-                <button className="btn-secondary text-sm w-full" disabled={busy || !email || !password} onClick={startFiatWithEmail}>
-                  ✉️ {t('home.fiat.emailButton')}
-                </button>
+                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 mb-2 text-sm" />
+                {emailMode === 'create' && (
+                  <input value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} type="password"
+                    placeholder={t('home.fiat.confirmPasswordPlaceholder')}
+                    className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 mb-3 text-sm" />
+                )}
+                {emailMode === 'login' ? (
+                  <button className="btn-secondary text-sm w-full" disabled={busy || !email || !password} onClick={startFiatEmailLogin}>
+                    ✉️ {t('home.fiat.emailButton')}
+                  </button>
+                ) : (
+                  <button className="btn-secondary text-sm w-full" disabled={busy || !email || !password || !confirmPassword} onClick={startFiatEmailCreate}>
+                    ✉️ {t('home.fiat.emailCreateButton')}
+                  </button>
+                )}
               </>
             )}
             {message && <p className="text-sm text-amber-300 mt-3 text-center">{message}</p>}

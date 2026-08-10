@@ -809,6 +809,35 @@ export function RepRulesPanel() {
         </label>
         <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.fiatSimulationModeHint')}</p>
       </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">✉️ {t('admin.repRules.emailTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.emailDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.emailNotificationsEnabled !== false}
+            onChange={e => setBool('emailNotificationsEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.emailNotificationsEnabled')}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.welcomeEmailEnabled !== false}
+            disabled={rules.emailNotificationsEnabled === false}
+            onChange={e => setBool('welcomeEmailEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.welcomeEmailEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3 mb-2">
+          <label className="text-sm">
+            {t('admin.repRules.emailFromName')}
+            <input type="text" className="input mt-1 w-full" value={rules.emailFromName ?? ''}
+              onChange={e => setText('emailFromName', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            {t('admin.repRules.emailBannerImageUrl')}
+            <input type="text" className="input mt-1 w-full" placeholder="https://…"
+              value={rules.emailBannerImageUrl ?? ''}
+              onChange={e => setText('emailBannerImageUrl', e.target.value)} />
+          </label>
+        </div>
+        <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.emailKeyMissingHint')}</p>
+      </div>
       <div className="flex gap-3 mt-4">
         <button className="btn-primary" disabled={saving} onClick={save}>
           {saving ? '⏳' : t('admin.actions.apply')}

@@ -107,6 +107,25 @@ export interface PlayerState {
   // `accountType` ci-dessus — voir getOrCreatePlayer). Absents pour un compte 'wallet'.
   uid?: string;
   email?: string;
+  // Langue de préférence au moment de la création du compte (capturée depuis le sélecteur de
+  // langue de la page d'accueil, voir i18n.tsx::Locale) — utilisée pour localiser les emails
+  // transactionnels (bienvenue, rapports, annonces). Absente = 'fr' par défaut (voir
+  // web/src/lib/email/templates.ts). Jamais réécrite ensuite (même logique que uid/email/accountType).
+  lang?: 'fr' | 'en' | 'es' | 'pt';
+  // Programmation d'un envoi automatique de rapport de progression par email (voir
+  // Administration §"Statistiques par joueur" et docs/EMAIL_NOTIFICATIONS.md). Le job cron
+  // (web/src/app/api/email/cron-reports/route.ts) parcourt tous les joueurs ayant `enabled: true`
+  // et envoie le rapport dès que la date/cycle correspond, en évitant les doublons via `lastSentAt`.
+  scheduledReport?: {
+    enabled: boolean;
+    startDate: number;         // horodatage (ms) du premier envoi possible
+    cycle: 'daily' | 'weekly' | 'monthly' | 'yearly';
+    weeklyDays?: number[];     // 0=dimanche..6=samedi, utilisé seulement si cycle==='weekly'
+    monthlyDay?: number;       // 1-31, utilisé seulement si cycle==='monthly' (plafonné au dernier jour du mois)
+    customMessage?: string;    // texte libre optionnel ajouté à chaque envoi programmé
+    imageUrl?: string;         // image optionnelle ajoutée à chaque envoi programmé
+    lastSentAt?: number;       // anti-doublon : ne renvoie pas deux fois le même jour
+  };
 }
 
 /**
@@ -274,7 +293,7 @@ export const RKEY = (id: string) => id.toLowerCase().replace(/[.#$[\]]/g, '_');
 export async function getOrCreatePlayer(
   address: string,
   displayName?: string,
-  opts?: { accountType?: 'demo' | 'fiat'; initialWallet?: number; uid?: string; email?: string },
+  opts?: { accountType?: 'demo' | 'fiat'; initialWallet?: number; uid?: string; email?: string; lang?: 'fr' | 'en' | 'es' | 'pt' },
 ): Promise<PlayerState> {
   const db = getFirebaseDb();
   if (!db) throw new Error('Firebase non configuré');
@@ -304,6 +323,7 @@ export async function getOrCreatePlayer(
     ...(opts?.accountType ? { accountType: opts.accountType } : {}),
     ...(opts?.uid ? { uid: opts.uid } : {}),
     ...(opts?.email ? { email: opts.email } : {}),
+    ...(opts?.lang ? { lang: opts.lang } : {}),
   };
   await set(ref(db, `players/${k}`), initial);
   await set(ref(db, `playerIndex/${k}`), true);
@@ -2595,6 +2615,7 @@ export interface PlayerListEntry {
   label: string;
   accountType?: 'wallet' | 'demo' | 'fiat';
   email?: string;
+  lang?: 'fr' | 'en' | 'es' | 'pt';
 }
 
 /** Liste tous les joueurs enregistrés avec leurs métadonnées d'affichage (e-mail/pseudo/mode
@@ -2613,6 +2634,7 @@ export async function listPlayersWithMeta(): Promise<PlayerListEntry[]> {
       address: addr,
       accountType: p?.accountType,
       email: p?.email,
+      lang: p?.lang,
       label: p?.email || p?.displayName || `${addr.slice(0, 10)}…${addr.slice(-6)}`,
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
@@ -2633,7 +2655,7 @@ export async function deletePlayerAccount(address: string): Promise<void> {
   const k = KEY(address);
   const snap = await get(ref(db, `players/${k}`));
   const p = snap.val() as PlayerState | null;
-  const ops = [remove(ref(db, `players/${k}`)), remove(ref(db, `playerIndex/${k}`))];
+  const ops = [remove(ref(db, `players/${k}`)), remove(ref(db, `playerIndex/${k}`)), remove(ref(db, `announcements/targeted/${k}`))];
   if (p?.uid) {
     const ru = RKEY(p.uid);
     ops.push(remove(ref(db, `demoAccessRequests/${ru}`)));
@@ -2655,7 +2677,101 @@ export async function deleteAllPlayers(): Promise<void> {
     remove(ref(db, 'playerIndex')),
     remove(ref(db, 'demoAccessRequests')),
     remove(ref(db, 'demoSessions')),
+    remove(ref(db, 'announcements')),
   ]);
+}
+
+// ────────────────────────────── Annonces en jeu (bandeau live admin) ──────────────────────────────
+// Bandeau clignotant affiché en haut de l'écran de jeu (AnnouncementBanner.tsx, monté dans
+// game/page.tsx) — voir Administration → "Statistiques par joueur" § "Annonce en direct". Deux
+// portées indépendantes :
+//  - `announcements/global` : diffusée à TOUS les joueurs actuellement connectés (ex : maintenance
+//    programmée, nouvelle fonctionnalité).
+//  - `announcements/targeted/{addr}` : visible UNIQUEMENT par ce joueur (ex : message personnel).
+// Un joueur voit les DEUX s'il y en a (la ciblée d'abord, puis la globale) — voir
+// subscribeAnnouncements() ci-dessous. Écriture temps réel (onValue) : le joueur voit le message
+// apparaître SANS recharger la page, y compris en pleine partie.
+export interface Announcement {
+  message: string;
+  imageUrl?: string;
+  createdAt: number;
+}
+
+export async function setGlobalAnnouncement(message: string, imageUrl?: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'announcements/global'), { message, ...(imageUrl ? { imageUrl } : {}), createdAt: Date.now() });
+}
+
+export async function clearGlobalAnnouncement(): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await remove(ref(db, 'announcements/global'));
+}
+
+export async function setPlayerAnnouncement(address: string, message: string, imageUrl?: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `announcements/targeted/${KEY(address)}`), { message, ...(imageUrl ? { imageUrl } : {}), createdAt: Date.now() });
+}
+
+export async function clearPlayerAnnouncement(address: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await remove(ref(db, `announcements/targeted/${KEY(address)}`));
+}
+
+/** Écoute temps réel des annonces visibles par un joueur (globale + ciblée sur son adresse) —
+ * utilisé par AnnouncementBanner.tsx. Le callback est invoqué avec un tableau (0, 1 ou 2 entrées,
+ * ciblée en premier) à chaque changement de l'une ou l'autre. Retourne la fonction unsubscribe. */
+export function subscribeAnnouncements(address: string | null, cb: (list: Announcement[]) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb([]); return () => {}; }
+  let latestGlobal: Announcement | null = null;
+  let latestTargeted: Announcement | null = null;
+  const emit = () => cb([...(latestTargeted ? [latestTargeted] : []), ...(latestGlobal ? [latestGlobal] : [])]);
+  const gRef = ref(db, 'announcements/global');
+  const gHandler = (snap: DataSnapshot) => { latestGlobal = snap.exists() ? (snap.val() as Announcement) : null; emit(); };
+  onValue(gRef, gHandler);
+  let tRef: ReturnType<typeof ref> | null = null;
+  let tHandler: ((snap: DataSnapshot) => void) | null = null;
+  if (address) {
+    tRef = ref(db, `announcements/targeted/${KEY(address)}`);
+    tHandler = (snap: DataSnapshot) => { latestTargeted = snap.exists() ? (snap.val() as Announcement) : null; emit(); };
+    onValue(tRef, tHandler);
+  }
+  return () => {
+    off(gRef, 'value', gHandler);
+    if (tRef && tHandler) off(tRef, 'value', tHandler);
+  };
+}
+
+/** Enregistre la programmation d'un envoi automatique de rapport par e-mail pour un joueur (voir
+ * PlayerState.scheduledReport, PlayerStats.tsx, api/email/cron-reports/route.ts). `cfg === null`
+ * désactive/supprime la programmation. */
+export async function setPlayerScheduledReport(
+  address: string,
+  cfg: {
+    enabled: boolean; startDate: number; cycle: 'daily' | 'weekly' | 'monthly' | 'yearly';
+    weeklyDays?: number[]; monthlyDay?: number; customMessage?: string; imageUrl?: string;
+  } | null,
+): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const path = `players/${KEY(address)}/scheduledReport`;
+  if (!cfg) { await remove(ref(db, path)); return; }
+  await set(ref(db, path), {
+    enabled: cfg.enabled, startDate: cfg.startDate, cycle: cfg.cycle,
+    ...(cfg.weeklyDays ? { weeklyDays: cfg.weeklyDays } : {}),
+    ...(cfg.monthlyDay ? { monthlyDay: cfg.monthlyDay } : {}),
+    ...(cfg.customMessage ? { customMessage: cfg.customMessage } : {}),
+    ...(cfg.imageUrl ? { imageUrl: cfg.imageUrl } : {}),
+  });
 }
 
 // ─────────────────────────────────────── Shop catalog ───────────────────────────────────────
@@ -3453,6 +3569,26 @@ export interface RepRules {
   // paiement externe. Passer à `false` dès que de vraies clés Stripe seront configurées côté
   // serveur (web/src/app/api/payments/*) pour basculer sur un vrai Stripe Checkout Session.
   fiatSimulationMode: boolean;         // défaut true
+
+  // ─── Emails transactionnels & annonces (voir docs/EMAIL_NOTIFICATIONS.md) ───
+  // Interrupteur général de l'envoi d'e-mails réels — nécessite RESEND_API_KEY côté serveur
+  // (Vercel). Si la clé est absente, les boutons d'envoi restent visibles en Administration mais
+  // affichent un avertissement explicite (même logique que NEXT_PUBLIC_ETHERSCAN_KEY manquante).
+  emailNotificationsEnabled: boolean;  // défaut true
+  // E-mail de bienvenue envoyé automatiquement à la création d'un compte "Jouer sans portefeuille"
+  // par e-mail/mot de passe (voir NoWalletAccessPanel.tsx) — sert aussi à vérifier que l'adresse
+  // saisie existe réellement (un email qui rebondit = adresse invalide, visible dans le dashboard
+  // Resend). Ne contient JAMAIS le mot de passe en clair (bonne pratique de sécurité).
+  welcomeEmailEnabled: boolean;        // défaut true
+  // URL absolue d'une image d'illustration (bannière) à inclure dans les emails du jeu — laissée
+  // vide par défaut (le template utilise alors un habillage décoratif à base d'émojis, cohérent
+  // avec le reste de l'UI). Modifiable en Administration dès qu'une vraie image de Synk/skin sera
+  // disponible et hébergée (ex. Vercel Blob, Cloudinary, ou simplement `public/`).
+  emailBannerImageUrl: string;         // défaut ''
+  // Nom d'expéditeur affiché dans les emails sortants (l'adresse d'expédition reste définie côté
+  // serveur par RESEND_FROM_EMAIL, une adresse ne pouvant être choisie librement sans domaine
+  // vérifié chez Resend).
+  emailFromName: string;               // défaut 'Horizon ZeldCraft'
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -3636,6 +3772,10 @@ export const DEFAULT_REP_RULES: RepRules = {
   fiatMethodApplePayEnabled: true,
   fiatMethodGooglePayEnabled: true,
   fiatSimulationMode: true,
+  emailNotificationsEnabled: true,
+  welcomeEmailEnabled: true,
+  emailBannerImageUrl: '',
+  emailFromName: 'Horizon ZeldCraft',
 }
 
 export async function getRepRules(): Promise<RepRules> {
