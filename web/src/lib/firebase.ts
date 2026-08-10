@@ -109,12 +109,24 @@ export function ensureAnonSignIn(): Promise<User | null> {
  * DEUX tentatives échouent, `errorCode` porte le code Firebase de la dernière erreur (ex.
  * `auth/unauthorized-domain`, `auth/operation-not-allowed`) pour affichage d'un message précis
  * côté UI — voir `describeGoogleAuthErrorKey()` ci-dessous.
+ *
+ * `prompt: 'select_account'` force Google à TOUJOURS afficher la mire de sélection de compte,
+ * même si une seule session Google est déjà active dans le navigateur (comportement par défaut de
+ * Firebase sans ce paramètre : reconnexion silencieuse au dernier compte utilisé, sans possibilité
+ * de choisir un autre compte Gmail) — indispensable pour un joueur possédant plusieurs comptes
+ * Google (voir demande utilisateur).
  */
+function newGoogleProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
+}
+
 export async function signInWithGoogle(): Promise<{ user: User | null; usedRedirect: boolean; errorCode?: string }> {
   const a = getFirebaseAuth();
   if (!a) return { user: null, usedRedirect: false };
   try {
-    const cred = await signInWithPopup(a, new GoogleAuthProvider());
+    const cred = await signInWithPopup(a, newGoogleProvider());
     return { user: cred.user, usedRedirect: false };
   } catch (err) {
     console.error('[firebase] signInWithGoogle (popup) failed, falling back to redirect:', err);
@@ -125,7 +137,7 @@ export async function signInWithGoogle(): Promise<{ user: User | null; usedRedir
     // plutôt que de masquer la vraie cause derrière un message générique.
     const code = (err as { code?: string } | null)?.code;
     try {
-      await signInWithRedirect(a, new GoogleAuthProvider());
+      await signInWithRedirect(a, newGoogleProvider());
       return { user: null, usedRedirect: true };
     } catch (err2) {
       console.error('[firebase] signInWithGoogle (redirect) failed:', err2);
