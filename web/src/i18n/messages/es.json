@@ -1588,5 +1588,7 @@
   "admin.repRules.emailKeyMissingHint": "⚠️ Falta la variable de entorno del servidor RESEND_API_KEY — los correos no se enviarán hasta que se configure en Vercel (ver docs/EMAIL_NOTIFICATIONS.md).",
   "admin.stats.offchainTx": "Pago fiat (fuera de la blockchain)",
   "onboarding.topic.demoFiat.title": "Jugar sin monedero",
-  "onboarding.topic.demoFiat.body": "¿Sin monedero cripto? Desde la página de inicio, prueba el juego gratis con «🎟️ Acceso Demo» (anónimo instantáneo o inicio de sesión con Google — acceso inmediato) o juega directamente con «💳 Jugar sin monedero» (Google/correo) y recarga tus monedas con tarjeta, PayPal, Apple Pay o Google Pay."
+  "onboarding.topic.demoFiat.body": "¿Sin monedero cripto? Desde la página de inicio, prueba el juego gratis con «🎟️ Acceso Demo» (anónimo instantáneo o inicio de sesión con Google — acceso inmediato) o juega directamente con «💳 Jugar sin monedero» (Google/correo) y recarga tus monedas con tarjeta, PayPal, Apple Pay o Google Pay.",
+  "onboarding.topic.accountSecurity.title": "Cuenta y contraseña",
+  "onboarding.topic.accountSecurity.body": "Con una cuenta de correo/contraseña («Jugar sin monedero»), un correo de bienvenida confirma la creación de tu cuenta y, de vez en cuando, puede enviarte un informe de tu progreso. Puedes cambiar tu contraseña en cualquier momento mediante el botón «🔑 Restablecer contraseña» junto a tu dirección en el juego (con confirmación y un correo de seguridad). Si pierdes tu contraseña, el administrador del juego puede generarte una nueva y enviártela por correo."
 }

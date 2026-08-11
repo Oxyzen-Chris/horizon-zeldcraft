@@ -145,15 +145,22 @@ Case à cocher « Activer », date de début (calendrier), cycle (quotidien / he
 des jours / mensuel avec jour du mois / annuel), message et image personnalisés optionnels →
 enregistré dans `PlayerState.scheduledReport` (`gameState.ts::setPlayerScheduledReport`).
 
-Un **Vercel Cron** (`web/vercel.json`, `0 * * * *` = toutes les heures) appelle
+Un **Vercel Cron** (`web/vercel.json`, `0 8 * * *` = une fois par jour à 8h UTC) appelle
 `GET/POST /api/email/cron-reports`, qui :
 1. Lit tous les joueurs via l'API REST Realtime Database + un **secret de base de données legacy**
    (`FIREBASE_DB_SECRET`) — voir `lib/email/firebaseAdminRest.ts` — car un job cron n'a pas de
    session navigateur pour utiliser le SDK client Firebase comme le reste du jeu.
 2. Pour chaque joueur avec `scheduledReport.enabled = true`, teste `isDue()` : fenêtre tolérante
-   (~23h daily/weekly, ~27j monthly, ~300j yearly) car le cron ne tourne qu'une fois par heure, afin
-   de ne jamais rater un envoi à cause d'un léger décalage.
+   (~23h daily/weekly, ~27j monthly, ~300j yearly) afin de ne jamais rater un envoi à cause d'un
+   léger décalage de passage du cron.
 3. Envoie le rapport puis écrit `scheduledReport.lastSentAt` (anti-doublon dans la même période).
+
+> ⚠️ **Le plan Vercel Hobby limite les Cron Jobs à une exécution par jour maximum.** Une
+> configuration `0 * * * *` (toutes les heures) est **acceptée par `vercel.json`/Git** mais fait
+> échouer **le déploiement entier** à la toute dernière étape (« Deploying outputs... »), alors que
+> le build lui-même réussit — un piège silencieux vécu en production (voir
+> `docs/ROADMAP.md` § Historique déploiement). Ne jamais descendre sous une fois par jour sur ce
+> cron sans être passé sur un plan Vercel payant.
 
 Protégée par `CRON_SECRET` optionnel — Vercel Cron envoie automatiquement l'en-tête
 `Authorization: Bearer <CRON_SECRET>` sur les requêtes planifiées dès que cette variable est
@@ -189,6 +196,30 @@ qui apparaît **immédiatement** dans le jeu, en haut de l'écran, pour les joue
 - Nettoyage automatique : `deletePlayerAccount()` supprime aussi l'annonce ciblée du joueur ;
   `deleteAllPlayers()` supprime l'intégralité de l'arbre `announcements`.
 
+## 🗑️ Suppression complète d'un compte (RTDB **et** Firebase Auth)
+
+Correctif important : `deletePlayerAccount()`/`deleteAllPlayers()` n'effaçaient à l'origine que les
+données Firebase RTDB (`players/{addr}`, registre, session, annonce ciblée) — le compte **Firebase
+Auth** sous-jacent (Google ou e-mail/mot de passe) restait orphelin. Conséquence concrète : un
+joueur supprimé puis recréé avec la même adresse e-mail se voyait refuser la création
+(`auth/email-already-in-use`) tout en conservant son ancien mot de passe, alors que l'admin l'avait
+« supprimé ».
+
+- `PlayerStats.tsx` (bouton « 🗑️ Supprimer » de la zone de danger, individuel et « tout
+  réinitialiser ») et `DemoAccessRequestsPanel.tsx` (registre Démo/Fiat) appellent désormais
+  `deleteFirebaseAuthUser()` (`lib/adminActions.ts`) **avant** la suppression RTDB.
+- Route serveur `POST /api/admin/delete-account` (`{ uid }` **ou** `{ email }`) →
+  `adminDeleteUser(uid)` / `adminDeleteUserByEmail(email)` (`lib/firebaseAdmin.ts`, même Admin SDK
+  que le reset de mot de passe, mêmes variables `FIREBASE_ADMIN_CLIENT_EMAIL`/
+  `FIREBASE_ADMIN_PRIVATE_KEY`). Le mode par e-mail sert à rattraper les comptes déjà « orphelins »
+  (RTDB supprimée avant ce correctif, mais dont l'`uid` n'est donc plus visible depuis l'UI admin).
+- Idempotent : si le compte Auth n'existe déjà plus, la route répond `{ ok: true }` sans erreur
+  (aucun risque à l'appeler plusieurs fois, ex. double-clic admin).
+- Sans `FIREBASE_ADMIN_CLIENT_EMAIL`/`FIREBASE_ADMIN_PRIVATE_KEY` configurées : la route répond
+  `501` et seule la donnée RTDB est effacée (comportement d'avant ce correctif) — un joueur
+  supprimé dans ce cas ne pourra recréer un compte avec la même adresse tant que ces variables ne
+  sont pas renseignées.
+
 ## ⚙️ Réglages admin (Administration > Barème & règles > ✉️ E-mails automatiques)
 
 | Réglage | Défaut | Effet |
@@ -209,8 +240,8 @@ Toutes ajoutées à `docs/DEPLOYMENT.md` (tableau des variables d'environnement)
 | `RESEND_FROM_NAME` | Nom d'expéditeur (fallback si `emailFromName` non défini en base) | Libre |
 | `FIREBASE_DB_SECRET` | Rapports **programmés** uniquement (cron) | Console Firebase → Paramètres du projet → Comptes de service → onglet « Legacy » (Database secrets) |
 | `CRON_SECRET` | Sécurisation optionnelle de `/api/email/cron-reports` | Valeur aléatoire de ton choix |
-| `FIREBASE_ADMIN_CLIENT_EMAIL` | Reset mot de passe **forcé par l'admin** uniquement (§ ci-dessus) | Console Firebase → Comptes de service → « Générer une nouvelle clé privée » → champ `client_email` |
-| `FIREBASE_ADMIN_PRIVATE_KEY` | Reset mot de passe **forcé par l'admin** uniquement (§ ci-dessus) | Même fichier JSON que ci-dessus → champ `private_key` |
+| `FIREBASE_ADMIN_CLIENT_EMAIL` | Reset mot de passe forcé par l'admin **et** suppression complète d'un compte (RTDB+Auth, § ci-dessus) | Console Firebase → Comptes de service → « Générer une nouvelle clé privée » → champ `client_email` |
+| `FIREBASE_ADMIN_PRIVATE_KEY` | Reset mot de passe forcé par l'admin **et** suppression complète d'un compte (RTDB+Auth, § ci-dessus) | Même fichier JSON que ci-dessus → champ `private_key` |
 
 Si `RESEND_API_KEY` est absent : les routes `/api/email/*` répondent explicitement en **501**
 (plutôt que de planter) et un avertissement (⚠️) s'affiche dans le panneau Administration —
@@ -244,6 +275,32 @@ contexte React de l'app.
   `setPlayerScheduledReport`, annonces) suivent la convention existante du projet : jamais
   d'assignation directe de `undefined` (spread conditionnel des champs optionnels), pour éviter les
   erreurs Firebase « Reference.set failed: value argument contains undefined ».
+
+## 🚑 Piège de déploiement rencontré (Admin SDK + Vercel serverless)
+
+Deux bugs discrets ont bloqué cette fonctionnalité en production après son intégration initiale,
+tous deux corrigés — utile à connaître avant de toucher de nouveau à `firebase-admin` :
+
+1. **`ERR_REQUIRE_ESM` au chargement du module** : `firebase-admin@14.x` dépend de `jwks-rsa@4.1.0`,
+   qui fait `require('jose')` — or `jose@6.x` est un module **100% ESM** sans point d'entrée CJS,
+   ce qui fait planter le `require()` **au chargement du module**, donc AVANT même l'exécution du
+   handler de route (un `try/catch` applicatif ne peut rien y faire ; Next.js renvoie une page
+   d'erreur HTML 500 générique au lieu d'un JSON). Corrigé en épinglant `jose` à une version encore
+   CJS **uniquement dans l'arbre de `jwks-rsa`**, via le champ `overrides` imbriqué de
+   `web/package.json` :
+   ```json
+   "overrides": { "jwks-rsa": { "jose": "5.9.6" } }
+   ```
+   Ce ciblage laisse intact le `jose@6.x` utilisé ailleurs (wagmi/`@coinbase/cdp-sdk`). **Ne pas
+   supprimer cet override sans revérifier `npm ls jose`** si `firebase-admin`/`jwks-rsa` sont un
+   jour mis à jour (une version plus récente de `jwks-rsa` pourrait corriger nativement le
+   problème).
+2. **Cron Hobby limité à 1×/jour** (voir § Programmation récurrente ci-dessus) : a fait échouer
+   silencieusement **tous** les déploiements Git déclenchés après l'ajout de cette fonctionnalité —
+   le bouton « Redeploy » de Vercel semblait « fonctionner » car il rejoue le **dernier build
+   réussi** (donc un ancien commit), masquant le problème. Diagnostic : comparer une route connue
+   récente (ex. `/api/email/send`) entre le code local et la prod (`curl` — 404 = pas encore
+   déployée) pour détecter un déploiement figé sur un vieux commit.
 
 ## ⚠️ Points d'attention pour la suite
 

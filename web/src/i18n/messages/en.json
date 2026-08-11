@@ -1588,5 +1588,7 @@
   "admin.repRules.emailKeyMissingHint": "⚠️ Server environment variable RESEND_API_KEY is missing — emails won't be sent until it is configured on Vercel (see docs/EMAIL_NOTIFICATIONS.md).",
   "admin.stats.offchainTx": "Fiat payment (off-chain)",
   "onboarding.topic.demoFiat.title": "Play without a wallet",
-  "onboarding.topic.demoFiat.body": "No crypto wallet? From the home page, try the game for free with \"🎟️ Demo Access\" (instant anonymous or Google sign-in — immediate access) or play right away with \"💳 Play without a wallet\" (Google/e-mail) and top up your coins by card, PayPal, Apple Pay or Google Pay."
+  "onboarding.topic.demoFiat.body": "No crypto wallet? From the home page, try the game for free with \"🎟️ Demo Access\" (instant anonymous or Google sign-in — immediate access) or play right away with \"💳 Play without a wallet\" (Google/e-mail) and top up your coins by card, PayPal, Apple Pay or Google Pay.",
+  "onboarding.topic.accountSecurity.title": "Account & password",
+  "onboarding.topic.accountSecurity.body": "With an e-mail/password account (\"Play without a wallet\"), a welcome e-mail confirms your account creation and, from time to time, a progress report may be sent to you. You can change your password anytime via the \"🔑 Reset password\" button next to your address in-game (with confirmation and a security e-mail). If you lose your password, the game admin can generate a new one and send it to you by e-mail."
 }

@@ -1588,5 +1588,7 @@
   "admin.repRules.emailKeyMissingHint": "⚠️ Falta a variável de ambiente do servidor RESEND_API_KEY — os e-mails não serão enviados até que seja configurada na Vercel (ver docs/EMAIL_NOTIFICATIONS.md).",
   "admin.stats.offchainTx": "Pagamento fiat (fora da blockchain)",
   "onboarding.topic.demoFiat.title": "Jogar sem carteira",
-  "onboarding.topic.demoFiat.body": "Sem carteira cripto? Na página inicial, experimente o jogo gratuitamente com \"🎟️ Acesso Demo\" (anônimo instantâneo ou login com Google — acesso imediato) ou jogue imediatamente com \"💳 Jogar sem carteira\" (Google/e-mail) e recarregue suas moedas por cartão, PayPal, Apple Pay ou Google Pay."
+  "onboarding.topic.demoFiat.body": "Sem carteira cripto? Na página inicial, experimente o jogo gratuitamente com \"🎟️ Acesso Demo\" (anônimo instantâneo ou login com Google — acesso imediato) ou jogue imediatamente com \"💳 Jogar sem carteira\" (Google/e-mail) e recarregue suas moedas por cartão, PayPal, Apple Pay ou Google Pay.",
+  "onboarding.topic.accountSecurity.title": "Conta e senha",
+  "onboarding.topic.accountSecurity.body": "Com uma conta de e-mail/senha (\"Jogar sem carteira\"), um e-mail de boas-vindas confirma a criação da sua conta e, de vez em quando, um relatório do seu progresso pode ser enviado a você. Você pode alterar sua senha a qualquer momento pelo botão \"🔑 Redefinir senha\" ao lado do seu endereço no jogo (com confirmação e um e-mail de segurança). Se você perder sua senha, o administrador do jogo pode gerar uma nova e enviá-la por e-mail."
 }

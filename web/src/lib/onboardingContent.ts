@@ -67,6 +67,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
       { icon: '📸', titleKey: 'onboarding.topic.instagram.title', bodyKey: 'onboarding.topic.instagram.body' },
       { icon: '💎', titleKey: 'onboarding.topic.eth.title', bodyKey: 'onboarding.topic.eth.body' },
       { icon: '🎟️', titleKey: 'onboarding.topic.demoFiat.title', bodyKey: 'onboarding.topic.demoFiat.body' },
+      { icon: '🔑', titleKey: 'onboarding.topic.accountSecurity.title', bodyKey: 'onboarding.topic.accountSecurity.body' },
     ],
   },
 ];

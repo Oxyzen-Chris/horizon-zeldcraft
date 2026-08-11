@@ -1588,5 +1588,7 @@
   "admin.repRules.emailKeyMissingHint": "⚠️ Variable d'environnement serveur RESEND_API_KEY absente — les e-mails ne partiront pas tant qu'elle n'est pas configurée sur Vercel (voir docs/EMAIL_NOTIFICATIONS.md).",
   "admin.stats.offchainTx": "Paiement fiat (hors blockchain)",
   "onboarding.topic.demoFiat.title": "Jouer sans portefeuille",
-  "onboarding.topic.demoFiat.body": "Pas de portefeuille crypto ? Depuis la page d'accueil, teste le jeu gratuitement avec « 🎟️ Accès Démo » (anonyme instantané ou connexion Google — accès immédiat) ou joue directement avec « 💳 Jouer sans portefeuille » (Google/e-mail) et recharge tes coins par carte, PayPal, Apple Pay ou Google Pay."
+  "onboarding.topic.demoFiat.body": "Pas de portefeuille crypto ? Depuis la page d'accueil, teste le jeu gratuitement avec « 🎟️ Accès Démo » (anonyme instantané ou connexion Google — accès immédiat) ou joue directement avec « 💳 Jouer sans portefeuille » (Google/e-mail) et recharge tes coins par carte, PayPal, Apple Pay ou Google Pay.",
+  "onboarding.topic.accountSecurity.title": "Compte & mot de passe",
+  "onboarding.topic.accountSecurity.body": "Avec un compte e-mail/mot de passe (« Jouer sans portefeuille »), un e-mail de bienvenue confirme ta création de compte et, de temps en temps, un rapport de ta progression peut t'être envoyé. Tu peux changer ton mot de passe à tout moment via le bouton « 🔑 Reset mot de passe » à côté de ton adresse en jeu (avec confirmation et e-mail de sécurité). Si tu perds ton mot de passe, l'administrateur du jeu peut t'en générer un nouveau et te l'envoyer par e-mail."
 }

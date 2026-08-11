@@ -2,7 +2,7 @@
 
 > Un Tamagotchi Web3 crypté sur la blockchain Ethereum. Nourris ton **Synk** (jeune héros façon Link, en pixel-art) chaque jour, semaine, mois et année pour le faire évoluer, débloquer des sorts, skins, familiers, mondes et quêtes épiques inspirés de **Minecraft Dungeons**, **The Legend of Zelda: BOTW/TOTK** et **World of Warcraft**.
 
-![status](https://img.shields.io/badge/status-v3.2%20%E2%80%94%20Plateforme%203D%20%26%20cam%C3%A9ra%20suiveuse-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![solidity](https://img.shields.io/badge/solidity-0.8.24-orange) ![nextjs](https://img.shields.io/badge/Next.js-14-black)
+![status](https://img.shields.io/badge/status-v3.3%20%E2%80%94%20Comptes%20s%C3%A9curis%C3%A9s%20%26%20e--mails-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![solidity](https://img.shields.io/badge/solidity-0.8.24-orange) ![nextjs](https://img.shields.io/badge/Next.js-14-black)
 
 ## 📦 Monorepo
 
@@ -74,7 +74,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 
 **Garantie de persistance :** les données Firebase sont indexées par **adresse wallet**, jamais par adresse de contrat. Redéployer le smart contract ne perd rien du parcours joueur (stats, inventaire, chat, transactions).
 
-## 🎮 Fonctionnalités v3.2
+## 🎮 Fonctionnalités v3.3
 
 ### Trame narrative
 - 👹 **Zorghon le Maléfique** a enlevé la princesse **PocaPoka** et son lutin des sables **El Pipo** — objectif final du jeu
@@ -88,6 +88,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - 🍖 Nourrissage journalier / hebdo / mensuel / annuel avec cooldowns **indépendants par type** et compte-à-rebours — rubrique masquable par l'admin, boutons on-chain désactivables séparément (voir Bugs corrigés)
 - 💰 **Rechargement du portefeuille** (nouveau) : fenêtre flottante dédiée à l'achat de monnaie de jeu contre ETH (mêmes presets/trésorerie que la rubrique « Portefeuille » fixe), déplaçable/réductible comme tous les autres widgets, avec en complément un **paiement fiat** (CB/PayPal/Apple Pay/Google Pay, voir ci-dessous) accessible à tous les comptes
 - 🎟️💳 **Accès Démo & paiement fiat, sans portefeuille crypto** (nouveau — voir `docs/DEMO_FIAT.md`) : deux boutons sur la page d'accueil, à côté de la connexion wallet classique — « 🎟️ Accès Démo » (connexion Google avec validation admin dans une file d'attente dédiée, ou mode 100% anonyme instantané, tous deux plafonnés en connexions simultanées) et « 💳 Jouer sans portefeuille » (Google ou e-mail, accès immédiat, rechargement des coins par CB/PayPal/Apple Pay/Google Pay). Identité virtuelle transparente pour tous les widgets de jeu (`useEffectiveAccount()`) — **zéro changement pour les joueurs crypto existants**
+- ✉️🔑 **Compte e-mail/mot de passe sécurisé + e-mails automatiques** (nouveau — voir `docs/EMAIL_NOTIFICATIONS.md`) : flux explicite Se connecter/Créer un compte pour « Jouer sans portefeuille », e-mail de bienvenue, rapport de progression immédiat ou **programmé** (quotidien/hebdo/mensuel/annuel), message personnalisé ou diffusion de masse (maintenance…), bandeau d'annonce en direct in-game (ciblé ou global), et **reset de mot de passe** admin-forcé (mot de passe fort généré, envoyé par e-mail) ou en libre-service depuis le jeu (bouton à côté de l'adresse virtuelle) — tout paramétrable dans `Administration > Barème & règles`
 - 📊 **Statistiques** : XP · Vie · Faim · Bonheur · Force · Sortilèges · **Oxygène** · **Fatigue** · Portefeuille · Reconnaissance
 - 🌤️ Météo dynamique cohérente avec le **cycle des 4 saisons** (calendrier réel), impact sur le bonheur
 - 🌕 Pleine lune (calendrier réel + override admin) débloquant des quêtes spéciales
@@ -146,6 +147,9 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 | Plateforme 3D : caméra suiveuse instable (rotation erratique, bloquait tout déplacement) | `OrbitControls` (drei) appelle déjà `update()` à chaque frame — la caméra suiveuse n'injecte plus qu'une impulsion dans `controls._sphericalDelta.theta` au lieu de repositionner la caméra et rappeler `update()` elle-même |
 | Plateforme 3D : course impossible / Synk marchait sur place après une rotation manuelle de la caméra | La caméra suiveuse remontait l'angle réel encore en transition à la résolution de direction (`rotateInputByCameraYaw`), créant une boucle de rétroaction — elle remonte désormais sa cible analytique stable (`facing + π`) pendant la marche, l'angle réel dès que Synk est à l'arrêt |
 | Plateforme 3D : second pop-up « Synk se noie » affiché en haut d'une montagne (épuisement, pas noyade) | Le pop-up de noyade ne s'affiche désormais que si Synk est réellement dans l'eau |
+| Suppression d'un compte joueur (admin) laissait le compte Firebase Auth orphelin — impossible de le recréer avec la même adresse e-mail | `deletePlayerAccount()`/`deleteAllPlayers()` suppriment désormais aussi l'utilisateur Firebase Auth (`api/admin/delete-account`, `uid` ou `email`) |
+| Déploiements Vercel figés sur un ancien commit malgré `git push` répétés et clics sur « Redeploy » | Cron des rapports programmés passé de toutes les heures à une fois par jour — le plan Vercel Hobby limite les Cron Jobs à 1×/jour, un cron plus fréquent faisait échouer tout déploiement à la dernière étape (voir `docs/EMAIL_NOTIFICATIONS.md`) |
+| Reset de mot de passe/suppression de compte : page d'erreur générique 500 au lieu d'un message clair | `jose@6` (ESM pur) incompatible avec `jwks-rsa@4` (dépendance de `firebase-admin`) faisait planter le chargement du module — épinglage ciblé de `jose@5` via `overrides` npm dans l'arbre de `jwks-rsa` uniquement |
 
 ## 📚 Documentation
 
@@ -154,6 +158,7 @@ Pour minimiser les frais de gas et les appels au wallet, **seules les opération
 - [Firebase (chat + off-chain) + **règles de sécurité RTDB à jour**](./docs/FIREBASE_CHAT.md) ← **à republier à chaque merge touchant les chemins RTDB**
 - [Lore & univers Synk](./docs/LORE.md)
 - [Accès Démo & Paiement fiat (sans portefeuille crypto)](./docs/DEMO_FIAT.md)
+- [E-mails automatiques & annonces en direct (comptes sécurisés, rapports, reset mot de passe)](./docs/EMAIL_NOTIFICATIONS.md)
 - [Roadmap Phases 2/3/4](./docs/ROADMAP.md)
 
 ## 📸 Communauté

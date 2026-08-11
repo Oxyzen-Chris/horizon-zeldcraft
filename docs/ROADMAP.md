@@ -126,6 +126,27 @@ montagne avec Espace + direction Haut, y compris caméra suiveuse active. Cette 
 (`Scene`'s `useFrame` dans `Platform3DWidget.tsx`) est la référence à ne plus modifier sans une
 raison impérieuse, pour éviter de réintroduire l'une de ces régressions.
 
+### 🚑 Historique — déploiement Vercel figé sur un ancien commit (« Redeploy » trompeur)
+
+Après l'ajout des e-mails automatiques (§ Phase 4), plusieurs `git push` successifs semblaient ne
+jamais atteindre la production, malgré de multiples clics sur « Redeploy » dans le dashboard
+Vercel :
+
+- **Cause racine** : `web/vercel.json` déclarait un cron **horaire** (`0 * * * *`) pour
+  `/api/email/cron-reports`, or le plan Vercel **Hobby limite les Cron Jobs à 1 exécution par
+  jour**. Le *build* réussissait toujours, mais le déploiement échouait silencieusement à la toute
+  dernière étape (« Deploying outputs... »).
+- **Pourquoi « Redeploy » semblait « marcher »** : ce bouton **rejoue le dernier build réussi**
+  (donc un commit ANTÉRIEUR au cron cassé) — il ne récupère jamais le `main` courant. D'où
+  l'illusion d'un déploiement qui « fonctionne » mais n'affiche jamais les derniers commits.
+- **Diagnostic utilisé** : comparer via `curl` une route connue récente entre attendu et
+  production (404 = route absente = build antérieur à son commit d'introduction) ; `vercel logs`
+  pour voir l'erreur exacte de la dernière tentative de déploiement Git.
+- **Correctif** : cron repassé à une fois par jour (`0 8 * * *`) — voir `docs/EMAIL_NOTIFICATIONS.md`
+  § Piège de déploiement. Depuis ce correctif, un simple `git push` suffit à nouveau pour déployer
+  automatiquement (retour à la convention normale du projet — ne pas cumuler `git push` et
+  `vercel --prod` manuel en usage courant, uniquement en cas de nouveau blocage à diagnostiquer).
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la
@@ -237,6 +258,26 @@ raison impérieuse, pour éviter de réintroduire l'une de ces régressions.
       `Administration > Statistiques par joueur` ; message personnalisé ou envoi de masse à tous
       les joueurs (ex. maintenance) ; bandeau d'annonce en direct in-game (ciblé ou global). Tout
       paramétrable dans `Administration > Barème & règles` (section « ✉️ E-mails automatiques »).
+- [x] **Reset de mot de passe (admin-forcé + auto-service joueur)** (voir
+      `docs/EMAIL_NOTIFICATIONS.md` § Reset mot de passe) : bouton admin « 🔑 Reset mot de passe »
+      dans `Statistiques par joueur > Zone de danger` (mot de passe fort 12 caractères généré,
+      affiché en clair une seule fois, envoyé par e-mail) ; bouton en jeu à côté de l'adresse
+      virtuelle pour un changement volontaire par le joueur (confirmation + e-mail de sécurité sans
+      divulguer le mot de passe) ; compteur `passwordResetCount` partagé et affiché dans les
+      statistiques.
+- [x] **Correctifs post-lancement — suppression de compte & stabilité des déploiements** (voir
+      `docs/EMAIL_NOTIFICATIONS.md` § Suppression complète / § Piège de déploiement) :
+      `deletePlayerAccount()`/`deleteAllPlayers()` suppriment désormais aussi le compte **Firebase
+      Auth** sous-jacent (plus de compte « orphelin » bloquant la recréation avec la même adresse
+      e-mail) ; `getOrCreatePlayer()` rétro-complète `authMethod`/`uid`/`email` sur les comptes
+      existants qui en étaient dépourvus ; nouvelle route `POST /api/admin/delete-account` (`uid`
+      **ou** `email`, pour rattraper les comptes déjà orphelins) ; `firebaseAdmin.ts` sécurisé
+      contre un crash au chargement du module (`try/catch` autour de l'initialisation + dépendance
+      `jose`/`jwks-rsa` épinglée via `overrides` npm, voir `docs/EMAIL_NOTIFICATIONS.md`) ; cron
+      des rapports programmés repassé à une fois par jour (`0 8 * * *`, le plan Vercel Hobby
+      limitant les Cron Jobs à 1×/jour — un cron plus fréquent faisait échouer silencieusement
+      **tout** déploiement Git, le bouton « Redeploy » masquant le problème en rejouant un ancien
+      build réussi).
 - [ ] Intégration Stripe réelle (CB, Apple Pay) — clés API + `api/payments/checkout/route.ts`
 - [ ] PayPal SDK réel (au-delà du mode simulation déjà livré)
 - [ ] On-ramp crypto (MoonPay, Ramp)

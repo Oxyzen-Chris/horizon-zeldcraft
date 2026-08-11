@@ -84,7 +84,10 @@ connectés sans portefeuille crypto (Accès Démo **et** Jouer sans portefeuille
   prochaine tentative de connexion de ce compte, **sans supprimer sa progression** — réversible.
 - Un bouton **🗑️ Supprimer** (`deletePlayerAccount`) : supprime définitivement le compte joueur
   (`players/{addr}` et tout ce qui y est imbriqué), son entrée de registre et sa session active
-  éventuelle — ce qui **libère immédiatement un emplacement de connexion concurrente**.
+  éventuelle — ce qui **libère immédiatement un emplacement de connexion concurrente**. Supprime
+  également le compte **Firebase Auth** sous-jacent (Google ou e-mail/mot de passe) via
+  `POST /api/admin/delete-account`, pour permettre au joueur de recréer un compte avec la même
+  adresse e-mail par la suite (voir `docs/EMAIL_NOTIFICATIONS.md` § Suppression complète).
 
 Le même mécanisme de suppression est disponible dans `Administration > Statistiques par joueur`
 (`PlayerStats.tsx`), qui affiche désormais aussi l'e-mail et le mode d'accès de chaque compte
