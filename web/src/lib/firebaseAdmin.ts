@@ -134,3 +134,25 @@ export async function adminDeleteUser(uid: string): Promise<{ ok: boolean; error
     return { ok: false, error: err instanceof Error ? err.message : 'Erreur inconnue.' };
   }
 }
+
+/**
+ * Variante par adresse e-mail : indispensable pour les comptes "orphelins" — un utilisateur
+ * Firebase Auth dont la fiche joueur RTDB a déjà été supprimée (ex: suppression effectuée avant le
+ * correctif de `adminDeleteUser`, ou fiche jamais dotée d'un `uid` stocké) n'apparaît plus dans
+ * "Statistiques par joueur" et n'est donc plus atteignable via `adminDeleteUser(uid)` depuis l'UI.
+ * Résout d'abord l'UID via `getUserByEmail` (idempotent : `auth/user-not-found` = succès, déjà
+ * absent), puis délègue à la même suppression.
+ */
+export async function adminDeleteUserByEmail(email: string): Promise<{ ok: boolean; error?: string }> {
+  const app = ensureAdminApp();
+  if (!app) return { ok: false, error: INIT_FAILED_MSG };
+  try {
+    const user = await getAuth(app).getUserByEmail(email);
+    return adminDeleteUser(user.uid);
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'auth/user-not-found') return { ok: true };
+    console.error('[firebaseAdmin] adminDeleteUserByEmail failed:', err);
+    return { ok: false, error: err instanceof Error ? err.message : 'Erreur inconnue.' };
+  }
+}

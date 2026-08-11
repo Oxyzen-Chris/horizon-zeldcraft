@@ -18,9 +18,13 @@
  *
  * Même convention que les autres routes `/api/admin/*` et `/api/email/*` : aucune vérification
  * serveur de rôle admin (menu déjà protégé côté client par `isOwner`, voir app/admin/page.tsx).
+ *
+ * Accepte `{ uid }` (cas normal, PlayerStats.tsx) OU `{ email }` (cas d'un compte "orphelin" :
+ * fiche RTDB déjà supprimée avant ce correctif, donc invisible dans "Statistiques par joueur" —
+ * plus aucun `uid` n'est disponible côté client pour l'atteindre, voir `adminDeleteUserByEmail`).
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { isFirebaseAdminConfigured, adminDeleteUser } from '@/lib/firebaseAdmin';
+import { isFirebaseAdminConfigured, adminDeleteUser, adminDeleteUserByEmail } from '@/lib/firebaseAdmin';
 
 export const runtime = 'nodejs';
 
@@ -32,7 +36,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { uid?: string };
+  let body: { uid?: string; email?: string };
   try {
     body = await req.json();
   } catch {
@@ -40,11 +44,12 @@ export async function POST(req: NextRequest) {
   }
 
   const uid = body?.uid;
-  if (!uid || typeof uid !== 'string') {
-    return NextResponse.json({ error: 'bad-request', message: 'Champ "uid" manquant.' }, { status: 400 });
+  const email = body?.email;
+  if ((!uid || typeof uid !== 'string') && (!email || typeof email !== 'string')) {
+    return NextResponse.json({ error: 'bad-request', message: 'Champ "uid" ou "email" requis.' }, { status: 400 });
   }
 
-  const result = await adminDeleteUser(uid);
+  const result = uid ? await adminDeleteUser(uid) : await adminDeleteUserByEmail(email as string);
   if (!result.ok) {
     return NextResponse.json({ error: 'delete-failed', message: result.error }, { status: 502 });
   }
