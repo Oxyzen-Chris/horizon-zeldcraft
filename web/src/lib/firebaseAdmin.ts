@@ -30,22 +30,51 @@ export function isFirebaseAdminConfigured(): boolean {
   return !!process.env.FIREBASE_ADMIN_CLIENT_EMAIL && !!process.env.FIREBASE_ADMIN_PRIVATE_KEY;
 }
 
+/**
+ * Initialise l'app Admin de façon défensive : `cert()`/`initializeApp()` peuvent lever une
+ * exception SYNCHRONE (pas une Promise rejetée) si `FIREBASE_ADMIN_CLIENT_EMAIL`/
+ * `FIREBASE_ADMIN_PRIVATE_KEY` sont mal formées (ex: e-mail personnel au lieu de l'e-mail du
+ * compte de service, ou secret de base de données "legacy" collé à la place de la clé privée PEM
+ * — deux erreurs de configuration courantes, voir docs/DEPLOYMENT.md). Sans ce try/catch, cette
+ * exception remontait non interceptée jusqu'à Next.js, qui renvoyait une page d'erreur 500 HTML
+ * générique au lieu d'un message JSON exploitable (bug corrigé : les routes /api/admin/* dégradent
+ * désormais proprement en 502 avec un message clair, au lieu de planter).
+ */
 function ensureAdminApp(): App | null {
   if (!isFirebaseAdminConfigured()) return null;
   if (adminApp) return adminApp;
-  const existing = getApps().find((a) => a.name === 'zc-admin');
-  if (existing) { adminApp = existing; return adminApp; }
-  adminApp = initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-      // Les variables d'environnement Vercel ne conservent pas toujours les retours à la ligne
-      // réels d'une clé PEM : on accepte donc aussi la forme avec des "\n" littéraux échappés.
-      privateKey: (process.env.FIREBASE_ADMIN_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-    }),
-  }, 'zc-admin');
-  return adminApp;
+  try {
+    const existing = getApps().find((a) => a.name === 'zc-admin');
+    if (existing) { adminApp = existing; return adminApp; }
+    adminApp = initializeApp({
+      credential: cert({
+        projectId: process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+        // Les variables d'environnement Vercel ne conservent pas toujours les retours à la ligne
+        // réels d'une clé PEM : on accepte donc aussi la forme avec des "\n" littéraux échappés.
+        privateKey: (process.env.FIREBASE_ADMIN_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+      }),
+    }, 'zc-admin');
+    return adminApp;
+  } catch (err) {
+    console.error(
+      '[firebaseAdmin] Échec initialisation — vérifiez que FIREBASE_ADMIN_CLIENT_EMAIL est bien ' +
+      'le "client_email" du fichier JSON de compte de service (PAS une adresse Gmail personnelle) ' +
+      'et que FIREBASE_ADMIN_PRIVATE_KEY est bien le "private_key" PEM de ce même fichier ' +
+      '(PAS le secret de base de données legacy) :', err,
+    );
+    return null;
+  }
 }
+
+/** Message d'aide renvoyé quand `ensureAdminApp()` a échoué (config présente mais invalide) —
+ * distinct du cas "absente" (501, voir routes) : ici les variables existent mais ne permettent pas
+ * de s'authentifier auprès de Firebase. */
+const INIT_FAILED_MSG =
+  'Configuration Firebase Admin invalide : vérifiez que FIREBASE_ADMIN_CLIENT_EMAIL/' +
+  'FIREBASE_ADMIN_PRIVATE_KEY proviennent bien du fichier JSON "Compte de service" ' +
+  '(Firebase Console → Paramètres du projet → Comptes de service → Générer une nouvelle clé ' +
+  'privée), et non d\'une adresse e-mail personnelle ou du secret de base de données legacy.';
 
 /** Longueur fixée à 12 (voir demande utilisateur) — mélange garanti d'au moins un caractère de
  * chaque catégorie (majuscule/minuscule/chiffre/spécial) puis mélange aléatoire de l'ensemble,
@@ -74,7 +103,7 @@ export function generateStrongPassword(length = 12): string {
  * PlayerStats.tsx et api/admin/reset-password/route.ts) — jamais persisté en clair côté Firebase. */
 export async function adminSetUserPassword(uid: string, newPassword: string): Promise<{ ok: boolean; error?: string }> {
   const app = ensureAdminApp();
-  if (!app) return { ok: false, error: 'Firebase Admin non configuré côté serveur.' };
+  if (!app) return { ok: false, error: INIT_FAILED_MSG };
   try {
     await getAuth(app).updateUser(uid, { password: newPassword });
     return { ok: true };
@@ -94,7 +123,7 @@ export async function adminSetUserPassword(uid: string, newPassword: string): Pr
  */
 export async function adminDeleteUser(uid: string): Promise<{ ok: boolean; error?: string }> {
   const app = ensureAdminApp();
-  if (!app) return { ok: false, error: 'Firebase Admin non configuré côté serveur.' };
+  if (!app) return { ok: false, error: INIT_FAILED_MSG };
   try {
     await getAuth(app).deleteUser(uid);
     return { ok: true };
