@@ -394,6 +394,7 @@
   "admin.stats.resetPasswordError": "❌ Falha ao repor a palavra-passe. Tenta novamente.",
   "admin.stats.resetPasswordNotConfigured": "❌ O SDK Admin do Firebase não está configurado no servidor (falta FIREBASE_ADMIN_CLIENT_EMAIL / FIREBASE_ADMIN_PRIVATE_KEY). Ver docs/DEPLOYMENT.md.",
   "admin.stats.passwordResetCount": "Número de alterações de palavra-passe",
+  "admin.stats.deleteAuthNotConfigured": "⚠️ Conta removida do jogo, mas o SDK Admin do Firebase não está configurado no servidor: a antiga conta de autenticação (e-mail/palavra-passe) continua ativa e impedirá a recriação com o mesmo e-mail até que FIREBASE_ADMIN_CLIENT_EMAIL/FIREBASE_ADMIN_PRIVATE_KEY sejam adicionados (ver docs/DEPLOYMENT.md).",
   "admin.accessMode.wallet": "Carteira cripto",
   "admin.accessMode.demo": "Acesso Demo",
   "admin.accessMode.fiat": "Jogar sem carteira",

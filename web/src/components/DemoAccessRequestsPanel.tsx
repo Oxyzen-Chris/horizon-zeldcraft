@@ -5,6 +5,7 @@ import {
   subscribeDemoAccessRequests, pauseAccountAccess, deletePlayerAccount, getRepRules,
   countActiveDemoSessions, type DemoAccessRequest, type RepRules,
 } from '@/lib/gameState';
+import { deleteFirebaseAuthUser } from '@/lib/adminActions';
 import { useI18n } from '@/lib/i18n';
 
 /**
@@ -48,7 +49,16 @@ export function DemoAccessRequestsPanel() {
   const remove = async (r: DemoAccessRequest) => {
     if (!window.confirm(t('admin.demoRequests.deleteConfirm'))) return;
     setBusyUid(r.uid);
-    try { await deletePlayerAccount(r.address); refreshCounts(); } finally { setBusyUid(null); }
+    try {
+      // Supprime AUSSI le compte Firebase Authentication (e-mail/mot de passe OU Google) — sans
+      // ça, un compte "Jouer sans portefeuille" par e-mail/mot de passe ne pouvait plus jamais
+      // recréer de compte avec la même adresse e-mail après suppression (bug corrigé, voir
+      // lib/adminActions.ts::deleteFirebaseAuthUser).
+      const res = await deleteFirebaseAuthUser(r.uid);
+      if (!res.ok && res.notConfigured) alert(t('admin.stats.deleteAuthNotConfigured'));
+      await deletePlayerAccount(r.address);
+      refreshCounts();
+    } finally { setBusyUid(null); }
   };
 
   const methodEmoji = (m: DemoAccessRequest['method']) => (m === 'google' ? '🔵' : m === 'apple' ? '🍎' : '✉️');

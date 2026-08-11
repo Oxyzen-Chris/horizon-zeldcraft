@@ -83,3 +83,25 @@ export async function adminSetUserPassword(uid: string, newPassword: string): Pr
     return { ok: false, error: err instanceof Error ? err.message : 'Erreur inconnue.' };
   }
 }
+
+/**
+ * Supprime définitivement le compte Firebase Authentication `uid` (e-mail/mot de passe OU Google).
+ * Indispensable en complément de `deletePlayerAccount()` (gameState.ts, qui ne supprime QUE les
+ * données RTDB) : sans ceci, l'utilisateur Firebase Auth d'origine continue d'exister après
+ * suppression du joueur côté admin, ce qui bloque toute recréation du compte avec la même adresse
+ * e-mail (`auth/email-already-in-use`) — bug corrigé (voir api/admin/delete-account/route.ts).
+ * `auth/user-not-found` est traité comme un succès (idempotent : le compte est déjà absent).
+ */
+export async function adminDeleteUser(uid: string): Promise<{ ok: boolean; error?: string }> {
+  const app = ensureAdminApp();
+  if (!app) return { ok: false, error: 'Firebase Admin non configuré côté serveur.' };
+  try {
+    await getAuth(app).deleteUser(uid);
+    return { ok: true };
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'auth/user-not-found') return { ok: true };
+    console.error('[firebaseAdmin] adminDeleteUser failed:', err);
+    return { ok: false, error: err instanceof Error ? err.message : 'Erreur inconnue.' };
+  }
+}

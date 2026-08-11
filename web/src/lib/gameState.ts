@@ -314,7 +314,22 @@ export async function getOrCreatePlayer(
   const snap = await get(ref(db, `players/${k}`));
   if (snap.exists()) {
     markPlayerActiveToday(k).catch(() => {}); // Intelligence IA GamePlay — DAU/rétention, jamais bloquant
-    return applyDecay(snap.val() as PlayerState, k);
+    const existing = snap.val() as PlayerState;
+    // Rattrapage ("backfill") : un compte 'demo'/'fiat' créé AVANT l'ajout d'un de ces champs (ex.
+    // `authMethod`, ajouté après `uid`/`email`/`accountType`) ne les recevait plus jamais, `opts`
+    // n'étant utilisé qu'à la création — ce qui masquait indéfiniment le bouton admin "Reset mot
+    // de passe" (nécessite `authMethod === 'email'`, voir PlayerStats.tsx). On complète donc ici
+    // UNIQUEMENT les champs manquants (jamais d'écrasement d'une valeur déjà présente).
+    const patch: Partial<PlayerState> = {};
+    if (opts?.uid && !existing.uid) patch.uid = opts.uid;
+    if (opts?.email && !existing.email) patch.email = opts.email;
+    if (opts?.accountType && !existing.accountType) patch.accountType = opts.accountType;
+    if (opts?.authMethod && !existing.authMethod) patch.authMethod = opts.authMethod;
+    if (Object.keys(patch).length > 0) {
+      await update(ref(db, `players/${k}`), patch).catch(() => {});
+      Object.assign(existing, patch);
+    }
+    return applyDecay(existing, k);
   }
   const now = Date.now();
   const initial: PlayerState = {
@@ -2630,6 +2645,7 @@ export interface PlayerListEntry {
   email?: string;
   lang?: 'fr' | 'en' | 'es' | 'pt';
   authMethod?: 'google' | 'email';
+  uid?: string;
 }
 
 /** Liste tous les joueurs enregistrés avec leurs métadonnées d'affichage (e-mail/pseudo/mode
@@ -2650,6 +2666,7 @@ export async function listPlayersWithMeta(): Promise<PlayerListEntry[]> {
       email: p?.email,
       lang: p?.lang,
       authMethod: p?.authMethod,
+      uid: p?.uid,
       label: p?.email || p?.displayName || `${addr.slice(0, 10)}…${addr.slice(-6)}`,
     }))
     .sort((a, b) => a.label.localeCompare(b.label));

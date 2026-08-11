@@ -17,6 +17,7 @@ import {
 } from '@/lib/gameState';
 import { ProgressLedgerView } from './ProgressLedgerView';
 import { PlayerEmailPanel, type ReportStats } from './PlayerEmailPanel';
+import { deleteFirebaseAuthUser } from '@/lib/adminActions';
 
 const ETHERSCAN_TX: Record<number, string> = {
   1: 'https://etherscan.io/tx/',
@@ -306,11 +307,19 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   // Partage `deletePlayerAccount()` avec DemoAccessRequestsPanel.tsx (source unique de la logique
   // de nettoyage — voir gameState.ts). Applicable à TOUT type de compte (wallet/demo/fiat) : pour
   // un compte 'wallet', seuls players/{addr} et playerIndex/{addr} sont concernés (pas d'UID Firebase).
+  // Supprime AUSSI le compte Firebase Authentication sous-jacent (uid) via
+  // deleteFirebaseAuthUser() — sans ça, un joueur "Jouer sans portefeuille" par e-mail/mot de passe
+  // ne pouvait plus jamais recréer de compte avec la même adresse e-mail (bug corrigé).
   const deleteSelected = async () => {
     if (!target) return;
     if (!window.confirm(t('admin.stats.deletePlayerConfirm'))) return;
     setDeleting(true);
     try {
+      const uid = dbPlayer?.uid;
+      if (uid) {
+        const res = await deleteFirebaseAuthUser(uid);
+        if (!res.ok && res.notConfigured) alert(t('admin.stats.deleteAuthNotConfigured'));
+      }
       await deletePlayerAccount(target);
       setTarget(null); setDbPlayer(null); setTxs([]); setAddr('');
       await reloadPlayers();
@@ -321,6 +330,16 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     if (!window.confirm(t('admin.stats.deleteAllConfirm2'))) return;
     setDeleting(true);
     try {
+      // Supprime aussi TOUS les comptes Firebase Authentication liés (uid) avant de vider RTDB —
+      // même raison que deleteSelected() ci-dessus (bloquerait sinon toute recréation de compte
+      // e-mail/mot de passe après une réinitialisation totale du jeu).
+      const uids = players.map(p => p.uid).filter((u): u is string => !!u);
+      let anyNotConfigured = false;
+      for (const uid of uids) {
+        const res = await deleteFirebaseAuthUser(uid);
+        if (!res.ok && res.notConfigured) anyNotConfigured = true;
+      }
+      if (anyNotConfigured) alert(t('admin.stats.deleteAuthNotConfigured'));
       await deleteAllPlayers();
       setTarget(null); setDbPlayer(null); setTxs([]); setAddr('');
       await reloadPlayers();

@@ -394,6 +394,7 @@
   "admin.stats.resetPasswordError": "❌ Password reset failed. Please try again.",
   "admin.stats.resetPasswordNotConfigured": "❌ The Firebase Admin SDK is not configured server-side (FIREBASE_ADMIN_CLIENT_EMAIL / FIREBASE_ADMIN_PRIVATE_KEY missing). See docs/DEPLOYMENT.md.",
   "admin.stats.passwordResetCount": "Number of password changes",
+  "admin.stats.deleteAuthNotConfigured": "⚠️ Account removed from the game, but the Firebase Admin SDK isn't configured server-side: the old authentication account (email/password) remains active and will block re-creation with the same e-mail address until FIREBASE_ADMIN_CLIENT_EMAIL/FIREBASE_ADMIN_PRIVATE_KEY are added (see docs/DEPLOYMENT.md).",
   "admin.accessMode.wallet": "Crypto wallet",
   "admin.accessMode.demo": "Demo access",
   "admin.accessMode.fiat": "No-wallet play",
