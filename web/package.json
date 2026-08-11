@@ -2,6 +2,11 @@
   "name": "horizon-zeldcraft-web",
   "version": "0.1.0",
   "private": true,
+  "overrides": {
+    "jwks-rsa": {
+      "jose": "5.9.6"
+    }
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
