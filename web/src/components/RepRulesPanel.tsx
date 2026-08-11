@@ -16,8 +16,10 @@ export function RepRulesPanel() {
   const [rules, setRules] = useState<RepRules>(DEFAULT_REP_RULES);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [emailConfig, setEmailConfig] = useState<{ configured: boolean; fromEmail: string; isSandbox: boolean } | null>(null);
 
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
+  useEffect(() => { fetch('/api/email/config').then(r => r.json()).then(setEmailConfig).catch(() => {}); }, []);
 
   const set = (k: keyof RepRules, v: string) => {
     const n = parseInt(v, 10);
@@ -736,6 +738,26 @@ export function RepRulesPanel() {
         </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🏠 {t('admin.repRules.homeButtonsTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.homeButtonsDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.walletConnectEnabled !== false}
+            onChange={e => setBool('walletConnectEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.walletConnectEnabled')}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.demoAccessEnabled !== false}
+            onChange={e => setBool('demoAccessEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.demoAccessEnabledHomeBtn')}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm mb-1">
+          <input type="checkbox" checked={rules.fiatPaymentEnabled !== false}
+            onChange={e => setBool('fiatPaymentEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.fiatPaymentEnabledHomeBtn')}</span>
+        </label>
+        <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.homeButtonsHint')}</p>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">🎟️ {t('admin.repRules.demoTitle')}</h3>
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.demoDescription')}</p>
         <label className="flex items-center gap-2 text-sm mb-2">
@@ -765,7 +787,13 @@ export function RepRulesPanel() {
             <input type="number" min="0" className="input mt-1 w-full" disabled={rules.demoAccessEnabled === false}
               value={rules.demoInitialCoins} onChange={e => set('demoInitialCoins', e.target.value)} />
           </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.demoSessionMaxDurationMin')}</span>
+            <input type="number" min="1" className="input mt-1 w-full" disabled={rules.demoAccessEnabled === false}
+              value={rules.demoSessionMaxDurationMin} onChange={e => set('demoSessionMaxDurationMin', e.target.value)} />
+          </label>
         </div>
+        <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.demoSessionMaxDurationMinHint')}</p>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">💳 {t('admin.repRules.fiatTitle')}</h3>
@@ -837,6 +865,11 @@ export function RepRulesPanel() {
           </label>
         </div>
         <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.emailKeyMissingHint')}</p>
+        {emailConfig?.isSandbox && (
+          <p className="text-xs text-red-400 mt-2 bg-red-950/40 border border-red-800/50 rounded p-2">
+            ⚠️ {t('admin.repRules.emailSandboxWarning', { email: emailConfig.fromEmail })}
+          </p>
+        )}
       </div>
       <div className="flex gap-3 mt-4">
         <button className="btn-primary" disabled={saving} onClick={save}>

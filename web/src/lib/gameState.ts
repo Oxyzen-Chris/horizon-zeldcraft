@@ -138,6 +138,15 @@ export interface PlayerState {
     imageUrl?: string;         // image optionnelle ajoutée à chaque envoi programmé
     lastSentAt?: number;       // anti-doublon : ne renvoie pas deux fois le même jour
   };
+  // Statut du dernier envoi de l'e-mail de bienvenue (voir NoWalletAccessPanel.tsx::startFiatEmailCreate
+  // et PlayerEmailPanel.tsx bouton "🔁 Renvoyer l'e-mail de bienvenue") — auparavant l'échec était
+  // silencieusement avalé (`.catch(() => {})`), rendant le problème invisible pour l'admin (bug
+  // corrigé). Cause la plus fréquente d'échec : adresse d'expédition Resend en mode test
+  // (`onboarding@resend.dev`), qui ne peut envoyer qu'à l'adresse du compte Resend lui-même tant
+  // qu'aucun domaine n'est vérifié (voir docs/EMAIL_NOTIFICATIONS.md § Piège de déploiement).
+  welcomeEmailStatus?: 'sent' | 'failed';
+  welcomeEmailError?: string;
+  welcomeEmailSentAt?: number;
 }
 
 /**
@@ -2826,7 +2835,27 @@ export async function incrementPasswordResetCount(address: string): Promise<numb
   return next;
 }
 
-// ─────────────────────────────────────── Shop catalog ───────────────────────────────────────
+/** Enregistre le résultat du dernier envoi de l'e-mail de bienvenue (voir
+ * NoWalletAccessPanel.tsx::startFiatEmailCreate) — permet à l'admin de voir dans "Statistiques par
+ * joueur" si l'envoi a réussi ou échoué (et pourquoi), au lieu d'un échec auparavant totalement
+ * silencieux (`.catch(() => {})`, bug corrigé). Écriture best-effort : ne doit jamais faire
+ * échouer la création de compte elle-même si elle échoue à son tour. */
+export async function setPlayerWelcomeEmailStatus(
+  address: string, status: 'sent' | 'failed', error?: string,
+): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const k = KEY(address);
+  await update(ref(db, `players/${k}`), {
+    welcomeEmailStatus: status,
+    welcomeEmailSentAt: Date.now(),
+    ...(status === 'failed' && error ? { welcomeEmailError: error.slice(0, 300) } : {}),
+    ...(status === 'sent' ? { welcomeEmailError: null } : {}),
+  });
+}
+
+
 
 /** Butin possible lors d'une victoire de combat PNJ (récupéré sur le PNJ vaincu) — voir
  * NpcEncounterPopup.tsx. Reçoit les mêmes champs d'équipement (slot/rarité/dégâts ou défense/
@@ -3595,6 +3624,10 @@ export interface RepRules {
   // Firebase Auth (Google/email) — voir deriveVirtualAddress(). Deux entrées indépendantes :
   // 1) « Démo » (accès gratuit accordé par l'admin, en avant-première, à des gueststars) ;
   // 2) « Fiat » (paiement réel CB/PayPal/Apple Pay/Google Pay, aucune limite de sessions).
+  // Interrupteur du bouton <ConnectButton /> ("Connecter le portefeuille") sur l'écran d'accueil —
+  // reste toujours affiché pour un joueur DÉJÀ connecté par un vrai portefeuille (ne le déconnecte
+  // jamais), ne masque que la possibilité d'en connecter un NOUVEAU depuis l'écran de choix.
+  walletConnectEnabled: boolean;       // défaut true
   // Interrupteur général : masque/affiche le bouton "Accès Démo" sur la page d'accueil.
   demoAccessEnabled: boolean;          // défaut true
   // Sous-mode "anonyme" (aucune authentification, ni email ni Google) — accès instantané sans
@@ -3609,6 +3642,16 @@ export interface RepRules {
   demoAnonymousMaxConcurrentSessions: number; // défaut 40
   // Pièces de jeu offertes à la création d'un compte Démo (voir getOrCreatePlayer opts.initialWallet).
   demoInitialCoins: number;            // défaut 4000
+  // Durée maximale (en minutes) d'une session "Accès Démo" (Google approuvé OU anonyme) avant
+  // déconnexion forcée automatique — voir DemoSessionTimerWidget.tsx (petit pop-up permanent avec
+  // sablier animé + compte à rebours dans le jeu) et gameState.ts::ensureDemoAccountTimer/
+  // ensureDemoAnonTimer/resetDemoAccountTimer. Ne s'applique JAMAIS à un compte "Jouer sans
+  // portefeuille" (fiat, payant) ni à un vrai portefeuille crypto. Le chrono démarre à la première
+  // connexion et n'est PAS réinitialisé par une simple reconnexion (empêcherait sinon de
+  // contourner la limite) — seul l'admin peut le relancer pour un joueur en particulier (menu
+  // Administration §"Demandes d'accès Démo", bouton "🔄 Réactiver le chrono Démo").
+  demoSessionMaxDurationMin: number;   // défaut 120 (2h)
+
   // Interrupteur général : affiche/masque le bouton "Jouer sans portefeuille (paiement)" sur la
   // page d'accueil et l'option fiat dans le widget "Rechargement du portefeuille".
   fiatPaymentEnabled: boolean;         // défaut true
@@ -3813,11 +3856,13 @@ export const DEFAULT_REP_RULES: RepRules = {
   // Défaut false (voir commentaire sur l'interface RepRules) : bug de cooldown partagé sur le
   // contrat Sepolia actuellement déployé, correctif écrit mais en attente de redéploiement.
   onchainFeedButtonsEnabled: false,
+  walletConnectEnabled: true,
   demoAccessEnabled: true,
   demoAnonymousEnabled: true,
   demoMaxConcurrentSessions: 90,
   demoAnonymousMaxConcurrentSessions: 40,
   demoInitialCoins: 4000,
+  demoSessionMaxDurationMin: 120,
   fiatPaymentEnabled: true,
   fiatMethodCardEnabled: true,
   fiatMethodPaypalEnabled: true,
@@ -5168,6 +5213,13 @@ export interface DemoAccessRequest {
   decidedAt?: number;        // conservé pour compat (anciennes entrées 'approved'/'rejected' pré-auto-accès)
   lastLoginAt?: number;      // date de la dernière connexion (mise à jour à chaque login)
   loginCount?: number;       // nombre total de connexions
+  // ─── Chrono de session Démo (voir RepRules.demoSessionMaxDurationMin, 2h par défaut) ───
+  // Uniquement pour accessMode === 'demo' (Google, connexion identifiée) — la limite de durée ne
+  // s'applique jamais à un compte 'fiat' (payant). Horodatage de départ du chrono en cours,
+  // renseigné une seule fois (jamais réécrit par une reconnexion normale — seul l'admin peut le
+  // relancer via `resetDemoAccountTimer()`, bouton "🔄 Réactiver le chrono Démo" ci-dessous) afin
+  // qu'une simple déconnexion/reconnexion ne permette pas de contourner la limite.
+  demoSessionStartedAt?: number;
 }
 
 /**
@@ -5267,5 +5319,84 @@ export async function releaseDemoSession(kind: 'demo' | 'anon', uid: string): Pr
   const db = getFirebaseDb();
   if (!db) return;
   await set(ref(db, `demoSessions/${kind}/${RKEY(uid)}`), null);
+}
+
+// ─── Chrono de session Démo (limite de durée — voir RepRules.demoSessionMaxDurationMin) ───
+// Distinct de `demoSessions/{kind}/{uid}` ci-dessus (qui ne sert qu'à COMPTER les connexions
+// simultanées et disparaît à la fermeture de l'onglet) : ce chrono est PERSISTANT — il survit à
+// une déconnexion/reconnexion, pour qu'un joueur ne puisse pas contourner la limite de 2h en se
+// reconnectant simplement. Deux emplacements distincts :
+//  - `demoAccessRequests/{uid}.demoSessionStartedAt` pour l'Accès Démo IDENTIFIÉ (Google), déjà
+//    dans le registre admin (voir DemoAccessRequestsPanel.tsx) — l'admin peut le relancer pour un
+//    joueur précis via `resetDemoAccountTimer()`.
+//  - `demoSessions/anonTimer/{uid}` pour l'Accès Démo ANONYME (aucune identité — volontairement
+//    SANS e-mail/displayName, cohérent avec le principe "aucune journalisation nominative" de ce
+//    mode, voir docs/DEMO_FIAT.md) : non listé dans le registre admin, non réactivable
+//    individuellement. ⚠️ Volontairement imbriqué SOUS `demoSessions` (plutôt qu'un nouveau noeud
+//    racine `demoAnonState`) : les règles de sécurité RTDB actuellement publiées (voir
+//    docs/FIREBASE_CHAT.md § 4) n'autorisent QUE les chemins explicitement listés — un nouveau
+//    noeud racine y serait bloqué (`PERMISSION_DENIED`, vérifié) tant que les règles ne sont pas
+//    republiées manuellement dans la Console Firebase. `demoSessions` a déjà une règle
+//    `auth != null` qui s'applique en cascade à tous ses descendants, donc cette clé fonctionne
+//    immédiatement sans aucune action de la part de l'administrateur.
+
+/** Démarre (une seule fois) ou lit le chrono Démo d'un compte IDENTIFIÉ (Google) — voir
+ * commentaire ci-dessus. Ne réinitialise JAMAIS un chrono déjà démarré (seul
+ * `resetDemoAccountTimer()` le peut). Retourne si la limite est dépassée + l'horodatage de départ
+ * (pour calculer l'échéance côté widget : `startedAt + maxDurationMin * 60000`). */
+export async function ensureDemoAccountTimer(uid: string, maxDurationMin: number): Promise<{ expired: boolean; startedAt: number }> {
+  const db = getFirebaseDb();
+  if (!db) return { expired: false, startedAt: Date.now() };
+  const r = ref(db, `demoAccessRequests/${RKEY(uid)}`);
+  const existing = (await get(r)).val() as DemoAccessRequest | null;
+  let startedAt = existing?.demoSessionStartedAt ?? existing?.requestedAt;
+  if (!startedAt) {
+    startedAt = Date.now();
+    await update(r, { demoSessionStartedAt: startedAt });
+  }
+  return { expired: Date.now() - startedAt >= maxDurationMin * 60_000, startedAt };
+}
+
+/** Équivalent de `ensureDemoAccountTimer` pour l'Accès Démo ANONYME (voir commentaire ci-dessus) —
+ * clé RTDB `demoSessions/anonTimer/{uid}`, sans aucune donnée nominative. */
+export async function ensureDemoAnonTimer(uid: string, maxDurationMin: number): Promise<{ expired: boolean; startedAt: number }> {
+  const db = getFirebaseDb();
+  if (!db) return { expired: false, startedAt: Date.now() };
+  const r = ref(db, `demoSessions/anonTimer/${RKEY(uid)}`);
+  const existing = (await get(r)).val() as { startedAt?: number } | null;
+  let startedAt = existing?.startedAt;
+  if (!startedAt) {
+    startedAt = Date.now();
+    await set(r, { startedAt });
+  }
+  return { expired: Date.now() - startedAt >= maxDurationMin * 60_000, startedAt };
+}
+
+/** Lecture ponctuelle de l'horodatage de départ du chrono Démo en cours (pour le widget
+ * compte-à-rebours en jeu, voir DemoSessionTimerWidget.tsx) — ne démarre jamais le chrono elle-même
+ * (contrairement à `ensureDemoAccountTimer`/`ensureDemoAnonTimer`, appelées uniquement à la
+ * connexion), permet juste de suivre une éventuelle réactivation admin en cours de partie. */
+export async function getDemoTimerStartedAt(uid: string, mode: 'approved' | 'anonymous'): Promise<number | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+  if (mode === 'anonymous') {
+    const snap = await get(ref(db, `demoSessions/anonTimer/${RKEY(uid)}`));
+    return (snap.val() as { startedAt?: number } | null)?.startedAt ?? null;
+  }
+  const snap = await get(ref(db, `demoAccessRequests/${RKEY(uid)}`));
+  const v = snap.val() as DemoAccessRequest | null;
+  return v?.demoSessionStartedAt ?? v?.requestedAt ?? null;
+}
+
+/** Relance le chrono Démo d'UN joueur identifié (Google) en particulier — bouton admin "🔄
+ * Réactiver le chrono Démo" (voir DemoAccessRequestsPanel.tsx). Uniquement pour l'Accès Démo
+ * IDENTIFIÉ (registre nominatif) : l'Accès Démo anonyme n'étant pas journalisé, il ne peut pas
+ * être réactivé individuellement par l'admin (limitation assumée, cohérente avec l'absence de
+ * journalisation de ce mode — voir docs/DEMO_FIAT.md). */
+export async function resetDemoAccountTimer(uid: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await update(ref(db, `demoAccessRequests/${RKEY(uid)}`), { demoSessionStartedAt: Date.now() });
 }
 

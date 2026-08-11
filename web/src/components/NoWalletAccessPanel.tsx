@@ -26,7 +26,8 @@ import { useI18n } from '@/lib/i18n';
 import { useEffectiveSessionControls } from '@/lib/effectiveAccount';
 import {
   getRepRules, deriveVirtualAddress, logAccountAccess,
-  countActiveDemoSessions, registerDemoSession, type RepRules,
+  countActiveDemoSessions, registerDemoSession, ensureDemoAccountTimer, ensureDemoAnonTimer,
+  setPlayerWelcomeEmailStatus, type RepRules,
 } from '@/lib/gameState';
 import {
   getFirebaseAuth, ensureAnonSignIn, signInWithGoogle,
@@ -74,6 +75,10 @@ export function NoWalletAccessPanel() {
       // s'authentifier levait un "Permission denied" et bloquait tout accès Démo anonyme.
       const user = await ensureAnonSignIn();
       if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
+      // Chrono de session Démo (2h par défaut, voir RepRules.demoSessionMaxDurationMin) : bloque
+      // la reconnexion si la limite est déjà dépassée (ne redémarre jamais le chrono tout seul).
+      const { expired } = await ensureDemoAnonTimer(user.uid, rules?.demoSessionMaxDurationMin ?? 120);
+      if (expired) { setMessage(t('home.demo.sessionExpired')); setBusy(false); return; }
       const count = await countActiveDemoSessions('anon');
       const cap = rules?.demoAnonymousMaxConcurrentSessions ?? 40;
       if (count >= cap) { setMessage(t('home.demo.fullAnonymous')); setBusy(false); return; }
@@ -102,6 +107,10 @@ export function NoWalletAccessPanel() {
         email: user.email || undefined, method: 'google', accessMode: 'demo',
       });
       if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
+      // Chrono de session Démo (2h par défaut) : bloque la reconnexion si déjà expiré, sauf
+      // réactivation explicite par l'admin ("🔄 Réactiver le chrono Démo").
+      const { expired } = await ensureDemoAccountTimer(user.uid, rules?.demoSessionMaxDurationMin ?? 120);
+      if (expired) { setMessage(t('home.demo.sessionExpired')); setBusy(false); return; }
       const count = await countActiveDemoSessions('demo');
       const cap = rules?.demoMaxConcurrentSessions ?? 90;
       if (count >= cap) { setMessage(t('home.demo.fullApproved')); setBusy(false); return; }
@@ -240,11 +249,24 @@ export function NoWalletAccessPanel() {
         uid: user.uid, address, email: userEmail, method: 'email', accessMode: 'fiat',
       });
       if (rules?.welcomeEmailEnabled !== false) {
+        // Best-effort — ne bloque JAMAIS la création de compte si l'e-mail échoue (fire-and-forget),
+        // mais on persiste désormais le résultat (succès/échec + raison) sur la fiche du joueur pour
+        // que l'admin puisse le voir dans "Statistiques par joueur" et renvoyer l'e-mail au besoin
+        // (voir PlayerEmailPanel.tsx) — auparavant l'erreur était totalement silencieuse.
         fetch('/api/email/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ kind: 'welcome', to: userEmail, locale, bannerImageUrl: rules?.emailBannerImageUrl || undefined }),
-        }).catch(() => {}); // best-effort — ne bloque jamais la création de compte si l'e-mail échoue
+        }).then(async (res) => {
+          if (res.ok) { await setPlayerWelcomeEmailStatus(address, 'sent'); return; }
+          const body = await res.json().catch(() => null);
+          const reason = (body && (body.error || body.message)) || `HTTP ${res.status}`;
+          console.error('[NoWalletAccessPanel] welcome e-mail failed:', reason);
+          await setPlayerWelcomeEmailStatus(address, 'failed', String(reason));
+        }).catch(async (err) => {
+          console.error('[NoWalletAccessPanel] welcome e-mail request failed:', err);
+          await setPlayerWelcomeEmailStatus(address, 'failed', err instanceof Error ? err.message : String(err));
+        });
       }
       if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
       setSession({ kind: 'fiat', uid: user.uid, address, displayName: userEmail, email: userEmail, authMethod: 'email' });

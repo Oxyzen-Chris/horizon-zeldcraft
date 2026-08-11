@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import {
   subscribeDemoAccessRequests, pauseAccountAccess, deletePlayerAccount, getRepRules,
-  countActiveDemoSessions, type DemoAccessRequest, type RepRules,
+  countActiveDemoSessions, resetDemoAccountTimer, type DemoAccessRequest, type RepRules,
 } from '@/lib/gameState';
 import { deleteFirebaseAuthUser } from '@/lib/adminActions';
 import { useI18n } from '@/lib/i18n';
@@ -45,6 +45,10 @@ export function DemoAccessRequestsPanel() {
   const togglePause = async (r: DemoAccessRequest) => {
     setBusyUid(r.uid);
     try { await pauseAccountAccess(r.uid, !r.paused); } finally { setBusyUid(null); }
+  };
+  const reactivateTimer = async (r: DemoAccessRequest) => {
+    setBusyUid(r.uid);
+    try { await resetDemoAccountTimer(r.uid); } finally { setBusyUid(null); }
   };
   const remove = async (r: DemoAccessRequest) => {
     if (!window.confirm(t('admin.demoRequests.deleteConfirm'))) return;
@@ -103,11 +107,30 @@ export function DemoAccessRequestsPanel() {
                     ⏸ {t('admin.demoRequests.pausedBadge')}
                   </span>
                 )}
+                {r.accessMode === 'demo' && (() => {
+                  const maxMin = rules?.demoSessionMaxDurationMin ?? 120;
+                  const startedAt = r.demoSessionStartedAt ?? r.requestedAt;
+                  const deadline = startedAt + maxMin * 60_000;
+                  const remainingMs = deadline - Date.now();
+                  const expired = remainingMs <= 0;
+                  return (
+                    <span className={`ml-2 text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded ${expired ? 'bg-rose-900 text-rose-300' : 'bg-slate-700 text-slate-300'}`}>
+                      ⏳ {expired
+                        ? t('admin.demoRequests.timerExpired')
+                        : `${Math.floor(remainingMs / 60000)} min`}
+                    </span>
+                  );
+                })()}
               </div>
               <div className="flex gap-2">
                 <button className="btn-secondary text-xs" disabled={busyUid === r.uid} onClick={() => togglePause(r)}>
                   {r.paused ? `▶️ ${t('admin.demoRequests.resume')}` : `⏸ ${t('admin.demoRequests.pause')}`}
                 </button>
+                {r.accessMode === 'demo' && (
+                  <button className="btn-secondary text-xs" disabled={busyUid === r.uid} onClick={() => reactivateTimer(r)}>
+                    🔄 {t('admin.demoRequests.reactivateTimer')}
+                  </button>
+                )}
                 <button className="btn-secondary text-xs text-rose-400" disabled={busyUid === r.uid} onClick={() => remove(r)}>
                   🗑️ {t('admin.demoRequests.delete')}
                 </button>

@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import {
   setPlayerScheduledReport, setPlayerAnnouncement, clearPlayerAnnouncement,
-  setGlobalAnnouncement, clearGlobalAnnouncement,
+  setGlobalAnnouncement, clearGlobalAnnouncement, setPlayerWelcomeEmailStatus,
   type PlayerState, type PlayerListEntry,
 } from '@/lib/gameState';
 
@@ -46,6 +46,8 @@ export function PlayerEmailPanel({
   const { t, locale } = useI18n();
   const [sendingReport, setSendingReport] = useState(false);
   const [reportFeedback, setReportFeedback] = useState<string | null>(null);
+  const [resendingWelcome, setResendingWelcome] = useState(false);
+  const [welcomeFeedback, setWelcomeFeedback] = useState<string | null>(null);
 
   // ─── Programmation d'un rapport récurrent ───
   const cfg = dbPlayer?.scheduledReport;
@@ -68,6 +70,7 @@ export function PlayerEmailPanel({
     setSchedMessage(cfg?.customMessage ?? '');
     setSchedImageUrl(cfg?.imageUrl ?? '');
     setScheduleFeedback(null);
+    setWelcomeFeedback(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
@@ -100,6 +103,35 @@ export function PlayerEmailPanel({
       setReportFeedback(t('admin.email.sentFail'));
     } finally {
       setSendingReport(false);
+    }
+  };
+
+  // ─── Renvoi de l'e-mail de bienvenue (voir PlayerState.welcomeEmailStatus, correctif du bug de
+  // silence total sur échec — l'e-mail échoue le plus souvent tant que RESEND_FROM_EMAIL reste
+  // l'adresse "bac à sable" par défaut de Resend, voir avertissement dans RepRulesPanel.tsx). */
+  const resendWelcomeEmail = async () => {
+    if (!target || !dbPlayer?.email) return;
+    setResendingWelcome(true); setWelcomeFeedback(null);
+    try {
+      const res = await fetch('/api/email/send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'welcome', to: dbPlayer.email, locale: dbPlayer.lang ?? locale }),
+      });
+      if (res.ok) {
+        await setPlayerWelcomeEmailStatus(target, 'sent');
+        setWelcomeFeedback(t('admin.email.sentOk'));
+      } else {
+        const data = await res.json().catch(() => null);
+        const reason = (data && (data.error || data.message)) || `HTTP ${res.status}`;
+        await setPlayerWelcomeEmailStatus(target, 'failed', String(reason));
+        setWelcomeFeedback(`${t('admin.email.sentFail')} ${reason}`);
+      }
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      await setPlayerWelcomeEmailStatus(target, 'failed', reason);
+      setWelcomeFeedback(`${t('admin.email.sentFail')} ${reason}`);
+    } finally {
+      setResendingWelcome(false);
     }
   };
 
@@ -214,6 +246,17 @@ export function PlayerEmailPanel({
             <p className="text-xs text-slate-500">{t('admin.email.noEmailForPlayer')}</p>
           ) : (
             <>
+              {dbPlayer.welcomeEmailStatus && (
+                <p className={`text-xs mb-2 ${dbPlayer.welcomeEmailStatus === 'sent' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {dbPlayer.welcomeEmailStatus === 'sent'
+                    ? `✅ ${t('admin.email.welcomeSent')}${dbPlayer.welcomeEmailSentAt ? ` (${new Date(dbPlayer.welcomeEmailSentAt).toLocaleString(locale)})` : ''}`
+                    : `❌ ${t('admin.email.welcomeFailed')}${dbPlayer.welcomeEmailError ? ` — ${dbPlayer.welcomeEmailError}` : ''}`}
+                </p>
+              )}
+              <button className="btn-secondary text-xs mb-3" disabled={resendingWelcome} onClick={resendWelcomeEmail}>
+                {resendingWelcome ? '⏳' : '🔁'} {t('admin.email.resendWelcome')}
+              </button>
+              {welcomeFeedback && <p className="text-xs text-amber-300 mb-3">{welcomeFeedback}</p>}
               <button className="btn-secondary text-xs mb-3" disabled={sendingReport || !reportStats} onClick={sendReportNow}>
                 {sendingReport ? '⏳' : '📤'} {t('admin.email.sendReportNow')}
               </button>
