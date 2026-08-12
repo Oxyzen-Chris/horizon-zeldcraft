@@ -2,25 +2,24 @@
 
 import { useEffect, useState } from 'react';
 import {
-  subscribeDemoAccessRequests, pauseAccountAccess, deletePlayerAccount, getRepRules,
-  countActiveDemoSessions, resetDemoAccountTimer, type DemoAccessRequest, type RepRules,
+  subscribeDemoAccessRequests, getRepRules,
+  countActiveDemoSessions, type DemoAccessRequest, type RepRules,
 } from '@/lib/gameState';
-import { deleteFirebaseAuthUser } from '@/lib/adminActions';
 import { useI18n } from '@/lib/i18n';
 
 /**
  * Panneau admin — registre des comptes Démo/fiat (Google/e-mail) connectés au jeu sans
  * portefeuille crypto (voir docs/DEMO_FIAT.md). L'accès est désormais accordé IMMÉDIATEMENT dès la
- * connexion (plus de file d'attente à valider) : ce panneau sert à AUDITER (e-mail, mode d'accès,
- * dates de connexion) et, si besoin, à mettre en pause ou supprimer un compte a posteriori (abus,
- * tricherie suspectée). Affiche aussi en direct le nombre de sessions actives par rapport aux
- * plafonds paramétrés (RepRules.demoMaxConcurrentSessions / demoAnonymousMaxConcurrentSessions).
+ * connexion (plus de file d'attente à valider) : ce panneau sert UNIQUEMENT à AUDITER (e-mail,
+ * mode d'accès, dates de connexion, sessions actives par rapport aux plafonds paramétrés). Les
+ * actions de mise en pause / réactivation du chrono / suppression d'un compte ont été DÉPLACÉES
+ * vers le panneau "📊 Statistiques par joueur" (PlayerStats.tsx) pour centraliser toutes les
+ * actions sur un joueur au même endroit, une fois celui-ci sélectionné dans la liste déroulante.
  */
 export function DemoAccessRequestsPanel() {
   const { t } = useI18n();
   const [requests, setRequests] = useState<DemoAccessRequest[]>([]);
   const [rules, setRules] = useState<RepRules | null>(null);
-  const [busyUid, setBusyUid] = useState<string | null>(null);
   const [demoCount, setDemoCount] = useState(0);
   const [anonCount, setAnonCount] = useState(0);
 
@@ -41,29 +40,6 @@ export function DemoAccessRequestsPanel() {
 
   const demoCap = rules?.demoMaxConcurrentSessions ?? 90;
   const anonCap = rules?.demoAnonymousMaxConcurrentSessions ?? 40;
-
-  const togglePause = async (r: DemoAccessRequest) => {
-    setBusyUid(r.uid);
-    try { await pauseAccountAccess(r.uid, !r.paused); } finally { setBusyUid(null); }
-  };
-  const reactivateTimer = async (r: DemoAccessRequest) => {
-    setBusyUid(r.uid);
-    try { await resetDemoAccountTimer(r.uid); } finally { setBusyUid(null); }
-  };
-  const remove = async (r: DemoAccessRequest) => {
-    if (!window.confirm(t('admin.demoRequests.deleteConfirm'))) return;
-    setBusyUid(r.uid);
-    try {
-      // Supprime AUSSI le compte Firebase Authentication (e-mail/mot de passe OU Google) — sans
-      // ça, un compte "Jouer sans portefeuille" par e-mail/mot de passe ne pouvait plus jamais
-      // recréer de compte avec la même adresse e-mail après suppression (bug corrigé, voir
-      // lib/adminActions.ts::deleteFirebaseAuthUser).
-      const res = await deleteFirebaseAuthUser(r.uid);
-      if (!res.ok && res.notConfigured) alert(t('admin.stats.deleteAuthNotConfigured'));
-      await deletePlayerAccount(r.address);
-      refreshCounts();
-    } finally { setBusyUid(null); }
-  };
 
   const methodEmoji = (m: DemoAccessRequest['method']) => (m === 'google' ? '🔵' : m === 'apple' ? '🍎' : '✉️');
 
@@ -122,23 +98,11 @@ export function DemoAccessRequestsPanel() {
                   );
                 })()}
               </div>
-              <div className="flex gap-2">
-                <button className="btn-secondary text-xs" disabled={busyUid === r.uid} onClick={() => togglePause(r)}>
-                  {r.paused ? `▶️ ${t('admin.demoRequests.resume')}` : `⏸ ${t('admin.demoRequests.pause')}`}
-                </button>
-                {r.accessMode === 'demo' && (
-                  <button className="btn-secondary text-xs" disabled={busyUid === r.uid} onClick={() => reactivateTimer(r)}>
-                    🔄 {t('admin.demoRequests.reactivateTimer')}
-                  </button>
-                )}
-                <button className="btn-secondary text-xs text-rose-400" disabled={busyUid === r.uid} onClick={() => remove(r)}>
-                  🗑️ {t('admin.demoRequests.delete')}
-                </button>
-              </div>
             </div>
           ))}
         </div>
       )}
+      <p className="text-[11px] text-slate-500 mt-3">💡 {t('admin.demoRequests.actionsMovedHint')}</p>
     </section>
   );
 }

@@ -2682,14 +2682,52 @@ export async function listPlayersWithMeta(): Promise<PlayerListEntry[]> {
 }
 
 /**
+ * Écoute en temps réel la liste des joueurs (panneau "📊 Statistiques par joueur", menu
+ * Administration) — remplace l'ancien chargement ponctuel `listPlayersWithMeta()` + rappel manuel
+ * après chaque suppression : toute suppression/création (y compris depuis un AUTRE onglet/admin,
+ * ou déclenchée par un autre panneau comme les anciens boutons de "Demandes d'accès Démo") est
+ * désormais reflétée immédiatement, sans avoir à recharger la page (bug corrigé). */
+export function subscribePlayersWithMeta(cb: (list: PlayerListEntry[]) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb([]); return () => {}; }
+  const r = ref(db, 'players');
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, PlayerState> | null;
+    if (!v) { cb([]); return; }
+    const list = Object.entries(v)
+      .map(([addr, p]) => ({
+        address: addr,
+        accountType: p?.accountType,
+        email: p?.email,
+        lang: p?.lang,
+        authMethod: p?.authMethod,
+        uid: p?.uid,
+        label: p?.email || p?.displayName || `${addr.slice(0, 10)}…${addr.slice(-6)}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    cb(list);
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/**
  * Supprime définitivement un joueur : son PlayerState (`players/{addr}`, y compris tout ce qui y
  * est imbriqué — inventaire, équipement, transactions, rencontres…), son entrée d'index
  * (`playerIndex/{addr}`) et, pour un compte Démo/fiat (voir PlayerState.uid), son entrée de
  * registre (`demoAccessRequests/{uid}`) et sa session active éventuelle (`demoSessions/demo|anon/
  * {uid}`) — ce qui libère immédiatement un emplacement de connexion concurrente (menu
  * Administration §"Statistiques par joueur" / §"Demandes d'accès Démo"). Un compte 'wallet' n'a pas
- * d'UID Firebase : seules les deux premières suppressions s'appliquent alors. */
+ * d'UID Firebase : seules les deux premières suppressions s'appliquent alors.
+ *
+ * ⚠️ Garde-fou : une adresse vide/invalide ne doit JAMAIS être transmise à `remove()`, sous peine
+ * de résoudre le chemin `players/${''}` = `players/` = la racine du nœud `players` tout entier et
+ * donc de supprimer TOUS les joueurs d'un coup (bug de suppression en masse constaté et corrigé) —
+ * on vérifie ici explicitement le format d'adresse EVM avant toute écriture destructrice. */
 export async function deletePlayerAccount(address: string): Promise<void> {
+  if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+    throw new Error(`deletePlayerAccount: adresse invalide, refus par sécurité (${address})`);
+  }
   const db = getFirebaseDb();
   if (!db) return;
   await ensureAnonSignIn();
@@ -2705,6 +2743,7 @@ export async function deletePlayerAccount(address: string): Promise<void> {
   }
   await Promise.all(ops);
 }
+
 
 /** Réinitialise TOUT le jeu à zéro : supprime la totalité des joueurs, de l'index, du registre
  * d'accès Démo/fiat et des sessions actives. Action destructive et irréversible, réservée au menu

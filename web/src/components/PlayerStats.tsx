@@ -8,12 +8,12 @@ import { HORIZON_ABI, STAGE_NAMES, WEATHER, WEATHER_KEYS } from '@/lib/contract'
 import { useI18n } from '@/lib/i18n';
 import { useIdsList } from './useIdsList';
 import {
-  listPlayersWithMeta, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
+  subscribePlayersWithMeta, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
   computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex, getPlayerProgressLedger,
   getPlayerPlaytimeStats, computeOffchainStageLevel, deletePlayerAccount, deleteAllPlayers,
-  incrementPasswordResetCount,
+  incrementPasswordResetCount, getDemoAccessRequest, pauseAccountAccess, resetDemoAccountTimer,
   type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules, type Season,
-  type PlayerProgressLedger, type PlaytimeStats, type PlayerListEntry,
+  type PlayerProgressLedger, type PlaytimeStats, type PlayerListEntry, type DemoAccessRequest,
 } from '@/lib/gameState';
 import { ProgressLedgerView } from './ProgressLedgerView';
 import { PlayerEmailPanel, type ReportStats } from './PlayerEmailPanel';
@@ -107,12 +107,30 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const [deleting, setDeleting] = useState(false);
   const [resettingPw, setResettingPw] = useState(false);
   const [resetPwResult, setResetPwResult] = useState<string | null>(null);
+  // ─── Compte Démo/fiat (Google/e-mail) : pause/reactivation du chrono — déplacé depuis l'ancien
+  // panneau "Demandes d'accès Démo" (menu Administration) pour regrouper TOUTES les actions sur un
+  // joueur au même endroit, une fois sélectionné ici (voir demande utilisateur — consolidation). ───
+  const [demoRequest, setDemoRequest] = useState<DemoAccessRequest | null>(null);
+  const [pausingAccount, setPausingAccount] = useState(false);
+  const [reactivatingTimer, setReactivatingTimer] = useState(false);
+  const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
 
-  const reloadPlayers = () => listPlayersWithMeta().then(setPlayers).catch(() => {});
+  // Écoute en temps réel (onValue) — remplace l'ancien chargement ponctuel + rappel manuel après
+  // chaque suppression : la liste se met désormais à jour SEULE, y compris si la suppression est
+  // déclenchée ailleurs (autre onglet admin), sans avoir à recharger la page (bug corrigé).
   useEffect(() => {
-    reloadPlayers();
+    const unsub = subscribePlayersWithMeta(setPlayers);
     getRepRules().then(setRepRulesState).catch(() => {});
+    return unsub;
   }, []);
+
+  // Charge (et rafraîchit) la fiche "Demandes d'accès Démo" du joueur sélectionné, si applicable
+  // (accountType 'demo'/'fiat' avec un uid Firebase) — permet d'afficher/gérer pause + chrono Démo
+  // directement dans cette rubrique, sans revenir sur l'ancien panneau séparé.
+  const reloadDemoRequest = (uid?: string) => {
+    if (!uid) { setDemoRequest(null); return; }
+    getDemoAccessRequest(uid).then(setDemoRequest).catch(() => setDemoRequest(null));
+  };
 
   // Météo courante (même source que le widget en jeu) — utilisée pour pondérer le Bonheur affiché
   const { data: weatherRaw } = useReadContract({
@@ -210,6 +228,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
     setActivity(act);
     setProgressLedger(ledger);
     setPlaytime(pt);
+    reloadDemoRequest(p?.uid);
     // Merge dédupliqué par hash (préférence DB pour le label riche)
     const map = new Map<string, TxRecord>();
     chainTxs.forEach(t => map.set(t.hash.toLowerCase(), t));
@@ -304,12 +323,16 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   } : null;
 
   // ─── Zone de danger : suppression d'un compte / réinitialisation totale (menu Administration) ───
-  // Partage `deletePlayerAccount()` avec DemoAccessRequestsPanel.tsx (source unique de la logique
-  // de nettoyage — voir gameState.ts). Applicable à TOUT type de compte (wallet/demo/fiat) : pour
-  // un compte 'wallet', seuls players/{addr} et playerIndex/{addr} sont concernés (pas d'UID Firebase).
-  // Supprime AUSSI le compte Firebase Authentication sous-jacent (uid) via
-  // deleteFirebaseAuthUser() — sans ça, un joueur "Jouer sans portefeuille" par e-mail/mot de passe
-  // ne pouvait plus jamais recréer de compte avec la même adresse e-mail (bug corrigé).
+  // Partageait `deletePlayerAccount()` avec l'ancien panneau "Demandes d'accès Démo" (actions
+  // désormais déplacées ICI, voir togglePauseSelected/reactivateTimerSelected ci-dessous — source
+  // unique de la logique de nettoyage, voir gameState.ts). Applicable à TOUT type de compte
+  // (wallet/demo/fiat) : pour un compte 'wallet', seuls players/{addr} et playerIndex/{addr} sont
+  // concernés (pas d'UID Firebase). Supprime AUSSI le compte Firebase Authentication sous-jacent
+  // (uid) via deleteFirebaseAuthUser() — sans ça, un joueur "Jouer sans portefeuille" par e-mail/
+  // mot de passe ne pouvait plus jamais recréer de compte avec la même adresse e-mail (bug corrigé).
+  // La liste `players` n'a plus besoin d'être rechargée manuellement après coup : elle est
+  // désormais alimentée par un abonnement temps réel (subscribePlayersWithMeta) qui se met à jour
+  // seul dès que Firebase confirme la suppression (bug de rafraîchissement corrigé).
   const deleteSelected = async () => {
     if (!target) return;
     if (!window.confirm(t('admin.stats.deletePlayerConfirm'))) return;
@@ -321,11 +344,18 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
         if (!res.ok && res.notConfigured) alert(t('admin.stats.deleteAuthNotConfigured'));
       }
       await deletePlayerAccount(target);
-      setTarget(null); setDbPlayer(null); setTxs([]); setAddr('');
-      await reloadPlayers();
+      setTarget(null); setDbPlayer(null); setTxs([]); setAddr(''); setDemoRequest(null);
+    } catch (e) {
+      console.error('[PlayerStats] deleteSelected failed:', e);
+      alert(t('admin.stats.deletePlayerError'));
     } finally { setDeleting(false); }
   };
+  // Garde-fou supplémentaire contre le clic accidentel (bug constaté : suppression de TOUS les
+  // comptes en voulant n'en supprimer qu'un seul) — en plus des deux confirmations existantes,
+  // le bouton reste désactivé tant que l'admin n'a pas explicitement tapé le mot de code ci-dessous.
+  const DELETE_ALL_CODE = 'SUPPRIMER TOUT';
   const deleteAll = async () => {
+    if (deleteAllConfirmText.trim().toUpperCase() !== DELETE_ALL_CODE) return;
     if (!window.confirm(t('admin.stats.deleteAllConfirm1'))) return;
     if (!window.confirm(t('admin.stats.deleteAllConfirm2'))) return;
     setDeleting(true);
@@ -341,10 +371,30 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
       }
       if (anyNotConfigured) alert(t('admin.stats.deleteAuthNotConfigured'));
       await deleteAllPlayers();
-      setTarget(null); setDbPlayer(null); setTxs([]); setAddr('');
-      await reloadPlayers();
+      setTarget(null); setDbPlayer(null); setTxs([]); setAddr(''); setDemoRequest(null); setDeleteAllConfirmText('');
     } finally { setDeleting(false); }
   };
+
+  // ─── Pause / réactivation du chrono Démo — déplacé depuis l'ancien panneau "Demandes d'accès
+  // Démo" (voir demande utilisateur : regrouper toutes les actions sur un joueur au même endroit).
+  // Ne s'affiche que pour un compte 'demo'/'fiat' identifié (uid Firebase présent). ───
+  const togglePauseSelected = async () => {
+    if (!dbPlayer?.uid) return;
+    setPausingAccount(true);
+    try {
+      await pauseAccountAccess(dbPlayer.uid, !demoRequest?.paused);
+      reloadDemoRequest(dbPlayer.uid);
+    } finally { setPausingAccount(false); }
+  };
+  const reactivateTimerSelected = async () => {
+    if (!dbPlayer?.uid) return;
+    setReactivatingTimer(true);
+    try {
+      await resetDemoAccountTimer(dbPlayer.uid);
+      reloadDemoRequest(dbPlayer.uid);
+    } finally { setReactivatingTimer(false); }
+  };
+
 
   // ─── Reset forcé du mot de passe d'un joueur "Jouer sans portefeuille" (e-mail/mot de passe) ───
   // Requiert le SDK Admin Firebase côté serveur (voir /api/admin/reset-password, firebaseAdmin.ts) :
@@ -632,11 +682,56 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
       )}
 
       {/* Zone de danger — suppression d'un compte joueur / réinitialisation totale (menu
-          Administration). Réutilise deletePlayerAccount()/deleteAllPlayers() (gameState.ts),
-          partagées avec DemoAccessRequestsPanel.tsx. Supprimer un compte Démo/fiat libère aussi
-          immédiatement un emplacement de connexion concurrente (voir docs/DEMO_FIAT.md). */}
+          Administration). Regroupe aussi désormais la pause/réactivation du chrono Démo, déplacées
+          depuis l'ancien panneau séparé "Demandes d'accès Démo" (consolidation demandée : toutes
+          les actions sur un joueur au même endroit, une fois sélectionné ci-dessus). Supprimer un
+          compte Démo/fiat libère aussi immédiatement un emplacement de connexion concurrente (voir
+          docs/DEMO_FIAT.md). La liste des joueurs se rafraîchit désormais SEULE en temps réel
+          (subscribePlayersWithMeta) après toute suppression — plus besoin de recharger la page. */}
       {(target || players.length > 0) && (
         <div className="mt-6 border-t border-rose-900/50 pt-4">
+          {/* Pause / chrono Démo — uniquement pour un compte 'demo'/'fiat' identifié (Google/e-mail,
+              uid Firebase présent). Non destructif : conserve toutes les données du joueur. */}
+          {target && dbPlayer?.uid && (dbPlayer.accountType === 'demo' || dbPlayer.accountType === 'fiat') && (
+            <div className="mb-4 p-3 rounded-lg bg-slate-800/60 border border-amber-700/40">
+              <h3 className="text-sm font-semibold mb-2 text-amber-400">🎟️ {t('admin.stats.demoAccountSection')}</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <button className="btn-secondary text-xs" disabled={pausingAccount} onClick={togglePauseSelected}>
+                  {demoRequest?.paused ? `▶️ ${t('admin.demoRequests.resume')}` : `⏸ ${t('admin.demoRequests.pause')}`}
+                </button>
+                {demoRequest?.accessMode === 'demo' && (
+                  <button className="btn-secondary text-xs" disabled={reactivatingTimer} onClick={reactivateTimerSelected}>
+                    🔄 {t('admin.demoRequests.reactivateTimer')}
+                  </button>
+                )}
+                {demoRequest?.paused && (
+                  <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-rose-900 text-rose-300">
+                    ⏸ {t('admin.demoRequests.pausedBadge')}
+                  </span>
+                )}
+                {demoRequest?.accessMode === 'demo' && (() => {
+                  const maxMin = repRules?.demoSessionMaxDurationMin ?? 120;
+                  const startedAt = demoRequest.demoSessionStartedAt ?? demoRequest.requestedAt;
+                  const remainingMs = startedAt + maxMin * 60_000 - Date.now();
+                  const expired = remainingMs <= 0;
+                  return (
+                    <span className={`text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded ${expired ? 'bg-rose-900 text-rose-300' : 'bg-slate-700 text-slate-300'}`}>
+                      ⏳ {expired ? t('admin.demoRequests.timerExpired') : `${Math.floor(remainingMs / 60000)} min`}
+                    </span>
+                  );
+                })()}
+              </div>
+              {demoRequest && (
+                <p className="text-xs text-slate-500 mt-2">
+                  {methodEmojiFor(demoRequest.method)} {t(demoRequest.accessMode === 'demo' ? 'admin.accessMode.demo' : 'admin.accessMode.fiat')}
+                  {' · '}{t('admin.demoRequests.firstSeen')} {new Date(demoRequest.requestedAt).toLocaleDateString()}
+                  {demoRequest.lastLoginAt && <> · {t('admin.demoRequests.lastLogin')} {new Date(demoRequest.lastLoginAt).toLocaleString()}</>}
+                  {demoRequest.loginCount ? <> · {demoRequest.loginCount}×</> : null}
+                </p>
+              )}
+            </div>
+          )}
+
           <h3 className="text-sm font-semibold mb-2 text-rose-400">⚠️ {t('admin.stats.dangerZone')}</h3>
           <div className="flex flex-wrap gap-2">
             {target && dbPlayer?.authMethod === 'email' && (
@@ -649,16 +744,36 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
                 🗑️ {t('admin.stats.deletePlayer')}
               </button>
             )}
-            {players.length > 0 && (
-              <button className="btn-secondary text-xs text-rose-500" disabled={deleting} onClick={deleteAll}>
-                💥 {t('admin.stats.deleteAll')}
-              </button>
-            )}
           </div>
           {resetPwResult && (
             <div className="mt-3 p-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-sm">
               <p className="text-amber-300 mb-1">{t('admin.stats.resetPasswordSuccess')}</p>
               <code className="text-amber-100 font-mono text-base select-all">{resetPwResult}</code>
+            </div>
+          )}
+          {/* "Supprimer tout" isolé visuellement (bordure/fond dédiés, très éloigné des autres
+              boutons) + mot de code à saisir en plus des deux confirmations existantes — garde-fou
+              supplémentaire contre le clic accidentel (bug constaté : suppression de TOUS les
+              comptes en voulant n'en supprimer qu'un seul). */}
+          {players.length > 0 && (
+            <div className="mt-5 p-3 rounded-lg bg-rose-950/30 border-2 border-rose-700/60">
+              <p className="text-xs text-rose-300 mb-2">{t('admin.stats.deleteAllWarning')}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  className="input text-xs w-48"
+                  placeholder={DELETE_ALL_CODE}
+                  value={deleteAllConfirmText}
+                  onChange={e => setDeleteAllConfirmText(e.target.value)}
+                />
+                <button
+                  className="btn-secondary text-xs text-rose-500"
+                  disabled={deleting || deleteAllConfirmText.trim().toUpperCase() !== DELETE_ALL_CODE}
+                  onClick={deleteAll}
+                >
+                  💥 {t('admin.stats.deleteAll')}
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -667,7 +782,8 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   );
 }
 
-/** Formate une durée en millisecondes en texte lisible ("2 j 3 h 12 min", "45 min", "12 s"). */
+const methodEmojiFor = (m: DemoAccessRequest['method']) => (m === 'google' ? '🔵' : m === 'apple' ? '🍎' : '✉️');
+
 function fmtDuration(ms: number): string {
   if (!ms || ms <= 0) return '—';
   const totalSec = Math.floor(ms / 1000);
