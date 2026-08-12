@@ -3901,6 +3901,23 @@ export async function setRepRules(rules: RepRules): Promise<void> {
 }
 
 /**
+ * Enregistre IMMÉDIATEMENT un sous-ensemble de champs de `catalog/repRules` (écriture partielle
+ * via `update()`, PAS `set()`) — utilisé pour les interrupteurs à effet critique/instantané (ex.
+ * les 3 boutons de l'écran d'accueil dans la section "🏠 Écran d'accueil") afin qu'ils ne dépendent
+ * PLUS du bouton "Enregistrer" global situé tout en bas d'un très long formulaire (bug constaté :
+ * l'admin bascule un interrupteur mais oublie de faire défiler jusqu'au bouton, la bascule est
+ * alors perdue à la prochaine visite de la page puisque jamais persistée). `update()` fusionne
+ * uniquement les clés fournies et NE TOUCHE PAS aux autres réglages potentiellement en cours
+ * d'édition (non sauvegardés) ailleurs dans le même formulaire. */
+export async function updateRepRulesFields(patch: Partial<RepRules>): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await update(ref(db, 'catalog/repRules'), patch);
+  _capRulesCache = null;
+}
+
+/**
  * Met à jour uniquement `npcMaxPerDay` (écriture "feuille" — n'écrase pas le reste de RepRules),
  * remplaçant l'ancienne transaction on-chain `setNpcMaxPerDay` : gratuit, appliqué instantanément.
  */

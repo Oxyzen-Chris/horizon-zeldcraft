@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  getRepRules, setRepRules, DEFAULT_REP_RULES, DEFAULT_PLATFORM3D_OBJECT_FLAGS, PLATFORM3D_OBJECT_KINDS,
+  getRepRules, setRepRules, updateRepRulesFields, DEFAULT_REP_RULES, DEFAULT_PLATFORM3D_OBJECT_FLAGS, PLATFORM3D_OBJECT_KINDS,
   type RepRules, type Platform3DObjectKind, type Platform3DObjectFlags,
 } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
@@ -17,6 +17,7 @@ export function RepRulesPanel() {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [emailConfig, setEmailConfig] = useState<{ configured: boolean; fromEmail: string; isSandbox: boolean } | null>(null);
+  const [instantFeedback, setInstantFeedback] = useState<string | null>(null);
 
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
   useEffect(() => { fetch('/api/email/config').then(r => r.json()).then(setEmailConfig).catch(() => {}); }, []);
@@ -40,6 +41,28 @@ export function RepRulesPanel() {
   /** Interrupteurs on/off (ex. fatigueEnabled) — valeur booléenne conservée telle quelle. */
   const setBool = (k: keyof RepRules, v: boolean) => {
     setRules(prev => ({ ...prev, [k]: v }));
+  };
+
+  /** Interrupteur à SAUVEGARDE INSTANTANÉE (écriture partielle Firebase immédiate, sans attendre
+   * le bouton "Enregistrer" global) — réservé aux 3 boutons de l'écran d'accueil dont l'effet doit
+   * être garanti dès le clic (bug corrigé : un admin qui bascule l'interrupteur sans faire défiler
+   * jusqu'au bouton "Enregistrer", tout en bas d'un très long formulaire, perdait silencieusement
+   * son changement). Met à jour l'état local pour un retour visuel immédiat ET persiste tout de
+   * suite via `updateRepRulesFields` (fusion partielle — ne touche à aucun autre champ en cours
+   * d'édition, non sauvegardé, ailleurs dans ce même formulaire). */
+  const setBoolInstant = (k: keyof RepRules, v: boolean) => {
+    setRules(prev => ({ ...prev, [k]: v }));
+    updateRepRulesFields({ [k]: v })
+      .then(() => {
+        setInstantFeedback('✅ ' + t('common.success'));
+        setTimeout(() => setInstantFeedback(null), 2000);
+      })
+      .catch((e) => {
+        setInstantFeedback('❌ ' + (e?.message ?? 'error'));
+        // Revert visuel si la persistance échoue réellement, pour ne jamais afficher un état
+        // que Firebase n'a en réalité pas retenu.
+        setRules(prev => ({ ...prev, [k]: !v }));
+      });
   };
 
   /** Un des 3 interrupteurs (obstacle/climbable/water) du registre `platform3dObjectFlags` pour un
@@ -742,19 +765,20 @@ export function RepRulesPanel() {
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.homeButtonsDescription')}</p>
         <label className="flex items-center gap-2 text-sm mb-2">
           <input type="checkbox" checked={rules.walletConnectEnabled !== false}
-            onChange={e => setBool('walletConnectEnabled', e.target.checked)} />
+            onChange={e => setBoolInstant('walletConnectEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.walletConnectEnabled')}</span>
         </label>
         <label className="flex items-center gap-2 text-sm mb-2">
           <input type="checkbox" checked={rules.demoAccessEnabled !== false}
-            onChange={e => setBool('demoAccessEnabled', e.target.checked)} />
+            onChange={e => setBoolInstant('demoAccessEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.demoAccessEnabledHomeBtn')}</span>
         </label>
         <label className="flex items-center gap-2 text-sm mb-1">
           <input type="checkbox" checked={rules.fiatPaymentEnabled !== false}
-            onChange={e => setBool('fiatPaymentEnabled', e.target.checked)} />
+            onChange={e => setBoolInstant('fiatPaymentEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.fiatPaymentEnabledHomeBtn')}</span>
         </label>
+        {instantFeedback && <p className="text-xs mt-1">{instantFeedback}</p>}
         <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.homeButtonsHint')}</p>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
@@ -762,13 +786,13 @@ export function RepRulesPanel() {
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.demoDescription')}</p>
         <label className="flex items-center gap-2 text-sm mb-2">
           <input type="checkbox" checked={rules.demoAccessEnabled !== false}
-            onChange={e => setBool('demoAccessEnabled', e.target.checked)} />
+            onChange={e => setBoolInstant('demoAccessEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.demoAccessEnabled')}</span>
         </label>
         <label className="flex items-center gap-2 text-sm mb-3">
           <input type="checkbox" checked={rules.demoAnonymousEnabled !== false}
             disabled={rules.demoAccessEnabled === false}
-            onChange={e => setBool('demoAnonymousEnabled', e.target.checked)} />
+            onChange={e => setBoolInstant('demoAnonymousEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.demoAnonymousEnabled')}</span>
         </label>
         <div className="grid md:grid-cols-3 gap-3">
@@ -800,7 +824,7 @@ export function RepRulesPanel() {
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.fiatDescription')}</p>
         <label className="flex items-center gap-2 text-sm mb-3">
           <input type="checkbox" checked={rules.fiatPaymentEnabled !== false}
-            onChange={e => setBool('fiatPaymentEnabled', e.target.checked)} />
+            onChange={e => setBoolInstant('fiatPaymentEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.fiatPaymentEnabled')}</span>
         </label>
         <div className="grid md:grid-cols-2 gap-2 mb-3">
