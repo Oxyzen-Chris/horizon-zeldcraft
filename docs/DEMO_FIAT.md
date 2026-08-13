@@ -111,6 +111,17 @@ pour prolonger l'accès d'un testeur ou d'un partenaire sans changer la limite d
 - Uniquement pertinent pour `accessMode === 'demo'` (Google, identifié) — ne s'applique jamais à
   « Jouer sans portefeuille » (accessMode 'fiat', sans limite de durée) ni à l'Accès Démo anonyme
   (non journalisé, donc non personnalisable individuellement — seule la valeur globale s'applique).
+- ✅ **Prise en compte EN TEMPS RÉEL, même en cours de partie (bug corrigé)** : `DemoSessionTimerWidget.tsx`
+  écoute désormais `catalog/repRules` et `demoAccessRequests/{uid}` via `onValue` (abonnement
+  Firebase temps réel), au lieu d'un sondage toutes les 30s. Toute réactivation du chrono ou
+  changement de durée personnalisée fait par l'admin est répercuté quasi instantanément dans la
+  partie du joueur DÉJÀ connecté, sans reconnexion ni délai d'attente.
+- ✅ **Bug corrigé — la surcharge personnalisée ne survivait pas à une reconnexion** :
+  `logAccountAccess()` (appelée à chaque connexion) ne recopiait pas `maxDurationMinOverride` dans
+  son `set()` complet du nœud, l'effaçant silencieusement dès que le joueur se reconnectait après
+  une réactivation admin — la durée personnalisée retombait alors toujours à 2h. Corrigé en
+  recopiant systématiquement ce champ depuis l'entrée existante (même correctif que celui
+  précédemment appliqué à `demoSessionStartedAt`).
 
 ## 💳 Paiement fiat — sans portefeuille crypto
 

@@ -3931,11 +3931,10 @@ export const DEFAULT_REP_RULES: RepRules = {
   emailFromName: 'Horizon ZeldCraft',
 }
 
-export async function getRepRules(): Promise<RepRules> {
-  const db = getFirebaseDb();
-  if (!db) return DEFAULT_REP_RULES;
-  const snap = await get(ref(db, 'catalog/repRules'));
-  const v = snap.val() as Partial<RepRules> | null;
+/** Merge une valeur brute Firebase (`catalog/repRules`, potentiellement partielle/absente) avec
+ * les valeurs par défaut — factorisé pour être partagé entre `getRepRules()` (lecture ponctuelle)
+ * et `subscribeRepRules()` (écoute temps réel, voir plus bas). */
+function mergeRepRules(v: Partial<RepRules> | null): RepRules {
   const merged: RepRules = { ...DEFAULT_REP_RULES, ...(v || {}) };
   // Merge profond de platform3dObjectFlags : une sauvegarde Firebase partielle/ancienne (avant
   // l'ajout d'un nouveau Platform3DObjectKind, ou tout simplement absente) ne doit JAMAIS faire
@@ -3947,6 +3946,27 @@ export async function getRepRules(): Promise<RepRules> {
   }, {} as Record<Platform3DObjectKind, Platform3DObjectFlags>);
   return merged;
 }
+
+export async function getRepRules(): Promise<RepRules> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_REP_RULES;
+  const snap = await get(ref(db, 'catalog/repRules'));
+  return mergeRepRules(snap.val() as Partial<RepRules> | null);
+}
+
+/** Écoute en temps réel `catalog/repRules` (voir `getRepRules` pour la version ponctuelle) — utile
+ * pour qu'un widget affiché en jeu (ex. `DemoSessionTimerWidget.tsx`) reflète INSTANTANÉMENT tout
+ * changement fait par l'admin (ex. durée max de session Démo), sans attendre un rechargement de
+ * page ni un intervalle de sondage. */
+export function subscribeRepRules(cb: (rules: RepRules) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(DEFAULT_REP_RULES); return () => {}; }
+  const r = ref(db, 'catalog/repRules');
+  const handler = (snap: DataSnapshot) => cb(mergeRepRules(snap.val() as Partial<RepRules> | null));
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
 
 export async function setRepRules(rules: RepRules): Promise<void> {
   const db = getFirebaseDb();
@@ -5333,6 +5353,13 @@ export async function logAccountAccess(entry: {
   // trouvant plus `demoSessionStartedAt`, retombait sur l'ANCIEN `requestedAt` (jamais mis à jour,
   // toujours expiré) : le joueur restait bloqué avec le message de session expirée malgré la
   // réactivation. On recopie donc désormais explicitement ce champ s'il existait déjà.
+  // ⚠️ Même bug pour `maxDurationMinOverride` (surcharge personnelle de durée, voir Administration
+  // > Statistiques par joueur > "Compte Démo / sans portefeuille") : oublié lors du premier
+  // correctif ci-dessus car ce champ a été ajouté ultérieurement. Sans cette recopie, toute
+  // reconnexion du joueur (ex. après expiration puis réactivation admin) effaçait silencieusement
+  // la durée personnalisée définie par l'admin, qui retombait alors sur la valeur globale (2h) —
+  // bug reproduit et corrigé : le joueur reconnecté voyait systématiquement "2h" au lieu de la
+  // valeur personnalisée pourtant enregistrée juste avant.
   const merged: DemoAccessRequest = {
     uid: entry.uid, address: entry.address,
     method: entry.method, accessMode: entry.accessMode,
@@ -5344,6 +5371,7 @@ export async function logAccountAccess(entry: {
     ...(email ? { email } : {}),
     ...(existing?.decidedAt ? { decidedAt: existing.decidedAt } : {}),
     ...(existing?.demoSessionStartedAt ? { demoSessionStartedAt: existing.demoSessionStartedAt } : {}),
+    ...(existing?.maxDurationMinOverride != null ? { maxDurationMinOverride: existing.maxDurationMinOverride } : {}),
   };
   await set(r, merged);
   return { paused: false };
@@ -5485,6 +5513,36 @@ export async function getDemoTimerStartedAt(
   const snap = await get(ref(db, `demoAccessRequests/${RKEY(uid)}`));
   const v = snap.val() as DemoAccessRequest | null;
   return { startedAt: v?.demoSessionStartedAt ?? v?.requestedAt ?? null, maxDurationMinOverride: v?.maxDurationMinOverride };
+}
+
+/** Version TEMPS RÉEL de `getDemoTimerStartedAt` (voir ci-dessus) — écoute en direct (`onValue`)
+ * plutôt qu'une lecture ponctuelle, pour que le widget de compte à rebours en jeu
+ * (`DemoSessionTimerWidget.tsx`) reflète INSTANTANÉMENT toute action admin faite PENDANT que le
+ * joueur est déjà connecté et en train de jouer : réactivation du chrono ("🔄 Réactiver le chrono
+ * Démo") ou changement de la durée personnalisée ("Durée max de session Démo pour ce joueur",
+ * Administration > Statistiques par joueur) — sans que le joueur ait besoin de se reconnecter ni
+ * d'attendre un sondage périodique (bug corrigé : le sondage à 30s laissait croire que le
+ * changement n'était "jamais pris en compte" si le joueur se déconnectait avant l'écoulement du
+ * délai). */
+export function subscribeDemoTimerInfo(
+  uid: string, mode: 'approved' | 'anonymous',
+  cb: (info: { startedAt: number | null; maxDurationMinOverride?: number }) => void,
+): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb({ startedAt: null }); return () => {}; }
+  if (mode === 'anonymous') {
+    const r = ref(db, `demoSessions/anonTimer/${RKEY(uid)}`);
+    const handler = (snap: DataSnapshot) => cb({ startedAt: (snap.val() as { startedAt?: number } | null)?.startedAt ?? null });
+    onValue(r, handler);
+    return () => off(r, 'value', handler);
+  }
+  const r = ref(db, `demoAccessRequests/${RKEY(uid)}`);
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as DemoAccessRequest | null;
+    cb({ startedAt: v?.demoSessionStartedAt ?? v?.requestedAt ?? null, maxDurationMinOverride: v?.maxDurationMinOverride });
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
 }
 
 /** Relance le chrono Démo d'UN joueur identifié (Google) en particulier — bouton admin "🔄

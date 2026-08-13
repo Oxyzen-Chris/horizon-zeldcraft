@@ -5,21 +5,26 @@
  * session "Accès Démo" (Google approuvé OU anonyme — jamais pour "Jouer sans portefeuille" qui
  * n'a pas de limite de durée, ni pour un vrai portefeuille crypto) — voir
  * RepRules.demoSessionMaxDurationMin (2h par défaut) et gameState.ts::ensureDemoAccountTimer/
- * ensureDemoAnonTimer/getDemoTimerStartedAt/resetDemoAccountTimer.
+ * ensureDemoAnonTimer/subscribeDemoTimerInfo/resetDemoAccountTimer.
  *
  * Le chrono est PERSISTANT côté serveur (RTDB) — voir commentaire dans gameState.ts : une simple
  * déconnexion/reconnexion ne le réinitialise jamais, seul l'admin peut le relancer pour un compte
- * Démo Google identifié (bouton "🔄 Réactiver le chrono Démo", DemoAccessRequestsPanel.tsx).
+ * Démo Google identifié (bouton "🔄 Réactiver le chrono Démo", DemoAccessRequestsPanel.tsx /
+ * PlayerStats.tsx), ou modifier sa durée personnalisée ("Durée max de session Démo pour ce
+ * joueur", Administration > Statistiques par joueur).
  *
- * Revérifie l'échéance côté serveur toutes les 30s (en plus du tick visuel local à la seconde) —
- * pour qu'une réactivation admin en cours de partie soit prise en compte SANS que le joueur ait à
- * se reconnecter. À échéance zéro : déconnexion forcée (`disconnectSession()`) puis retour à
- * l'accueil avec un message explicite (voir page.tsx / i18n `home.demo.sessionExpired`).
+ * ⚠️ Écoute désormais EN TEMPS RÉEL (`onValue` via `subscribeRepRules`/`subscribeDemoTimerInfo`,
+ * plutôt qu'un sondage périodique) — corrige le bug où une modification admin (réactivation du
+ * chrono, changement de la durée personnalisée) faite alors que le joueur est DÉJÀ connecté et en
+ * train de jouer n'était prise en compte qu'au bout de 30s (ou jamais, si la session avait déjà
+ * expiré avant l'écoulement de ce délai). À échéance zéro : déconnexion forcée
+ * (`disconnectSession()`) puis retour à l'accueil avec un message explicite (voir page.tsx / i18n
+ * `home.demo.sessionExpired`).
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { useEffectiveSession, useEffectiveSessionControls } from '@/lib/effectiveAccount';
-import { getRepRules, getDemoTimerStartedAt } from '@/lib/gameState';
+import { subscribeRepRules, subscribeDemoTimerInfo, type RepRules } from '@/lib/gameState';
 
 const EXPIRED_FLAG_KEY = 'zc.demoSessionExpired';
 
@@ -36,32 +41,30 @@ export function DemoSessionTimerWidget() {
   const { t } = useI18n();
   const session = useEffectiveSession();
   const { disconnectSession } = useEffectiveSessionControls();
-  const [deadline, setDeadline] = useState<number | null>(null);
+  const [rules, setRules] = useState<RepRules | null>(null);
+  const [timerInfo, setTimerInfo] = useState<{ startedAt: number | null; maxDurationMinOverride?: number }>({ startedAt: null });
   const [now, setNow] = useState(Date.now());
   const expiredHandled = useRef(false);
 
   const isDemo = session?.kind === 'demo';
 
-  // Récupère (et revérifie périodiquement) l'échéance du chrono côté serveur.
+  // Écoute EN TEMPS RÉEL (onValue) la durée globale (catalog/repRules) et le chrono/surcharge de
+  // CE joueur (demoAccessRequests/{uid} ou demoSessions/anonTimer/{uid}) — toute modification
+  // admin est reflétée quasi instantanément, sans sondage ni reconnexion nécessaire.
   useEffect(() => {
-    if (!isDemo || !session) { setDeadline(null); return; }
-    let cancelled = false;
-    const refresh = async () => {
-      const [rules, timerInfo] = await Promise.all([
-        getRepRules(),
-        getDemoTimerStartedAt(session.uid, session.demoMode === 'anonymous' ? 'anonymous' : 'approved'),
-      ]);
-      if (cancelled) return;
-      // Une surcharge par-joueur (Administration > Statistiques par joueur > "Compte Démo / sans
-      // portefeuille") prévaut sur la durée globale — uniquement disponible en mode 'approved'
-      // (voir gameState.ts::getDemoTimerStartedAt).
-      const maxMin = timerInfo.maxDurationMinOverride ?? rules.demoSessionMaxDurationMin ?? 120;
-      setDeadline(timerInfo.startedAt ? timerInfo.startedAt + maxMin * 60_000 : null);
-    };
-    refresh();
-    const iv = setInterval(refresh, 30_000);
-    return () => { cancelled = true; clearInterval(iv); };
+    if (!isDemo || !session) { setRules(null); setTimerInfo({ startedAt: null }); return; }
+    const unsubRules = subscribeRepRules(setRules);
+    const unsubTimer = subscribeDemoTimerInfo(session.uid, session.demoMode === 'anonymous' ? 'anonymous' : 'approved', setTimerInfo);
+    return () => { unsubRules(); unsubTimer(); };
   }, [isDemo, session]);
+
+  // Une surcharge par-joueur (Administration > Statistiques par joueur > "Compte Démo / sans
+  // portefeuille") prévaut sur la durée globale — uniquement disponible en mode 'approved'.
+  const deadline = useMemo(() => {
+    if (!timerInfo.startedAt) return null;
+    const maxMin = timerInfo.maxDurationMinOverride ?? rules?.demoSessionMaxDurationMin ?? 120;
+    return timerInfo.startedAt + maxMin * 60_000;
+  }, [timerInfo, rules]);
 
   // Tick visuel local à la seconde.
   useEffect(() => {

@@ -364,6 +364,11 @@ Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne f
 - Dans le menu Administration rubrique "Statistiques par joueur", sous-rubrique "Compte Démo / sans portefeuille", rend paramétrable la limitation du mode démo pour permettre de mettre une valeur en heure de son choix. Par défaut, la valeur est fixée a 2 heures.
 Au besoin utilise Playwright pour tester, reproduire et corriger ces bugs.
 Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu.
+- Dans le menu Administration rubrique "Statistiques par joueur", sous-rubrique "Compte Démo / sans portefeuille", après avoir réactivé le chrono démo (au joueur christophe.sintes.oxyzen@gmail.com) a 2 heures qui a bien été pris en compte, j'ai augmenté ce compteur à 4 heure mais il n'a pas été pris en compte en live dans le jeu, donc fait en sorte que quand je modifie la valeur, celle-ci soit prise en compte immédiatement dans la partie du joueur même si elle est en cours et le joueur connecté.
+J'ai également noté que lorsque je réactivais le chrono démo d'un joueur, il le réactivais à 2 heures mais ensuite si je veux le changer pour par exemple 4 heures, cette nouvelle n'est pas pris en compte et le compte a rebours du joueur (testé avec le joueur christophe.sintes.oxyzen@gmail.com) démarre toujours à 2 heures.
+Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu. Au besoin utilise Playwright pour tester, reproduire et corriger ces bugs.
+
+
 
 
 
