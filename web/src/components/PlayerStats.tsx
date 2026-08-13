@@ -12,6 +12,7 @@ import {
   computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex, getPlayerProgressLedger,
   getPlayerPlaytimeStats, computeOffchainStageLevel, deletePlayerAccount, deleteAllPlayers,
   incrementPasswordResetCount, getDemoAccessRequest, pauseAccountAccess, resetDemoAccountTimer,
+  setDemoSessionMaxDurationOverride,
   type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules, type Season,
   type PlayerProgressLedger, type PlaytimeStats, type PlayerListEntry, type DemoAccessRequest,
 } from '@/lib/gameState';
@@ -113,6 +114,11 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const [demoRequest, setDemoRequest] = useState<DemoAccessRequest | null>(null);
   const [pausingAccount, setPausingAccount] = useState(false);
   const [reactivatingTimer, setReactivatingTimer] = useState(false);
+  // ─── Surcharge par-joueur de la durée max de session Démo (voir demande utilisateur : rendre
+  // paramétrable en heures, par défaut 2h = valeur globale RepRules.demoSessionMaxDurationMin). ───
+  const [demoMaxHoursInput, setDemoMaxHoursInput] = useState('');
+  const [savingDemoMaxDuration, setSavingDemoMaxDuration] = useState(false);
+  const [demoMaxDurationFeedback, setDemoMaxDurationFeedback] = useState<string | null>(null);
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
 
   // Écoute en temps réel (onValue) — remplace l'ancien chargement ponctuel + rappel manuel après
@@ -393,6 +399,56 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
       await resetDemoAccountTimer(dbPlayer.uid);
       reloadDemoRequest(dbPlayer.uid);
     } finally { setReactivatingTimer(false); }
+  };
+
+  // Pré-remplit le champ (en HEURES, plus lisible pour l'admin) avec la valeur effective en cours
+  // pour ce joueur : sa surcharge personnelle si elle existe, sinon la valeur globale par défaut
+  // (RepRules.demoSessionMaxDurationMin, 2h). Se resynchronise à chaque changement de joueur
+  // sélectionné ou de chargement des règles/du registre Démo.
+  useEffect(() => {
+    const effectiveMin = demoRequest?.maxDurationMinOverride ?? repRules?.demoSessionMaxDurationMin ?? 120;
+    setDemoMaxHoursInput(String(Math.round((effectiveMin / 60) * 100) / 100));
+  }, [demoRequest, repRules]);
+
+  /** Enregistre la surcharge personnelle de durée (en heures, convertie en minutes) pour ce joueur
+   * — Administration > Statistiques par joueur > "Compte Démo / sans portefeuille". N'affecte
+   * jamais les autres joueurs ni la valeur globale (RepRules.demoSessionMaxDurationMin). */
+  const saveDemoMaxDuration = async () => {
+    if (!dbPlayer?.uid) return;
+    const hours = parseFloat(demoMaxHoursInput.replace(',', '.'));
+    if (isNaN(hours) || hours <= 0) {
+      setDemoMaxDurationFeedback('❌ ' + t('admin.stats.demoMaxDurationInvalid'));
+      setTimeout(() => setDemoMaxDurationFeedback(null), 3000);
+      return;
+    }
+    setSavingDemoMaxDuration(true);
+    try {
+      await setDemoSessionMaxDurationOverride(dbPlayer.uid, Math.round(hours * 60));
+      reloadDemoRequest(dbPlayer.uid);
+      setDemoMaxDurationFeedback('✅ ' + t('common.success'));
+    } catch (e: any) {
+      setDemoMaxDurationFeedback('❌ ' + (e?.message ?? 'error'));
+    } finally {
+      setSavingDemoMaxDuration(false);
+      setTimeout(() => setDemoMaxDurationFeedback(null), 3000);
+    }
+  };
+
+  /** Efface la surcharge personnelle : ce joueur retombe sur la valeur GLOBALE par défaut (2h),
+   * partagée avec tous les autres comptes Démo n'ayant jamais été personnalisés. */
+  const resetDemoMaxDurationToDefault = async () => {
+    if (!dbPlayer?.uid) return;
+    setSavingDemoMaxDuration(true);
+    try {
+      await setDemoSessionMaxDurationOverride(dbPlayer.uid, null);
+      reloadDemoRequest(dbPlayer.uid);
+      setDemoMaxDurationFeedback('↺ ' + t('common.success'));
+    } catch (e: any) {
+      setDemoMaxDurationFeedback('❌ ' + (e?.message ?? 'error'));
+    } finally {
+      setSavingDemoMaxDuration(false);
+      setTimeout(() => setDemoMaxDurationFeedback(null), 3000);
+    }
   };
 
 
@@ -710,7 +766,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
                   </span>
                 )}
                 {demoRequest?.accessMode === 'demo' && (() => {
-                  const maxMin = repRules?.demoSessionMaxDurationMin ?? 120;
+                  const maxMin = demoRequest.maxDurationMinOverride ?? repRules?.demoSessionMaxDurationMin ?? 120;
                   const startedAt = demoRequest.demoSessionStartedAt ?? demoRequest.requestedAt;
                   const remainingMs = startedAt + maxMin * 60_000 - Date.now();
                   const expired = remainingMs <= 0;
@@ -728,6 +784,37 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
                   {demoRequest.lastLoginAt && <> · {t('admin.demoRequests.lastLogin')} {new Date(demoRequest.lastLoginAt).toLocaleString()}</>}
                   {demoRequest.loginCount ? <> · {demoRequest.loginCount}×</> : null}
                 </p>
+              )}
+              {/* Durée max de session Démo — paramétrable PAR JOUEUR (en heures), uniquement pour
+                  l'accès Démo identifié (Google). Par défaut : valeur globale RepRules.demoSessionMaxDurationMin
+                  (2h) tant qu'aucune surcharge n'a été enregistrée pour ce joueur précis. */}
+              {demoRequest?.accessMode === 'demo' && (
+                <div className="mt-3 pt-2 border-t border-slate-700/60">
+                  <label className="text-xs text-slate-400 block mb-1">{t('admin.stats.demoMaxDurationLabel')}</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="number" min="0.1" step="0.5" className="input text-xs w-24"
+                      value={demoMaxHoursInput}
+                      onChange={e => setDemoMaxHoursInput(e.target.value)}
+                    />
+                    <span className="text-xs text-slate-400">{t('admin.stats.demoMaxDurationHoursUnit')}</span>
+                    <button className="btn-secondary text-xs" disabled={savingDemoMaxDuration} onClick={saveDemoMaxDuration}>
+                      💾 {t('admin.actions.apply')}
+                    </button>
+                    {demoRequest.maxDurationMinOverride != null && (
+                      <button className="btn-secondary text-xs" disabled={savingDemoMaxDuration} onClick={resetDemoMaxDurationToDefault}>
+                        ↺ {t('admin.stats.demoMaxDurationReset')}
+                      </button>
+                    )}
+                    {demoRequest.maxDurationMinOverride != null && (
+                      <span className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded bg-amber-900 text-amber-300">
+                        {t('admin.stats.demoMaxDurationCustomBadge')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">{t('admin.stats.demoMaxDurationHint')}</p>
+                  {demoMaxDurationFeedback && <p className="text-xs mt-1">{demoMaxDurationFeedback}</p>}
+                </div>
               )}
             </div>
           )}

@@ -5293,6 +5293,14 @@ export interface DemoAccessRequest {
   // relancer via `resetDemoAccountTimer()`, bouton "🔄 Réactiver le chrono Démo" ci-dessous) afin
   // qu'une simple déconnexion/reconnexion ne permette pas de contourner la limite.
   demoSessionStartedAt?: number;
+  // Surcharge PAR JOUEUR de la durée max de session Démo (en minutes) — paramétrable depuis
+  // Administration > Statistiques par joueur > "Compte Démo / sans portefeuille" (voir
+  // `setDemoSessionMaxDurationOverride` ci-dessous). Si absent (undefined), le joueur utilise la
+  // valeur GLOBALE `RepRules.demoSessionMaxDurationMin` (120 min = 2h par défaut) — comportement
+  // strictement inchangé pour tous les comptes n'ayant jamais reçu de surcharge explicite.
+  // Uniquement pertinent pour `accessMode === 'demo'` (jamais pour 'fiat', ni pour le mode anonyme
+  // qui n'a pas d'entrée nominative dans ce registre — voir commentaire plus bas).
+  maxDurationMinOverride?: number;
 }
 
 /**
@@ -5425,7 +5433,10 @@ export async function releaseDemoSession(kind: 'demo' | 'anon', uid: string): Pr
 /** Démarre (une seule fois) ou lit le chrono Démo d'un compte IDENTIFIÉ (Google) — voir
  * commentaire ci-dessus. Ne réinitialise JAMAIS un chrono déjà démarré (seul
  * `resetDemoAccountTimer()` le peut). Retourne si la limite est dépassée + l'horodatage de départ
- * (pour calculer l'échéance côté widget : `startedAt + maxDurationMin * 60000`). */
+ * (pour calculer l'échéance côté widget : `startedAt + maxDurationMin * 60000`).
+ * `maxDurationMin` est la valeur GLOBALE (RepRules.demoSessionMaxDurationMin) — si ce joueur a une
+ * surcharge personnelle (`maxDurationMinOverride`, voir Administration > Statistiques par joueur),
+ * elle prévaut systématiquement sur la valeur globale transmise par l'appelant. */
 export async function ensureDemoAccountTimer(uid: string, maxDurationMin: number): Promise<{ expired: boolean; startedAt: number }> {
   const db = getFirebaseDb();
   if (!db) return { expired: false, startedAt: Date.now() };
@@ -5436,7 +5447,8 @@ export async function ensureDemoAccountTimer(uid: string, maxDurationMin: number
     startedAt = Date.now();
     await update(r, { demoSessionStartedAt: startedAt });
   }
-  return { expired: Date.now() - startedAt >= maxDurationMin * 60_000, startedAt };
+  const effectiveMax = existing?.maxDurationMinOverride ?? maxDurationMin;
+  return { expired: Date.now() - startedAt >= effectiveMax * 60_000, startedAt };
 }
 
 /** Équivalent de `ensureDemoAccountTimer` pour l'Accès Démo ANONYME (voir commentaire ci-dessus) —
@@ -5457,17 +5469,22 @@ export async function ensureDemoAnonTimer(uid: string, maxDurationMin: number): 
 /** Lecture ponctuelle de l'horodatage de départ du chrono Démo en cours (pour le widget
  * compte-à-rebours en jeu, voir DemoSessionTimerWidget.tsx) — ne démarre jamais le chrono elle-même
  * (contrairement à `ensureDemoAccountTimer`/`ensureDemoAnonTimer`, appelées uniquement à la
- * connexion), permet juste de suivre une éventuelle réactivation admin en cours de partie. */
-export async function getDemoTimerStartedAt(uid: string, mode: 'approved' | 'anonymous'): Promise<number | null> {
+ * connexion), permet juste de suivre une éventuelle réactivation admin en cours de partie. Renvoie
+ * aussi `maxDurationMinOverride` (uniquement pertinent pour mode 'approved') pour que le widget
+ * applique la durée personnalisée de ce joueur si l'admin en a défini une, sans avoir à faire une
+ * seconde lecture Firebase séparée. */
+export async function getDemoTimerStartedAt(
+  uid: string, mode: 'approved' | 'anonymous'
+): Promise<{ startedAt: number | null; maxDurationMinOverride?: number }> {
   const db = getFirebaseDb();
-  if (!db) return null;
+  if (!db) return { startedAt: null };
   if (mode === 'anonymous') {
     const snap = await get(ref(db, `demoSessions/anonTimer/${RKEY(uid)}`));
-    return (snap.val() as { startedAt?: number } | null)?.startedAt ?? null;
+    return { startedAt: (snap.val() as { startedAt?: number } | null)?.startedAt ?? null };
   }
   const snap = await get(ref(db, `demoAccessRequests/${RKEY(uid)}`));
   const v = snap.val() as DemoAccessRequest | null;
-  return v?.demoSessionStartedAt ?? v?.requestedAt ?? null;
+  return { startedAt: v?.demoSessionStartedAt ?? v?.requestedAt ?? null, maxDurationMinOverride: v?.maxDurationMinOverride };
 }
 
 /** Relance le chrono Démo d'UN joueur identifié (Google) en particulier — bouton admin "🔄
@@ -5480,5 +5497,18 @@ export async function resetDemoAccountTimer(uid: string): Promise<void> {
   if (!db) return;
   await ensureAnonSignIn();
   await update(ref(db, `demoAccessRequests/${RKEY(uid)}`), { demoSessionStartedAt: Date.now() });
+}
+
+/** Définit (ou efface, avec `minutes: null`) la surcharge PAR JOUEUR de la durée max de session
+ * Démo (voir `DemoAccessRequest.maxDurationMinOverride`) — bouton Administration > Statistiques
+ * par joueur > "Compte Démo / sans portefeuille". Uniquement pour l'Accès Démo IDENTIFIÉ (Google) :
+ * comme `resetDemoAccountTimer`, ne s'applique pas au mode anonyme (non nominatif). Passer `null`
+ * restaure la valeur globale par défaut (`RepRules.demoSessionMaxDurationMin`, 2h) pour ce joueur. */
+export async function setDemoSessionMaxDurationOverride(uid: string, minutes: number | null): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const r = ref(db, `demoAccessRequests/${RKEY(uid)}/maxDurationMinOverride`);
+  await set(r, minutes && minutes > 0 ? minutes : null);
 }
 

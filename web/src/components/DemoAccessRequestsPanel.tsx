@@ -84,7 +84,7 @@ export function DemoAccessRequestsPanel() {
                   </span>
                 )}
                 {r.accessMode === 'demo' && (() => {
-                  const maxMin = rules?.demoSessionMaxDurationMin ?? 120;
+                  const maxMin = r.maxDurationMinOverride ?? rules?.demoSessionMaxDurationMin ?? 120;
                   const startedAt = r.demoSessionStartedAt ?? r.requestedAt;
                   const deadline = startedAt + maxMin * 60_000;
                   const remainingMs = deadline - Date.now();

@@ -96,6 +96,22 @@ hors-chaîne via `computeOffchainStageLevel`, ces comptes n'ayant jamais de Voxl
 « Zone de danger » permet de supprimer un joueur individuellement ou de réinitialiser
 **intégralement** tous les joueurs du jeu (double confirmation requise, action irréversible).
 
+### ⏳ Durée max de session Démo — personnalisable PAR JOUEUR (en heures)
+
+Dans `Administration > Statistiques par joueur > 🎟️ Compte Démo / sans portefeuille`, un champ
+« Durée max de session Démo pour ce joueur » permet de fixer, **en heures**, une durée personnalisée
+qui remplace la valeur globale (`RepRules.demoSessionMaxDurationMin`, **2h par défaut**,
+Administration > Barème & règles) **uniquement pour le compte sélectionné** — utile par exemple
+pour prolonger l'accès d'un testeur ou d'un partenaire sans changer la limite de tout le monde.
+- Enregistrée dans `demoAccessRequests/{uid}.maxDurationMinOverride` (minutes), lue par
+  `ensureDemoAccountTimer()` (connexion) et par `DemoSessionTimerWidget.tsx` (sablier en jeu), qui
+  la préfèrent systématiquement à la valeur globale si elle est définie.
+- Un bouton « ↺ Revenir à la valeur par défaut » efface la surcharge : le joueur retombe alors sur
+  la valeur globale (2h), partagée avec tous les comptes Démo n'ayant jamais été personnalisés.
+- Uniquement pertinent pour `accessMode === 'demo'` (Google, identifié) — ne s'applique jamais à
+  « Jouer sans portefeuille » (accessMode 'fiat', sans limite de durée) ni à l'Accès Démo anonyme
+  (non journalisé, donc non personnalisable individuellement — seule la valeur globale s'applique).
+
 ## 💳 Paiement fiat — sans portefeuille crypto
 
 Un joueur qui ne souhaite pas utiliser d'ETH peut :

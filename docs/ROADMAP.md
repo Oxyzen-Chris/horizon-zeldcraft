@@ -278,6 +278,20 @@ Vercel :
       limitant les Cron Jobs à 1×/jour — un cron plus fréquent faisait échouer silencieusement
       **tout** déploiement Git, le bouton « Redeploy » masquant le problème en rejouant un ancien
       build réussi).
+- [x] **Correctifs post-lancement — réactivation Démo, fausse erreur de suppression, annonces en
+      direct, message Resend clair** (voir `docs/EMAIL_NOTIFICATIONS.md`) : `logAccountAccess()`
+      préservait mal `demoSessionStartedAt` (un joueur réactivé par l'admin restait bloqué
+      « session expirée ») ; `deletePlayerAccount()`/`deleteAllPlayers()` isolent désormais le
+      nettoyage best-effort de `announcements/*` (règles RTDB manquantes, ajoutées à
+      `docs/FIREBASE_CHAT.md`) pour ne plus jamais afficher de fausse erreur de suppression ;
+      widget de compte à rebours Démo repositionné en haut à droite ; erreur Resend 403 (mode test)
+      désormais détectée et explicitée dans l'admin.
+- [x] **Durée max de session Démo personnalisable PAR JOUEUR** (voir `docs/DEMO_FIAT.md` § Durée
+      max de session Démo) : `Administration > Statistiques par joueur > 🎟️ Compte Démo / sans
+      portefeuille` permet désormais de fixer une durée en heures propre à un joueur donné
+      (`demoAccessRequests/{uid}.maxDurationMinOverride`), prioritaire sur la valeur globale
+      (`RepRules.demoSessionMaxDurationMin`, 2h par défaut) — bouton de réinitialisation pour
+      revenir à la valeur globale à tout moment.
 - [ ] **⚠️ Vérifier un domaine sur Resend — INDISPENSABLE avant tout passage en production**
       (voir `docs/EMAIL_NOTIFICATIONS.md` § Mode test Resend) : tant qu'aucun domaine n'est
       vérifié, Resend reste en **mode test** et n'autorise l'envoi QUE vers l'adresse e-mail du

@@ -47,13 +47,16 @@ export function DemoSessionTimerWidget() {
     if (!isDemo || !session) { setDeadline(null); return; }
     let cancelled = false;
     const refresh = async () => {
-      const [rules, startedAt] = await Promise.all([
+      const [rules, timerInfo] = await Promise.all([
         getRepRules(),
         getDemoTimerStartedAt(session.uid, session.demoMode === 'anonymous' ? 'anonymous' : 'approved'),
       ]);
       if (cancelled) return;
-      const maxMin = rules.demoSessionMaxDurationMin ?? 120;
-      setDeadline(startedAt ? startedAt + maxMin * 60_000 : null);
+      // Une surcharge par-joueur (Administration > Statistiques par joueur > "Compte Démo / sans
+      // portefeuille") prévaut sur la durée globale — uniquement disponible en mode 'approved'
+      // (voir gameState.ts::getDemoTimerStartedAt).
+      const maxMin = timerInfo.maxDurationMinOverride ?? rules.demoSessionMaxDurationMin ?? 120;
+      setDeadline(timerInfo.startedAt ? timerInfo.startedAt + maxMin * 60_000 : null);
     };
     refresh();
     const iv = setInterval(refresh, 30_000);
