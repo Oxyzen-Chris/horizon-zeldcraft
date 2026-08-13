@@ -278,6 +278,20 @@ Vercel :
       limitant les Cron Jobs à 1×/jour — un cron plus fréquent faisait échouer silencieusement
       **tout** déploiement Git, le bouton « Redeploy » masquant le problème en rejouant un ancien
       build réussi).
+- [ ] **⚠️ Vérifier un domaine sur Resend — INDISPENSABLE avant tout passage en production**
+      (voir `docs/EMAIL_NOTIFICATIONS.md` § Mode test Resend) : tant qu'aucun domaine n'est
+      vérifié, Resend reste en **mode test** et n'autorise l'envoi QUE vers l'adresse e-mail du
+      compte Resend lui-même — e-mail de bienvenue, rapports, messages personnalisés, envois de
+      masse et annonces échouent en 403 vers toute autre adresse (ex. joueurs réels). Étapes :
+      1. Acheter un nom de domaine (OVH, Gandi, Namecheap, Cloudflare Registrar — quelques €/an).
+      2. [resend.com/domains](https://resend.com/domains) → **Add Domain** (idéalement un
+         sous-domaine type `mail.horizon-zeldcraft.fr`, recommandé par Resend pour isoler la
+         réputation d'envoi).
+      3. Ajouter les enregistrements DNS (TXT SPF/DKIM, parfois MX) fournis par Resend chez le
+         registrar, puis cliquer **Verify DNS** une fois propagés (jusqu'à 48h, souvent < 1h).
+      4. Mettre à jour `RESEND_FROM_EMAIL` sur Vercel avec une adresse du domaine vérifié
+         (ex. `jeu@mail.horizon-zeldcraft.fr`) et redéployer manuellement.
+      **Bloquant pour la production réelle (Mainnet + vrais joueurs)** tant que non fait.
 - [ ] Intégration Stripe réelle (CB, Apple Pay) — clés API + `api/payments/checkout/route.ts`
 - [ ] PayPal SDK réel (au-delà du mode simulation déjà livré)
 - [ ] On-ramp crypto (MoonPay, Ramp)
