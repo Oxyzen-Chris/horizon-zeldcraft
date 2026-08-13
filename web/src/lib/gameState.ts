@@ -2734,7 +2734,7 @@ export async function deletePlayerAccount(address: string): Promise<void> {
   const k = KEY(address);
   const snap = await get(ref(db, `players/${k}`));
   const p = snap.val() as PlayerState | null;
-  const ops = [remove(ref(db, `players/${k}`)), remove(ref(db, `playerIndex/${k}`)), remove(ref(db, `announcements/targeted/${k}`))];
+  const ops = [remove(ref(db, `players/${k}`)), remove(ref(db, `playerIndex/${k}`))];
   if (p?.uid) {
     const ru = RKEY(p.uid);
     ops.push(remove(ref(db, `demoAccessRequests/${ru}`)));
@@ -2742,6 +2742,19 @@ export async function deletePlayerAccount(address: string): Promise<void> {
     ops.push(remove(ref(db, `demoSessions/anon/${ru}`)));
   }
   await Promise.all(ops);
+  // ⚠️ Bug corrigé : la suppression de l'annonce ciblée (`announcements/targeted/{addr}`, un
+  // simple ménage cosmétique) était auparavant incluse dans le MÊME `Promise.all()` que les
+  // suppressions CRITIQUES ci-dessus. Si ce chemin n'était pas (encore) couvert par les règles de
+  // sécurité RTDB publiées (PERMISSION_DENIED), tout le `Promise.all()` échouait et l'admin voyait
+  // un message d'erreur — alors même que players/{addr} et playerIndex/{addr} avaient déjà été
+  // supprimés avec succès juste avant (chaque `remove()` envoie sa requête indépendamment, un rejet
+  // de Promise.all n'annule pas les écritures déjà parties). Isolée ici en "best effort" : une
+  // éventuelle erreur sur ce nettoyage cosmétique ne doit plus jamais faire échouer la suppression
+  // du joueur ni afficher une fausse erreur à l'admin (voir docs/FIREBASE_CHAT.md pour la règle
+  // manquante, désormais ajoutée).
+  await remove(ref(db, `announcements/targeted/${k}`)).catch((e) => {
+    console.warn('[deletePlayerAccount] nettoyage announcements/targeted ignoré (non bloquant):', e);
+  });
 }
 
 
@@ -2757,8 +2770,12 @@ export async function deleteAllPlayers(): Promise<void> {
     remove(ref(db, 'playerIndex')),
     remove(ref(db, 'demoAccessRequests')),
     remove(ref(db, 'demoSessions')),
-    remove(ref(db, 'announcements')),
   ]);
+  // Même logique "best effort" que deletePlayerAccount() ci-dessus : le nettoyage des annonces ne
+  // doit jamais faire échouer la réinitialisation totale, ni afficher une fausse erreur à l'admin.
+  await remove(ref(db, 'announcements')).catch((e) => {
+    console.warn('[deleteAllPlayers] nettoyage announcements ignoré (non bloquant):', e);
+  });
 }
 
 // ────────────────────────────── Annonces en jeu (bandeau live admin) ──────────────────────────────
@@ -5300,6 +5317,14 @@ export async function logAccountAccess(entry: {
   const now = Date.now();
   const displayName = entry.displayName ?? existing?.displayName;
   const email = entry.email ?? existing?.email;
+  // ⚠️ Bug corrigé : `set()` remplace TOUT le nœud — `demoSessionStartedAt` (chrono de session
+  // Démo, voir plus bas) n'était JAMAIS recopié depuis `existing`, donc CHAQUE reconnexion
+  // l'effaçait silencieusement. Conséquence observée : même après une réactivation admin explicite
+  // (`resetDemoAccountTimer`, qui vient de fixer `demoSessionStartedAt` à "maintenant"), la
+  // reconnexion suivante l'effaçait aussitôt via ce `set()` — et `ensureDemoAccountTimer()`, ne
+  // trouvant plus `demoSessionStartedAt`, retombait sur l'ANCIEN `requestedAt` (jamais mis à jour,
+  // toujours expiré) : le joueur restait bloqué avec le message de session expirée malgré la
+  // réactivation. On recopie donc désormais explicitement ce champ s'il existait déjà.
   const merged: DemoAccessRequest = {
     uid: entry.uid, address: entry.address,
     method: entry.method, accessMode: entry.accessMode,
@@ -5310,6 +5335,7 @@ export async function logAccountAccess(entry: {
     ...(displayName ? { displayName } : {}),
     ...(email ? { email } : {}),
     ...(existing?.decidedAt ? { decidedAt: existing.decidedAt } : {}),
+    ...(existing?.demoSessionStartedAt ? { demoSessionStartedAt: existing.demoSessionStartedAt } : {}),
   };
   await set(r, merged);
   return { paused: false };

@@ -253,6 +253,39 @@ passent par le SDK client Firebase, pas par le secret de base de données).
 **Après tout ajout/modification de ces variables sur Vercel, un redéploiement manuel est requis**
 (Vercel ne redéploie pas automatiquement sur un simple changement de variable d'environnement).
 
+### 🚧 Mode test Resend / domaine vérifié — pourquoi les e-mails échouent avec une erreur 403
+
+Tant qu'aucun **domaine personnalisé n'est vérifié** dans Resend (`resend.com/domains`) et que
+`RESEND_FROM_EMAIL` reste sur l'adresse de test par défaut `onboarding@resend.dev`, **Resend
+n'autorise l'envoi QUE vers l'adresse e-mail du propriétaire du compte Resend lui-même**
+(l'adresse avec laquelle tu t'es inscrit chez Resend). Tout envoi vers une AUTRE adresse (un
+joueur avec un e-mail `@orange.fr`, `@gmail.com`, etc. différent) échoue avec :
+
+```
+Resend (403) : {"statusCode":403,"name":"validation_error","message":"You can only send testing
+emails to your own email address (...). To send emails to other recipients, please verify a
+domain at resend.com/domains, and change the `from` address to an email using this domain."}
+```
+
+Ce n'est **pas un bug applicatif** — c'est une limite du mode test de Resend, présente pour tout
+compte gratuit tant qu'aucun domaine n'est vérifié. L'application détecte désormais ce cas précis
+(voir `lib/email/resend.ts::sendEmail`) et affiche un message clair au lieu du JSON brut. Concerné :
+e-mail de bienvenue, rapport (immédiat ou programmé), message personnalisé, envoi de masse — TOUS
+les envois vers une adresse différente de celle du compte Resend échoueront tant que ce point n'est
+pas résolu.
+
+**Pour envoyer réellement à tes joueurs (production) :**
+1. Va sur [resend.com/domains](https://resend.com/domains) et ajoute ton propre nom de domaine
+   (ex. `horizon-zeldcraft.fr`, ou un sous-domaine que tu possèdes).
+2. Suis les instructions de vérification DNS (ajout d'enregistrements TXT/MX/CNAME chez ton
+   registrar — gratuit, prend généralement quelques minutes à quelques heures selon le TTL DNS).
+3. Une fois le domaine **vérifié** dans Resend, mets à jour `RESEND_FROM_EMAIL` sur Vercel avec une
+   adresse de CE domaine (ex. `jeu@horizon-zeldcraft.fr`), puis redéploie.
+4. Tu pourras alors envoyer à n'importe quelle adresse e-mail de joueur, sans restriction.
+
+**En attendant** (tests de développement) : tu peux uniquement recevoir des e-mails de test à
+l'adresse de TON propre compte Resend — les autres échoueront avec le message ci-dessus.
+
 ## 🌍 Langues
 
 Chaque joueur a désormais un champ `PlayerState.lang` (`'fr' | 'en' | 'es' | 'pt'`), capturé une
@@ -304,12 +337,16 @@ tous deux corrigés — utile à connaître avant de toucher de nouveau à `fire
 
 ## ⚠️ Points d'attention pour la suite
 
-- **Règles de sécurité RTDB** (non versionnées dans ce repo, gérées via la Console Firebase) : il
-  faut vérifier que les chemins `announcements/*` et `players/{addr}/scheduledReport` autorisent
-  bien la lecture/écriture attendues (lecture publique pour `announcements` afin que
-  `AnnouncementBanner` fonctionne aussi en session Démo/anonyme ; écriture réservée — au moins en
-  convention côté client — aux actions du menu Administration). Voir `docs/FIREBASE_CHAT.md` pour
-  le modèle de règles déjà en place sur les autres chemins du projet.
+- ✅ **Règles de sécurité RTDB pour `announcements/*` — bug corrigé (2026-08)** : ce chemin
+  n'était PAS couvert par les règles RTDB alors publiées en production, causant un
+  `PERMISSION_DENIED` silencieux sur TOUTE annonce en direct (globale ou ciblée), ainsi qu'un faux
+  message d'erreur lors de la suppression d'un compte joueur (le nettoyage de son annonce ciblée
+  échouait pour la même raison). Règle ajoutée à `docs/FIREBASE_CHAT.md` § 4 (`.read: true`,
+  `.write: auth != null`, même modèle que `players`) — **à republier dans la Console Firebase si ce
+  n'est pas déjà fait** (voir l'encart 🔴 dans ce document). Le code a aussi été rendu défensif
+  (`deletePlayerAccount`/`deleteAllPlayers` isolent désormais ce nettoyage en best-effort, pour
+  qu'une erreur de permission sur ce point précis ne bloque plus jamais la suppression réelle du
+  joueur, ni n'affiche de fausse erreur).
 - **Domaine d'expédition Resend non vérifié** : tant qu'aucun domaine personnalisé n'est vérifié
   dans Resend, `RESEND_FROM_EMAIL` doit rester `onboarding@resend.dev` (limite : n'envoie qu'à
   l'adresse du compte Resend en mode test/sandbox tant que le domaine n'est pas vérifié) — vérifier

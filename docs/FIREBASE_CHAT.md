@@ -155,6 +155,18 @@ Chaque visiteur reçoit un `uid` anonyme au premier chargement (via `ensureAnonS
     "demoSessions": {
       ".read":  "auth != null",
       ".write": "auth != null"
+    },
+    "announcements": {
+      "global": {
+        ".read":  true,
+        ".write": "auth != null"
+      },
+      "targeted": {
+        "$addr": {
+          ".read":  true,
+          ".write": "auth != null"
+        }
+      }
     }
   }
 }
@@ -184,6 +196,21 @@ Clique **Publier**.
 > **Google** et **E-mail/Mot de passe** (en plus du fournisseur **Anonyme** déjà requis) pour que
 > les boutons « 🎟️ Accès Démo » et « 💳 Jouer sans portefeuille » de la page d'accueil fonctionnent.
 
+> 🔴 **BUG CORRIGÉ (2026-08) — `announcements` manquait des règles publiées, à republier
+> MAINTENANT** : le bandeau d'annonce en direct (voir `EMAIL_NOTIFICATIONS.md` §"Annonce en
+> direct", `AnnouncementBanner.tsx`, `gameState.ts::setGlobalAnnouncement/setPlayerAnnouncement`)
+> écrit sous un TROISIÈME nouveau chemin racine, `announcements/global` et
+> `announcements/targeted/{addr}`, qui n'avait encore jamais été ajouté au bloc JSON ci-dessus.
+> Conséquence concrète tant que les règles ne sont pas republiées : **toute annonce (globale ou
+> ciblée à un joueur) échoue silencieusement avec `PERMISSION_DENIED`**, ET la suppression d'un
+> compte joueur (menu Administration §"Statistiques par joueur") pouvait afficher un message
+> d'erreur alors que le compte était en réalité bien supprimé (le nettoyage best-effort de son
+> annonce ciblée échouait pour la même raison — ce point précis a aussi été corrigé côté code pour
+> ne plus jamais bloquer la suppression, mais **republier les règles reste nécessaire pour que les
+> annonces en direct fonctionnent**). Le nœud `announcements` a été ajouté au bloc JSON du § 4
+> ci-dessus (`.read: true` — visible par tout le monde, comme `players` — `.write: auth != null`).
+> **Republie les règles maintenant si ce n'est pas déjà fait.**
+
 ### Ce que ces règles verrouillent
 
 | Règle | Effet |
@@ -195,6 +222,7 @@ Clique **Publier**.
 | `players/$addr.write: auth != null` | Seul un utilisateur authentifié peut modifier un joueur |
 | `players.*.read: true`, `playerIndex.read: true` | Nécessaire pour le scoreboard public et l'admin (dropdown joueurs) |
 | `catalog.write: auth != null` | Seule la console admin (utilisateur auth) peut modifier prix/règles/presets |
+| `announcements.write: auth != null`, `.read: true` | Seul un utilisateur authentifié (admin) peut publier une annonce en direct ; tout le monde peut la lire (bandeau en jeu) |
 
 ### Rate limiting côté client
 

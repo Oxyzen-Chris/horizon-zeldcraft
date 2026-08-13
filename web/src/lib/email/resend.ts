@@ -62,6 +62,24 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
+      // ⚠️ Erreur Resend TRÈS fréquente tant qu'aucun domaine n'est vérifié (voir
+      // resend.com/domains) : en mode test (expéditeur "onboarding@resend.dev"), Resend
+      // n'autorise l'envoi QUE vers l'adresse e-mail du propriétaire du compte Resend lui-même —
+      // toute autre adresse destinataire (ex. un joueur avec une adresse @orange.fr/@gmail.com
+      // différente) échoue avec un 403 "You can only send testing emails to your own email
+      // address". Ce n'est PAS un bug applicatif : on détecte ce cas précis pour renvoyer un
+      // message actionnable et compréhensible plutôt que le JSON brut de Resend (voir
+      // docs/EMAIL_NOTIFICATIONS.md §"Mode test Resend / domaine vérifié").
+      if (res.status === 403 && /own email address|testing emails/i.test(errText)) {
+        return {
+          ok: false,
+          error: `Resend est en MODE TEST (expéditeur "onboarding@resend.dev" ou domaine non vérifié) : ` +
+            `il n'autorise l'envoi qu'à l'adresse e-mail du COMPTE Resend lui-même, pas à "${Array.isArray(to) ? to[0] : to}". ` +
+            `Pour envoyer à n'importe quel joueur, vérifie un domaine sur resend.com/domains puis renseigne ` +
+            `RESEND_FROM_EMAIL avec une adresse de ce domaine (ex : jeu@tondomaine.fr) dans les variables ` +
+            `d'environnement Vercel. Voir docs/EMAIL_NOTIFICATIONS.md.`,
+        };
+      }
       return { ok: false, error: `Resend (${res.status}) : ${errText.slice(0, 300)}` };
     }
     const data = await res.json().catch(() => ({}));
