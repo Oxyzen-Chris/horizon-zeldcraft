@@ -1,0 +1,13 @@
+# Configuration des boutons de sponsoring GitHub pour Horizon ZeldCraft.
+# Voir docs/ROADMAP.md (section "Financement & communication") et le document
+# "Horizon_ZeldCraft_Financement_Communication.docx" pour le contexte complet.
+#
+# ⚠️ Les identifiants ci-dessous sont des PLACEHOLDERS. Avant publication, créez
+# réellement les comptes (Ko-fi, GitHub Sponsors, Open Collective) puis remplacez
+# ces valeurs par vos identifiants réels. Tant que les comptes n'existent pas,
+# GitHub affichera un lien "Sponsor" qui pointera vers une page inexistante.
+
+github: [Oxyzen-Chris]
+ko_fi: horizonzeldcraft
+open_collective: horizon-zeldcraft
+custom: ["https://www.instagram.com/horizon.zeldcraft"]

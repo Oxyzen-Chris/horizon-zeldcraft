@@ -317,3 +317,64 @@ Vercel :
 - [ ] L2 : Base ou Arbitrum pour gas réduits
 - [ ] DAO governance (token $VOX)
 - [ ] Marketplace secondaire pour skins/items
+
+## 💰 Phase 6 — Financement, sponsoring & communication
+
+Contexte : le jeu tourne aujourd'hui sur des offres gratuites (Vercel Hobby, Firebase Spark,
+Resend sandbox). Pour passer en production réelle (Mainnet, vrais joueurs, volumétrie), certains
+de ces services devront passer en offre payante, et le contrat Ethereum devra être audité/déployé
+en vrai ETH (frais de gas non négligeables). Cette phase prépare le financement de cette
+transition via du sponsoring communautaire, sans lever de fonds classique (pas de société, pas
+d'investisseurs — un modèle "tip / sponsor / early supporter").
+
+### Documents produits
+
+- 📄 `Horizon_ZeldCraft_Financement_Communication.docx` (racine du repo) : pitch vulgarisé du
+  jeu pour un public non-technique, modèle de coûts détaillé, paliers de sponsoring/récompenses,
+  plan de communication Instagram, argumentaire de financement.
+- 📁 `docs/marketing/` : captures d'écran réelles du jeu (Playwright), une courte vidéo teaser
+  (`teaser-fr.mp4`, montage à partir de vraies captures + texte, pas de CGI), et un calendrier
+  de publication Instagram prêt à l'emploi (`instagram-content-plan.md`).
+- `.github/FUNDING.yml` : active le bouton "Sponsor" sur la page GitHub du repo
+  (⚠️ identifiants placeholders à remplacer par de vrais comptes une fois créés).
+
+### Plateformes retenues (et pourquoi)
+
+- **GitHub Sponsors** — gratuit, directement intégré au repo existant, aucun frais de plateforme,
+  crédible pour un projet open-source technique.
+- **Ko-fi** — création de compte en quelques minutes, aucune commission Ko-fi sur les dons
+  (seuls les frais Stripe/PayPal standards s'appliquent), gère à la fois les dons ponctuels et
+  les paliers d'abonnement mensuel ("membership") avec récompenses (skins exclusifs, badge
+  fondateur, mentions au générique) — le canal recommandé en priorité pour démarrer vite.
+- **Open Collective** — gestion transparente et publique des dépenses (chaque euro reçu/dépensé
+  est visible), ce qui renforce la confiance pour un projet qui demande de l'aide pour payer de
+  l'infra (Vercel/Resend/gas). Bon complément à Ko-fi une fois la communauté un peu développée.
+- **Gitcoin Grants** (option à moyen terme) — écosystème web3/Ethereum natif, financement
+  participatif avec matching de fonds (quadratic funding), en phase avec le positionnement du
+  jeu ; nécessite de candidater lors d'un round ouvert (calendrier variable), donc traité comme
+  une piste à activer plus tard plutôt qu'un canal immédiat.
+- Kickstarter / Indiegogo écartés pour le financement récurrent : pensés pour des campagnes
+  ponctuelles avec contreparties physiques/livrables figés, mal adaptés à un modèle de
+  refacturation de coûts d'infra récurrents, et souvent restrictifs sur les récompenses liées à
+  la cryptomonnaie.
+
+### Modèle de coûts (à détailler et ajuster dans le document Word)
+
+- Infra : Vercel (Hobby → Pro si trafic), Firebase (Spark → Blaze), Resend (Free → payant après
+  domaine vérifié), nom de domaine, RPC (Alchemy/Infura si dépassement du tier gratuit).
+- Blockchain : gas de déploiement/mise à jour du contrat sur Mainnet, audit de sécurité avant
+  passage en production réelle.
+- Développement & support : temps de maintenance, évolutions, support joueurs.
+
+### À faire
+
+- [ ] Créer réellement les comptes Ko-fi, GitHub Sponsors, Open Collective (identité/paiement du
+      propriétaire du jeu requis — ne peut pas être automatisé) puis mettre à jour
+      `.github/FUNDING.yml` avec les vrais identifiants.
+- [ ] Publier les premiers posts Instagram (@horizon.zeldcraft) à partir de
+      `docs/marketing/instagram-content-plan.md` (publication manuelle, connexion au compte
+      personnel requise).
+- [ ] Étudier une candidature à un round Gitcoin Grants une fois la communauté amorcée.
+- [ ] Envisager (hors budget gratuit) un vrai pipeline d'animation 3D (ex. Blender) si le budget
+      le permet, pour des cinématiques plus ambitieuses que le montage à partir de captures réelles
+      livré dans cette phase.
