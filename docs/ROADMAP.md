@@ -184,6 +184,12 @@ Vercel :
         RÉELLEMENT porté (voir `EquipmentWidget.tsx`) rendu en 3D sur le modèle — épée/arc dans le
         dos, flèches en carquois, bouclier, casque/bonnet, amulette, ceinture, chausses, bottes,
         gants — désactivable (`RepRules.platform3dEquipmentRenderEnabled`).
+  - [x] **Clignement des yeux** : deux petites billes blanches (pupilles) incrustées dans les yeux
+        de Synk qui se ferment puis se rouvrent brièvement, à intervalle moyen randomisé (évite un
+        clignotement mécanique), pour rendre le personnage plus vivant — purement cosmétique,
+        activable/désactivable et fréquence réglable dans
+        `Administration > Barème & règles > "🧝 Paramétrage de Synk"`
+        (`RepRules.synkEyeBlinkEnabled/synkEyeBlinkIntervalSec`).
   - [x] **Maintien = marche, maintien prolongé (1,5 s, réglable) = course**, identique clavier/
         pavé virtuel/souris et partagé avec la Plateforme 2D isométrique (`useHoldMovement.ts`,
         `RepRules.movementWalkStepMs/movementRunStepMs/movementRunHoldThresholdMs`).

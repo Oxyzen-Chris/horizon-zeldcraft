@@ -280,10 +280,10 @@ function MarkerBlock({ kind, x, z, onClick }: { kind: string; x: number; z: numb
  * avec la mécanique Oxygène/Fatigue déjà pilotée par GameCanvas2D.tsx (celui-ci reste l'unique
  * moteur de décroissance/récupération — ce composant n'est qu'une vue supplémentaire, aucune
  * nouvelle mécanique n'est introduite ici, zéro risque de double-décompte). */
-function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equipment, equipmentRenderEnabled, standY, fullySubmerged }: {
+function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equipment, equipmentRenderEnabled, standY, fullySubmerged, eyeBlinkEnabled, eyeBlinkIntervalSec }: {
   stage: number; walking: boolean; running: boolean; swimming: boolean; jumpTrigger: number; facing: SynkDirection;
   equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
-  standY?: number; fullySubmerged?: boolean;
+  standY?: number; fullySubmerged?: boolean; eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
 }) {
   const bobRef = useRef<THREE.Group>(null);
   const jumpRef = useRef<THREE.Group>(null);
@@ -292,6 +292,15 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
   const leftLegRef = useRef<THREE.Group>(null);
   const rightLegRef = useRef<THREE.Group>(null);
   const jumpStartRef = useRef<number | null>(null);
+  // ─── Clignement des yeux (voir RepRules.synkEyeBlinkEnabled/synkEyeBlinkIntervalSec, réglable
+  // dans Administration > Barème & règles > "🧝 Paramétrage de Synk") — anime en douceur l'échelle
+  // verticale des deux groupes "œil" (boîte + bille blanche/pupille) pour simuler une paupière qui
+  // se ferme puis se rouvre, à un intervalle MOYEN paramétrable, volontairement randomisé (+/-30%)
+  // à chaque cycle pour éviter un clignotement mécanique/parfaitement périodique. Purement visuel,
+  // aucun état de jeu/mécanique associé (zéro risque de régression sur combat/stats/usure). */
+  const leftEyeRef = useRef<THREE.Group>(null);
+  const rightEyeRef = useRef<THREE.Group>(null);
+  const blinkStateRef = useRef({ nextBlinkAt: 0, blinking: false, blinkStart: 0 });
   const groundRef = useRef<THREE.Group>(null);
   const groundYRef = useRef((standY ?? 0) + SYNK_GROUND_OFFSET);
   useEffect(() => { if (jumpTrigger > 0) jumpStartRef.current = Date.now(); }, [jumpTrigger]);
@@ -332,6 +341,32 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
         else { jumpRef.current.position.y = 0; jumpStartRef.current = null; }
       } else jumpRef.current.position.y = 0;
     }
+    // ─── Clignement des yeux ───────────────────────────────────────────────────────────────────
+    if (!eyeBlinkEnabled) {
+      if (leftEyeRef.current) leftEyeRef.current.scale.y = 1;
+      if (rightEyeRef.current) rightEyeRef.current.scale.y = 1;
+    } else {
+      const now = t;
+      const st = blinkStateRef.current;
+      const avgInterval = Math.max(0.5, eyeBlinkIntervalSec ?? 4);
+      if (st.nextBlinkAt === 0) st.nextBlinkAt = now + avgInterval * (0.7 + Math.random() * 0.6);
+      if (!st.blinking && now >= st.nextBlinkAt) { st.blinking = true; st.blinkStart = now; }
+      let scaleY = 1;
+      if (st.blinking) {
+        const elapsed = now - st.blinkStart;
+        const dur = 0.22; // durée totale d'un clignement (fermeture + réouverture), en secondes
+        if (elapsed >= dur) {
+          st.blinking = false;
+          st.nextBlinkAt = now + avgInterval * (0.7 + Math.random() * 0.6);
+        } else {
+          const half = dur / 2;
+          scaleY = elapsed < half ? 1 - (elapsed / half) : (elapsed - half) / half;
+        }
+      }
+      scaleY = Math.max(0.05, Math.min(1, scaleY));
+      if (leftEyeRef.current) leftEyeRef.current.scale.y = scaleY;
+      if (rightEyeRef.current) rightEyeRef.current.scale.y = scaleY;
+    }
   });
 
   const color = STAGE_COLOR_3D[STAGE_NAMES[stage] || 'egg'] ?? '#22823a';
@@ -348,8 +383,14 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
       <group ref={bobRef}>
         {/* ─── Tête : visage (yeux/nez/bouche/oreilles) + cheveux OU casque si équipé ─── */}
         <mesh position={[0, 0.62, 0]} castShadow><boxGeometry args={[0.42, 0.42, 0.42]} /><meshStandardMaterial color={skin} /></mesh>
-        <mesh position={[-0.09, 0.65, 0.2]}><boxGeometry args={[0.07, 0.07, 0.03]} /><meshStandardMaterial color="#1e293b" /></mesh>
-        <mesh position={[0.09, 0.65, 0.2]}><boxGeometry args={[0.07, 0.07, 0.03]} /><meshStandardMaterial color="#1e293b" /></mesh>
+        <group ref={leftEyeRef} position={[-0.09, 0.65, 0.2]}>
+          <mesh><boxGeometry args={[0.07, 0.07, 0.03]} /><meshStandardMaterial color="#1e293b" /></mesh>
+          <mesh position={[0, 0, 0.022]}><sphereGeometry args={[0.02, 8, 8]} /><meshStandardMaterial color="#f8fafc" emissive="#f8fafc" emissiveIntensity={0.3} /></mesh>
+        </group>
+        <group ref={rightEyeRef} position={[0.09, 0.65, 0.2]}>
+          <mesh><boxGeometry args={[0.07, 0.07, 0.03]} /><meshStandardMaterial color="#1e293b" /></mesh>
+          <mesh position={[0, 0, 0.022]}><sphereGeometry args={[0.02, 8, 8]} /><meshStandardMaterial color="#f8fafc" emissive="#f8fafc" emissiveIntensity={0.3} /></mesh>
+        </group>
         <mesh position={[0, 0.6, 0.22]}><boxGeometry args={[0.07, 0.06, 0.05]} /><meshStandardMaterial color={skin} /></mesh>
         <mesh position={[0, 0.52, 0.2]}><boxGeometry args={[0.14, 0.035, 0.04]} /><meshStandardMaterial color="#7f2d3a" /></mesh>
         <mesh position={[-0.23, 0.6, 0]} castShadow><boxGeometry args={[0.06, 0.13, 0.13]} /><meshStandardMaterial color={skin} /></mesh>
@@ -437,7 +478,7 @@ interface SceneMarker { id: string; kind: string; x: number; z: number; marker: 
 function Scene({
   centerCol, centerRow, poiPoints, sceneMarkers, stage, walking, running, swimming, jumpTrigger, facing,
   equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
-  onCameraYaw, chaseCameraEnabled,
+  onCameraYaw, chaseCameraEnabled, eyeBlinkEnabled, eyeBlinkIntervalSec,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
@@ -450,6 +491,7 @@ function Scene({
   onMarkerClick: (m: MapMarker) => void;
   onCameraYaw: (yaw: number) => void;
   chaseCameraEnabled: boolean;
+  eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
 }) {
   // Ref vers l'instance OrbitControls (three.js), pour lire son angle azimutal (yaw) courant à
   // chaque frame et le remonter au composant parent (voir rotateInputByCameraYaw) — un ref simple
@@ -552,6 +594,7 @@ function Scene({
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
         facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled} standY={standY}
+        eyeBlinkEnabled={eyeBlinkEnabled} eyeBlinkIntervalSec={eyeBlinkIntervalSec}
       />
       <OrbitControls
         ref={controlsRef}
@@ -626,11 +669,12 @@ function SeaMonster({ seed }: { seed: number }) {
  * le bug rapporté "je ne peux pas me déplacer sous l'eau") ; la caméra recentre sa cible sur lui à
  * mesure qu'il nage, bornée à un petit rayon d'exploration (RepRules.platform3dUnderwaterMoveRadius)
  * pour rester dans le champ des poissons/créatures/fond sableux généré. */
-function UnderwaterScene({ stage, facing, equipment, equipmentRenderEnabled, fishCount, monsterCount, pos, walking, running }: {
+function UnderwaterScene({ stage, facing, equipment, equipmentRenderEnabled, fishCount, monsterCount, pos, walking, running, eyeBlinkEnabled, eyeBlinkIntervalSec }: {
   stage: number; facing: SynkDirection;
   equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
   fishCount: number; monsterCount: number;
   pos: { x: number; y: number }; walking: boolean; running: boolean;
+  eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
 }) {
   const fishSeeds = useMemo(() => Array.from({ length: Math.max(0, fishCount) }, (_, i) => i), [fishCount]);
   const monsterSeeds = useMemo(() => Array.from({ length: Math.max(0, monsterCount) }, (_, i) => i), [monsterCount]);
@@ -650,7 +694,7 @@ function UnderwaterScene({ stage, facing, equipment, equipmentRenderEnabled, fis
         <SynkVoxel
           stage={stage} walking={walking} running={running} swimming={true}
           jumpTrigger={0} facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled}
-          standY={0} fullySubmerged
+          standY={0} fullySubmerged eyeBlinkEnabled={eyeBlinkEnabled} eyeBlinkIntervalSec={eyeBlinkIntervalSec}
         />
       </group>
       <OrbitControls enablePan={false} enableDamping dampingFactor={0.12} minDistance={2} maxDistance={9} target={[pos.x, -1, pos.y]} />
@@ -1315,6 +1359,8 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               fishCount={rules?.platform3dUnderwaterFishCount ?? 10}
               monsterCount={rules?.platform3dUnderwaterMonsterCount ?? 2}
               pos={underwaterPos} walking={isWalking} running={isRunning}
+              eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
+              eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
             />
           ) : (
             <Scene
@@ -1325,6 +1371,8 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               onTileClick={onTileClick} onPortalTileClick={onPortalTileClick3D} onHutTileClick={onHutTileClick3D}
               onMarkerClick={onMarkerClick3D} onCameraYaw={onCameraYaw}
               chaseCameraEnabled={rules?.platform3dChaseCameraEnabled ?? true}
+              eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
+              eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
             />
           )}
         </Canvas>

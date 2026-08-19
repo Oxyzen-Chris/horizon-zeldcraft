@@ -3502,6 +3502,15 @@ export interface RepRules {
   // (cardinales + diagonales) dans la Plateforme 2D isométrique. Désactiver revient au rendu
   // statique d'origine (aucune régression : SynkSkin ignore alors direction/walking).
   synkLimbAnimationEnabled: boolean;              // Active/désactive l'animation d'articulation (défaut true)
+  // ─── Paramétrage de Synk — clignement des yeux (voir Platform3DWidget.tsx::SynkVoxel) : deux
+  // petites billes blanches (pupilles) incrustées dans les yeux de Synk en vue 3D, qui se ferment
+  // puis se rouvrent brièvement à intervalle irrégulier (comme un clignement humain naturel) pour
+  // rendre le personnage plus vivant. Purement visuel/cosmétique, aucune mécanique de jeu associée
+  // (zéro risque de régression sur le combat/l'usure/les stats). `synkEyeBlinkIntervalSec` est un
+  // intervalle MOYEN (voir randomisation +/-30% dans SynkVoxel) plutôt qu'une cadence figée, pour
+  // éviter un clignotement mécanique/robotique.
+  synkEyeBlinkEnabled: boolean;      // Active/désactive le clignement des yeux (défaut true)
+  synkEyeBlinkIntervalSec: number;   // Intervalle moyen entre deux clignements, en secondes (défaut 4)
   // ─── Accès aux îles (voir worldTerrain.ts::Tile.isIsland et GameCanvas2D.tsx) — foulée d'une
   // dalle d'île nécessite un Engin (ShopItem.category === 'vehicle') dans la besace tant que ce
   // réglage est actif ; sinon le déplacement est bloqué et un message l'explique au joueur.
@@ -3861,6 +3870,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   depthAltitudePopupWaterTemplate: '',
   depthAltitudePopupMountainTemplate: '',
   synkLimbAnimationEnabled: true,
+  synkEyeBlinkEnabled: true,
+  synkEyeBlinkIntervalSec: 4,
   islandVehicleRequired: true,
   movementWalkStepMs: 220,
   movementRunStepMs: 110,

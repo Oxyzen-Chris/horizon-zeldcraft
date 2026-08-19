@@ -487,6 +487,21 @@ export function RepRulesPanel() {
         </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🧝 {t('admin.repRules.synkAppearanceTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.synkAppearanceDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.synkEyeBlinkEnabled !== false}
+            onChange={e => setBool('synkEyeBlinkEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.synkEyeBlinkEnabled')}</span>
+        </label>
+        <label className="text-sm block max-w-xs">
+          <span className="text-slate-300">{t('admin.repRules.synkEyeBlinkIntervalSec')}</span>
+          <input type="number" min="0.5" step="0.5" className="input mt-1 w-full" disabled={rules.synkEyeBlinkEnabled === false}
+            value={rules.synkEyeBlinkIntervalSec}
+            onChange={e => setFloat('synkEyeBlinkIntervalSec', e.target.value)} />
+        </label>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">🏝️ {t('admin.repRules.islandTitle')}</h3>
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.islandDescription')}</p>
         <label className="flex items-center gap-2 text-sm">
