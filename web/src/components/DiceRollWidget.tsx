@@ -258,9 +258,14 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
   if (collapsed) {
     return (
       <>
+        {/* NB : pas de classe Tailwind `relative` sur ce bouton — `fixed` établit déjà un bloc de
+            positionnement pour le badge `absolute` ci-dessous, et `relative` gagnait sur `fixed`
+            dans l'ordre des utilitaires Tailwind générés (même spécificité CSS), ce qui cassait
+            le positionnement (l'icône retombait dans le flux normal du document, tout en bas de
+            la page très longue de /game, d'où le bug de "long ascenseur" remonté). */}
         <button
           ref={containerRef}
-          className={`fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 text-2xl shadow-lg flex items-center justify-center relative ${pendingEvent ? 'border-cyan-400 animate-pulse' : 'border-amber-500'}`}
+          className={`fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 text-2xl shadow-lg flex items-center justify-center ${pendingEvent ? 'border-cyan-400 animate-pulse' : 'border-amber-500'}`}
           style={{ left: pos.x, top: pos.y, zIndex: pendingEvent ? EVENT_Z : z }}
           onPointerDownCapture={bringToFront}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}

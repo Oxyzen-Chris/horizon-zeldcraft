@@ -17,10 +17,21 @@ const MOVE_THRESHOLD = 6;
  * repositionné hors-écran (fenêtre redimensionnée, résolution différente, etc.). */
 const VIEWPORT_MARGIN = 56;
 
-function clampToViewport(p: Pos): Pos {
+/**
+ * Clampe une position dans le viewport. `size` — quand connu (mesure réelle du widget affiché,
+ * via `getBoundingClientRect()`) — remplace la marge fixe `VIEWPORT_MARGIN` par la vraie
+ * largeur/hauteur du widget, pour que TOUT son cadre (pas seulement son coin haut-gauche) reste
+ * visible à l'écran. Corrige le bug remonté sur "Dice Roll" (mais générique à tous les widgets) :
+ * une position proche du bord bas-droit, valable pour une icône réduite (~56px), débordait sous le
+ * viewport une fois le widget déplié (fenêtre bien plus haute), ce qui ajoutait un ascenseur de
+ * page — alors que ces fenêtres `position: fixed` doivent rester indépendantes du scroll de page.
+ */
+function clampToViewport(p: Pos, size?: { w: number; h: number }): Pos {
   if (typeof window === 'undefined') return p;
-  const maxX = Math.max(0, window.innerWidth - VIEWPORT_MARGIN);
-  const maxY = Math.max(0, window.innerHeight - VIEWPORT_MARGIN);
+  const w = size?.w ?? VIEWPORT_MARGIN;
+  const h = size?.h ?? VIEWPORT_MARGIN;
+  const maxX = Math.max(0, window.innerWidth - w);
+  const maxY = Math.max(0, window.innerHeight - h);
   return { x: Math.min(Math.max(p.x, 0), maxX), y: Math.min(Math.max(p.y, 0), maxY) };
 }
 
@@ -109,6 +120,39 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Re-clampe `pos` d'après la taille RÉELLEMENT affichée (icône réduite ou fenêtre dépliée),
+   * mesurée via `elRef`. Complète le clamp "à l'aveugle" (marge fixe) fait au montage ci-dessus :
+   * corrige le bug où une position valable pour l'icône réduite (~56px) fait déborder la fenêtre
+   * une fois dépliée (bien plus grande), ce qui ajoutait un ascenseur de page inattendu — ces
+   * widgets `position: fixed` doivent rester strictement indépendants du scroll de la page. */
+  const reclampToRenderedSize = useCallback(() => {
+    const rect = elRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return;
+    setPos(prev => {
+      if (!prev) return prev;
+      const clamped = clampToViewport(prev, { w: rect.width, h: rect.height });
+      if (clamped.x === prev.x && clamped.y === prev.y) return prev;
+      localStorage.setItem(posKey, JSON.stringify(clamped));
+      return clamped;
+    });
+  }, [posKey]);
+
+  // Re-clampe juste après chaque bascule réduit/déplié (une fois le DOM à jour, donc la taille
+  // réelle mesurable) — couvre à la fois l'ouverture (icône → fenêtre, peut déborder en bas/droite)
+  // et la fermeture (fenêtre → icône, redevient minuscule).
+  useEffect(() => {
+    const raf = requestAnimationFrame(reclampToRenderedSize);
+    return () => cancelAnimationFrame(raf);
+  }, [collapsed, reclampToRenderedSize]);
+
+  // Re-clampe aussi au redimensionnement de la fenêtre du navigateur (résolution différente,
+  // rotation d'écran, panneau latéral du navigateur, etc.).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('resize', reclampToRenderedSize);
+    return () => window.removeEventListener('resize', reclampToRenderedSize);
+  }, [reclampToRenderedSize]);
 
   // Intelligence IA GamePlay — mesure le temps passé fenêtre dépliée par widget (fire-and-forget,
   // jamais bloquant/ne modifie aucun comportement existant). `widgetId` = `posKey`, déjà unique et
