@@ -10,7 +10,7 @@ import { useI18n, itemLabel, localizeName, type Translate } from '@/lib/i18n';
 import { SynkSkin } from './SynkSkin';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DragonSkin, dragonKindFromId } from './DragonSkin';
-import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
@@ -301,7 +301,7 @@ export function EquipmentWidget({ stage = 0, enabled = true }: { stage?: number;
           ref={containerRef}
           className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-indigo-500 text-2xl shadow-lg flex items-center justify-center"
           style={{ left: pos.x, top: pos.y, zIndex: z }}
-          onPointerDownCapture={bringToFront}
+          onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
@@ -331,7 +331,7 @@ export function EquipmentWidget({ stage = 0, enabled = true }: { stage?: number;
       ref={containerRef}
       className="fixed z-40 w-72 bg-slate-900 border-2 border-indigo-500 rounded-xl shadow-xl select-none"
       style={{ left: pos.x, top: pos.y, zIndex: z }}
-      onPointerDownCapture={bringToFront}
+      onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
       onContextMenu={onContextMenu}
     >
       <div
@@ -339,7 +339,7 @@ export function EquipmentWidget({ stage = 0, enabled = true }: { stage?: number;
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       >
         <span className="text-sm font-semibold">🧝 {t('equip.title')}</span>
-        <button className="text-xs opacity-70 hover:opacity-100" onClick={toggleCollapsed}>✕</button>
+        <button className="text-xs opacity-70 hover:opacity-100" data-widget-close onClick={toggleCollapsed}>✕</button>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <div className="p-3">

@@ -7,7 +7,7 @@ import { parseEther } from 'viem';
 import { HORIZON_ABI } from '@/lib/contract';
 import { applyEffect, logTx, getTopupPresets, DEFAULT_TOPUP_PRESETS, subscribePlayer, type TopupPreset, type PlayerState } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
-import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { FiatTopupPanel } from './FiatTopupPanel';
@@ -96,7 +96,7 @@ export function WalletTopupWidget({ contract, enabled = true }: { contract: `0x$
           ref={containerRef}
           className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-amber-500 text-2xl shadow-lg flex items-center justify-center"
           style={{ left: pos.x, top: pos.y, zIndex: z }}
-          onPointerDownCapture={bringToFront}
+          onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
@@ -112,7 +112,7 @@ export function WalletTopupWidget({ contract, enabled = true }: { contract: `0x$
       ref={containerRef}
       className="fixed z-40 w-80 bg-slate-900 border-2 border-amber-500 rounded-xl shadow-xl select-none"
       style={{ left: pos.x, top: pos.y, zIndex: z }}
-      onPointerDownCapture={bringToFront}
+      onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
       onContextMenu={onContextMenu}
     >
       <div
@@ -120,7 +120,7 @@ export function WalletTopupWidget({ contract, enabled = true }: { contract: `0x$
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       >
         <span className="text-sm font-semibold truncate">💰 {t('game.walletTopup.widgetTitle')}</span>
-        <button className="text-xs opacity-70 hover:opacity-100 shrink-0 ml-2" onClick={toggleCollapsed}>✕</button>
+        <button className="text-xs opacity-70 hover:opacity-100 shrink-0 ml-2" data-widget-close onClick={toggleCollapsed}>✕</button>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <div className="p-3">

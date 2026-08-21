@@ -16,7 +16,7 @@ import {
   type Tile,
 } from '@/lib/worldTerrain';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
-import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
@@ -1224,7 +1224,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           ref={containerRef}
           className="fixed z-40 w-14 h-14 rounded-full bg-emerald-950 border-2 border-emerald-600 text-2xl shadow-lg flex items-center justify-center"
           style={{ left: pos.x, top: pos.y, zIndex: z }}
-          onPointerDownCapture={bringToFront}
+          onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
           onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
@@ -1248,7 +1248,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       ref={containerRef}
       className="fixed z-40 bg-slate-950 border-2 border-emerald-600 rounded-xl shadow-2xl select-none flex flex-col"
       style={{ left: pos.x, top: pos.y, width: size.w, height: size.h, zIndex: z }}
-      onPointerDownCapture={bringToFront}
+      onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-emerald-900/40 rounded-t-xl cursor-move shrink-0"
@@ -1256,7 +1256,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
         onContextMenu={onContextMenu}
       >
         <span className="text-sm font-semibold text-emerald-100">🧩 {t('canvas2d.title')}</span>
-        <button className="text-xs opacity-70 hover:opacity-100" onClick={toggleCollapsed}>✕</button>
+        <button className="text-xs opacity-70 hover:opacity-100" data-widget-close onClick={toggleCollapsed}>✕</button>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <p className="px-3 pt-1 text-[10px] text-emerald-400/80 shrink-0" title={t('canvas2d.engineNote')}>

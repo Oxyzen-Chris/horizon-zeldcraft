@@ -13,7 +13,7 @@ import {
   type MapPoiDef, type WorldDef, type RepRules, type Season, type MapMarker, type MapNavigationSettings, type ZorghonEncounterState,
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
-import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import {
@@ -458,7 +458,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
           ref={containerRef}
           className="fixed z-40 w-14 h-14 rounded-full bg-amber-950 border-2 border-amber-600 text-2xl shadow-lg flex items-center justify-center"
           style={{ left: pos.x, top: pos.y, zIndex: z }}
-          onPointerDownCapture={bringToFront}
+          onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
           onPointerDown={onHeaderPointerDown} onPointerMove={onHeaderPointerMove} onPointerUp={onHeaderPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
@@ -477,7 +477,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
       ref={containerRef}
       className="fixed z-40 bg-amber-950 border-2 border-amber-700 rounded-xl shadow-2xl select-none flex flex-col"
       style={{ left: pos.x, top: pos.y, width: size.w, height: size.h, zIndex: z }}
-      onPointerDownCapture={bringToFront}
+      onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-amber-900/60 rounded-t-xl cursor-move shrink-0"
@@ -494,7 +494,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
           <button className="text-xs px-1.5 py-0.5 bg-amber-800/60 rounded hover:bg-amber-700" onClick={() => setZoom(z2 => Math.max(0.6, +(z2 - 0.2).toFixed(1)))}>🔍-</button>
           <span className="text-[10px] text-amber-300 w-8 text-center">{Math.round(zoom * 100)}%</span>
           <button className="text-xs px-1.5 py-0.5 bg-amber-800/60 rounded hover:bg-amber-700" onClick={() => setZoom(z2 => Math.min(2.6, +(z2 + 0.2).toFixed(1)))}>🔍+</button>
-          <button className="text-xs opacity-70 hover:opacity-100 ml-1" onClick={toggleCollapsed}>✕</button>
+          <button className="text-xs opacity-70 hover:opacity-100 ml-1" data-widget-close onClick={toggleCollapsed}>✕</button>
         </div>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />

@@ -6,7 +6,7 @@ import {
   hasRolledDailyLuck, markDailyLuckRolled, applyEffect, DEFAULT_REP_RULES, type RepRules,
 } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
-import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
@@ -267,7 +267,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
           ref={containerRef}
           className={`fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 text-2xl shadow-lg flex items-center justify-center ${pendingEvent ? 'border-cyan-400 animate-pulse' : 'border-amber-500'}`}
           style={{ left: pos.x, top: pos.y, zIndex: pendingEvent ? EVENT_Z : z }}
-          onPointerDownCapture={bringToFront}
+          onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
@@ -286,7 +286,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
       ref={containerRef}
       className={`fixed z-40 w-64 bg-slate-900 border-2 rounded-xl shadow-xl select-none ${pendingEvent ? 'border-cyan-400' : 'border-amber-500'}`}
       style={{ left: pos.x, top: pos.y, zIndex: pendingEvent ? EVENT_Z : z }}
-      onPointerDownCapture={bringToFront}
+      onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
       onContextMenu={onContextMenu}
     >
       <div
@@ -294,7 +294,7 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       >
         <span className="text-sm font-semibold">🎲 {t('dice.title')}</span>
-        <button className="text-xs opacity-70 hover:opacity-100" onClick={toggleCollapsed}>✕</button>
+        <button className="text-xs opacity-70 hover:opacity-100" data-widget-close onClick={toggleCollapsed}>✕</button>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <div className="p-3 text-xs space-y-2">

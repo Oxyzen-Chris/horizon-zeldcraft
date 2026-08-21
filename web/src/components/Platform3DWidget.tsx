@@ -19,7 +19,7 @@ import {
 } from '@/lib/worldTerrain';
 import { STAGE_NAMES } from '@/lib/contract';
 import { useI18n } from '@/lib/i18n';
-import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
@@ -1277,7 +1277,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
           ref={containerRef}
           className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-lime-500 text-2xl shadow-lg flex items-center justify-center"
           style={{ left: pos.x, top: pos.y, zIndex: z }}
-          onPointerDownCapture={bringToFront}
+          onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
@@ -1316,7 +1316,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       ref={containerRef}
       className="fixed z-40 bg-slate-950 border-2 border-lime-500 rounded-xl shadow-2xl select-none"
       style={{ left: pos.x, top: pos.y, width: size.w, zIndex: z }}
-      onPointerDownCapture={bringToFront}
+      onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
       onContextMenu={onContextMenu}
     >
       <div
@@ -1332,7 +1332,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               title={t(isFullscreen ? 'game.platform3d.exitFullscreen' : 'game.platform3d.fullscreen')}
             >{isFullscreen ? '🗗' : '⛶'}</button>
           )}
-          <button className="text-xs opacity-70 hover:opacity-100" onClick={toggleCollapsed}>✕</button>
+          <button className="text-xs opacity-70 hover:opacity-100" data-widget-close onClick={toggleCollapsed}>✕</button>
         </div>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />

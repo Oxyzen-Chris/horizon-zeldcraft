@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ONBOARDING_STEPS } from '@/lib/onboardingContent';
 import { useI18n } from '@/lib/i18n';
-import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 
@@ -39,7 +39,7 @@ export function HelpWidget({ enabled, onReplayTour }: { enabled: boolean; onRepl
           ref={containerRef}
           className="fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-emerald-500 text-2xl shadow-lg flex items-center justify-center"
           style={{ left: pos.x, top: pos.y, zIndex: z }}
-          onPointerDownCapture={bringToFront}
+          onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
@@ -57,7 +57,7 @@ export function HelpWidget({ enabled, onReplayTour }: { enabled: boolean; onRepl
       ref={containerRef}
       className="fixed z-40 w-96 max-h-[75vh] bg-slate-900 border-2 border-emerald-500 rounded-xl shadow-xl select-none flex flex-col"
       style={{ left: pos.x, top: pos.y, zIndex: z }}
-      onPointerDownCapture={bringToFront}
+      onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
       onContextMenu={onContextMenu}
     >
       <div
@@ -65,7 +65,7 @@ export function HelpWidget({ enabled, onReplayTour }: { enabled: boolean; onRepl
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       >
         <span className="text-sm font-semibold">❓ {t('help.title')}</span>
-        <button className="text-xs opacity-70 hover:opacity-100" onClick={toggleCollapsed}>✕</button>
+        <button className="text-xs opacity-70 hover:opacity-100" data-widget-close onClick={toggleCollapsed}>✕</button>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
 

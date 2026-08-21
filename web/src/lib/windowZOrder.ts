@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 /**
  * Gestion partagée de l'empilement (z-index) des fenêtres widget flottantes (Dés, Chat d'équipe,
@@ -34,3 +34,20 @@ export function useWindowZIndex() {
 
   return { z, bringToFront };
 }
+
+/**
+ * À poser en `onPointerDownCapture` sur le conteneur racine (icône réduite ET fenêtre dépliée) de
+ * CHAQUE widget flottant, à la place d'un `bringToFront` brut. Corrige le bug remonté : cliquer
+ * sur le bouton "✕" (réduire/fermer) d'une fenêtre déclenchait quand même `bringToFront()` — via
+ * ce même gestionnaire posé sur tout le conteneur, capturé AVANT que le clic n'atteigne le bouton
+ * lui-même — ce qui faisait passer l'icône résultante AU-DESSUS de la fenêtre réellement "au
+ * focus" (celle sur laquelle le joueur venait de cliquer/glisser juste avant). Réduire une fenêtre
+ * ne doit jamais changer l'ordre d'empilement : ce garde-fou ignore tout pointerdown dont la cible
+ * porte (ou descend de) l'attribut `data-widget-close`, que les 16 widgets doivent poser sur leur
+ * bouton "✕" pour bénéficier du correctif.
+ */
+export function handleWidgetPointerDownCapture(e: ReactPointerEvent, bringToFront: () => void) {
+  if ((e.target as HTMLElement | null)?.closest?.('[data-widget-close]')) return;
+  bringToFront();
+}
+

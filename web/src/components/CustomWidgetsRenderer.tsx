@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getCustomWidgets, applyEffect, type CustomWidgetDef, type CustomWidgetButton } from '@/lib/gameState';
-import { useWindowZIndex } from '@/lib/windowZOrder';
+import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
@@ -68,7 +68,7 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
           ref={containerRef}
           className={`fixed z-40 w-14 h-14 rounded-full bg-slate-900 border-2 border-purple-500 text-2xl shadow-lg flex items-center justify-center ${animationClass(def.animation)}`}
           style={{ left: pos.x, top: pos.y, zIndex: z }}
-          onPointerDownCapture={bringToFront}
+          onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
@@ -84,7 +84,7 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
       ref={containerRef}
       className="fixed z-40 w-64 bg-slate-900 border-2 border-purple-500 rounded-xl shadow-xl select-none"
       style={{ left: pos.x, top: pos.y, zIndex: z }}
-      onPointerDownCapture={bringToFront}
+      onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
       onContextMenu={onContextMenu}
     >
       <div
@@ -92,7 +92,7 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       >
         <span className="text-sm font-semibold truncate">{def.icon ?? '🧩'} {def.title}</span>
-        <button className="text-xs opacity-70 hover:opacity-100 shrink-0" onClick={toggleCollapsed}>✕</button>
+        <button className="text-xs opacity-70 hover:opacity-100 shrink-0" data-widget-close onClick={toggleCollapsed}>✕</button>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <div className="p-3 text-xs space-y-2">

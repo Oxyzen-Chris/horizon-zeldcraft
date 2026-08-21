@@ -175,18 +175,40 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Marqué juste avant tout `setCollapsed` déclenché par une VRAIE action utilisateur (clic sur
+  // l'icône/le bouton "✕"), et lu/consommé par l'effet ci-dessous — permet de distinguer ce cas de
+  // la restauration automatique de l'état réduit/déplié depuis localStorage au montage (effet
+  // ci-dessus), qui ne doit surtout PAS déclencher `bringToFront()` (sinon un widget resté déplié
+  // d'une session précédente repasserait systématiquement au premier plan au rechargement, sans
+  // action du joueur — régression que ce garde-fou évite).
+  const userToggledRef = useRef(false);
+
   const toggleCollapsed = useCallback(() => {
+    userToggledRef.current = true;
     setCollapsed(prev => {
       const next = !prev;
       if (collapsedKey) localStorage.setItem(collapsedKey, next ? '1' : '0');
-      // Le widget vient de se déplier (prev=true → next=false) : force le premier plan, en
-      // complément défensif du `onPointerDownCapture={bringToFront}` déjà posé sur le conteneur,
-      // qui devrait déjà suffire mais peut être court-circuité selon l'ordre exact des gestion-
-      // naires d'événements natifs — voir bug remonté (widget parfois recouvert au dépliage).
-      if (prev && !next) onExpand?.();
       return next;
     });
-  }, [collapsedKey, onExpand]);
+  }, [collapsedKey]);
+
+  // Le widget vient de se déplier (collapsed: true → false) SUITE À UN CLIC (`toggleCollapsed`) :
+  // force le premier plan, en complément défensif du `onPointerDownCapture={bringToFront}` déjà
+  // posé sur le conteneur, qui devrait déjà suffire mais peut être court-circuité selon l'ordre
+  // exact des gestionnaires d'événements natifs — voir bug remonté (widget parfois recouvert au
+  // dépliage). Volontairement un `useEffect` réagissant à `collapsed` plutôt qu'un appel direct
+  // dans l'updater de `setCollapsed` ci-dessus : un updater DOIT rester pur (aucun effet de bord)
+  // — en React 18 avec `reactStrictMode` (activé ici, voir next.config.js), un updater impur est
+  // invoqué deux fois en développement, ce qui appelait `bringToFront()` deux fois par simple
+  // ouverture et faussait le compteur d'empilement partagé (voir windowZOrder.ts), l'une des
+  // causes des bugs de superposition remontés.
+  const prevCollapsedRef = useRef(collapsed);
+  useEffect(() => {
+    const wasUserToggle = userToggledRef.current;
+    userToggledRef.current = false;
+    if (wasUserToggle && prevCollapsedRef.current && !collapsed) onExpand?.();
+    prevCollapsedRef.current = collapsed;
+  }, [collapsed, onExpand]);
 
   const onToggleClick = useCallback(() => {
     if (movedRef.current) { movedRef.current = false; return; }
