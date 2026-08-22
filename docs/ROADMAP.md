@@ -82,6 +82,36 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
       parchemin roulé flottant. Corrigé au passage : un plantage (`<coneGeometry rotation-y>` mal
       placé) et une erreur JS répétée à chaque frame de marche dans la caméra suiveuse
       (`OrbitControls._sphericalDelta` non exposé par la version de `three-stdlib` installée)
+- [x] **Caméra suiveuse Plateforme 3D — vrai correctif (déplacement erratique, tête « à l'envers »
+      après une réorientation manuelle à la souris)** : le garde-fou posé lors du correctif
+      précédent (`&& controls._sphericalDelta`) empêchait bien le plantage JS, mais l'écriture dans
+      ce champ ne faisait STRICTEMENT rien d'autre — `_sphericalDelta` n'existe pas sur l'objet
+      public de la version de `three-stdlib` installée. La caméra suiveuse ne « rattrapait » donc
+      plus jamais Synk après une orbite manuelle, ce qui se traduisait par un Synk vu de face/profil
+      au lieu de dos (perçu comme « la tête tournée à l'inverse ») et une sensation de déplacement
+      erratique dès que la vue avait été réorientée à la souris. Réécrit pour ne s'appuyer que sur
+      l'API publique de `OrbitControls` (`controls.object.position`, `controls.target`,
+      `controls.update()`) : à chaque frame de marche, le vecteur caméra→cible est tourné autour de
+      l'axe Y d'un petit pas vers l'angle cible (`FACING_ANGLE[facing] + π`), sans jamais toucher à
+      un champ interne. Vérifié via Playwright (log de l'angle azimutal réel de la caméra) : après
+      une orbite manuelle, la caméra reconverge désormais bien vers la position « derrière Synk » en
+      ~10 frames (~0,15 s)
+- [x] **Plateforme 3D — réalisme des marqueurs de carte (PNJ/familiers/trésors/mondes/bâtisses)** :
+      les marqueurs `MapMarker` (PNJ, familiers, trésors, portails de mondes, Zorghon, captifs, et
+      les POI « bâtiment » — hutte/taverne/étable/village) affichaient tous, jusqu'ici, le même
+      gemme octaédrique générique flottant, y compris des éléments explicitement nommés dans le jeu
+      (ex. « Hôtel du Repos du Voyageur », « Dragon Vert ») — perçu par le joueur comme « l'hôtel
+      ressemble à un losange blanc », « le Dragon Vert ressemble à un anneau ». Chaque `kind`/
+      `poiType` a désormais sa propre silhouette reconnaissable dans `Platform3DWidget.tsx::
+      MarkerBlock` : bâtiments (hutte/taverne/étable/village) → même chaumière que le décor
+      `PropBlock`, fixe au sol ; familiers → `DragonMarker` (corps/cou/tête cornue/queue/ailes),
+      coloré automatiquement selon l'id/libellé catalogue (`familiarDragonColor` — vert/rouge/or/
+      noir/bleu/blanc/argent/bronze), puisque tout le catalogue de familiers du jeu est composé de
+      dragons ; PNJ → silhouette encapuchonnée (robe + tête + bâton + orbe) ; trésor → coffre cerclé
+      d'or ; monde/portail → anneau lumineux type porte des étoiles ; Zorghon → silhouette cornue
+      sombre ; captif → silhouette liée. Tout `kind`/`poiType` non couvert (plaine, forêt, montagne,
+      lac, chemin, pont, plage, cascade, mer/océan/étang/île) conserve EXACTEMENT le gemme précédent
+      — zéro régression sur ces marqueurs décoratifs de terrain
 
 ## ⚠️ Dette technique connue — redéploiement du smart contract à prévoir
 
@@ -136,10 +166,10 @@ de déplacement `useHoldMovement.ts`) :
 - **Caméra suiveuse instable (rotation erratique, immobilisait Synk)** : `@react-three/drei`
   `<OrbitControls enableDamping>` appelle déjà `controls.update()` automatiquement à chaque frame ;
   une première version de la caméra suiveuse appelait `update()` une seconde fois après avoir
-  positionné la caméra manuellement, créant une double mise à jour concurrente. Corrigé en
-  n'injectant qu'une petite impulsion dans `controls._sphericalDelta.theta` (le mécanisme interne
-  qu'utilise déjà OrbitControls pour un glissé de souris), sans jamais toucher à `object.position`
-  ni appeler `update()` soi-même.
+  positionné la caméra manuellement, créant une double mise à jour concurrente. « Corrigé » (à
+  tort, voir ci-dessous) en n'injectant qu'une petite impulsion dans
+  `controls._sphericalDelta.theta` (le mécanisme interne qu'utilise déjà OrbitControls pour un
+  glissé de souris), sans jamais toucher à `object.position` ni appeler `update()` soi-même.
 - **Course impossible en maintenant une touche / Synk marchait sur place après une rotation
   manuelle de la caméra** : la caméra suiveuse remontait l'angle RÉEL (encore en cours de rotation)
   au module de résolution de direction (`rotateInputByCameraYaw`), qui pouvait alors échantillonner
@@ -147,6 +177,16 @@ de déplacement `useHoldMovement.ts`) :
   direction bloquée. Corrigé en ne remontant, PENDANT que la caméra suiveuse est engagée, que sa
   cible analytique stable (`FACING_ANGLE[facing] + π`) plutôt que l'angle réel en transition —
   l'angle réel reste utilisé normalement dès que Synk est à l'arrêt (orbite libre inchangée).
+- **Correctif ci-dessus en réalité un no-op silencieux (root cause trouvée ensuite)** :
+  `controls._sphericalDelta` n'existe pas sur l'objet public de la version de `three-stdlib`
+  installée — l'écriture y échouait silencieusement à CHAQUE frame de marche depuis le début (le
+  garde-fou n'a fait que masquer le plantage JS qui en résultait, sans jamais restaurer le
+  recentrage). La caméra suiveuse n'a donc jamais réellement suivi Synk après une orbite manuelle,
+  ce qui se traduisait par un Synk vu de face/profil au lieu de dos et un ressenti de déplacement
+  erratique. Réécrit en ne s'appuyant que sur l'API publique (`controls.object.position`,
+  `controls.target`, `controls.update()`) : rotation du vecteur caméra→cible autour de l'axe Y d'un
+  petit pas par frame vers l'angle cible — vérifié via Playwright (angle azimutal réel de la caméra
+  journalisé image par image) : reconvergence en ~10 frames après une orbite manuelle.
 
 **Résultat validé par le porteur du projet** : Synk grimpe désormais correctement sur les blocs de
 montagne avec Espace + direction Haut, y compris caméra suiveuse active. Cette configuration

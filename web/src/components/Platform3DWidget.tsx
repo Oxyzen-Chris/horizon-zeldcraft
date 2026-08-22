@@ -368,34 +368,125 @@ function PropBlock({ kind, x, topY, z, scale = 1, onClick }: { kind: NonNullable
   );
 }
 
+/** Devine la couleur d'un Dragon-familier à partir de son id/libellé catalogue (ex. "dragon.green"
+ * / "Dragon Vert") — TOUS les familiers du jeu sont actuellement des dragons de couleurs variées
+ * (voir seedEquipmentCatalog.mjs::selle_* / FamiliarDef), donc une correspondance mot-clé simple
+ * (anglais dans l'id technique, français dans le libellé affiché) couvre déjà l'intégralité du
+ * catalogue sans dépendre d'un nouveau champ de données. Repli sur l'ambre du registre
+ * `MARKER_COLOR.familiar` si aucun mot-clé ne correspond (futur familier non-dragon, par ex.). */
+function familiarDragonColor(id: string, name: string): string {
+  const s = `${id} ${name}`.toLowerCase();
+  const table: [string, string][] = [
+    ['green', '#22c55e'], ['vert', '#22c55e'],
+    ['red', '#dc2626'], ['rouge', '#dc2626'],
+    ['gold', '#eab308'], ['doré', '#eab308'], ['dore', '#eab308'], ["d'or", '#eab308'],
+    ['black', '#3f3f46'], ['noir', '#3f3f46'],
+    ['blue', '#2563eb'], ['bleu', '#2563eb'],
+    ['white', '#e2e8f0'], ['blanc', '#e2e8f0'],
+    ['silver', '#94a3b8'], ['argent', '#94a3b8'],
+    ['bronze', '#a16207'],
+  ];
+  for (const [kw, c] of table) if (s.includes(kw)) return c;
+  return MARKER_COLOR.familiar;
+}
+
+/** Dragon-familier stylisé (corps, cou+tête cornue, queue effilée, deux ailes membraneuses) — bien
+ * plus reconnaissable que le gemme octaédrique générique pour représenter, par exemple, le "Dragon
+ * Vert" du catalogue (voir demande utilisateur : « le Dragon Vert ressemble à un anneau alors qu'il
+ * devrait ressembler à un Dragon »). Couleur pilotée par `familiarDragonColor` ci-dessus. */
+function DragonMarker({ color }: { color: string }) {
+  return (
+    <group>
+      <mesh castShadow scale={[1, 0.6, 0.78]}>
+        <sphereGeometry args={[0.24, 10, 8]} />
+        <meshStandardMaterial color={color} roughness={0.55} />
+      </mesh>
+      <group position={[0.22, 0.13, 0]} rotation={[0, 0, -0.55]}>
+        <mesh castShadow><cylinderGeometry args={[0.055, 0.09, 0.26, 6]} /><meshStandardMaterial color={color} roughness={0.55} /></mesh>
+        <mesh position={[0.09, 0.16, 0]} rotation={[0, 0, 0.5]} castShadow><coneGeometry args={[0.085, 0.22, 6]} /><meshStandardMaterial color={color} roughness={0.5} /></mesh>
+        {[[-0.02, 0.24, 0.045], [-0.02, 0.24, -0.045]].map(([hx, hy, hz], i) => (
+          <mesh key={i} position={[hx, hy, hz]} rotation={[0, 0, 0.7]}><coneGeometry args={[0.02, 0.09, 4]} /><meshStandardMaterial color="#f5e6c8" /></mesh>
+        ))}
+      </group>
+      <mesh position={[-0.3, 0.02, 0]} rotation={[0, 0, 0.3]} castShadow>
+        <coneGeometry args={[0.075, 0.42, 6]} />
+        <meshStandardMaterial color={color} roughness={0.55} />
+      </mesh>
+      {[1, -1].map((side) => (
+        <mesh key={side} position={[0, 0.2, side * 0.16]} rotation={[side * 0.55, 0, 0.1]} castShadow>
+          <coneGeometry args={[0.3, 0.045, 3]} />
+          <meshStandardMaterial color={color} roughness={0.7} transparent opacity={0.92} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 /** Marqueur (PNJ, familier, trésor, monde/portail, Zorghon, captif, POI, quête) matérialisé par un
  * petit socle coloré + une forme flottante animée — registre `MARKER_COLOR` extensible : ajouter un
  * nouveau `kind` n'importe où dans gameState.ts::MapMarkerKind sera automatiquement représenté ici
  * (couleur de repli `#94a3b8` si absent du registre). `onClick` ouvre la même interaction (PNJ,
  * trésor, quête, monde, hutte du catalogue) que le clic sur un marqueur en Plateforme 2D
- * isométrique — voir Platform3DWidget::onMarkerClick3D. Deux rendus spécifiques réalistes (demande
- * utilisateur « une énigme pourrait ressembler à un parchemin qui flotte », « une grotte doit
- * ressembler à une vraie entrée de grotte ») : `kind==='quest'` → parchemin roulé flottant (au lieu
- * du gemme octaédrique générique) ; `kind==='poi' && poiType==='cave'` → arche rocheuse avec bouche
- * sombre et cristaux (lore « Grottes de Nether-Cristal »), fixe au sol (pas d'animation de flottaison,
- * une entrée de grotte ne lévite pas). Tous les AUTRES kinds (PNJ/familier/trésor/monde/etc.)
- * conservent EXACTEMENT le rendu octaédrique précédent — zéro régression. */
-function MarkerBlock({ kind, poiType, x, z, onClick }: { kind: string; poiType?: MapPoiType; x: number; z: number; onClick: () => void }) {
-  // Deux refs typées séparément (react-three-fiber exige un type de ref exact par élément JSX) :
-  // `groupRef` anime le parchemin (kind==='quest', un <group> multi-pièces), `meshRef` anime le
-  // gemme flottant par défaut (tous les autres kinds, un <mesh> unique) — un seul des deux est
-  // monté selon la branche choisie ci-dessous, jamais les deux à la fois.
-  const groupRef = useRef<THREE.Group>(null);
-  const meshRef = useRef<THREE.Mesh>(null);
+ * isométrique — voir Platform3DWidget::onMarkerClick3D. Rendus spécifiques réalistes (demande
+ * utilisateur, cf. « une énigme pourrait ressembler à un parchemin qui flotte », « une grotte doit
+ * ressembler à une vraie entrée de grotte », « le Dragon Vert doit ressembler à un dragon »,
+ * « l'hôtel ressemble encore à un losange blanc ») : `kind==='quest'` → parchemin roulé flottant ;
+ * `kind==='poi' && poiType==='cave'` → arche rocheuse + cristaux, fixe au sol ; `kind==='poi' &&
+ * poiType` ∈ {hut, tavern, stable, village_ally, village_enemy} → petite bâtisse (chaumière/taverne/
+ * étable/village), fixe au sol, même silhouette que le décor `PropBlock` kind==='hut' pour rester
+ * cohérent visuellement ; `kind==='familiar'` → `DragonMarker` coloré selon le catalogue ;
+ * `kind==='npc'` → petite silhouette de PNJ encapuchonné ; `kind==='treasure'` → coffre au trésor
+ * cerclé d'or ; `kind==='world'` → portail circulaire lumineux (type porte des étoiles) ;
+ * `kind==='zorghon'` → silhouette sombre cornue menaçante ; `kind==='captive'` → silhouette liée.
+ * Tout kind non couvert ci-dessus conserve EXACTEMENT le rendu octaédrique précédent — zéro
+ * régression. */
+function MarkerBlock({ kind, poiType, name, markerId, x, z, onClick }: {
+  kind: string; poiType?: MapPoiType; name?: string; markerId?: string; x: number; z: number; onClick: () => void;
+}) {
+  // Ref générique : anime (flottaison + légère rotation) le contenu de TOUTES les branches "en
+  // lévitation" (quête, familier, PNJ, trésor, monde, zorghon, captif, gemme par défaut) — les
+  // branches "fixes au sol" (grotte, bâtisses) ne l'utilisent jamais et ne sont donc jamais animées.
+  const bobRef = useRef<THREE.Group>(null);
   const isCave = kind === 'poi' && poiType === 'cave';
+  const isBuilding = kind === 'poi' && !!poiType && (['hut', 'tavern', 'stable', 'village_ally', 'village_enemy'] as MapPoiType[]).includes(poiType);
   const isQuest = kind === 'quest';
+  const isFamiliar = kind === 'familiar';
+  const isNpc = kind === 'npc';
+  const isTreasure = kind === 'treasure';
+  const isWorld = kind === 'world';
+  const isZorghon = kind === 'zorghon';
+  const isCaptive = kind === 'captive';
+  const floating = !isCave && !isBuilding;
+  const bobAmplitude = isQuest ? 0.25 : 0.15;
   useFrame((state) => {
-    const obj: THREE.Object3D | null = isQuest ? groupRef.current : meshRef.current;
-    if (!obj || isCave) return;
-    obj.position.y = (isQuest ? 0.25 : 0.15) + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06;
+    const obj = bobRef.current;
+    if (!obj || !floating) return;
+    obj.position.y = bobAmplitude + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06;
     obj.rotation.y += isQuest ? 0.006 : 0.01;
   });
   const color = MARKER_COLOR[kind] ?? '#94a3b8';
+  if (isBuilding) {
+    // Bâtisse (Auberge/Taverne/Étable/Village) — même silhouette de chaumière que le décor
+    // `PropBlock` kind==='hut' (toit de chaume conique + cheminée), fixe au sol comme un vrai
+    // bâtiment. Palette légèrement adaptée pour distinguer les sous-types (village ennemi = teintes
+    // grisâtres/délabrées, taverne = tonneau, étable = clôture basse).
+    const isEnemyVillage = poiType === 'village_enemy';
+    const wallColor = isEnemyVillage ? '#57534e' : poiType === 'tavern' ? '#8a6a45' : poiType === 'stable' ? '#7c6a4a' : '#a8825a';
+    const roofColor = isEnemyVillage ? '#3f3a3a' : '#3f2c1a';
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[1, 1, 1]} /><meshStandardMaterial color={wallColor} roughness={0.85} /></mesh>
+        <mesh position={[0, 1.25, 0]} rotation={[0, Math.PI / 4, 0]} castShadow><coneGeometry args={[0.85, 0.7, 4]} /><meshStandardMaterial color={roofColor} roughness={0.9} /></mesh>
+        <mesh position={[0.32, 1.55, 0.1]}><cylinderGeometry args={[0.08, 0.09, 0.4, 6]} /><meshStandardMaterial color="#78716c" roughness={0.9} /></mesh>
+        {poiType === 'tavern' && (
+          <mesh position={[0.78, 0.28, 0]} castShadow><cylinderGeometry args={[0.18, 0.18, 0.4, 8]} /><meshStandardMaterial color="#8a5a2a" roughness={0.8} /></mesh>
+        )}
+        {poiType === 'stable' && (
+          <mesh position={[-0.78, 0.35, 0]} castShadow><boxGeometry args={[0.5, 0.06, 0.9]} /><meshStandardMaterial color="#6b4a2a" roughness={0.9} /></mesh>
+        )}
+      </group>
+    );
+  }
   if (isCave) {
     // Entrée de grotte (Nether-Cristal) : arche rocheuse + bouche sombre + cristaux lumineux violets
     // en saillie — remplace le gemme octaédrique générique pour un décor immédiatement identifiable.
@@ -424,7 +515,7 @@ function MarkerBlock({ kind, poiType, x, z, onClick }: { kind: string; poiType?:
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-        <group ref={groupRef} rotation={[0, 0, Math.PI / 2]}>
+        <group ref={bobRef} rotation={[0, 0, Math.PI / 2]}>
           <mesh castShadow><cylinderGeometry args={[0.13, 0.13, 0.34, 12]} /><meshStandardMaterial color="#e8d9ad" roughness={0.85} /></mesh>
           <mesh position={[0, 0.17, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.13, 0.018, 6, 12]} /><meshStandardMaterial color="#8a6a45" roughness={0.7} /></mesh>
           <mesh position={[0, -0.17, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.13, 0.018, 6, 12]} /><meshStandardMaterial color="#8a6a45" roughness={0.7} /></mesh>
@@ -433,13 +524,107 @@ function MarkerBlock({ kind, poiType, x, z, onClick }: { kind: string; poiType?:
       </group>
     );
   }
+  if (isFamiliar) {
+    // Dragon-familier (tout le catalogue de familiers du jeu est composé de dragons de couleurs
+    // variées) — voir `DragonMarker`/`familiarDragonColor` ci-dessus. Corrige la demande utilisateur
+    // « le Dragon Vert ressemble à un anneau alors qu'il devrait ressembler à un Dragon ».
+    const dragonColor = familiarDragonColor(markerId ?? '', name ?? '');
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
+        <group ref={bobRef}><DragonMarker color={dragonColor} /></group>
+      </group>
+    );
+  }
+  if (isNpc) {
+    // Silhouette de PNJ encapuchonné (robe conique + tête + capuche + bâton + petit orbe lumineux)
+    // — bien plus reconnaissable comme "personnage" que le gemme octaédrique générique.
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
+        <group ref={bobRef} position={[0, -0.15, 0]}>
+          <mesh castShadow><coneGeometry args={[0.22, 0.5, 8]} /><meshStandardMaterial color={color} roughness={0.8} /></mesh>
+          <mesh position={[0, 0.32, 0]} castShadow><sphereGeometry args={[0.14, 10, 8]} /><meshStandardMaterial color="#e8c39e" /></mesh>
+          <mesh position={[0, 0.4, 0]} rotation={[0.15, 0, 0]} castShadow><coneGeometry args={[0.16, 0.22, 8]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
+          <mesh position={[0.2, 0.05, 0]} rotation={[0, 0, 0.3]}><cylinderGeometry args={[0.02, 0.02, 0.55, 6]} /><meshStandardMaterial color="#6b4a2a" /></mesh>
+          <mesh position={[0.29, 0.32, 0]}><octahedronGeometry args={[0.06, 0]} /><meshStandardMaterial color="#7dd3fc" emissive="#7dd3fc" emissiveIntensity={0.6} /></mesh>
+        </group>
+      </group>
+    );
+  }
+  if (isTreasure) {
+    // Coffre au trésor (caisse bois + couvercle légèrement entrouvert + cerclages/serrure dorés) —
+    // remplace le gemme générique par une forme immédiatement reconnaissable comme un trésor.
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
+        <group ref={bobRef}>
+          <mesh position={[0, -0.05, 0]} castShadow><boxGeometry args={[0.42, 0.28, 0.3]} /><meshStandardMaterial color="#6b4423" roughness={0.75} /></mesh>
+          <mesh position={[0, 0.12, 0]} rotation={[-0.18, 0, 0]} castShadow><boxGeometry args={[0.42, 0.16, 0.3]} /><meshStandardMaterial color="#5a3a1e" roughness={0.75} /></mesh>
+          <mesh position={[0, 0.02, 0.155]}><boxGeometry args={[0.1, 0.28, 0.03]} /><meshStandardMaterial color="#d4af37" metalness={0.6} roughness={0.35} /></mesh>
+          <mesh position={[0, 0.16, 0.15]}><boxGeometry args={[0.06, 0.06, 0.05]} /><meshStandardMaterial color="#d4af37" metalness={0.7} roughness={0.3} /></mesh>
+        </group>
+      </group>
+    );
+  }
+  if (isWorld) {
+    // Portail circulaire lumineux (type "porte des étoiles"/trou de ver, cf. inspiration Stargate
+    // demandée) — même esprit que le portail décoratif `PropBlock` kind==='portal', mais flottant et
+    // isolé (pas posé sur une dalle) pour représenter l'accès à un monde entier.
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
+        <group ref={bobRef}>
+          <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
+            <torusGeometry args={[0.28, 0.06, 10, 20]} />
+            <meshStandardMaterial color="#8b5cf6" emissive="#8b5cf6" emissiveIntensity={0.6} />
+          </mesh>
+          <mesh rotation={[Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.24, 20]} />
+            <meshStandardMaterial color="#1e1035" emissive="#4c1d95" emissiveIntensity={0.4} transparent opacity={0.6} side={THREE.DoubleSide} />
+          </mesh>
+        </group>
+      </group>
+    );
+  }
+  if (isZorghon) {
+    // Silhouette sombre et cornue, menaçante — boss narratif unique (voir ZorghonEncounterState).
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#1c1917" /></mesh>
+        <group ref={bobRef}>
+          <mesh castShadow><cylinderGeometry args={[0.16, 0.24, 0.5, 8]} /><meshStandardMaterial color="#1f1b24" roughness={0.7} /></mesh>
+          <mesh position={[0, 0.32, 0]} castShadow><sphereGeometry args={[0.16, 10, 8]} /><meshStandardMaterial color="#2e2436" roughness={0.6} /></mesh>
+          {[-1, 1].map((s) => (
+            <mesh key={s} position={[s * 0.08, 0.44, 0]} rotation={[0, 0, s * 0.3]} castShadow><coneGeometry args={[0.035, 0.18, 4]} /><meshStandardMaterial color="#7f1d1d" /></mesh>
+          ))}
+          <mesh position={[0, 0.32, 0.15]}><sphereGeometry args={[0.03, 6, 6]} /><meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={0.8} /></mesh>
+        </group>
+      </group>
+    );
+  }
+  if (isCaptive) {
+    // Silhouette liée (captif·ve à délivrer) — corps assis + tête + lien de corde autour du torse.
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
+        <group ref={bobRef}>
+          <mesh position={[0, -0.1, 0]} castShadow><cylinderGeometry args={[0.15, 0.18, 0.3, 8]} /><meshStandardMaterial color="#94a3b8" roughness={0.8} /></mesh>
+          <mesh position={[0, 0.14, 0]} castShadow><sphereGeometry args={[0.13, 10, 8]} /><meshStandardMaterial color="#e8c39e" /></mesh>
+          <mesh position={[0, 0.02, 0]}><torusGeometry args={[0.17, 0.02, 6, 12]} /><meshStandardMaterial color="#7c6a4a" /></mesh>
+        </group>
+      </group>
+    );
+  }
   return (
     <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
       <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-      <mesh ref={meshRef}>
-        <octahedronGeometry args={[0.22, 0]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.35} />
-      </mesh>
+      <group ref={bobRef}>
+        <mesh>
+          <octahedronGeometry args={[0.22, 0]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.35} />
+        </mesh>
+      </group>
     </group>
   );
 }
@@ -772,19 +957,35 @@ function Scene({
       let delta = targetTheta - current;
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
-      // Garde défensive : la version de three-stdlib actuellement installée n'expose PLUS
-      // `_sphericalDelta` comme champ public sur l'instance OrbitControls (variable interne à la
-      // fermeture du constructeur dans les versions récentes) — l'écriture directe levait une
-      // exception à CHAQUE frame de marche ("Cannot read properties of undefined (reading 'theta')"),
-      // détectée via Playwright en vérifiant la Plateforme 3D. Sans effet sur `onCameraYaw` ni sur la
-      // résolution de direction (inchangées) : seule cette micro-impulsion d'amortissement cosmétique
-      // est ignorée si l'API interne est absente, aucune régression fonctionnelle (elle ne faisait de
-      // toute façon plus rien d'autre qu'échouer silencieusement… en plantant, avant ce correctif).
-      if (Math.abs(delta) > 0.001 && controls._sphericalDelta) controls._sphericalDelta.theta += delta * 0.05;
+      // Repositionne directement la caméra (API publique `camera.position`/`controls.target`,
+      // AUCUNE dépendance à un champ interne de three-stdlib) en faisant tourner le vecteur
+      // caméra→cible autour de l'axe Y d'un petit pas vers `targetTheta` à chaque frame, ce qui
+      // ramène en douceur la caméra derrière Synk pendant qu'il marche. Remplace l'ancienne
+      // tentative d'écriture dans `controls._sphericalDelta` (champ interne à la fermeture du
+      // constructeur dans la version de three-stdlib installée, absent de l'objet public — l'écrit
+      // levait une exception à CHAQUE frame de marche, détectée via Playwright, et de toute façon
+      // ne faisait STRICTEMENT rien d'autre qu'échouer silencieusement avant même cette exception :
+      // la caméra ne "rattrapait" donc plus jamais Synk après une réorientation manuelle à la
+      // souris, ce qui, combiné au fait que `onCameraYaw` continue de figer la nouvelle direction de
+      // marche sur l'angle de la caméra resté immobile, faisait apparaître Synk de face/profil au
+      // lieu de dos — perçu par le joueur comme "la tête tournée à l'inverse" ou un déplacement
+      // erratique dès qu'il réorientait la vue à la souris avant de marcher).
+      if (Math.abs(delta) > 0.001) {
+        const step = delta * 0.08;
+        const camera = controls.object;
+        const target = controls.target;
+        const offX = camera.position.x - target.x;
+        const offZ = camera.position.z - target.z;
+        const cosA = Math.cos(step), sinA = Math.sin(step);
+        camera.position.x = target.x + (offX * cosA + offZ * sinA);
+        camera.position.z = target.z + (offZ * cosA - offX * sinA);
+        controls.update();
+      }
     } else {
       onCameraYaw(controls.getAzimuthalAngle());
     }
   });
+
 
   const tiles = useMemo(() => {
     const out: { tile: Tile; wc: number; wr: number; x: number; z: number }[] = [];
@@ -827,7 +1028,7 @@ function Scene({
           </group>
         );
       })}
-      {sceneMarkers.map(m => <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} x={m.x} z={m.z} onClick={() => onMarkerClick(m.marker)} />)}
+      {sceneMarkers.map(m => <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} onClick={() => onMarkerClick(m.marker)} />)}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
         facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled} standY={standY}

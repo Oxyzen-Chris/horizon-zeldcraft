@@ -397,7 +397,12 @@ Bien sûr, il faut que le déplacement de Synk et l'univers dans le widget de la
 Utilises Playwright pour simuler, tester, débugger et résoudre au besoin.
 Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub.
 Vérifie néanmoins que les solutions et développements que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu.
-
+-----------------------------------------------------------------------------------------------------------------
+Suite aux évolutions et aux développements que tu as fais dans le widget "3D Plateform", Synk a des déplacements hératiques quand je le déplace aux clavier ou au clavier virtuel, de plus sa tête se tourne à l'inverse de la direction où il va : par exemple si je veux qu'il aille en avant, sa tête se tourne et regarde derrière et il avance mais hératiquement. Vérifie ses déplacements et la bonne prise en compte des mouvements en fonction des touches du clavier ou clavier virtuel actionné. De plus la caméra semble altérer son déplacement, a partir du moment où je l'utilise pour changer de point de vue ! Vérifie cela et tout le mécanisme de déplacement avec la camérà et le point de vue utilisateur ainsi que la correct gestion des entrées clavier ou clavier virtuel !
+Tu n'as pas fait tous les changements que je t'ai demandé : Je veux que TOUS les objets 3D dans le widget 3D Plateforme, soit le plus réaliste possible et également texturé ! Je vois que l'hôtel (hôtel du repos du voyageur) ressemble encore à un losange blanc ou que le Dragon Vert ressemble à un anneau alors qu'il devrait ressembler à un Dragon avec une texture bitmap appliqué sur la forme pour faire en sorte qu'elle ressemble vraiment à un dragon vert, par exemple ! Je veux que tu appliques la modification de réalisme et de texture à tous les objets, les POI, les quêtes, etc... dans le jeu : Pour recenser tous les objets sert toi par exemple des éléments (familiers, armures, armes, etc..) du widget "La boutique des terres de Zeldcraft", des éléments du widget "Etat d'avancement / inventaire", des éléments du widget "Quêtes du Royaume", des éléments du widget "Zeldcraft Quests".
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin.
+Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub.
+Vérifie néanmoins que les solutions et développements que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu.
 
 
 
