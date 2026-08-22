@@ -152,7 +152,7 @@ function platform3dPropKind(prop: NonNullable<Tile['prop']>): Platform3DObjectKi
  * posé sur la tuile peut À LUI SEUL la rendre obstacle (ex: arbre), même si le terrain sous-jacent
  * (prairie) ne l'est pas ; `climbable`/`water` restent des propriétés du TERRAIN uniquement (un
  * décor ne rend jamais une case escaladable ou aquatique). */
-function platform3dTileFlags(tile: Tile, registry: Record<Platform3DObjectKind, Platform3DObjectFlags> | undefined): Platform3DObjectFlags {
+function platform3dTileFlags(tile: Tile, registry: Record<Platform3DObjectKind, Platform3DObjectFlags> | undefined): { obstacle: boolean; climbable: boolean; water: boolean } {
   const reg = registry ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS;
   const terrainKind = platform3dTerrainKind(tile.terrain);
   const terrainFlags = reg[terrainKind] ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS[terrainKind];
@@ -178,15 +178,67 @@ const SYNK_GROUND_OFFSET = 0.41;
  * QUEL le modèle de tuile `worldTerrain.ts` (mêmes champs que la Plateforme 2D isométrique/Mapmonde,
  * voir commentaire de `Tile` dans ce fichier), donc aucune divergence de décor possible entre les 3
  * vues. `onClick` matérialise le déplacement à la souris (clic sur une case pour s'y rendre). */
+/** Génère (une seule fois, mise en cache) une texture procédurale 64×64 répétable par type de
+ * terrain — sans dépendance externe ni téléchargement d'image (100% gratuit/hors-ligne) : un
+ * remplissage de base + un semis de « mouchetures » (brins d'herbe, grains de sable, cailloux du
+ * chemin, craquelures de roche, reflets d'eau) dessiné au Canvas 2D puis converti en
+ * `THREE.CanvasTexture`. Mise en cache PAR TYPE de terrain (pas par tuile) : les dizaines de dalles
+ * identiques affichées à l'écran partagent la MÊME instance de texture — aucun coût de génération
+ * ni de mémoire supplémentaire par tuile, donc aucune régression de fluidité des déplacements. Un
+ * PRNG déterministe (mulberry32) garantit un motif stable d'un rechargement de page à l'autre (pas
+ * de scintillement). Répond à la demande de décor « le plus réaliste possible » (sol en herbe/sable/
+ * terre/roche texturé plutôt qu'un aplat de couleur uni). */
+const TERRAIN_TEXTURE_CACHE: Partial<Record<Tile['terrain'], THREE.Texture>> = {};
+const TERRAIN_TEXTURE_PALETTE: Record<Tile['terrain'], { base: string; specks: string[]; speckCount: number; seed: number }> = {
+  grass: { base: '#3f7d32', specks: ['#4f9640', '#356b2a', '#5aa84a', '#2e5c22'], speckCount: 150, seed: 1 },
+  sand:  { base: '#d9c27e', specks: ['#c9ae66', '#e6d493', '#b89a55'], speckCount: 130, seed: 2 },
+  path:  { base: '#8a6b45', specks: ['#75582f', '#9c7e57', '#6a4f2b', '#5f4526'], speckCount: 110, seed: 3 },
+  rock:  { base: '#8b8f96', specks: ['#787c83', '#9a9ea5', '#6c6f75', '#5f6268'], speckCount: 90, seed: 4 },
+  water: { base: '#2f6fb0', specks: ['#3f83c8', '#265d94', '#4f93d6'], speckCount: 70, seed: 5 },
+};
+function getTerrainTexture(terrain: Tile['terrain']): THREE.Texture | null {
+  if (typeof document === 'undefined') return null;
+  const cached = TERRAIN_TEXTURE_CACHE[terrain];
+  if (cached) return cached;
+  const SIZE = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE; canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const pal = TERRAIN_TEXTURE_PALETTE[terrain];
+  let seed = pal.seed;
+  // PRNG mulberry32 — déterministe, sans dépendance externe.
+  const rand = () => {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  ctx.fillStyle = pal.base;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  for (let i = 0; i < pal.speckCount; i++) {
+    ctx.fillStyle = pal.specks[Math.floor(rand() * pal.specks.length)];
+    const w = 1 + rand() * (terrain === 'grass' ? 2 : 3);
+    const h = 1 + rand() * (terrain === 'grass' ? 3 : 2);
+    ctx.fillRect(rand() * SIZE, rand() * SIZE, w, h);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  TERRAIN_TEXTURE_CACHE[terrain] = tex;
+  return tex;
+}
 function TerrainBlock({ tile, x, z, onClick }: { tile: Tile; x: number; z: number; onClick: () => void }) {
   const color = TERRAIN_COLOR[tile.terrain];
+  const texture = getTerrainTexture(tile.terrain);
+  const tint = texture ? '#ffffff' : color;
   if (tile.terrain === 'water') {
     const depthNorm = Math.min(1, (tile.depthM ?? 1) / 300);
     const y = -0.62 - depthNorm * 0.3;
     return (
       <mesh position={[x, y, z]} onClick={onClick}>
         <boxGeometry args={[1, 0.24, 1]} />
-        <meshStandardMaterial color={color} transparent opacity={0.82} />
+        <meshStandardMaterial color={tint} map={texture} transparent opacity={0.82} />
       </mesh>
     );
   }
@@ -195,50 +247,123 @@ function TerrainBlock({ tile, x, z, onClick }: { tile: Tile; x: number; z: numbe
     return (
       <mesh position={[x, h / 2 - 0.5, z]} onClick={onClick} castShadow receiveShadow>
         <boxGeometry args={[1, h, 1]} />
-        <meshStandardMaterial color={color} />
+        <meshStandardMaterial color={tint} map={texture} />
       </mesh>
     );
   }
   return (
     <mesh position={[x, -0.5, z]} onClick={onClick} receiveShadow>
       <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial color={color} />
+      <meshStandardMaterial color={tint} map={texture} />
     </mesh>
   );
 }
 
-/** Petit décor (arbre/hutte/château/portail/…) posé sur sa dalle — représentation voxel minimale,
- * extensible via `PROP_SHAPE` ci-dessous (registre par type, même esprit que MARKER_COLOR). */
+/** Petit décor (arbre/hutte/château/portail/…) posé sur sa dalle, proportionné de façon RÉALISTE
+ * par rapport à la taille de Synk (~1,2 unité de haut, voir SYNK_GROUND_OFFSET/SynkVoxel) : un arbre
+ * adulte doit rester nettement plus grand qu'un humain (silhouette à deux étages de feuillage,
+ * ~2,6 unités soit environ le double de Synk — ni un arbuste, ni un séquoia démesuré), une hutte/un
+ * château doivent se lire comme des bâtiments habitables (toit en pente/tourelle), etc. — correctif
+ * du bug rapporté « les arbres sont trop petits ». Chaque silhouette reste ADDITIONNELLEMENT
+ * multipliée par `scale` (défaut 1, voir Platform3DObjectFlags.scale), réglable par l'admin dans
+ * `Administration > Barème & règles > 🧱 Objets & décor 3D` sans toucher au code — extensible via
+ * `PROP_COLOR` (registre par type, même esprit que MARKER_COLOR). */
 const PROP_COLOR: Record<string, string> = {
   tree: '#2f6b27', castle: '#8a8577', hut: '#7a5230', portal: '#7c3aed',
   bamboo: '#6fae3f', baobab: '#7a5b2e', palm: '#3f8a3a',
 };
-function PropBlock({ kind, x, topY, z, onClick }: { kind: NonNullable<Tile['prop']>; x: number; topY: number; z: number; onClick: () => void }) {
+function PropBlock({ kind, x, topY, z, scale = 1, onClick }: { kind: NonNullable<Tile['prop']>; x: number; topY: number; z: number; scale?: number; onClick: () => void }) {
   const color = PROP_COLOR[kind] ?? '#2f6b27';
   if (kind === 'portal') {
     return (
-      <mesh position={[x, topY + 0.5, z]} rotation={[Math.PI / 2, 0, 0]} onClick={onClick}>
-        <torusGeometry args={[0.32, 0.08, 8, 20]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} />
-      </mesh>
+      <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, 1.1, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.62, 0.12, 10, 24]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} />
+        </mesh>
+        <mesh position={[0, 1.1, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.6, 24]} />
+          <meshStandardMaterial color="#1e1035" emissive="#4c1d95" emissiveIntensity={0.35} transparent opacity={0.55} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
     );
   }
-  if (kind === 'castle' || kind === 'hut') {
+  if (kind === 'castle') {
+    // Donjon : socle de pierre + créneaux + tourelle centrale coiffée d'un toit conique — silhouette
+    // clairement plus imposante qu'une simple hutte (bâtiment fortifié).
     return (
-      <mesh position={[x, topY + 0.3, z]} onClick={onClick} castShadow>
-        <boxGeometry args={[0.6, 0.6, 0.6]} />
-        <meshStandardMaterial color={color} />
-      </mesh>
+      <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, 0.9, 0]} castShadow><boxGeometry args={[1.5, 1.8, 1.5]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
+        {[[-0.68, -0.68], [0.68, -0.68], [-0.68, 0.68], [0.68, 0.68]].map(([mx, mz], i) => (
+          <mesh key={i} position={[mx, 1.9, mz]} castShadow><boxGeometry args={[0.28, 0.3, 0.28]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
+        ))}
+        <mesh position={[0, 2.2, 0]} castShadow><cylinderGeometry args={[0.5, 0.55, 0.9, 10]} /><meshStandardMaterial color="#6b6f76" roughness={0.85} /></mesh>
+        <mesh position={[0, 2.95, 0]} castShadow><coneGeometry args={[0.62, 0.7, 10]} /><meshStandardMaterial color="#5b2b3a" roughness={0.7} /></mesh>
+      </group>
     );
   }
-  // Arbres/bambou/baobab/palmier : tronc + houppier, silhouette générique déclinable par couleur.
+  if (kind === 'hut') {
+    // Chaumière : socle bois/torchis + toit de chaume en pente (cône), cheminée en pierre.
+    return (
+      <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[1, 1, 1]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
+        <mesh position={[0, 1.25, 0]} rotation={[0, Math.PI / 4, 0]} castShadow><coneGeometry args={[0.85, 0.7, 4]} /><meshStandardMaterial color="#3f2c1a" roughness={0.9} /></mesh>
+        <mesh position={[0.32, 1.55, 0.1]}><cylinderGeometry args={[0.08, 0.09, 0.4, 6]} /><meshStandardMaterial color="#78716c" roughness={0.9} /></mesh>
+      </group>
+    );
+  }
+  if (kind === 'baobab') {
+    // Baobab : tronc TRÈS épais et court + petite frondaison plate en boule — silhouette iconique.
+    return (
+      <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, 0.55, 0]} castShadow><cylinderGeometry args={[0.32, 0.42, 1.1, 8]} /><meshStandardMaterial color="#8a6a45" roughness={0.95} /></mesh>
+        <mesh position={[0, 1.25, 0]} castShadow><sphereGeometry args={[0.55, 10, 8]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
+      </group>
+    );
+  }
+  if (kind === 'palm') {
+    // Palmier : tronc fin et haut + bouquet de palmes rayonnantes (cônes aplatis) en couronne.
+    const fronds = 6;
+    return (
+      <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, 1.1, 0]} castShadow><cylinderGeometry args={[0.07, 0.11, 2.2, 7]} /><meshStandardMaterial color="#8a6a45" roughness={0.9} /></mesh>
+        {Array.from({ length: fronds }).map((_, i) => {
+          const a = (i / fronds) * Math.PI * 2;
+          return (
+            <mesh key={i} position={[Math.sin(a) * 0.28, 2.25, Math.cos(a) * 0.28]} rotation={[Math.PI / 2.6, 0, a]} castShadow>
+              <coneGeometry args={[0.16, 0.85, 4]} />
+              <meshStandardMaterial color={color} roughness={0.85} />
+            </mesh>
+          );
+        })}
+      </group>
+    );
+  }
+  if (kind === 'bamboo') {
+    // Bosquet de bambou : plusieurs tiges fines et hautes, tuft de feuilles en haut de chacune.
+    const stalks = [[-0.14, -0.05], [0.12, 0.08], [0, 0.15], [0.18, -0.12]];
+    return (
+      <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        {stalks.map(([sx, sz], i) => (
+          <group key={i} position={[sx, 0, sz]}>
+            <mesh position={[0, 0.95, 0]} castShadow><cylinderGeometry args={[0.04, 0.045, 1.9, 6]} /><meshStandardMaterial color={color} roughness={0.6} /></mesh>
+            <mesh position={[0, 1.85, 0]} castShadow><coneGeometry args={[0.16, 0.4, 6]} /><meshStandardMaterial color="#8fce5f" roughness={0.8} /></mesh>
+          </group>
+        ))}
+      </group>
+    );
+  }
+  // Arbre (défaut, y compris tout futur type non listé ci-dessus) : tronc + double étage de
+  // feuillage (cônes empilés, silhouette de conifère) — nettement plus grand que Synk (~2,6 unités
+  // vs ~1,2 pour Synk, soit un peu plus du double, conforme à une taille réaliste d'arbre adulte).
   // `onClick` posé sur le GROUPE entier (et non chaque mesh) : le tronc/houppier couvrant la même
   // case que la dalle de terrain sous-jacente, un clic dessus doit produire EXACTEMENT le même
   // comportement (déplacement/approche) que cliquer la dalle elle-même — voir onTileClick3D.
   return (
-    <group position={[x, topY, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-      <mesh position={[0, 0.2, 0]}><cylinderGeometry args={[0.06, 0.08, 0.4, 6]} /><meshStandardMaterial color="#5b3a1e" /></mesh>
-      <mesh position={[0, 0.5, 0]} castShadow><coneGeometry args={[0.32, 0.55, 7]} /><meshStandardMaterial color={color} /></mesh>
+    <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+      <mesh position={[0, 0.45, 0]} castShadow><cylinderGeometry args={[0.11, 0.16, 0.9, 7]} /><meshStandardMaterial color="#5b3a1e" roughness={0.9} /></mesh>
+      <mesh position={[0, 1.15, 0]} castShadow><coneGeometry args={[0.65, 1.05, 8]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
+      <mesh position={[0, 1.75, 0]} castShadow><coneGeometry args={[0.42, 0.75, 8]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
     </group>
   );
 }
@@ -248,19 +373,70 @@ function PropBlock({ kind, x, topY, z, onClick }: { kind: NonNullable<Tile['prop
  * nouveau `kind` n'importe où dans gameState.ts::MapMarkerKind sera automatiquement représenté ici
  * (couleur de repli `#94a3b8` si absent du registre). `onClick` ouvre la même interaction (PNJ,
  * trésor, quête, monde, hutte du catalogue) que le clic sur un marqueur en Plateforme 2D
- * isométrique — voir Platform3DWidget::onMarkerClick3D. */
-function MarkerBlock({ kind, x, z, onClick }: { kind: string; x: number; z: number; onClick: () => void }) {
-  const ref = useRef<THREE.Mesh>(null);
+ * isométrique — voir Platform3DWidget::onMarkerClick3D. Deux rendus spécifiques réalistes (demande
+ * utilisateur « une énigme pourrait ressembler à un parchemin qui flotte », « une grotte doit
+ * ressembler à une vraie entrée de grotte ») : `kind==='quest'` → parchemin roulé flottant (au lieu
+ * du gemme octaédrique générique) ; `kind==='poi' && poiType==='cave'` → arche rocheuse avec bouche
+ * sombre et cristaux (lore « Grottes de Nether-Cristal »), fixe au sol (pas d'animation de flottaison,
+ * une entrée de grotte ne lévite pas). Tous les AUTRES kinds (PNJ/familier/trésor/monde/etc.)
+ * conservent EXACTEMENT le rendu octaédrique précédent — zéro régression. */
+function MarkerBlock({ kind, poiType, x, z, onClick }: { kind: string; poiType?: MapPoiType; x: number; z: number; onClick: () => void }) {
+  // Deux refs typées séparément (react-three-fiber exige un type de ref exact par élément JSX) :
+  // `groupRef` anime le parchemin (kind==='quest', un <group> multi-pièces), `meshRef` anime le
+  // gemme flottant par défaut (tous les autres kinds, un <mesh> unique) — un seul des deux est
+  // monté selon la branche choisie ci-dessous, jamais les deux à la fois.
+  const groupRef = useRef<THREE.Group>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
+  const isCave = kind === 'poi' && poiType === 'cave';
+  const isQuest = kind === 'quest';
   useFrame((state) => {
-    if (!ref.current) return;
-    ref.current.position.y = 0.15 + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06;
-    ref.current.rotation.y += 0.01;
+    const obj: THREE.Object3D | null = isQuest ? groupRef.current : meshRef.current;
+    if (!obj || isCave) return;
+    obj.position.y = (isQuest ? 0.25 : 0.15) + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06;
+    obj.rotation.y += isQuest ? 0.006 : 0.01;
   });
   const color = MARKER_COLOR[kind] ?? '#94a3b8';
+  if (isCave) {
+    // Entrée de grotte (Nether-Cristal) : arche rocheuse + bouche sombre + cristaux lumineux violets
+    // en saillie — remplace le gemme octaédrique générique pour un décor immédiatement identifiable.
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, 0.5, 0]} castShadow>
+          <cylinderGeometry args={[0.68, 0.8, 1, 8, 1, false, 0, Math.PI]} />
+          <meshStandardMaterial color="#5b5750" roughness={0.95} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh position={[0, 0.42, 0.05]}>
+          <cylinderGeometry args={[0.42, 0.5, 0.85, 8, 1, false, 0, Math.PI]} />
+          <meshStandardMaterial color="#0b0810" roughness={1} side={THREE.DoubleSide} />
+        </mesh>
+        {[[-0.55, 0.55, -0.1], [0.5, 0.75, 0.15], [-0.2, 1.05, -0.2]].map(([cx, cy, cz], i) => (
+          <mesh key={i} position={[cx, cy, cz]} rotation={[0.3 * i, 0.5 * i, 0]} castShadow>
+            <coneGeometry args={[0.09, 0.32, 5]} />
+            <meshStandardMaterial color="#7c3aed" emissive="#7c3aed" emissiveIntensity={0.7} roughness={0.3} />
+          </mesh>
+        ))}
+      </group>
+    );
+  }
+  if (isQuest) {
+    // Parchemin roulé flottant (quêtes classiques/PNJ/énigmes) : cylindre papier + liseré + un ruban
+    // — remplace le gemme octaédrique générique par une forme reconnaissable de rouleau de quête.
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
+        <group ref={groupRef} rotation={[0, 0, Math.PI / 2]}>
+          <mesh castShadow><cylinderGeometry args={[0.13, 0.13, 0.34, 12]} /><meshStandardMaterial color="#e8d9ad" roughness={0.85} /></mesh>
+          <mesh position={[0, 0.17, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.13, 0.018, 6, 12]} /><meshStandardMaterial color="#8a6a45" roughness={0.7} /></mesh>
+          <mesh position={[0, -0.17, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.13, 0.018, 6, 12]} /><meshStandardMaterial color="#8a6a45" roughness={0.7} /></mesh>
+          <mesh position={[0, 0, 0.135]}><boxGeometry args={[0.03, 0.4, 0.01]} /><meshStandardMaterial color={color} /></mesh>
+        </group>
+      </group>
+    );
+  }
   return (
     <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
       <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-      <mesh ref={ref}>
+      <mesh ref={meshRef}>
         <octahedronGeometry args={[0.22, 0]} />
         <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.35} />
       </mesh>
@@ -396,10 +572,23 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
         <mesh position={[-0.23, 0.6, 0]} castShadow><boxGeometry args={[0.06, 0.13, 0.13]} /><meshStandardMaterial color={skin} /></mesh>
         <mesh position={[0.23, 0.6, 0]} castShadow><boxGeometry args={[0.06, 0.13, 0.13]} /><meshStandardMaterial color={skin} /></mesh>
         {head ? (
-          <mesh position={[0, 0.82, -0.01]} castShadow>
-            <boxGeometry args={[0.46, 0.16, 0.46]} />
-            <meshStandardMaterial color={rarityColor(head)} metalness={0.5} roughness={0.4} />
-          </mesh>
+          // Casque : dôme métallique + cerclage/nasal — la couleur de rareté ne teinte plus que le
+          // cerclage (accent), le dôme reste acier neutre pour un rendu casque réaliste (corrige le
+          // rendu précédent en simple « couvercle » plat pouvant apparaître comme un losange).
+          <group position={[0, 0.82, -0.01]}>
+            <mesh castShadow>
+              <sphereGeometry args={[0.24, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2]} />
+              <meshStandardMaterial color="#9aa0a6" metalness={0.7} roughness={0.35} />
+            </mesh>
+            <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
+              <torusGeometry args={[0.235, 0.028, 8, 16]} />
+              <meshStandardMaterial color={rarityColor(head)} metalness={0.6} roughness={0.3} emissive={rarityColor(head)} emissiveIntensity={0.15} />
+            </mesh>
+            <mesh position={[0, -0.05, 0.22]} castShadow>
+              <boxGeometry args={[0.06, 0.14, 0.05]} />
+              <meshStandardMaterial color="#9aa0a6" metalness={0.7} roughness={0.3} />
+            </mesh>
+          </group>
         ) : (
           <mesh position={[0, 0.8, -0.03]} castShadow><boxGeometry args={[0.44, 0.12, 0.44]} /><meshStandardMaterial color={hairColor} /></mesh>
         )}
@@ -412,21 +601,47 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
           </mesh>
         )}
         {amulet && (
-          <mesh position={[0, 0.42, 0.14]}><sphereGeometry args={[0.05, 10, 10]} /><meshStandardMaterial color={rarityColor(amulet)} emissive={rarityColor(amulet)} emissiveIntensity={0.5} /></mesh>
+          // Amulette : chaînette (anneau) + gemme facettée pendante — remplace la simple sphère
+          // uniformément teintée (rendu « bille » peu réaliste).
+          <group position={[0, 0.42, 0.14]}>
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+              <torusGeometry args={[0.045, 0.011, 6, 12]} />
+              <meshStandardMaterial color="#c9a876" metalness={0.6} roughness={0.3} />
+            </mesh>
+            <mesh position={[0, -0.06, 0]}>
+              <octahedronGeometry args={[0.04, 0]} />
+              <meshStandardMaterial color={rarityColor(amulet)} emissive={rarityColor(amulet)} emissiveIntensity={0.6} metalness={0.3} roughness={0.2} />
+            </mesh>
+          </group>
         )}
         {belt && (
           <mesh position={[0, -0.04, 0]} castShadow><boxGeometry args={[0.38, 0.07, 0.29]} /><meshStandardMaterial color={rarityColor(belt)} metalness={0.4} /></mesh>
         )}
         {/* ─── Équipement dorsal : épée OU arc+carquois, bouclier ─── */}
         {weapon && !weapon.requiresArrow && (
-          <mesh position={[-0.06, 0.28, -0.17]} rotation={[0.15, 0, 0.55]} castShadow>
-            <boxGeometry args={[0.07, 0.62, 0.03]} /><meshStandardMaterial color={rarityColor(weapon)} metalness={0.6} roughness={0.3} />
-          </mesh>
+          // Épée : pommeau + poignée (cuir) + garde (avec gemme d'accent rareté) + lame acier + pointe
+          // — remplace la précédente lame unique (fin bloc) entièrement teintée par la rareté, qui
+          // pouvait se lire comme une forme abstraite plutôt qu'une épée reconnaissable.
+          <group position={[-0.06, 0.28, -0.17]} rotation={[0.15, 0, 0.55]}>
+            <mesh position={[0, -0.28, 0]} castShadow><sphereGeometry args={[0.035, 8, 8]} /><meshStandardMaterial color="#8a6a45" metalness={0.5} roughness={0.4} /></mesh>
+            <mesh position={[0, -0.2, 0]} castShadow><cylinderGeometry args={[0.022, 0.022, 0.16, 8]} /><meshStandardMaterial color="#5b3a1e" roughness={0.8} /></mesh>
+            <mesh position={[0, -0.11, 0]} castShadow><boxGeometry args={[0.2, 0.025, 0.03]} /><meshStandardMaterial color="#c7ccd1" metalness={0.75} roughness={0.25} /></mesh>
+            <mesh position={[0, -0.11, 0.02]}><sphereGeometry args={[0.022, 8, 8]} /><meshStandardMaterial color={rarityColor(weapon)} emissive={rarityColor(weapon)} emissiveIntensity={0.6} /></mesh>
+            <mesh position={[0, 0.1, 0]} castShadow><boxGeometry args={[0.05, 0.42, 0.013]} /><meshStandardMaterial color="#c7ccd1" metalness={0.85} roughness={0.2} /></mesh>
+            <mesh position={[0, 0.35, 0]} castShadow><coneGeometry args={[0.027, 0.08, 4]} /><meshStandardMaterial color="#c7ccd1" metalness={0.85} roughness={0.2} /></mesh>
+          </group>
         )}
         {weapon && weapon.requiresArrow && (
-          <mesh position={[-0.06, 0.28, -0.17]} rotation={[0, 0, 0.55]} castShadow>
-            <torusGeometry args={[0.28, 0.02, 6, 12, Math.PI]} /><meshStandardMaterial color={rarityColor(weapon)} />
-          </mesh>
+          // Arc : arc bois (teinte neutre, non tintée par la rareté) + corde tendue + gemme d'accent
+          // sertie sur le riser central — corrige le rendu précédent en simple demi-tore uniformément
+          // teinté par la rareté (pouvait apparaître comme un « donut » violet/or selon la rareté).
+          <group position={[-0.06, 0.28, -0.17]} rotation={[0, 0, 0.55]}>
+            <mesh castShadow>
+              <torusGeometry args={[0.28, 0.018, 6, 12, Math.PI]} /><meshStandardMaterial color="#6b4423" roughness={0.75} />
+            </mesh>
+            <mesh><boxGeometry args={[0.56, 0.01, 0.008]} /><meshStandardMaterial color="#e5decf" /></mesh>
+            <mesh position={[0, 0.28, 0]}><sphereGeometry args={[0.03, 8, 8]} /><meshStandardMaterial color={rarityColor(weapon)} emissive={rarityColor(weapon)} emissiveIntensity={0.6} /></mesh>
+          </group>
         )}
         {arrows && (arrows.qty ?? 0) > 0 && (
           <group position={[0.1, 0.32, -0.18]} rotation={[0.2, 0, -0.1]}>
@@ -436,9 +651,19 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
           </group>
         )}
         {offhand && (
-          <mesh position={[0.14, 0.2, -0.17]} rotation={[0, 0, 0]} castShadow>
-            <boxGeometry args={[0.22, 0.3, 0.04]} /><meshStandardMaterial color={rarityColor(offhand)} metalness={0.5} roughness={0.4} />
-          </mesh>
+          // Bouclier : disque bois/cuir + bordure métallique (accent rareté) + umbo central bombé —
+          // remplace le précédent bloc plat rectangulaire pouvant se lire comme une forme abstraite.
+          <group position={[0.14, 0.2, -0.17]}>
+            <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
+              <cylinderGeometry args={[0.15, 0.15, 0.03, 16]} /><meshStandardMaterial color="#7a5230" roughness={0.7} />
+            </mesh>
+            <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.001]}>
+              <torusGeometry args={[0.148, 0.014, 6, 16]} /><meshStandardMaterial color={rarityColor(offhand)} metalness={0.6} roughness={0.3} />
+            </mesh>
+            <mesh position={[0, 0, 0.018]} castShadow>
+              <sphereGeometry args={[0.045, 10, 8]} /><meshStandardMaterial color={rarityColor(offhand)} metalness={0.65} roughness={0.3} emissive={rarityColor(offhand)} emissiveIntensity={0.2} />
+            </mesh>
+          </group>
         )}
         {/* ─── Bras (pivot épaule) + mains ─── */}
         <group ref={leftArmRef} position={[-0.26, 0.4, 0]}>
@@ -478,7 +703,7 @@ interface SceneMarker { id: string; kind: string; x: number; z: number; marker: 
 function Scene({
   centerCol, centerRow, poiPoints, sceneMarkers, stage, walking, running, swimming, jumpTrigger, facing,
   equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
-  onCameraYaw, chaseCameraEnabled, eyeBlinkEnabled, eyeBlinkIntervalSec,
+  onCameraYaw, chaseCameraEnabled, eyeBlinkEnabled, eyeBlinkIntervalSec, objectFlags,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
@@ -492,6 +717,9 @@ function Scene({
   onCameraYaw: (yaw: number) => void;
   chaseCameraEnabled: boolean;
   eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
+  /** Registre admin-paramétrable des tailles de décor (Administration > 🧱 Objets & décor 3D) — voir
+   * Platform3DObjectFlags.scale ; `undefined` retombe sur DEFAULT_PLATFORM3D_OBJECT_FLAGS (scale 1). */
+  objectFlags?: Record<Platform3DObjectKind, Platform3DObjectFlags>;
 }) {
   // Ref vers l'instance OrbitControls (three.js), pour lire son angle azimutal (yaw) courant à
   // chaque frame et le remonter au composant parent (voir rotateInputByCameraYaw) — un ref simple
@@ -544,7 +772,15 @@ function Scene({
       let delta = targetTheta - current;
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
-      if (Math.abs(delta) > 0.001) controls._sphericalDelta.theta += delta * 0.05;
+      // Garde défensive : la version de three-stdlib actuellement installée n'expose PLUS
+      // `_sphericalDelta` comme champ public sur l'instance OrbitControls (variable interne à la
+      // fermeture du constructeur dans les versions récentes) — l'écriture directe levait une
+      // exception à CHAQUE frame de marche ("Cannot read properties of undefined (reading 'theta')"),
+      // détectée via Playwright en vérifiant la Plateforme 3D. Sans effet sur `onCameraYaw` ni sur la
+      // résolution de direction (inchangées) : seule cette micro-impulsion d'amortissement cosmétique
+      // est ignorée si l'API interne est absente, aucune régression fonctionnelle (elle ne faisait de
+      // toute façon plus rien d'autre qu'échouer silencieusement… en plantant, avant ce correctif).
+      if (Math.abs(delta) > 0.001 && controls._sphericalDelta) controls._sphericalDelta.theta += delta * 0.05;
     } else {
       onCameraYaw(controls.getAzimuthalAngle());
     }
@@ -584,13 +820,14 @@ function Scene({
               <PropBlock
                 kind={tile.prop} x={x} z={z}
                 topY={tile.terrain === 'rock' ? Math.min(1.9, (tile.altitudeM ?? 300) / 2800) : 0}
+                scale={(objectFlags ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS)[platform3dPropKind(tile.prop)]?.scale ?? 1}
                 onClick={onClick}
               />
             )}
           </group>
         );
       })}
-      {sceneMarkers.map(m => <MarkerBlock key={m.id} kind={m.kind} x={m.x} z={m.z} onClick={() => onMarkerClick(m.marker)} />)}
+      {sceneMarkers.map(m => <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} x={m.x} z={m.z} onClick={() => onMarkerClick(m.marker)} />)}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
         facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled} standY={standY}
@@ -1373,6 +1610,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               chaseCameraEnabled={rules?.platform3dChaseCameraEnabled ?? true}
               eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
               eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
+              objectFlags={rules?.platform3dObjectFlags}
             />
           )}
         </Canvas>

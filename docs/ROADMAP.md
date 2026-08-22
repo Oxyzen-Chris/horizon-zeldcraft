@@ -70,6 +70,18 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
       de vie/XP/force ou objets (dont un objet Ultra rare gagnable 1×/jour). Entièrement
       paramétrable dans `Administration > Barème & règles` (activation, % de chance, type de dé
       d4→d100 avec les vrais noms de polyèdres, gains par face)
+- [x] **Plateforme 3D — réalisme du décor/équipement** : sol texturé proceduralement (herbe/sable/
+      sentier/roche, généré et mis en cache par type de terrain, zéro coût de performance
+      supplémentaire par tuile), arbres/décor redimensionnés pour rester nettement plus grands que
+      Synk (silhouettes distinctes tronc+double feuillage/baobab/palmier/bambou/hutte/château/
+      portail), échelle paramétrable objet par objet dans `Administration > Barème & règles > 🧱
+      Objets & décor 3D`. Équipement reconstruit en formes reconnaissables (épée lame+garde+
+      poignée+pommeau, arc bois+corde+gemme, bouclier disque+bordure+umbo, casque dôme+cerclage,
+      amulette chaînette+gemme facettée) avec la couleur de rareté en simple accent plutôt qu'en
+      teinte uniforme. Grotte (POI Nether-Cristal) rendue en arche rocheuse + cristaux, quêtes en
+      parchemin roulé flottant. Corrigé au passage : un plantage (`<coneGeometry rotation-y>` mal
+      placé) et une erreur JS répétée à chaque frame de marche dans la caméra suiveuse
+      (`OrbitControls._sphericalDelta` non exposé par la version de `three-stdlib` installée)
 
 ## ⚠️ Dette technique connue — redéploiement du smart contract à prévoir
 

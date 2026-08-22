@@ -3260,26 +3260,32 @@ export const PLATFORM3D_OBJECT_KINDS: Platform3DObjectKind[] = [
   'prop:tree', 'prop:bamboo', 'prop:baobab', 'prop:palm', 'prop:hut', 'prop:castle', 'prop:portal',
 ];
 
-export interface Platform3DObjectFlags { obstacle: boolean; climbable: boolean; water: boolean }
+export interface Platform3DObjectFlags { obstacle: boolean; climbable: boolean; water: boolean; scale: number }
 
 /** Comportement par défaut de chaque type d'objet/décor (voir Platform3DObjectFlags ci-dessus) —
  * reproduit EXACTEMENT le comportement historique déjà en place (montagne franchissable au saut,
  * eau immergeante, huttes/châteaux déjà bloqués via worldTerrain.ts::isObstacleAt) et AJOUTE les
  * arbres/bambous/baobabs/palmiers comme obstacles (correctif du bug "je traverse les arbres"),
- * modifiable ensuite librement par l'admin sans toucher au code. */
+ * modifiable ensuite librement par l'admin sans toucher au code.
+ * `scale` (défaut 1) est un multiplicateur appliqué à la géométrie 3D déjà proportionnée de façon
+ * réaliste (voir Platform3DWidget.tsx::PropBlock) — permet à l'admin d'ajuster librement la taille
+ * de chaque décor (ex. rapetisser un peu les baobabs, ou grossir le château) sans toucher au code ;
+ * ignoré pour les `terrain:*` (le sol reste toujours une dalle 1×1, redimensionner n'aurait pas de
+ * sens visuellement — champ conservé pour la simplicité du type mais non exposé dans l'admin pour
+ * ces lignes-là). */
 export const DEFAULT_PLATFORM3D_OBJECT_FLAGS: Record<Platform3DObjectKind, Platform3DObjectFlags> = {
-  'terrain:grass': { obstacle: false, climbable: false, water: false },
-  'terrain:sand':  { obstacle: false, climbable: false, water: false },
-  'terrain:path':  { obstacle: false, climbable: false, water: false },
-  'terrain:rock':  { obstacle: false, climbable: true,  water: false },
-  'terrain:water': { obstacle: false, climbable: false, water: true },
-  'prop:tree':     { obstacle: true,  climbable: false, water: false },
-  'prop:bamboo':   { obstacle: true,  climbable: false, water: false },
-  'prop:baobab':   { obstacle: true,  climbable: false, water: false },
-  'prop:palm':     { obstacle: true,  climbable: false, water: false },
-  'prop:hut':      { obstacle: true,  climbable: false, water: false },
-  'prop:castle':   { obstacle: true,  climbable: false, water: false },
-  'prop:portal':   { obstacle: false, climbable: false, water: false },
+  'terrain:grass': { obstacle: false, climbable: false, water: false, scale: 1 },
+  'terrain:sand':  { obstacle: false, climbable: false, water: false, scale: 1 },
+  'terrain:path':  { obstacle: false, climbable: false, water: false, scale: 1 },
+  'terrain:rock':  { obstacle: false, climbable: true,  water: false, scale: 1 },
+  'terrain:water': { obstacle: false, climbable: false, water: true,  scale: 1 },
+  'prop:tree':     { obstacle: true,  climbable: false, water: false, scale: 1 },
+  'prop:bamboo':   { obstacle: true,  climbable: false, water: false, scale: 1 },
+  'prop:baobab':   { obstacle: true,  climbable: false, water: false, scale: 1 },
+  'prop:palm':     { obstacle: true,  climbable: false, water: false, scale: 1 },
+  'prop:hut':      { obstacle: true,  climbable: false, water: false, scale: 1 },
+  'prop:castle':   { obstacle: true,  climbable: false, water: false, scale: 1 },
+  'prop:portal':   { obstacle: false, climbable: false, water: false, scale: 1 },
 };
 
 /**

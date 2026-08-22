@@ -78,6 +78,22 @@ export function RepRulesPanel() {
     }));
   };
 
+  /** Facteur d'échelle (`scale`, défaut 1) du décor 3D (arbres/huttes/châteaux/portails/…) — voir
+   * Platform3DWidget.tsx::PropBlock. Ne s'applique qu'aux `prop:*` (le sol/terrain ne se redimensionne
+   * pas) mais reste éditable pour toutes les lignes pour rester cohérent avec les 3 autres colonnes ;
+   * `Platform3DWidget.tsx` ignore simplement `scale` pour les `terrain:*`. Borné à [0.2, 5] pour
+   * éviter un décor invisible (trop petit) ou qui dévore l'écran (trop grand) par erreur de saisie. */
+  const setObjectScale = (kind: Platform3DObjectKind, v: number) => {
+    const clamped = Number.isFinite(v) ? Math.min(5, Math.max(0.2, v)) : 1;
+    setRules(prev => ({
+      ...prev,
+      platform3dObjectFlags: {
+        ...prev.platform3dObjectFlags,
+        [kind]: { ...(prev.platform3dObjectFlags?.[kind] ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS[kind]), scale: clamped },
+      },
+    }));
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -676,17 +692,27 @@ export function RepRulesPanel() {
                 <th className="pb-1 px-2 text-center">{t('admin.repRules.platform3dObjectFlagsObstacle')}</th>
                 <th className="pb-1 px-2 text-center">{t('admin.repRules.platform3dObjectFlagsClimbable')}</th>
                 <th className="pb-1 px-2 text-center">{t('admin.repRules.platform3dObjectFlagsWater')}</th>
+                <th className="pb-1 px-2 text-center">{t('admin.repRules.platform3dObjectFlagsScale')}</th>
               </tr>
             </thead>
             <tbody>
               {PLATFORM3D_OBJECT_KINDS.map(kind => {
                 const flags = rules.platform3dObjectFlags?.[kind] ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS[kind];
+                const isTerrain = kind.startsWith('terrain:');
                 return (
                   <tr key={kind} className="border-t border-slate-800">
                     <td className="py-1 pr-2 text-slate-300">{t(`admin.repRules.platform3dKind.${kind.replace(':', '_')}`)}</td>
                     <td className="text-center"><input type="checkbox" checked={flags.obstacle} onChange={e => setObjectFlag(kind, 'obstacle', e.target.checked)} /></td>
                     <td className="text-center"><input type="checkbox" checked={flags.climbable} onChange={e => setObjectFlag(kind, 'climbable', e.target.checked)} /></td>
                     <td className="text-center"><input type="checkbox" checked={flags.water} onChange={e => setObjectFlag(kind, 'water', e.target.checked)} /></td>
+                    <td className="text-center">
+                      {isTerrain ? (
+                        <span className="text-slate-600">—</span>
+                      ) : (
+                        <input type="number" min="0.2" max="5" step="0.1" className="input w-16 text-center"
+                          value={flags.scale ?? 1} onChange={e => setObjectScale(kind, parseFloat(e.target.value))} />
+                      )}
+                    </td>
                   </tr>
                 );
               })}

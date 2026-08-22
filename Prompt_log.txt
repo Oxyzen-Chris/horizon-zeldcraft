@@ -386,6 +386,18 @@ Pour rendre Synk plus vivant et humain, dans le widget “Plateforme 3D” insé
 Comme pour les autres jetés de dés (quick test, daily luck roll, Roll...), tu animmeras le jeté de dès dans le widget en affichant les faces du ou des dès qui bougent.
 Rend paramétrable dans le menu Administration les différents dés (dés à 4 faces : Le tétraède, dés à 6 faces, dés à 8 faces : L’octaèdre, dés à 10 faces : Le trapézoèdre pentagonal, dés à 12 faces : Le dodécaèdre régulier, dés à 20 faces : L’isocaèdre, dés à 100 faces : Le zocchièdre), différentes faces de dès avec son gain (XP, objet parmis le shop ou objet supplémentaire ultra-puissant en force+xp+magie non-référencés dans le shop et donc uniquement gagnable sur un jeté de dès 1 fois par jour seulement ! Pour ce développement, tu veilleras a respecter l'esprit de Dungeons & Dragons !
 Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+-----------------------------------------------------------------------------------------------------------------
+Dans le widget "3D Plateform" :
+- Fait en sorte que les arbres et les objets soit de tailles plus naturelles et plus grand par rapport à la taille de Synk (aujourd'hui les arbres sont trop petits !) : par exemple, un arbre est généralement plus grand qu'un humain, uné épée est de taille suffisante pour tenir dans la paume de la main de Synk, un familier Dragon plus grand que Synk pour qu'il puisse le chevaucher. Fait donc en sorte que les proportionnalités soient respectées sans pour autant faire des arbres immenses ou des objets trop grands. Il faut garder une proportionnalité avec une taille réaliste de Synk, comme dans la vraie vie.. Tu rendras tous ces objets 3D paramétrable avec la possibilité de les modifier, de les supprimer, d'en créer ou charger de nouveau dans une rubrique spécifique à cela dans le menu Administration.
+- Fait en sorte qu'une amulette ressemble vraiment a une vraie amulette, qu'une épée ressemble vraiment à une vraie épée, q'un bouclier ressemble vraiment à un vrai bouclier, q'un casque ressemble vraiment à un vrai casque du moyen-age et pas comme c'est le cas en ce moment à un donut violet ou un losange jaune, bleu, etc... Je veux des objets réalistes dans la Plateforme 3D. Applique également des textures en rapport avec les objets pour les rendre plus réalistes (la texture d'une épée pour un objet épée). Une énigme pourrait ressembler à un parchemin qui flotte dans les airs dans l'univers 3D. Soit imaginatif et innovant mais en même temps, réaliste en respectant l'univers de Dungeons & Dragons. Il faut faire en sorte que les objets 3D ressemble le plus possible à la réalité tout en gardant une taille réaliste, visible dans le jeu (donc pas trop petit) mais pas trop grand. Tu rendras tous ces objets 3D paramétrable avec la possibilité d'en créer ou charger de nouveau, dans une rubrique spécifique à cela dans le menu Administration.
+- Fait en sorte de rendre le décor 3D le plus réaliste possible, par exemple, pour le sol, applique une texture de type herbe (sauvage), ou une texture de terre, fonction des endroits et appliques des textures réalistes sur les blocs, dalle, sols, etc...Fait en sorte qu'un objet grotte (grottes de Nether-Cristal par exemple) ressemble vraiment à l'entrée d'une grotte avec un objet ou une forme ressemblant à l'entrée d'une grotte en ajoutant également une texture de grotte.
+Tu rendras tous ces objets 3D paramétrable avec la possibilité d'en créer ou charger dans une rubrique spécifique à cela dans le menu Administration
+Le mot d'ordre c'est du réalisme dans la plateforme 3D, des images, des textures et pas juste des objets 3D sans rapports avec son nom tout enrespectant l'univers de Dungeons & Dragons et les objets formes, images que 'mon peu y trouver.
+Bien sûr, il faut que le déplacement de Synk et l'univers dans le widget de la Plaforme 3D et le jeu reste fluide. 
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin.
+Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub.
+Vérifie néanmoins que les solutions et développements que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu.
+
 
 
 
@@ -436,20 +448,6 @@ Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu"
 
 
 - Approfondir le module Widget de conversation avec un PNJ :
-
-
-
-
-Dans le widget "3D Plateform" :
-- Fait en sorte que les arbres et les objets soit de tailles plus naturelles et plus grand par rapport à la taille de Synk (aujourd'hui les arbres sont trop petits !) : par exemple, un arbre est généralement plus grand qu'un humain, uné épée est de taille suffisante pour tenir dans la paume de la main de Synk, un familier Dragon plus grand que Synk pour qu'il puisse le chevaucher soit de la taille d'un dragon face à un humain, etc... Fait donc en sorte que les proportionnalités soient respectées sans pour autant faire des arbres immenses ou des objets trop grands. Il faut garder une proportionnalité avec une taille réaliste de Synk, comme dans la vraie vie.. Tu rendras tous ces objets 3D paramétrable avec la possibilité de les modifier, d'en créer ou charger de nouveau dans une rubrique spécifique à cela dans le menu Administration.
-- Fait en sorte qu'une amulette ressemble vraiment a une vraie amulette, qu'une épée ressemble vraiment à une vraie épée, q'un bouclier ressemble vraiment à un vrai bouclier, q'un casque ressemble vraiment à un vrai casque du moyen-age et pas comme c'est le cas en ce moment à un donut violet ou un losange jaune, bleu, etc... Je veux des objets réalistes dans la Plateforme 3D, applique également des textures en rapport avec les objets pour les rendre plus réalistes (la texture d'une épée pour une épée). Une énigme pourrait ressembler à un parchemin qui flotte dans les airs. Soif imaginatif mais en même temps, réaliste en respectant l'univers de Dungeons & Dragons. Il faut faire en sorte que les objets 3D ressemble le plus possible à la réalité tout en gardant une taille réaliste, visible dans le jeu (donc pas trop petit) mais pas trop grand. Tu rendras tous ces objets 3D paramétrable avec la possibilité d'en créer ou charger dans une rubrique spécifique à cela dans le menu Administration.
-- Fait en sorte de rendre le décor 3D le plus réaliste possible, par exemple, pour le sol, applique une texture de type herbe (sauvage), ou une texture de terre, fonction des endroits et appliques des textures réalistes sur les blocs, dalle, sols, etc...Fait en sorte qu'un objet grotte (grottes de Nether-Cristal par exemple) ressemble vraiment à l'entrée d'une grotte avec un objet ou une forme ressemblant à l'entrée d'une grotte en ajoutant également une texture de grotte.
-Tu rendras tous ces objets 3D paramétrable avec la possibilité d'en créer ou charger dans une rubrique spécifique à cela dans le menu Administration
-Le mot d'ordre c'est du réalisme dans la plateforme 3D, des images, des textures et pas juste des objets 3D sans rapports avec son nom tout enrespectant l'univers de Dungeons & Dragons et les objets formes, images que 'mon peu y trouver.
-Bien sûr, il faut que le déplacement de Synk et l'univers dans le widget de la Plaforme 3D et le jeu reste fluide. 
-Utilises Playwright pour simuler, tester, débugger et résoudre au besoin.
-Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub.
-Vérifie néanmoins que les solutions et développements que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu.
 
 
 
