@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   getRepRules, getOrCreatePlayer, computePlayerDiceBonus, rollD20,
   hasRolledDailyLuck, markDailyLuckRolled, applyEffect, DEFAULT_REP_RULES, type RepRules,
+  resolveActionDiceRoll, type ActionDiceResult, type ActionDiceFaceKind,
 } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
@@ -45,6 +46,41 @@ function Die({ value, rolling, landKey, tone }: { value: number; rolling: boolea
   );
 }
 
+/** Icône par face du Dé d'Action D&D — voir `resolveActionDiceRoll` dans gameState.ts. Les 4 faces
+ * canoniques (Flight/Fight/Freeze/Fawn) existent toujours quel que soit `actionDiceSides` (le
+ * tumbling visuel ci-dessous ne défile que sur ces 4-là, même si le dé réel a plus de faces) ;
+ * les faces bonus (`bonusXp`/`bonusItem`/`bonusUltra`), uniquement atteignables si l'admin
+ * configure un dé à plus de 4 faces, ont leur propre icône pour l'affichage du résultat final. */
+const ACTION_FACE_ICONS: Record<ActionDiceFaceKind, string> = {
+  flight: '🏃', fight: '⚔️', freeze: '🥶', fawn: '🤝', bonusXp: '✨', bonusItem: '🎁', bonusUltra: '🌟',
+};
+const ACTION_FACE_KEYS: Record<ActionDiceFaceKind, string> = {
+  flight: 'dice.action.flight', fight: 'dice.action.fight', freeze: 'dice.action.freeze', fawn: 'dice.action.fawn',
+  bonusXp: 'dice.action.bonusXp', bonusItem: 'dice.action.bonusItem', bonusUltra: 'dice.action.bonusUltra',
+};
+const ACTION_CANONICAL_FACES: ActionDiceFaceKind[] = ['flight', 'fight', 'freeze', 'fawn'];
+
+/**
+ * Dé animé du Dé d'Action D&D (tétraèdre à 4 faces, ou plus si paramétré en Administration) :
+ * même mécanique de tumbling que `Die` (rotation + face aléatoire qui défile) mais affiche une
+ * icône + le nom de la face plutôt qu'un chiffre, et prend une forme triangulaire (clip-path)
+ * pour se distinguer visuellement du dé "diamant" classique (`Die`, d20).
+ */
+function ActionDie({ face, rolling, landKey, tone }: { face: ActionDiceFaceKind; rolling: boolean; landKey: number; tone: 'neutral' | 'win' | 'lose' }) {
+  const toneClass = tone === 'win' ? 'from-emerald-600 to-emerald-800 border-emerald-300'
+    : tone === 'lose' ? 'from-rose-600 to-rose-800 border-rose-300'
+    : 'from-violet-600 to-violet-800 border-violet-300';
+  return (
+    <div
+      key={rolling ? 'rolling' : landKey}
+      className={`w-16 h-16 rounded-lg border-2 shadow-lg bg-gradient-to-br ${toneClass} flex flex-col items-center justify-center gap-0.5 ${rolling ? 'animate-dice-tumble' : 'animate-dice-land'}`}
+      style={{ clipPath: 'polygon(50% 6%, 6% 94%, 94% 94%)' }}
+    >
+      <span className="text-lg leading-none mt-2">{ACTION_FACE_ICONS[face]}</span>
+    </div>
+  );
+}
+
 /** Tirage sans enjeu (façon "brouillon") : PNJ fictif de Force aléatoire 5-40, comme rollNpc(). */
 function rollQuickTest(playerBonus: number): { playerRoll: number; npcRoll: number; npcBonus: number; win: boolean } {
   const npcForce = 5 + Math.floor(Math.random() * 40);
@@ -67,10 +103,16 @@ export type DiceEventKind = 'fight';
  * à ajouter (purement additif) au tirage de résolution propre à l'événement (ex. resolveFight()
  * dans NpcEncounterPopup.tsx). */
 export interface DiceEventOutcome {
-  roll: number; // somme des 2 dés (2-40)
+  roll: number; // somme des 2 dés (2-40), ou face+1 si mécanisme Dé d'Action (voir `action` ci-dessous)
   rolls: [number, number]; // détail des 2 dés, pour affichage
   modifier: number; // positif = bonus, négatif = malus, 0 = neutre
   tier: 'bonus' | 'malus' | 'neutral';
+  /** Renseigné UNIQUEMENT si ce lancer a utilisé le Dé d'Action D&D (Flight/Fight/Freeze/Fawn,
+   * tiré au sort ~50/50 avec le 2d20 classique ci-dessus — voir RepRules.actionDiceChancePct) au
+   * lieu du 2d20 classique ; permet à l'appelant (NpcEncounterPopup.tsx) d'afficher le détail
+   * (face, gains/pertes) dans FightResultModal sans changer sa logique de combat (`modifier`/
+   * `tier` restent compatibles et purement additifs, exactement comme le 2d20 classique). */
+  action?: ActionDiceResult;
 }
 
 /** Classe une somme de 2d20 (2-40) en bonus/malus/neutre selon les seuils paramétrables (menu
@@ -127,25 +169,48 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
   const [bonus, setBonus] = useState(0);
   const [dailyDone, setDailyDone] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [rolling, setRolling] = useState<'quick' | 'daily' | 'event' | null>(null);
+  const [rolling, setRolling] = useState<'quick' | 'daily' | 'event' | 'actionDice' | null>(null);
   const [spinPlayer, setSpinPlayer] = useState(1);
   const [spinNpc, setSpinNpc] = useState(1);
+  const [spinFace, setSpinFace] = useState<ActionDiceFaceKind>('fight');
   const [landKey, setLandKey] = useState(0);
   const tumbleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const faceTumbleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Mécanisme tiré au sort pour LE combat en attente (`pendingEvent`) : `true` = Dé d'Action D&D,
+   * `false` = 2d20 classique (`rollEvent` ci-dessous, inchangé), `null` = aucun combat en attente.
+   * Décidé UNE SEULE FOIS par combat (voir le useEffect sur `pendingEvent` plus bas) pour éviter de
+   * re-tirer à chaque re-render (même piège que le bug de re-render StrictMode déjà corrigé sur le
+   * z-index des widgets — voir windowZOrder.ts). */
+  const [actionMode, setActionMode] = useState<boolean | null>(null);
   const [result, setResult] = useState<
     | { kind: 'quick'; playerRoll: number; npcRoll: number; playerBonus: number; npcBonus: number; win: boolean }
     | { kind: 'daily'; playerRoll: number; total: number; threshold: number; win: boolean; reward: string }
     | { kind: 'event'; roll1: number; roll2: number; total: number; modifier: number; tier: DiceEventOutcome['tier'] }
+    | { kind: 'action'; outcome: ActionDiceResult }
     | null
   >(null);
 
   // Un lancer obligatoire vient d'être réclamé (ex. combat PNJ) : ouvre automatiquement le widget
-  // s'il était réduit, pour que le bouton "Lancer..." soit visible et cliquable immédiatement.
-  useEffect(() => {
+  // s'il était réduit, pour que le bouton "Lancer..." soit visible et cliquable immédiatement, et
+  // tire UNE SEULE FOIS le mécanisme à utiliser pour CE combat (Dé d'Action D&D vs 2d20 classique,
+  // voir RepRules.actionDiceEnabled/actionDiceChancePct — défaut 50/50). Remis à `null` dès que le
+  // combat se termine (`pendingEvent` redevient falsy), prêt pour un nouveau tirage au prochain.
+  // useLayoutEffect (et non useEffect) : la décision doit être posée AVANT le paint du navigateur,
+  // sinon le bouton "classique" (branche par défaut quand actionMode est encore `null`) s'affiche
+  // brièvement mais bien ACTIF (disabled dépend uniquement de pendingEvent, pas de actionMode), ce
+  // qui ouvre une fenêtre de course où un clic rapide déclenche le mauvais mécanisme.
+  useLayoutEffect(() => {
     if (pendingEvent) {
       setCollapsed(false);
       try { localStorage.setItem(COLLAPSED_KEY, '0'); } catch { /* ignore */ }
+      const enabled = rules?.actionDiceEnabled ?? DEFAULT_REP_RULES.actionDiceEnabled;
+      const chance = rules?.actionDiceChancePct ?? DEFAULT_REP_RULES.actionDiceChancePct;
+      const roll = Math.random() * 100;
+      setActionMode(enabled && roll < chance);
+    } else {
+      setActionMode(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingEvent]);
 
   useEffect(() => {
@@ -161,7 +226,10 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
   }, [address, rules]);
 
   // Coupe l'intervalle de tumbling si le widget se démonte pendant une animation en cours.
-  useEffect(() => () => { if (tumbleRef.current) clearInterval(tumbleRef.current); }, []);
+  useEffect(() => () => {
+    if (tumbleRef.current) clearInterval(tumbleRef.current);
+    if (faceTumbleRef.current) clearInterval(faceTumbleRef.current);
+  }, []);
 
   /** Démarre le tumbling visuel (chiffres aléatoires qui défilent sur le/les dés). */
   const startTumble = (twoDice: boolean) => {
@@ -251,6 +319,38 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
     setLandKey(k => k + 1);
     setRolling(null);
     onEventResolved?.({ roll: total, rolls: [roll1, roll2], modifier, tier });
+  };
+
+  /**
+   * Lancer OBLIGATOIRE réclamé par un événement du jeu, variante "Dé d'Action D&D" (tétraèdre
+   * Flight/Fight/Freeze/Fawn — voir resolveActionDiceRoll dans gameState.ts), tiré au sort une
+   * fois par combat contre le 2d20 classique ci-dessus (voir `actionMode`). Applique directement
+   * les gains/pertes de la face (XP/Vie/Force/objet) puis renvoie un `modifier`/`tier` compatible
+   * à `onEventResolved`, exactement comme `rollEvent`, pour que `resolveFight()` (NpcEncounterPopup)
+   * n'ait besoin d'AUCUN changement.
+   */
+  const rollActionDice = async () => {
+    if (!pendingEvent || rolling || busy || !address) return;
+    setRolling('actionDice');
+    setResult(null);
+    setSpinFace(ACTION_CANONICAL_FACES[Math.floor(Math.random() * ACTION_CANONICAL_FACES.length)]);
+    faceTumbleRef.current = setInterval(() => {
+      setSpinFace(ACTION_CANONICAL_FACES[Math.floor(Math.random() * ACTION_CANONICAL_FACES.length)]);
+    }, TUMBLE_TICK);
+    try {
+      const [outcome] = await Promise.all([
+        resolveActionDiceRoll(address, rules ?? DEFAULT_REP_RULES),
+        sleep(TUMBLE_MS),
+      ]);
+      if (faceTumbleRef.current) { clearInterval(faceTumbleRef.current); faceTumbleRef.current = null; }
+      setSpinFace(outcome.face);
+      setResult({ kind: 'action', outcome });
+      setLandKey(k => k + 1);
+      onEventResolved?.({ roll: outcome.faceIndex + 1, rolls: [outcome.faceIndex + 1, outcome.sides], modifier: outcome.modifier, tier: outcome.tier, action: outcome });
+    } finally {
+      if (faceTumbleRef.current) { clearInterval(faceTumbleRef.current); faceTumbleRef.current = null; }
+      setRolling(null);
+    }
   };
 
   if (!enabled || !address || !pos) return null;
@@ -349,6 +449,16 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
             />
           </div>
         )}
+        {(rolling === 'actionDice' || result?.kind === 'action') && (
+          <div className="flex items-center justify-center py-2">
+            <ActionDie
+              face={spinFace}
+              rolling={rolling === 'actionDice'}
+              landKey={landKey}
+              tone={rolling === 'actionDice' || !result || result.kind !== 'action' ? 'neutral' : (result.outcome.tier === 'bonus' ? 'win' : result.outcome.tier === 'malus' ? 'lose' : 'neutral')}
+            />
+          </div>
+        )}
 
         <button className="btn-secondary text-xs w-full disabled:opacity-40" disabled={!!rolling || busy || !!otherRollsLocked} onClick={rollQuick}>
           {rolling === 'quick' ? '🎲…' : `🎲 ${t('dice.quickTest')}`}
@@ -356,13 +466,23 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
         <button className="btn-primary text-xs w-full disabled:opacity-40" disabled={busy || !!rolling || dailyDone || !!otherRollsLocked} onClick={rollDaily}>
           {rolling === 'daily' ? '🎲…' : busy ? '⏳' : dailyDone ? t('dice.alreadyRolled') : t('dice.dailyLuck')}
         </button>
-        <button
-          className={`btn-secondary text-xs w-full disabled:opacity-40 ${pendingEvent ? 'border border-cyan-400 ring-1 ring-cyan-400 animate-pulse' : ''}`}
-          disabled={!pendingEvent || !!rolling || busy}
-          onClick={rollEvent}
-        >
-          {rolling === 'event' ? '🎲…' : `🎲 ${t('dice.launchEvent')}`}
-        </button>
+        {pendingEvent && actionMode ? (
+          <button
+            className="btn-secondary text-xs w-full disabled:opacity-40 border border-violet-400 ring-1 ring-violet-400 animate-pulse"
+            disabled={!!rolling || busy}
+            onClick={rollActionDice}
+          >
+            {rolling === 'actionDice' ? '🎲…' : `🎲 ${t('dice.launchActionEvent')}`}
+          </button>
+        ) : (
+          <button
+            className={`btn-secondary text-xs w-full disabled:opacity-40 ${pendingEvent ? 'border border-cyan-400 ring-1 ring-cyan-400 animate-pulse' : ''}`}
+            disabled={!pendingEvent || actionMode === null || !!rolling || busy}
+            onClick={rollEvent}
+          >
+            {rolling === 'event' ? '🎲…' : `🎲 ${t('dice.launchEvent')}`}
+          </button>
+        )}
 
         {result && result.kind === 'quick' && (
           <div className="bg-slate-800/60 rounded p-2 mt-1">
@@ -390,6 +510,24 @@ export function DiceRollWidget({ pendingEvent, onEventResolved, otherRollsLocked
             <p className="text-slate-400">
               {result.roll1} + {result.roll2} = {result.total}{result.modifier !== 0 ? ` (${result.modifier > 0 ? '+' : ''}${result.modifier})` : ''}
             </p>
+          </div>
+        )}
+        {result && result.kind === 'action' && (
+          <div className="bg-slate-800/60 rounded p-2 mt-1">
+            <p className={result.outcome.tier === 'bonus' ? 'text-emerald-400' : 'text-rose-400'}>
+              {ACTION_FACE_ICONS[result.outcome.face]} {t(ACTION_FACE_KEYS[result.outcome.face])}
+            </p>
+            <p className="text-slate-400">
+              {[
+                result.outcome.xpDelta !== 0 ? `${result.outcome.xpDelta > 0 ? '+' : ''}${result.outcome.xpDelta} XP` : null,
+                result.outcome.hpDelta !== 0 ? `${result.outcome.hpDelta > 0 ? '+' : ''}${result.outcome.hpDelta} ❤️` : null,
+                result.outcome.forceDelta !== 0 ? `${result.outcome.forceDelta > 0 ? '+' : ''}${result.outcome.forceDelta} 💪` : null,
+                result.outcome.spellsDelta !== 0 ? `${result.outcome.spellsDelta > 0 ? '+' : ''}${result.outcome.spellsDelta} ✨` : null,
+              ].filter(Boolean).join(' · ')}
+            </p>
+            {result.outcome.itemGained && <p className="text-emerald-400">🎁 {result.outcome.itemGained}</p>}
+            {result.outcome.itemLost && <p className="text-rose-400">📤 {result.outcome.itemLost}</p>}
+            {result.outcome.isUltra && <p className="text-amber-300 font-semibold">🌟 {t('dice.action.ultra')}</p>}
           </div>
         )}
         <p className="text-slate-500">{pendingEvent ? t('dice.eventHint') : t('dice.hint')}</p>

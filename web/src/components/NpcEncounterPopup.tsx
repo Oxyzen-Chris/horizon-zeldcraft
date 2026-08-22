@@ -602,6 +602,7 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
           lootItemName, stolenItemName,
           equipBonus: equipInfo.bonus || undefined, brokenItemNames,
           diceEventRoll: diceOutcome?.roll, diceEventRolls: diceOutcome?.rolls, diceEventModifier: diceOutcome?.modifier,
+          diceEventAction: diceOutcome?.action,
         });
       } else if (npc.offer === 'trade') {
         if (npc.alignment === 'hostile') {

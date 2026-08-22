@@ -251,6 +251,26 @@ export function RepRulesPanel() {
     { key: 'zorghonRescueXpReward',           labelKey: 'admin.repRules.zorghonRescueXpReward' },
   ];
 
+  /** Champs du Dé d'Action D&D (Flight/Fight/Freeze/Fawn — voir resolveActionDiceRoll dans
+   * gameState.ts), rendus en grille numérique classique. `actionDiceSides` a son propre <select>
+   * (noms réels des dés polyédriques) et n'apparaît donc pas ici — voir plus bas. */
+  const actionDiceFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'actionDiceChancePct',            labelKey: 'admin.repRules.actionDiceChancePct' },
+    { key: 'actionDiceFlightXp',             labelKey: 'admin.repRules.actionDiceFlightXp' },
+    { key: 'actionDiceFlightHp',             labelKey: 'admin.repRules.actionDiceFlightHp' },
+    { key: 'actionDiceFlightForce',          labelKey: 'admin.repRules.actionDiceFlightForce' },
+    { key: 'actionDiceFightXp',              labelKey: 'admin.repRules.actionDiceFightXp' },
+    { key: 'actionDiceFightHp',              labelKey: 'admin.repRules.actionDiceFightHp' },
+    { key: 'actionDiceFightForce',           labelKey: 'admin.repRules.actionDiceFightForce' },
+    { key: 'actionDiceFreezeXp',             labelKey: 'admin.repRules.actionDiceFreezeXp' },
+    { key: 'actionDiceFawnXp',               labelKey: 'admin.repRules.actionDiceFawnXp' },
+    { key: 'actionDiceFawnHp',               labelKey: 'admin.repRules.actionDiceFawnHp' },
+    { key: 'actionDiceExtraUltraChancePct',  labelKey: 'admin.repRules.actionDiceExtraUltraChancePct' },
+    { key: 'actionDiceUltraForceBonus',      labelKey: 'admin.repRules.actionDiceUltraForceBonus' },
+    { key: 'actionDiceUltraXpBonus',         labelKey: 'admin.repRules.actionDiceUltraXpBonus' },
+    { key: 'actionDiceUltraSpellsBonus',     labelKey: 'admin.repRules.actionDiceUltraSpellsBonus' },
+  ];
+
   return (
     <section className="card">
       <h2 className="text-xl font-semibold mb-2">⭐ {t('admin.repRules.title')}</h2>
@@ -273,6 +293,45 @@ export function RepRulesPanel() {
             <label key={f.key} className="text-sm">
               <span className="text-slate-300">{t(f.labelKey)}</span>
               <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🎲 {t('admin.repRules.actionDiceTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.actionDiceDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.actionDiceEnabled !== false}
+            onChange={e => setBool('actionDiceEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.actionDiceEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3 mb-3">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.actionDiceSides')}</span>
+            <select className="input mt-1 w-full" disabled={rules.actionDiceEnabled === false}
+              value={rules.actionDiceSides} onChange={e => set('actionDiceSides', e.target.value)}>
+              <option value={4}>{t('admin.repRules.actionDiceSides.d4')}</option>
+              <option value={6}>{t('admin.repRules.actionDiceSides.d6')}</option>
+              <option value={8}>{t('admin.repRules.actionDiceSides.d8')}</option>
+              <option value={10}>{t('admin.repRules.actionDiceSides.d10')}</option>
+              <option value={12}>{t('admin.repRules.actionDiceSides.d12')}</option>
+              <option value={20}>{t('admin.repRules.actionDiceSides.d20')}</option>
+              <option value={100}>{t('admin.repRules.actionDiceSides.d100')}</option>
+            </select>
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.actionDiceUltraItemName')}</span>
+            <input type="text" className="input mt-1 w-full" disabled={rules.actionDiceEnabled === false}
+              value={rules.actionDiceUltraItemName} onChange={e => setText('actionDiceUltraItemName', e.target.value)} />
+          </label>
+        </div>
+        <div className="grid md:grid-cols-2 gap-3">
+          {actionDiceFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full" disabled={rules.actionDiceEnabled === false}
                 value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
             </label>
           ))}

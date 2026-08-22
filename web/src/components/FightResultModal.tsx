@@ -2,6 +2,18 @@
 
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/lib/i18n';
+import type { ActionDiceResult, ActionDiceFaceKind } from '@/lib/gameState';
+
+/** Icône/clé i18n par face du Dé d'Action D&D — dupliqué à l'identique depuis DiceRollWidget.tsx
+ * (non exporté là-bas, ce composant n'a pas besoin du reste de son état interne) pour afficher la
+ * même icône/nom de face dans ce pop-up de résultat que dans le widget de dés. */
+const ACTION_FACE_ICONS: Record<ActionDiceFaceKind, string> = {
+  flight: '🏃', fight: '⚔️', freeze: '🥶', fawn: '🤝', bonusXp: '✨', bonusItem: '🎁', bonusUltra: '🌟',
+};
+const ACTION_FACE_KEYS: Record<ActionDiceFaceKind, string> = {
+  flight: 'dice.action.flight', fight: 'dice.action.fight', freeze: 'dice.action.freeze', fawn: 'dice.action.fawn',
+  bonusXp: 'dice.action.bonusXp', bonusItem: 'dice.action.bonusItem', bonusUltra: 'dice.action.bonusUltra',
+};
 
 export interface FightResultData {
   win: boolean;
@@ -22,6 +34,10 @@ export interface FightResultData {
   diceEventRoll?: number;      // somme des 2 dés du jet complémentaire OBLIGATOIRE (widget "Lancer de dès", bouton "Lancer...")
   diceEventRolls?: [number, number]; // détail des 2 dés (comme "Test rapide"/"Destin quotidien"), pour affichage
   diceEventModifier?: number; // bonus (+) ou malus (-) qui en découle, 0 si neutre — voir DiceRollWidget.tsx
+  /** Renseigné UNIQUEMENT si le jet complémentaire a utilisé le Dé d'Action D&D (Flight/Fight/
+   * Freeze/Fawn) au lieu du 2d20 classique ci-dessus (`diceEventRoll`/`diceEventRolls`) — l'un OU
+   * l'autre est présent pour un combat donné, jamais les deux (voir DiceRollWidget.tsx::actionMode). */
+  diceEventAction?: ActionDiceResult;
 }
 
 /** Pop-up de résultat de combat façon jet de dés (D&D-like) — affiché après un combat PNJ. */
@@ -71,7 +87,22 @@ export function FightResultModal({ data, onClose }: { data: FightResultData | nu
           {!!data.equipBonus && (
             <p className="text-indigo-300">🧝 {t('fight.equipBonus', { v: data.equipBonus })}</p>
           )}
-          {data.diceEventRoll !== undefined && (
+          {data.diceEventAction ? (
+            <div className={data.diceEventAction.tier === 'bonus' ? 'text-cyan-300' : 'text-orange-300'}>
+              <p>{ACTION_FACE_ICONS[data.diceEventAction.face]} {t(ACTION_FACE_KEYS[data.diceEventAction.face])}</p>
+              <p className="text-[11px] text-slate-400">
+                {[
+                  data.diceEventAction.xpDelta !== 0 ? `${data.diceEventAction.xpDelta > 0 ? '+' : ''}${data.diceEventAction.xpDelta} XP` : null,
+                  data.diceEventAction.hpDelta !== 0 ? `${data.diceEventAction.hpDelta > 0 ? '+' : ''}${data.diceEventAction.hpDelta} ❤️` : null,
+                  data.diceEventAction.forceDelta !== 0 ? `${data.diceEventAction.forceDelta > 0 ? '+' : ''}${data.diceEventAction.forceDelta} 💪` : null,
+                  data.diceEventAction.spellsDelta !== 0 ? `${data.diceEventAction.spellsDelta > 0 ? '+' : ''}${data.diceEventAction.spellsDelta} ✨` : null,
+                ].filter(Boolean).join(' · ')}
+              </p>
+              {data.diceEventAction.itemGained && <p className="text-emerald-300">🎁 {data.diceEventAction.itemGained}</p>}
+              {data.diceEventAction.itemLost && <p className="text-rose-300">📤 {data.diceEventAction.itemLost}</p>}
+              {data.diceEventAction.isUltra && <p className="text-amber-300 font-semibold">🌟 {t('dice.action.ultra')}</p>}
+            </div>
+          ) : data.diceEventRoll !== undefined && (
             <p className={data.diceEventModifier ? (data.diceEventModifier > 0 ? 'text-cyan-300' : 'text-orange-300') : 'text-slate-400'}>
               🎲 {t('fight.diceEvent', { roll: data.diceEventRolls ? `${data.diceEventRolls[0]}+${data.diceEventRolls[1]}=${data.diceEventRoll}` : data.diceEventRoll })}
               {data.diceEventModifier

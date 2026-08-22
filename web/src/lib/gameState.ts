@@ -3325,6 +3325,30 @@ export interface RepRules {
   fightDiceEventBonusMin: number;    // Somme des 2 dés (2-40) ≥ ce seuil = bonus (défaut 26)
   fightDiceEventBonusAmount: number; // Bonus additionnel appliqué au combat (défaut 3)
   fightDiceEventMalusAmount: number; // Malus additionnel appliqué au combat, soustrait (défaut 3)
+  // ─── Dé d'Action D&D (Flight/Fight/Freeze/Fawn — voir DiceRollWidget.tsx::rollActionDice et
+  // resolveActionDiceRoll ci-dessous) — SECOND mécanisme possible pour le jet OBLIGATOIRE de combat
+  // PNJ ("Lancer..."), tiré au sort (équilibré, `actionDiceChancePct`) contre le mécanisme 2d20
+  // classique ci-dessus à CHAQUE combat, sans jamais le remplacer (les deux cohabitent). Un dé à 4
+  // faces (tétraèdre) par défaut, façon Dungeons & Dragons ; `actionDiceSides` permet de choisir un
+  // dé plus grand (6/8/10/12/20/100 faces) — les faces au-delà des 4 canoniques accordent alors un
+  // bonus générique (XP, objet de la boutique, ou très rarement l'Objet Ultra, capé à 1x/jour).
+  actionDiceEnabled: boolean;    // Active le Dé d'Action pendant les combats PNJ (défaut true)
+  actionDiceChancePct: number;   // % de chance d'utiliser le Dé d'Action plutôt que le jet 2d20 classique (défaut 50, équilibré)
+  actionDiceSides: number;       // Nombre de faces du dé utilisé : 4/6/8/10/12/20/100 (défaut 4 = tétraèdre)
+  actionDiceFlightXp: number;    // Face "Flight" (Fuir) : delta XP (défaut -5)
+  actionDiceFlightHp: number;    // Face "Flight" (Fuir) : delta Vie (défaut -10)
+  actionDiceFlightForce: number; // Face "Flight" (Fuir) : delta Force (défaut -5)
+  actionDiceFightXp: number;     // Face "Fight" (Combattre) : delta XP (défaut +10)
+  actionDiceFightHp: number;     // Face "Fight" (Combattre) : delta Vie (défaut +5)
+  actionDiceFightForce: number;  // Face "Fight" (Combattre) : delta Force (défaut +5)
+  actionDiceFreezeXp: number;    // Face "Freeze" (Figer/Paniquer) : delta XP (défaut -10), retire aussi 1 objet aléatoire du sac
+  actionDiceFawnXp: number;      // Face "Fawn" (Flatter/Négocier) : delta XP (défaut +15)
+  actionDiceFawnHp: number;      // Face "Fawn" (Flatter/Négocier) : delta Vie (défaut +5), + 1 objet boutique (hors familier/selle/engin/trésor)
+  actionDiceExtraUltraChancePct: number; // % de chance qu'une face "bonus" (au-delà des 4 canoniques, dés >4 faces) octroie l'Objet Ultra plutôt qu'XP/objet boutique (défaut 8, capé à 1x/jour tous mécanismes confondus)
+  actionDiceUltraItemName: string;    // Nom affiché de l'Objet Ultra, jamais en vente en boutique (défaut "🌟 Éclat de Synk")
+  actionDiceUltraForceBonus: number;  // Bonus Force accordé par l'Objet Ultra (défaut 15)
+  actionDiceUltraXpBonus: number;     // Bonus XP accordé par l'Objet Ultra (défaut 50)
+  actionDiceUltraSpellsBonus: number; // Bonus Sortilèges ("magie") accordé par l'Objet Ultra (défaut 15)
   xpCap: number;             // Plafond d'expérience affiché dans la barre "Statistiques" (défaut 100000)
   // Lancer du destin quotidien (widget de dés persistant — 1x/jour, indépendant des combats PNJ)
   dailyLuckThreshold: number;    // Total (1d20+bonus) à atteindre pour gagner (défaut 15)
@@ -3780,6 +3804,23 @@ export const DEFAULT_REP_RULES: RepRules = {
   fightDiceEventBonusMin: 26,
   fightDiceEventBonusAmount: 3,
   fightDiceEventMalusAmount: 3,
+  actionDiceEnabled: true,
+  actionDiceChancePct: 50,
+  actionDiceSides: 4,
+  actionDiceFlightXp: -5,
+  actionDiceFlightHp: -10,
+  actionDiceFlightForce: -5,
+  actionDiceFightXp: 10,
+  actionDiceFightHp: 5,
+  actionDiceFightForce: 5,
+  actionDiceFreezeXp: -10,
+  actionDiceFawnXp: 15,
+  actionDiceFawnHp: 5,
+  actionDiceExtraUltraChancePct: 8,
+  actionDiceUltraItemName: '🌟 Éclat de Synk',
+  actionDiceUltraForceBonus: 15,
+  actionDiceUltraXpBonus: 50,
+  actionDiceUltraSpellsBonus: 15,
   xpCap: 100000,
   dailyLuckThreshold: 15,
   dailyLuckWalletReward: 25,
@@ -4060,6 +4101,160 @@ export async function markDailyLuckRolled(address: string, win: boolean): Promis
   if (!db) return;
   await ensureAnonSignIn();
   await set(ref(db, `players/${KEY(address)}/dailyLuck/${todayKey()}`), { win, rolledAt: Date.now() });
+}
+
+// ─────────────────────────────── Dé d'Action D&D (Flight/Fight/Freeze/Fawn) ───────────────────────────────
+
+/** Résultat d'un lancer du Dé d'Action (voir DiceRollWidget.tsx) — second mécanisme possible pour
+ * le jet OBLIGATOIRE de combat PNJ, tiré au sort contre le 2d20 classique (RepRules.actionDiceChancePct,
+ * défaut 50/50). `flight`/`fight`/`freeze`/`fawn` sont les 4 faces canoniques d'un d4 (toujours
+ * présentes, quel que soit `RepRules.actionDiceSides`) ; `bonusXp`/`bonusItem`/`bonusUltra` ne
+ * peuvent survenir que sur les faces SUPPLÉMENTAIRES d'un dé à plus de 4 faces (index 4..sides-1). */
+export type ActionDiceFaceKind = 'flight' | 'fight' | 'freeze' | 'fawn' | 'bonusXp' | 'bonusItem' | 'bonusUltra';
+
+export interface ActionDiceResult {
+  face: ActionDiceFaceKind;
+  faceIndex: number; // index 0-based réellement tiré (0..sides-1)
+  sides: number;
+  xpDelta: number;
+  hpDelta: number;
+  forceDelta: number;
+  spellsDelta: number;
+  itemGained?: string; // nom de l'objet gagné (Fawn / bonusItem / bonusUltra)
+  itemLost?: string;   // nom de l'objet perdu (Freeze)
+  isUltra?: boolean;
+  /** Modificateur additif compatible avec le pipeline resolveFight() existant (voir
+   * classifyEventRoll côté 2d20 classique) — bonus pour Fight/Fawn/bonus*, malus pour
+   * Flight/Freeze. Contrairement au 2d20, jamais neutre : chaque face du Dé d'Action a un parti pris. */
+  modifier: number;
+  tier: 'bonus' | 'malus' | 'neutral';
+}
+
+/** Vrai si le joueur a déjà remporté l'Objet Ultra aujourd'hui (capé à 1x/jour, tous mécanismes de
+ * Dé d'Action confondus — voir RepRules.actionDiceExtraUltraChancePct). */
+export async function hasRolledActionDiceUltraToday(address: string): Promise<boolean> {
+  const db = getFirebaseDb();
+  if (!db) return false;
+  const snap = await get(ref(db, `players/${KEY(address)}/actionDiceUltra/${todayKey()}`));
+  return snap.exists();
+}
+
+async function markActionDiceUltraRolled(address: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `players/${KEY(address)}/actionDiceUltra/${todayKey()}`), { rolledAt: Date.now() });
+}
+
+/** Catégories volontairement exclues du tirage boutique de la face "Fawn" — ni familier, ni selle,
+ * ni engin/véhicule, ni trésor (un objet utile en aventure, pas une monture ni un bien de collection). */
+const ACTION_DICE_FAWN_EXCLUDED_CATEGORIES: InventoryItem['category'][] = ['vehicle', 'saddle', 'treasure'];
+
+function pickActionDiceFawnItem(shop: ShopItem[]): ShopItem | null {
+  const pool = shop.filter(it => it.active && !ACTION_DICE_FAWN_EXCLUDED_CATEGORIES.includes(it.category));
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/**
+ * Résout un lancer du Dé d'Action (D&D) : tire une face 0..sides-1, applique ses effets (XP/Vie/
+ * Force directement via applyEffect, objet gagné/perdu via addToInventory/removeRandomInventoryItem)
+ * et renvoie un résultat prêt à afficher (DiceRollWidget.tsx) + un modificateur additif compatible
+ * avec resolveFight() (NpcEncounterPopup.tsx), exactement comme le jet 2d20 classique.
+ * Les 4 faces canoniques (0=Flight,1=Fight,2=Freeze,3=Fawn) sont TOUJOURS incluses, quel que soit
+ * `rules.actionDiceSides` — les faces suivantes (dés à 6+ faces) accordent un bonus générique
+ * (XP, objet boutique, ou très rarement l'Objet Ultra — capé à 1x/jour).
+ */
+export async function resolveActionDiceRoll(address: string, rules: RepRules): Promise<ActionDiceResult> {
+  const sides = Math.max(4, Math.round(rules.actionDiceSides || 4));
+  const faceIndex = Math.floor(Math.random() * sides);
+
+  if (faceIndex === 0) { // Flight (Fuir)
+    await applyEffect(address, { xpBonus: rules.actionDiceFlightXp, hp: rules.actionDiceFlightHp, force: rules.actionDiceFlightForce });
+    return {
+      face: 'flight', faceIndex, sides,
+      xpDelta: rules.actionDiceFlightXp, hpDelta: rules.actionDiceFlightHp, forceDelta: rules.actionDiceFlightForce, spellsDelta: 0,
+      modifier: -(rules.fightDiceEventMalusAmount ?? 3), tier: 'malus',
+    };
+  }
+  if (faceIndex === 1) { // Fight (Combattre)
+    await applyEffect(address, { xpBonus: rules.actionDiceFightXp, hp: rules.actionDiceFightHp, force: rules.actionDiceFightForce });
+    return {
+      face: 'fight', faceIndex, sides,
+      xpDelta: rules.actionDiceFightXp, hpDelta: rules.actionDiceFightHp, forceDelta: rules.actionDiceFightForce, spellsDelta: 0,
+      modifier: rules.fightDiceEventBonusAmount ?? 3, tier: 'bonus',
+    };
+  }
+  if (faceIndex === 2) { // Freeze (Figer / Paniquer)
+    await applyEffect(address, { xpBonus: rules.actionDiceFreezeXp });
+    const lost = await removeRandomInventoryItem(address);
+    return {
+      face: 'freeze', faceIndex, sides,
+      xpDelta: rules.actionDiceFreezeXp, hpDelta: 0, forceDelta: 0, spellsDelta: 0, itemLost: lost?.name,
+      modifier: -(rules.fightDiceEventMalusAmount ?? 3), tier: 'malus',
+    };
+  }
+  if (faceIndex === 3) { // Fawn / Adapt (Flatter / Négocier / Improviser)
+    await applyEffect(address, { xpBonus: rules.actionDiceFawnXp, hp: rules.actionDiceFawnHp });
+    let itemGained: string | undefined;
+    try {
+      const shop = await getShopCatalog();
+      const drop = pickActionDiceFawnItem(shop);
+      if (drop) {
+        await addToInventory(address, {
+          itemId: drop.itemId, name: drop.name, category: drop.category, qty: 1,
+          ...(drop.slot ? { slot: drop.slot } : {}),
+          ...(drop.rarity ? { rarity: drop.rarity } : {}),
+          ...(drop.damage ? { damage: drop.damage } : {}),
+          ...(drop.defense ? { defense: drop.defense } : {}),
+          ...(drop.durabilityMax ? { durabilityMax: drop.durabilityMax } : {}),
+          ...(drop.requiresArrow ? { requiresArrow: true } : {}),
+          ...(drop.effect ? { effect: drop.effect } : {}),
+        });
+        itemGained = drop.name;
+      }
+    } catch { /* l'XP/Vie reste appliqué même si le tirage boutique échoue */ }
+    return {
+      face: 'fawn', faceIndex, sides,
+      xpDelta: rules.actionDiceFawnXp, hpDelta: rules.actionDiceFawnHp, forceDelta: 0, spellsDelta: 0, itemGained,
+      modifier: rules.fightDiceEventBonusAmount ?? 3, tier: 'bonus',
+    };
+  }
+
+  // Faces "bonus" (dés à plus de 4 faces uniquement, index >= 4) : XP, objet boutique, ou (rare,
+  // capé 1x/jour) l'Objet Ultra — jamais en vente en boutique, gagnable UNIQUEMENT ainsi.
+  const ultraAlreadyWon = await hasRolledActionDiceUltraToday(address);
+  const ultraChance = ultraAlreadyWon ? 0 : clamp01((rules.actionDiceExtraUltraChancePct ?? 8) / 100);
+  const roll = Math.random();
+  if (roll < ultraChance) {
+    await applyEffect(address, {
+      xpBonus: rules.actionDiceUltraXpBonus, force: rules.actionDiceUltraForceBonus, spells: rules.actionDiceUltraSpellsBonus,
+    });
+    await markActionDiceUltraRolled(address);
+    return {
+      face: 'bonusUltra', faceIndex, sides,
+      xpDelta: rules.actionDiceUltraXpBonus, hpDelta: 0, forceDelta: rules.actionDiceUltraForceBonus, spellsDelta: rules.actionDiceUltraSpellsBonus,
+      itemGained: rules.actionDiceUltraItemName, isUltra: true,
+      modifier: rules.fightDiceEventBonusAmount ?? 3, tier: 'bonus',
+    };
+  }
+  const grantItem = roll < ultraChance + 0.3; // ~30% des faces bonus restantes = objet boutique, le reste = XP pure
+  const xp = Math.round((rules.actionDiceFightXp ?? 10) / 2);
+  if (grantItem) {
+    let itemGained: string | undefined;
+    try {
+      const shop = await getShopCatalog();
+      const drop = pickActionDiceFawnItem(shop);
+      if (drop) {
+        await addToInventory(address, { itemId: drop.itemId, name: drop.name, category: drop.category, qty: 1 });
+        itemGained = drop.name;
+      }
+    } catch { /* ignore */ }
+    await applyEffect(address, { xpBonus: xp });
+    return { face: 'bonusItem', faceIndex, sides, xpDelta: xp, hpDelta: 0, forceDelta: 0, spellsDelta: 0, itemGained, modifier: rules.fightDiceEventBonusAmount ?? 3, tier: 'bonus' };
+  }
+  await applyEffect(address, { xpBonus: xp });
+  return { face: 'bonusXp', faceIndex, sides, xpDelta: xp, hpDelta: 0, forceDelta: 0, spellsDelta: 0, modifier: rules.fightDiceEventBonusAmount ?? 3, tier: 'bonus' };
 }
 
 // ─────────────────────────────────────── Familiers ───────────────────────────────────────

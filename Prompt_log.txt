@@ -1,4 +1,4 @@
-Déployer la mie à jour :
+Déployer la mise à jour :
 	c:> npx hardhat run scripts/deploy.ts --network sepolia
 À ajouter dans web/.env.local : NEXT_PUBLIC_CONTRACT_ADDRESS_SEPOLIA=0xF38714926A049d7FEf62f350780Db662161FBCA7
 Ajouter la nouvelle  valeur de clé NEXT_PUBLIC_CONTRACT_ADDRESS_SEPOLIA dans les variables d'environnement de l'app publiée sur Vercel :
@@ -367,16 +367,54 @@ Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne f
 - Dans le menu Administration rubrique "Statistiques par joueur", sous-rubrique "Compte Démo / sans portefeuille", après avoir réactivé le chrono démo (au joueur christophe.sintes.oxyzen@gmail.com) a 2 heures qui a bien été pris en compte, j'ai augmenté ce compteur à 4 heure mais il n'a pas été pris en compte en live dans le jeu, donc fait en sorte que quand je modifie la valeur, celle-ci soit prise en compte immédiatement dans la partie du joueur même si elle est en cours et le joueur connecté.
 J'ai également noté que lorsque je réactivais le chrono démo d'un joueur, il le réactivais à 2 heures mais ensuite si je veux le changer pour par exemple 4 heures, cette nouvelle n'est pas pris en compte et le compte a rebours du joueur (testé avec le joueur christophe.sintes.oxyzen@gmail.com) démarre toujours à 2 heures.
 Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu. Au besoin utilise Playwright pour tester, reproduire et corriger ces bugs.
+-----------------------------------------------------------------------------------------------------------------
+- Recherche une plateforme de financement en ligne sur ce type de projet et mets en place la promotion du jeu sur cette plateforme.
+Dans le business modele de refacturation des couts aux utilisateurs et d'aide sur la plateforme de promotion du jeu, prévois de prendre en compte les couts de développements, d'infrastructure, de support et de l'évolution du contrat ethereum, mais aussi des services payant comme Vercel, Resend et tous les autres car si le jeux prend son envol, il faudra que je prenne des services payant et cela à un cout. Structure aussi une communication que tu me présenteras dans un document word pour promouvoir, communiquer sur le jeu, sur la demande d'aide financière et de sponsors. Pour information, j'ai créé mon compte Instagram @horizon.zeldcraft. Utilise playwright pour prendre des snapshot du jeu, mettre en forme une cinématique autour du jeu, des écrans en vue de les publier sur mon compte instagram. Les skins pourront être générés dans web/public/skins/ comme premiers posts. Préciser que c'est le tout 1er jeu asisté 100% par IA (Copilot Github) mais construit avec le background d'un développeur. A voir si c'est plus vendeur de dire qu'un jeu comme Horizon-Zeldcraft peut-être construit en 3 semaines a raison de 3 ou 4 heures par jours notamment pour la rédaction in-line d'un prompt, des tests, des déploiements sur les infra (vercel, firebird, resend, ...), de la gestion des sources, des bugs nombreux, de la rechercher en R&D, de rester fidèle a Dungeons&Dragons. Tu pourras te servir des informations publiées sur le repository github mais vulgarise les et retirer les aspects techniques pour permettre au plus grand nombre sinon la majorité de comprendre l'essence  du jeu, sa conception, son univers, ses futurs DLC, sont intérêt de m'aider à le financer pour le faire grandir, etc... Soit force de proposition. Fait également 4 ou 5 animations graphiques et vidéos de 3 ou 4 minutes avec les outils que tu trouveras utiles pour cela en gardant l'esprit Minecraft, Dungeons&Dragons,World of Warcraft et Zelda afin de rendre le contenu attractif et que tu pourras intégrer comme une démo au moment des explications de bienvenue dans l'écran d'accueil. Soit inventif et innovant avec des graphismes et des animations poussées en 3D avec des textures, paysages, scènes de loots ou de combats, arrivé devant un chateau, mouvement de traveling des caméras, trésors découvert, arrivé d'un dragon vert puis un dragon rouge puis un dragon Or qui tournent et virevoltent dans les airs jusqu'a arriver au pied de Synk en faisant un geste de la tête de soumission puis en crachant tout 3 une gerbe de feu de leur gueule dans les airs pour laisser se dessiner et s'inscrire Horizon ZeldCraft. Tu as total liberté d'utiliser les outils graphiques et développer si besoin mais n'utilise que des services web ou logiciels gratuits. Je te laisse tout automatiser. 
+Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu. Au besoin utilise Playwright pour tester, reproduire et corriger ces bugs.
+-----------------------------------------------------------------------------------------------------------------
+Pour rendre Synk plus vivant et humain, dans le widget “Plateforme 3D” inséres dans les yeux de Synk deux petites billes blanches symbolisant les pupilles de Synk que tu feras cligner de temps en temps pour reproduire les clignements des yeux d’un humain. Tu rendras paramétrable cette option pour l'activer ou la désactiver ainsi que la fréquence de clignotement des yeux dans une nouvelle rubrique que tu appeleras "Paramétrage de Synk" dans le menu Administration. Au besoin utilise Playwright pour tester, reproduire et corriger les évolutions ou les bugs. Fait ces évolutions et vérifies que les solutions que tu implémentes ne font aucune régression de code, de stratégie déjà en place dans le jeu.
+-----------------------------------------------------------------------------------------------------------------
+- Renommer le Widget "ZeldaCraft" en "ZeldCraft Quests". De plus il y a un bug avec le widget "Dice Roll" qui ne se positionne pas correctement à l'écran quand on l'ouvre et le ferme. Quand je l'ouvre, il se positionne ouvert en bas à droite tout au bout de la page. Quand je le ferme, il se positionne tout en bas de la page à droite qui à un long ascenceur. Idem quand je raffraichit la page de mon navigateur Edge, il me le positionne tout en bas alors que je veux qu'il soit indépendant du scroll de page et pas attaché à elle. Les autres widget réagissent a priori correctement mais a vérifier.
+-----------------------------------------------------------------------------------------------------------------
+- Il y a encore des bugs de superposition de fenêtres widget ouvertes sur d'autres alors que le focus est posé sur l'une, elle passe sous d'autres ou quand je les déplace, passe en dessous de fenêtres widget ouverte mais qui n'ont pas le focus. Ou d'icônes widget qui viennent se poser au dessus des fenêtres widget ouvertes alors que ce sont ces dernières qui ont le focus. Vérifie le mécanisme et regarde s'il y a un bug ou plusieurs bug et corriges les. Utilises Playwright pour simuler, débugger et résoudre cela. Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu.
+-----------------------------------------------------------------------------------------------------------------
+- Widget Dice Roll : Ajouter un nouveau bouton de dés d'actions (Flight, Fight, Freeze, Fawn, etc...) et les incorporer dans le mécanisme de jeté de dès actuel du widget Dice Roll, a savoir un dé tétraède à 4 faces. Tu rendras son utilisation possible et donc son bouton accessible dès qu'un combat s'engage avec un PNJ tout en conservant le mécaniseme de jeté de dés précédents, tu tireras juste aléatoirement lequel des deux mécanismes tu utilises lors d'un combat. Veille à ce que ce tirage aléaoire entre les deux mécanisme soit équilibré pour permettre d'avoir les deux possiblités de lancer de dés possible durant un combat, soit le lancé de dé classique ou le lancé de dé d'action :
+	- Une face pour Flight (Fuir) : Le personnage Synk bat en retraite, cherche une issue ou décampe, tu veilleras a retirer de l'expérience (-5), de la vie (-10), de la force (-5)
+	- Une face pour Fight (Combattre) : Le personnage Synk fonce dans le tas, attaque ou se défend avec agressivité, tu veilleras a ajouter de l'expérience (+10), de la vie (+5), de la force (+5)
+	- Une face pour Freeze (Figer / ️ Paniquer) : Le personnage Synk est tétanisé, perd une action ou subit un malus de surprise, tu veilleras a retirer de l'expérience (-10) et un objet dans le sac à Synk
+	- Une face pour Fawn / Adapt (Flatter / Négocier / Improviser) : Le personnage tente une diversion, cède, ou trouve une parade verbale/technique inattendue, tu veilleras a ajouter de l'expérience (+15), de la vie (+5), un objet de ton choix issue du shop mais qui ne sera pas un familier, une selle, un engin ou un trésor
+Comme pour les autres jetés de dés (quick test, daily luck roll, Roll...), tu animmeras le jeté de dès dans le widget en affichant les faces du ou des dès qui bougent.
+Rend paramétrable dans le menu Administration les différents dés (dés à 4 faces : Le tétraède, dés à 6 faces, dés à 8 faces : L’octaèdre, dés à 10 faces : Le trapézoèdre pentagonal, dés à 12 faces : Le dodécaèdre régulier, dés à 20 faces : L’isocaèdre, dés à 100 faces : Le zocchièdre), différentes faces de dès avec son gain (XP, objet parmis le shop ou objet supplémentaire ultra-puissant en force+xp+magie non-référencés dans le shop et donc uniquement gagnable sur un jeté de dès 1 fois par jour seulement ! Pour ce développement, tu veilleras a respecter l'esprit de Dungeons & Dragons !
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
 
 
+Dans le business modele de refacturation des couts aux utilisateurs et d'aide sur la plateforme de financement en ligne et promotion du jeu :
+- Ajoutes dans la communication (instagram) et dans le document de financement :
+	- Le tuning sur mesure du jeu via le menu Administration avec un large éventail de configuration possible [Faire ici une copie d'écran du sommaire du menu Administration ainsi que de quelques écrans]: 
+		- L'ajout de nouvelles quêtes, la gestion des réponses aux quêtes existantes
+		- La gestion de l'altitude en montagne, de la profondeur en mer, de la fatigue
+		- L'analyse comportementale des joueurs et les axes gagnants pour développer et accrocher le joueur à l'aide d'une IA intégrée utilisant les LLM aux choix des fournisseurs Google Gemini, Groq, Cerebras, OpenRouteur.
+
+	- Les fonctionnalités dans le jeu :
+		- Le mécanisme de jeté de dès
+		- etc...
+
+
+- Pour les sponsors, joueurs, on pourrait imaginer ajouter un éco-système directement dans le jeu pour leur permettre de financer ce dernier au travers de dépôt FIAT, de cryptomonaies ou par d'autres moyens que tu pourrais proposer et qui fonctionne bien pour ce type de projet sur le marché aujourd'hui.
+Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu. Au besoin utilise Playwright pour tester, reproduire et corriger ces bugs.
 
 
 
--Rechercher une plateforme de financement en ligne sur ce type de projet et mettre en place la promotion du jeu sur cette plateforme. Tu rendras tous ces éléments paramétrables dans le menu Administration. Tu rendras tous ces éléments paramétrables dans le menu Administration, dans une nouvelle rubrique "Démonstration). Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
-Dans le business modele de refacturation des couts aux utilisateurs et d'aide sur la plateforme de promotion du jeu, prévois de prendre en compte les couts de développements, d'infrastructure, de support et de l'évolution du contrat ethereum, mais aussi des services payant comme Vercel, Resend et tous les autres car si le jeux prend son envol, il faudra que je prenne des services payant et cela à un cout. Structure aussi une communication que tu me présenteras dans un document word pour promouvoir, communiquer sur le jeu, sur la demande d'aide financière et de sponsors.
 - Communiquer sur mon Linkedin pour promouvoir mon jeu au travers de mon profile avec les liens, quelques photos d'écran. Préciser que c'est le tout 1er jeu asisté 100% par IA (Copilot Github) mais construit avec le background d'un développeur. A voir si c'est plus vendeur de dire qu'un jeu comme Horizon-Zeldcraft peut-être construit en 3 semaines a raison de 3 ou 4 heures par jours notamment pour la rédaction in-line d'un prompt, des tests, des déploiements sur les infra (vercel, firebird, resend, ...), de la gestion des sources, des bugs nombreux, de la rechercher en R&D, de rester fidèle a Dungeons&Dragons.
+
+
+
+
+- Travailler à réduire au maximum l'empreinte et donc l'utilisation du smart contract dans le jeu et juste laisser la possibilité de créditer en cryptomonnaie un compte ETH comme c'est déjà le cas sur SEPOLIA et demain sur Mainnet ! En réduisant et supprimant le smartcontract au maximum dans le jeu, on réduit et supprime les frais de gas, l'audit de sécurité avant passage en production réelle qui peut être un vrai frein au déploiement du jeu.
+
+
 
 
 
@@ -387,16 +425,75 @@ Dans la roadmap https://github.com/Oxyzen-Chris/horizon-zeldcraft/blob/main/docs
 Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu" mais expliques moi a quoi il doit servir ?
 
 
+- Travailler sur le chatbot :
+
+
+
+- Continuer à développer les mondes sous-marin dans le jeu :
+
+
+
+- Approfondir le module Widget de conversation avec un PNJ :
+
+
+
+
+Dans le widget "3D Plateform" :
+- Fait en sorte que les arbres et les objets soit de tailles plus naturelles et plus grand par rapport à la taille de Synk (aujourd'hui les arbres sont trop petits !) : par exemple, un arbre est généralement plus grand qu'un humain, uné épée est de taille suffisante pour tenir dans la paume de la main de Synk, un familier Dragon plus grand que Synk pour qu'il puisse le chevaucher soit de la taille d'un dragon face à un humain, etc... Fait donc en sorte que les proportionnalités soient respectées sans pour autant faire des arbres immenses ou des objets trop grands. Il faut garder une proportionnalité avec une taille réaliste de Synk, comme dans la vraie vie.. Tu rendras tous ces objets 3D paramétrable avec la possibilité de les modifier, d'en créer ou charger de nouveau dans une rubrique spécifique à cela dans le menu Administration.
+- Fait en sorte qu'une amulette ressemble vraiment a une vraie amulette, qu'une épée ressemble vraiment à une vraie épée, q'un bouclier ressemble vraiment à un vrai bouclier, q'un casque ressemble vraiment à un vrai casque du moyen-age et pas comme c'est le cas en ce moment à un donut violet ou un losange jaune, bleu, etc... Je veux des objets réalistes dans la Plateforme 3D, applique également des textures en rapport avec les objets pour les rendre plus réalistes (la texture d'une épée pour une épée). Une énigme pourrait ressembler à un parchemin qui flotte dans les airs. Soif imaginatif mais en même temps, réaliste en respectant l'univers de Dungeons & Dragons. Il faut faire en sorte que les objets 3D ressemble le plus possible à la réalité tout en gardant une taille réaliste, visible dans le jeu (donc pas trop petit) mais pas trop grand. Tu rendras tous ces objets 3D paramétrable avec la possibilité d'en créer ou charger dans une rubrique spécifique à cela dans le menu Administration.
+- Fait en sorte de rendre le décor 3D le plus réaliste possible, par exemple, pour le sol, applique une texture de type herbe (sauvage), ou une texture de terre, fonction des endroits et appliques des textures réalistes sur les blocs, dalle, sols, etc...Fait en sorte qu'un objet grotte (grottes de Nether-Cristal par exemple) ressemble vraiment à l'entrée d'une grotte avec un objet ou une forme ressemblant à l'entrée d'une grotte en ajoutant également une texture de grotte.
+Tu rendras tous ces objets 3D paramétrable avec la possibilité d'en créer ou charger dans une rubrique spécifique à cela dans le menu Administration
+Le mot d'ordre c'est du réalisme dans la plateforme 3D, des images, des textures et pas juste des objets 3D sans rapports avec son nom tout enrespectant l'univers de Dungeons & Dragons et les objets formes, images que 'mon peu y trouver.
+Bien sûr, il faut que le déplacement de Synk et l'univers dans le widget de la Plaforme 3D et le jeu reste fluide. 
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin.
+Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub.
+Vérifie néanmoins que les solutions et développements que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu.
+
+
+
+
+
+- Combiner plusieurs potions magique (Déterminer quelle potion + jour de pleine lune pour les plus puissante) pour en faire 1 très puissante capable de tout terrasser, attraper une monture, trouver une arme (épéé) divine, etc...
+
+
+
+- Bug dans le widget Wallet top-up, je peux créditer mon compte de coins du jeu en cliquant sur les boutons en € des pack alors que je ne devrais pas le pouvoir tant que je n'ai pas configurer le mécanisme définitif.
+
+
+
+- Bug dans le Widget "Team chat", je n'arrive pas a supprimer les échanges !
+
+
+
+- Il y a encore des bugs dans les traduction [Fournir les copies d'écran dans le menu déroulant du jeu & dans les widget (Quests par exemple) où les traductions restent en français malgré le changement de langue (EN en)]
+
+
+
+
+Insérer un module/mécanisme pour créer des terrains/maps avec un widget dans le jeu qui s’appellera “Créateur” permettant de les charger.
+Ce module widget permettra également au joueur moyennant un abonnement supplémentaire à payer en euros (CB, PayPal, ApplePay, GooglePay)  ou cryptomonnaies de pouvoir créer ses propres terrains et mappes. Tu ajouteras cet abonnement et son paramétrage dans le rubrique “Statistiques par jour” du menu Administration.
+Tu ajouteras donc dans ce module tout type de dalle (ground, montagne, eau), tout type de bloc (terre, rocher) texturé à la couleur de la terre ou de la roche qui pourront être insérer sur un plan 2D (coordonnées x et y) pour créer un sol, eau et sur un plan 3D (coordonnées x, y et z) pour créer la hauteur/profondeur, les blocs pourront alors être empilés les uns sur les autres pour faire des montagnes, par exemple. Tu rendras possible d'extruder le sol, les montagnes. Tu ajouteras également un sélecteur de bloc où le joueur pourra aller piocher selon ses envies de créations des blocs spécifiques à empiler pour créer des montagnes (empiler pourquoi pas les unes sur les autres), des mers, des océans, des lacs, des rivières, des étangs, des donjons, des granges, des maisons, des châteaux et à termes tout type d’objets dans le jeu, il faudra donc faire cela de façon évolutive et scalable. Tu créeras des grilles ou plateau modifiable pour poser ces blocs et dalles, par exemple 100x100 ou 600x699 ou modifiable en laissant le joueur saisir les dimensions de son plateau. Le mode “Créateur” une fois l’abonnement payé pourra permettra au joueur de créer, modifier, supprimer des objets, dalles, blocs sur la sa mappes. Sinon, si le joueur n’a pas d’abonnement les boutons ou menus créer, modifier, supprimer seront grisées et désactivées. Ne sera activé que la possibilité de “Charger” une mappe. Tu ajouteras dans les options l’achat, des packs de blocs ou dalles en les rendant plus attractif à l’achat en groupe qu’à l’unité de type “Pack maisons”, “Pack donjons”, “Pack châteaux”, “Pack catapulte”, “Pack bateau”, “Pack drakkar”, etc… À toi de définir les prix des blocks à l’unité, le prix des packs de blocks, etc…. Tu penseras à rendre modifiable et paramétrable les blocs, type de block, pack de blocs, leur coût à chacun, à l’unité, en pack, en solde d’hiver quand la saison sera l’hiver, en solde d’automne quand la saison sera en automne, en solde d’été quand la saison sera en été, etc..
+
+
+
+
+- Tout au long du jeu, ajouter dans la boucle de progresion une quête pour regrouper toutes les pièces mécanique d'un engin appelé Quantico qui permet de voyager dans une autre partie mystérieuse du jeu qui change totalement le gameplay (voir si faire un shoot'em up ou un autre style de jeu mais il faudra mettre en place un système type factory ou création de jeux pour donner de l'orginialité et ne jamais avoir ou très rarement le même jeu).
+Donc rappeler clairement dans la progression et le message de bienvenue en le mettant à jour ainsi qu'au besoin réorganiser les mécanismes du jeu pour clairement afficher la progression qui se fait à la fois au travers : 
+	- Des quêtes à résoudre, classiques, de PNJ, de royaumes, de pleine lune quand elle apparait, etc... qui restent la base du jeu
+	- De la recherche et du dressage de dragons qui deviendront des compagnons de Synk : Premier compagnon apprivoisable : un Dragon d'Or, le plus noble des dragons, débloqué à force de bons soins. D'autres créatures rejoindront Synk au fil des saisons de contenu.
+	- D'une quête spéciale qui consistera a regrouper toutes les pièces mécanique d'un engin appelé Quantico dispersée sur l'ensemble du territoire de la map. Il faudra les définir mais il y aura 15 pièces a retrouver et déposer sur l'autel des prédicateurs que tu définieras comme un POI principale dans le jeu ! Chaque pièce trouvée pourra y être déposées et l'engin se montera et sera dessiner progressivement en fonction des recherches et trouvailles de Synk et ce qu'il déposera sur cet autel, il faudra donc prévoir un objet POI particulier qui quand on clique dessus avec un des objets de l'engin dans la main de Synk propose de le déposer !
+	- Le grand méchant de l'histoire s'appelle Zorghon : il a enlevé la princesse PocaPoka et son fidèle lutin El Pipo. Toute l'aventure — 400 quêtes réparties en 40 chapitres — consiste à les retrouver et à vaincre Zorghon, en réunissant 5 fragments d'un sceau magique légendaire. En chemin : des PNJ à qui parler, des îles à explorer en bateau ou en engin volant, des montagnes enneigées, des saisons qui changent avec le calendrier réel, et même des nuits de pleine lune qui révèlent des quêtes secrètes.
+
+
 
 
 - Une fois que Synk est en possession d'un familier Dragon (ou autre type de familiers donc généraliser ce concept), il va falloir mettre en place une phase d'apprivoisement du familier qui va consister à le nourrir, lui apprendre le combat, ne pas lui faire peur, lui donner confiance pour pouvoir à terme le chevaucher en ayant bien évidement acquis avant, une selle pour cela. Au départ le familier pourra s'échapper où fuguer et il sera matérialiser sur la carte par une icône particulière qui scintillera et fera de petit bond, Synk devra donc aller récupérer son familier pour continuer son éducation et son apprivoisement qui débutera à 0% (0/100) et se terminera a 100% (100/100) avec un familier aguéri au combat et l'ombre de Synk pour le protéger et lui donner plus de pouvoir, de force, de spiritualité, etc... lors des combats et de l'aventure. Il faudra donc que tu prévois ce gameplay et scénario complémentaire pour ouvrir certaine quêtes qui font appel à un familier mais aussi accompagner Synk au quotidien dans le jeu. Utilises toutes les caractéristiques que je viens de te donner en faisant aussi preuve d'innovation et d'inspiration pour ce scénarios complémentaire et rends toutes ces caractéristiques paramétrable et modifiable dans le menu Administration en complétant la rubrique familiers ou en créant une nouvelle rubrique, à toi de voir le plus pertinent. Tu rendras tous ces éléments paramétrables, évolutifs et modifiables dans le menu Administration. Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
 
 
+
 - Gestion des îles avec de vrai étendu d'eau où je ne peux pas me déplacer tant que je n'ai pas l'engin pour le faire
 Agrandir la carte 
 Vérifie que la solution que tu implémentes ne fait aucune régression de code, de stratégie déjà en place et de jeu.
-
-
 
 
 
@@ -411,6 +508,9 @@ Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne f
 Au besoin utilise Playwright pour tester, reproduire et corriger ces bugs.
 Fait ces évolutions et vérifies que les solutions que tu implémentes ne font aucune régression de code, de stratégie déjà en place dans le jeu.
 -----------------------------------------------------------------------------------------------------------------
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+-----------------------------------------------------------------------------------------------------------------
+
 
 
 
