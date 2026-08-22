@@ -1413,7 +1413,7 @@
   "onboarding.topic.stats.title": "Synk's statistics",
   "onboarding.topic.stats.body": "Life, Hunger, Happiness, Force, Spells, Oxygen, Fatigue and Experience: each gauge evolves with your actions and shapes Synk's survival and progression.",
   "onboarding.topic.dice.title": "Dice rolls & combat",
-  "onboarding.topic.dice.body": "The Dice Roll widget handles the daily fate roll and combat. Your Force, your gear and random bonuses/penalties influence the outcome.",
+  "onboarding.topic.dice.body": "The Dice Roll widget handles the daily fate roll and combat. Your Force, your gear and random bonuses/penalties influence the outcome. During an NPC fight, the game flips a coin (configurable in Administration) between the classic 2d20 roll and the D&D Action Die (tetrahedron): Flight, Fight, Freeze or Fawn, each with its own life/XP/force gains or losses, or item rewards.",
   "onboarding.topic.combat.title": "Gear wear & bare-handed combat",
   "onboarding.topic.combat.body": "Every hit wears down your equipped weapon/armor a little. Without gear, Synk fights bare-handed with a penalty to the dice roll.",
   "onboarding.topic.potions.title": "Potions & Spells",

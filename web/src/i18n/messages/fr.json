@@ -1413,7 +1413,7 @@
   "onboarding.topic.stats.title": "Les statistiques de Synk",
   "onboarding.topic.stats.body": "Vie, Faim, Bonheur, Force, Sorts, Oxygène, Fatigue et Expérience : chaque jauge évolue selon tes actions et conditionne la survie et la progression de Synk.",
   "onboarding.topic.dice.title": "Lancer de dés & combats",
-  "onboarding.topic.dice.body": "Le widget Lancer de dés gère les jets de destin quotidien et les combats. Ta Force, ton équipement et des bonus/malus aléatoires influencent le résultat.",
+  "onboarding.topic.dice.body": "Le widget Lancer de dés gère les jets de destin quotidien et les combats. Ta Force, ton équipement et des bonus/malus aléatoires influencent le résultat. Lors d'un combat PNJ, le jeu tire à pile ou face (paramétrable en Administration) entre le jet 2d20 classique et le Dé d'Action D&D (tétraèdre) : Fuir, Combattre, Figer ou Négocier, chacun avec ses propres gains/pertes de vie, XP, force ou objets.",
   "onboarding.topic.combat.title": "Usure du matériel & combat à mains nues",
   "onboarding.topic.combat.body": "Chaque coup use un peu ton arme/protection équipée. Sans équipement, Synk se bat à mains nues avec un malus au jet de dés.",
   "onboarding.topic.potions.title": "Potions & Sortilèges",

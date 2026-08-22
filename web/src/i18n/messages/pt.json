@@ -1413,7 +1413,7 @@
   "onboarding.topic.stats.title": "As estatísticas de Synk",
   "onboarding.topic.stats.body": "Vida, Fome, Felicidade, Força, Feitiços, Oxigênio, Fadiga e Experiência: cada medidor evolui de acordo com suas ações e determina a sobrevivência e o progresso de Synk.",
   "onboarding.topic.dice.title": "Rolagem de dados e combates",
-  "onboarding.topic.dice.body": "O widget de Rolagem de dados gerencia a rolagem do destino diário e os combates. Sua Força, seu equipamento e bônus/penalidades aleatórios influenciam o resultado.",
+  "onboarding.topic.dice.body": "O widget de Rolagem de dados gerencia a rolagem do destino diário e os combates. Sua Força, seu equipamento e bônus/penalidades aleatórios influenciam o resultado. Num combate contra um PNJ, o jogo sorteia (configurável em Administração) entre a rolagem 2d20 clássica e o Dado de Ação D&D (tetraedro): Fugir, Lutar, Congelar ou Negociar, cada um com seus próprios ganhos/perdas de vida, XP, força ou itens.",
   "onboarding.topic.combat.title": "Desgaste do equipamento e combate desarmado",
   "onboarding.topic.combat.body": "Cada golpe desgasta um pouco sua arma/proteção equipada. Sem equipamento, Synk luta desarmado com uma penalidade na rolagem de dados.",
   "onboarding.topic.potions.title": "Poções e Feitiços",

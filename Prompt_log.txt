@@ -390,6 +390,8 @@ Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vér
 
 
 
+
+
 Dans le business modele de refacturation des couts aux utilisateurs et d'aide sur la plateforme de financement en ligne et promotion du jeu :
 - Ajoutes dans la communication (instagram) et dans le document de financement :
 	- Le tuning sur mesure du jeu via le menu Administration avec un large éventail de configuration possible [Faire ici une copie d'écran du sommaire du menu Administration ainsi que de quelques écrans]: 

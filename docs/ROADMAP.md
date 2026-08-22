@@ -55,6 +55,21 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
       monétisation et de rencontres PNJ) + assistant IA gratuit (Google Gemini) pour générer
       analyses et recommandations — base de données pour orienter les futures évolutions du jeu
       et concevoir de nouveaux services
+- [x] Accès Démo & paiement fiat sans portefeuille crypto (comptes e-mail/Google, coins par
+      CB/PayPal/Apple Pay/Google Pay), e-mails automatiques (bienvenue, rapports, annonces),
+      timer de session Démo paramétrable (durée globale + override par joueur, réactivable,
+      appliqué en temps réel) — voir `docs/DEMO_FIAT.md` et `docs/EMAIL_NOTIFICATIONS.md`
+- [x] Synk plus vivant en Plateforme 3D : pupilles + clignement des yeux périodique, activable et
+      réglable dans `Administration > Paramétrage de Synk`
+- [x] Widgets flottants : correctifs d'empilement/focus (une fenêtre active ne passe plus sous une
+      autre, plus de vol de focus par le bouton de fermeture) et de positionnement (le widget
+      « Lancer de dés » restait ancré au bas de la page) ; renommage « ZeldCraft Quests »
+- [x] **Dé d'Action D&D** (nouveau) : lors de chaque combat PNJ obligatoire, tirage 50/50
+      (paramétrable) entre le jet 2d20 classique et un dé d'action tétraédrique — Fuir (Flight),
+      Combattre (Fight), Figer (Freeze) ou Négocier (Fawn), chacun avec ses propres gains/pertes
+      de vie/XP/force ou objets (dont un objet Ultra rare gagnable 1×/jour). Entièrement
+      paramétrable dans `Administration > Barème & règles` (activation, % de chance, type de dé
+      d4→d100 avec les vrais noms de polyèdres, gains par face)
 
 ## ⚠️ Dette technique connue — redéploiement du smart contract à prévoir
 

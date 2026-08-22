@@ -1413,7 +1413,7 @@
   "onboarding.topic.stats.title": "Las estadísticas de Synk",
   "onboarding.topic.stats.body": "Vida, Hambre, Felicidad, Fuerza, Hechizos, Oxígeno, Fatiga y Experiencia: cada indicador evoluciona según tus acciones y condiciona la supervivencia y progreso de Synk.",
   "onboarding.topic.dice.title": "Tirada de dados y combates",
-  "onboarding.topic.dice.body": "El widget de Tirada de dados gestiona la tirada del destino diario y los combates. Tu Fuerza, tu equipo y bonificaciones/penalizaciones aleatorias influyen en el resultado.",
+  "onboarding.topic.dice.body": "El widget de Tirada de dados gestiona la tirada del destino diario y los combates. Tu Fuerza, tu equipo y bonificaciones/penalizaciones aleatorias influyen en el resultado. Durante un combate contra un PNJ, el juego sortea (configurable en Administración) entre la tirada 2d20 clásica y el Dado de Acción D&D (tetraedro): Huir, Luchar, Paralizarse o Negociar, cada uno con sus propias ganancias/pérdidas de vida, XP, fuerza u objetos.",
   "onboarding.topic.combat.title": "Desgaste del equipo y combate a manos desnudas",
   "onboarding.topic.combat.body": "Cada golpe desgasta un poco tu arma/protección equipada. Sin equipo, Synk lucha a manos desnudas con una penalización en la tirada de dados.",
   "onboarding.topic.potions.title": "Pociones y Hechizos",
