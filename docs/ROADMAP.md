@@ -187,10 +187,36 @@ de déplacement `useHoldMovement.ts`) :
   `controls.target`, `controls.update()`) : rotation du vecteur caméra→cible autour de l'axe Y d'un
   petit pas par frame vers l'angle cible — vérifié via Playwright (angle azimutal réel de la caméra
   journalisé image par image) : reconvergence en ~10 frames après une orbite manuelle.
+- **Régression : Synk tourne sur lui-même au lieu de se déplacer, « bonds erratiques » visibles
+  dans les deux widgets (3D et 2D isométrique)** : le correctif précédent (caméra suiveuse
+  repositionnant réellement la caméra) a réintroduit, sous une forme différente, exactement le
+  risque de boucle de rétroaction que la version « cible analytique stable » visait à éviter. En
+  détail, remonter la cible analytique (`FACING_ANGLE[facing] + π`) PENDANT la marche crée une
+  boucle fermée : cette cible dépend de `facing`, lui-même calculé à partir de
+  `cameraYawRef.current`... alimenté par cette même cible. Chaque appui successif dans la « même »
+  direction (ex. Gauche répété) tournait donc la direction résolue d'un cran de plus à chaque
+  frappe (confirmé par logs Playwright : yaw dérivant de 0 → -0.83 → -1.69 → -2.51 rad par appui).
+  Remonter à la place l'angle RÉEL en continu (y compris pendant la marche) n'a PAS suffi non plus :
+  cet angle réel évolue lui-même en fonction de `facing` pendant que la caméra suiveuse tourne, donc
+  un nouvel appui rapproché pouvait encore échantillonner un angle transitoire. **Correctif
+  définitif (double verrou)** : (1) `cameraYawRef` (donc la résolution de direction) n'est plus
+  JAMAIS mise à jour pendant qu'une session de marche est active (`chasing === true`) — elle reste
+  gelée à sa dernière valeur connue pour toute la durée de la marche, même faite de plusieurs appuis
+  rapprochés ; (2) au moment précis où Synk s'arrête de marcher, la caméra est instantanément
+  « snappée » (sans à-coup perceptible, il ne reste jamais qu'une fraction de rotation) sur la cible
+  EXACTE (`FACING_ANGLE[facing] + π`) avant de geler `cameraYawRef` sur cette valeur exacte — ce qui
+  garantit que le référentiel gelé pour la prochaine session de marche correspond TOUJOURS
+  précisément à « pile derrière Synk », sans plus aucune dérive possible d'une marche à l'autre.
+  Vérifié par Playwright (rejeu de 5 appuis rapprochés puis de maintiens de 2 s dans les 4
+  directions) : la valeur de `cameraYawRef` reste désormais parfaitement stable/quantifiée au sein
+  d'une même marche, et la direction résolue (`rotateInputByCameraYaw`) ne dérive plus jamais.
 
-**Résultat validé par le porteur du projet** : Synk grimpe désormais correctement sur les blocs de
-montagne avec Espace + direction Haut, y compris caméra suiveuse active. Cette configuration
-(`Scene`'s `useFrame` dans `Platform3DWidget.tsx`) est la référence à ne plus modifier sans une
+**Résultat validé (Playwright + relecture manuelle)** : Synk grimpe correctement sur les blocs de
+montagne avec Espace + direction Haut, l'orbite libre à la souris au repos fonctionne normalement,
+et le déplacement clavier/pavé directionnel (appuis rapprochés et maintiens, dans les 4 directions)
+reste désormais stable et déterministe, sans dérive de caméra ni « spin » sur place. Cette
+configuration (`Scene`'s `useFrame` dans `Platform3DWidget.tsx`, avec le gel de `cameraYawRef`
+pendant la marche et le « snap » final à l'arrêt) est la référence à ne plus modifier sans une
 raison impérieuse, pour éviter de réintroduire l'une de ces régressions.
 
 ### 🚑 Historique — déploiement Vercel figé sur un ancien commit (« Redeploy » trompeur)
@@ -278,6 +304,17 @@ Vercel :
         direction du déplacement relatif à la caméra — activable/désactivable
         (`RepRules.platform3dChaseCameraEnabled`).
   - [x] **Fenêtre redimensionnable jusqu'au plein écran** (`RepRules.platform3dResizableEnabled`).
+- [ ] **Réalisme 3D — suite demandée (pas encore fait)** :
+  - [ ] Redimensionner les dragons (familiers/`DragonMarker`) et tous les autres PNJ (Thrall, Chef
+        de la Horde, etc.) pour qu'ils soient visiblement PLUS GRANDS que Synk (taille réelle d'un
+        dragon/PNJ adulte), au lieu de l'échelle actuelle proche de celle des marqueurs de carte.
+  - [ ] Faire rendre TOUS les PNJ avec le MÊME système voxel Minecraft que Synk (`SynkVoxel`) au
+        lieu de la silhouette encapuchonnée générique (robe + tête + bâton + orbe) actuelle.
+  - [ ] Poursuivre la passe de réalisme/texture pour les objets nommés du catalogue encore rendus
+        comme des coffres génériques (ex. Champignon Luminescent → vrai champignon texturé, Pomme
+        Dorée Enchantée → vraie pomme texturée) et le décor spécifique (landes cendrées d'Ember,
+        etc.), en recensant tous les objets via les widgets Boutique/Inventaire/Quêtes/ZeldCraft
+        Quests.
 - [ ] Prototype donjon 1 (Forêt de Zephyria) : déplacement, combat, loot (au-delà de l'exploration
       libre déjà couverte par le widget « Plateforme 3D »)
 - [ ] Sync inventaire on-chain ↔ jeu

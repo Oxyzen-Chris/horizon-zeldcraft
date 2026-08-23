@@ -938,21 +938,35 @@ function Scene({
   // chaque frame, produisant une direction "monde" tantôt correcte tantôt fausse/bloquée — Synk
   // marchait sur place (`isWalking`/`facing` mis à jour mais `moveTo` jamais atteint) et la course
   // ne pouvait jamais progresser puisque la position ne changeait pas (bug rapporté "il fait du
-  // surplace" / "ne peut plus courir"). Correctif définitif : PENDANT que la chase-cam est engagée
-  // (Synk marche), `onCameraYaw` ne remonte plus l'angle réel (encore en transition) mais la CIBLE
-  // analytique de la chase-cam (`FACING_ANGLE[facing] + π`, une valeur stable et immédiate, pas
-  // besoin d'attendre la convergence visuelle) — la caméra continue de tourner en douceur à l'écran
-  // (cosmétique, via `_sphericalDelta`), mais la résolution de direction n'observe plus JAMAIS cette
-  // transition, éliminant toute boucle de rétroaction. Au repos (Synk immobile), `onCameraYaw`
-  // reprend l'angle RÉEL de la caméra (orbite libre à la souris toujours prise en compte normalement,
-  // aucune régression).
+  // surplace" / "ne peut plus courir"). Une TROISIÈME version remontait, PENDANT la chase-cam, la
+  // CIBLE analytique `FACING_ANGLE[facing] + π` plutôt que l'angle réel, pensant la rendre "stable" —
+  // à tort : cette cible dépend de `facing`, lui-même calculé (dispatchMove/rotateInputByCameraYaw) à
+  // partir de `cameraYawRef.current`, alimenté par... cette même cible : boucle fermée. Une
+  // QUATRIÈME version (celle-ci) a ensuite essayé de remonter l'angle RÉEL en continu (y compris
+  // pendant la chase) au lieu de la cible — mais la boucle persistait quand même : pendant que la
+  // chase-cam tourne activement la caméra pour rattraper `facing`, l'angle RÉEL lui-même évolue à
+  // chaque frame EN FONCTION de `facing`, donc un nouvel appui (ex. "Gauche" répété rapidement, ou
+  // maintenu alors que `walking` reste vrai en continu grâce au délai `WALK_STOP_DELAY_MS`) pouvait
+  // échantillonner un angle réel encore EN TRANSITION vers l'ancienne cible, produisant une nouvelle
+  // direction "monde" légèrement décalée, dont la nouvelle cible décalait à son tour l'angle réel un
+  // peu plus loin — confirmé par logs (yaw dérivant de 0 → -0.83 → -1.63 → -2.43 → ... à chaque
+  // appui). CORRECTIF DÉFINITIF : `cameraYawRef` (donc `onCameraYaw`) n'est plus JAMAIS mis à jour
+  // PENDANT que la chase-cam est active (`chasing === true`) — il reste figé à sa dernière valeur
+  // connue (l'angle réel tel qu'il était juste AVANT que Synk ne commence à marcher, ou tel que le
+  // joueur l'a librement réorbité à la souris), ce qui casse ENTIÈREMENT la boucle de rétroaction :
+  // toute la résolution de direction d'une session de marche continue (même faite de plusieurs
+  // appuis rapprochés) utilise systématiquement le MÊME angle de référence, stable par construction.
+  // Dès que Synk s'arrête (`chasing` redevient faux), `onCameraYaw` reprend l'angle réel courant
+  // (désormais recentré derrière lui, voir le « snap » ci-dessous) pour la prochaine session de
+  // marche — et l'orbite libre à la souris au repos continue de fonctionner normalement (aucune
+  // régression).
+  const prevChasingRef = useRef(false);
   useFrame(() => {
     if (!controlsRef.current) return;
     const controls = controlsRef.current;
     const chasing = chaseCameraEnabled && walking;
     if (chasing) {
       const targetTheta = (FACING_ANGLE[facing] ?? 0) + Math.PI;
-      onCameraYaw(targetTheta);
       const current = controls.getAzimuthalAngle();
       let delta = targetTheta - current;
       while (delta > Math.PI) delta -= Math.PI * 2;
@@ -981,7 +995,32 @@ function Scene({
         camera.position.z = target.z + (offZ * cosA - offX * sinA);
         controls.update();
       }
+      prevChasingRef.current = true;
     } else {
+      // Synk vient tout juste de s'arrêter de marcher (transition chasing:true → false) : la
+      // convergence progressive ci-dessus (`step = delta * 0.08`) n'a le plus souvent pas eu le
+      // temps de se terminer avant qu'`isWalking` ne retombe (voir WALK_STOP_DELAY_MS), surtout
+      // lors d'appuis brefs/répétés — la caméra reste alors figée à mi-rotation. Comme plus rien ne
+      // la fait bouger dans cette branche, `onCameraYaw` gelait alors `cameraYawRef` sur cet angle
+      // INCOMPLET, qui servait de base à la PROCHAINE marche : chaque nouvel appui repartait donc
+      // d'un référentiel légèrement décalé par rapport à "pile derrière Synk", et l'écart s'accumulait
+      // d'appui en appui (confirmé par logs : yaw dérivant de 0 → -0.83 → -1.69 → -2.51 → ... lors
+      // d'appuis rapprochés sur une même touche) — cause résiduelle du bug « la touche gauche/droite
+      // le fait tourner sur lui-même ». Correctif : au moment précis de cette transition, on termine
+      // INSTANTANÉMENT (un seul « snap », sans à-coup perceptible car il ne reste jamais qu'une
+      // fraction de la rotation) le recentrage vers la cible EXACTE (`FACING_ANGLE[facing] + π`),
+      // pour que le référentiel gelé corresponde TOUJOURS très précisément à "pile derrière Synk",
+      // sans plus aucune dérive possible d'une session de marche à l'autre.
+      if (prevChasingRef.current) {
+        const targetTheta = (FACING_ANGLE[facing] ?? 0) + Math.PI;
+        const camera = controls.object;
+        const target = controls.target;
+        const dist = Math.hypot(camera.position.x - target.x, camera.position.z - target.z);
+        camera.position.x = target.x + Math.sin(targetTheta) * dist;
+        camera.position.z = target.z + Math.cos(targetTheta) * dist;
+        controls.update();
+        prevChasingRef.current = false;
+      }
       onCameraYaw(controls.getAzimuthalAngle());
     }
   });
