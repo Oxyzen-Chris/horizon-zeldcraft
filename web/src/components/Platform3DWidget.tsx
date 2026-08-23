@@ -1314,8 +1314,29 @@ function Scene({
         camera.position.z = target.z + Math.cos(targetTheta) * dist;
         controls.update();
         prevChasingRef.current = false;
+        // NE PAS appeler `onCameraYaw` ici (voir bug ci-dessous) : on saute volontairement la
+        // resynchronisation de `cameraYawRef` sur CETTE frame précise.
+      } else {
+        // Correctif « va-et-vient / carré qui s'élargit » : `cameraYawRef` ne doit refléter QUE
+        // l'orientation choisie librement par le joueur (orbite souris au repos), jamais l'angle
+        // du recentrage automatique ci-dessus. Avant ce correctif, la ligne `onCameraYaw(...)`
+        // était appelée à CHAQUE frame « non chasing », y compris celle qui suit immédiatement le
+        // snap (dans le `if` juste au-dessus) : elle gelait alors `cameraYawRef` sur
+        // `FACING_ANGLE[facing] + π` — un angle dérivé de la marche qui vient de se terminer, pas
+        // du tout une orientation neutre de caméra. Au prochain appui sur la MÊME touche brute
+        // (ex. « Bas » après un relâchement bref), `rotateInputByCameraYaw` combinait alors ce
+        // yaw figé avec l'entrée : la rotation résultante s'avère être l'EXACT OPPOSÉ de la
+        // précédente (confirmé par des logs Playwright : yaw 0 → π après le 1er pas, puis
+        // l'entrée « Bas » redonne (dx:0,dy:-1) au lieu de (dx:0,dy:1) au 2e appui) — d'où
+        // l'oscillation avant/arrière signalée sur une pression répétée de Bas, et une dérive
+        // cumulative (spirale) sur Gauche/Droite car chaque nouvelle touche recalculait sa
+        // direction à partir d'un référentiel différent à chaque fois. En sautant la
+        // resynchronisation sur la frame du snap (ci-dessus) et en ne mettant à jour
+        // `cameraYawRef` que sur les frames VRAIMENT au repos (ni en train de « chaser », ni la
+        // frame du snap), le référentiel reste stable d'une session de marche à l'autre tant que
+        // le joueur ne réoriente pas manuellement la caméra à la souris.
+        onCameraYaw(controls.getAzimuthalAngle());
       }
-      onCameraYaw(controls.getAzimuthalAngle());
     }
   });
 
@@ -1844,7 +1865,9 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
   // actuel de la caméra (voir rotateInputByCameraYaw/cameraYawRef) — corrige "Espace+Haut ne fait
   // pas grimper la montagne en face" quand la caméra a été orbitée à la souris.
   const cameraYawRef = useRef(0);
-  const onCameraYaw = useCallback((yaw: number) => { cameraYawRef.current = yaw; }, []);
+  const onCameraYaw = useCallback((yaw: number) => {
+    cameraYawRef.current = yaw;
+  }, []);
   const cameraRelativeMovement = rules?.platform3dCameraRelativeMovement ?? true;
   // Mémorise la dernière entrée BRUTE (écran) et sa direction MONDE déjà calculée pour ce maintien
   // en cours — corrige le déplacement erratique (diagonales/allers-retours parasites) observé en

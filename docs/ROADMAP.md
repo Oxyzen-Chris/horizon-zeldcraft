@@ -245,13 +245,54 @@ de déplacement `useHoldMovement.ts`) :
   directions) : la valeur de `cameraYawRef` reste désormais parfaitement stable/quantifiée au sein
   d'une même marche, et la direction résolue (`rotateInputByCameraYaw`) ne dérive plus jamais.
 
-**Résultat validé (Playwright + relecture manuelle)** : Synk grimpe correctement sur les blocs de
-montagne avec Espace + direction Haut, l'orbite libre à la souris au repos fonctionne normalement,
-et le déplacement clavier/pavé directionnel (appuis rapprochés et maintiens, dans les 4 directions)
-reste désormais stable et déterministe, sans dérive de caméra ni « spin » sur place. Cette
-configuration (`Scene`'s `useFrame` dans `Platform3DWidget.tsx`, avec le gel de `cameraYawRef`
-pendant la marche et le « snap » final à l'arrêt) est la référence à ne plus modifier sans une
-raison impérieuse, pour éviter de réintroduire l'une de ces régressions.
+**Résultat validé à l'époque (Playwright + relecture manuelle)** : Synk grimpe correctement sur les
+blocs de montagne avec Espace + direction Haut, l'orbite libre à la souris au repos fonctionne
+normalement, et le déplacement clavier/pavé directionnel (appuis rapprochés et maintiens, dans les
+4 directions) semblait stable et déterministe. **Cette conclusion s'est révélée incomplète** — voir
+l'entrée suivante pour la véritable cause racine, découverte lors d'un signalement ultérieur.
+
+### 🎥 Historique — bug résiduel : va-et-vient / « carré qui s'élargit » sur appuis répétés (cause racine réelle)
+
+Malgré le double verrou ci-dessus, le déplacement restait erratique sur des appuis **répétés et
+brefs** (relâchement puis nouvelle pression de la même touche) — le cas d'usage le plus courant en
+pratique (peu de joueurs maintiennent une touche en continu sur plusieurs secondes). Symptômes
+reproduits et confirmés via Playwright (frappes de 120 ms suivies de 180 ms de relâchement,
+répétées 10 fois) :
+- Touche Bas répétée : Synk avance d'une case puis recule d'une case, en boucle sans jamais
+  progresser (« bouton qui inverse le sens du prochain déplacement »).
+- Touches Gauche/Droite répétées : la direction résolue dérivait à chaque frappe, produisant un
+  déplacement en carré qui s'élargit progressivement.
+
+**Cause racine réelle** : au moment précis où `chasing` passe de `true` à `false` (Synk vient de
+s'arrêter de marcher), le code « snappe » la caméra sur la cible analytique
+`FACING_ANGLE[facing] + π` (pile derrière Synk) — ce qui est correct visuellement — **mais
+remontait ensuite cet angle « artefact du recentrage » à `cameraYawRef` via `onCameraYaw`, exactement
+comme un angle d'orbite libre choisi par le joueur**. Or cet angle est mathématiquement dérivé de
+`facing`, qui a lui-même été calculé à partir de la valeur PRÉCÉDENTE de `cameraYawRef` : réinjecter
+cette valeur ferme la boucle de rétroaction. Concrètement, pour une marche vers le bas (`facing:
+'down'`, angle 0), le snap fixe `cameraYawRef` à π ; au prochain appui sur la même touche Bas (brute
+`dx:0, dy:1`), `rotateInputByCameraYaw(0, 1, π)` recalcule alors une direction MONDE inversée
+(`dx:0, dy:-1`, soit « Haut ») — confirmé image par image via Playwright (`cameraYawRef` passant de
+`0` à `π` après le premier pas, puis la même touche Bas redonnant `dir:'up'` au second appui).
+
+**Correctif** : dissocier complètement le recentrage cosmétique de la caméra suiveuse (visuel
+uniquement, pour montrer le dos de Synk pendant qu'il marche) du référentiel utilisé pour
+interpréter les touches (`cameraYawRef`). Ce dernier ne doit refléter QUE l'orientation choisie
+librement par le joueur à la souris au repos — jamais l'angle du « snap » automatique. Techniquement
+: la frame de transition où le snap est effectué n'appelle plus `onCameraYaw(...)` ; celui-ci ne
+reprend qu'aux frames suivantes, véritablement au repos (aucune marche en cours), qui reflètent une
+éventuelle réorientation manuelle de la caméra par le joueur — pas l'artefact du recentrage.
+
+**Résultat validé (Playwright, cette fois avec traçage image par image confirmé)** :
+- 10 appuis brefs répétés sur Bas → 10 résultats identiques (`dir:'down'`), plus aucune inversion.
+- 10 appuis brefs répétés sur Gauche → 10 résultats identiques et stables, plus aucune dérive/carré.
+- Maintien continu de 3 s (avant/après un changement de cadre caméra en cours de maintien) → aucune
+  régression, le cache d'entrée (`lastRawDirRef`/`lastRotatedDirRef`) continue de verrouiller la
+  direction résolue pour toute la durée d'un maintien, comme avant.
+
+Cette version (skip de `onCameraYaw` sur la frame de snap dans `Platform3DWidget.tsx`) est
+désormais la référence à ne plus modifier sans rejouer intégralement ce scénario de test Playwright
+(appuis brefs répétés dans les 4 directions + maintiens + orbite souris manuelle au repos).
 
 ### 🚑 Historique — déploiement Vercel figé sur un ancien commit (« Redeploy » trompeur)
 
