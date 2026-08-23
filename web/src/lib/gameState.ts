@@ -3253,11 +3253,17 @@ export type SynkDirection = 'up' | 'down' | 'left' | 'right' | 'up-left' | 'up-r
  */
 export type Platform3DObjectKind =
   | 'terrain:grass' | 'terrain:sand' | 'terrain:path' | 'terrain:rock' | 'terrain:water'
-  | 'prop:tree' | 'prop:bamboo' | 'prop:baobab' | 'prop:palm' | 'prop:hut' | 'prop:castle' | 'prop:portal';
+  | 'prop:tree' | 'prop:bamboo' | 'prop:baobab' | 'prop:palm' | 'prop:hut' | 'prop:castle' | 'prop:portal'
+  // `marker:npc`/`marker:familiar` : uniquement le `scale` est pertinent ici (taille du PNJ voxel /
+  // du dragon-familier affiché sur la carte 3D — voir NpcVoxel/DragonMarker dans Platform3DWidget.tsx).
+  // `obstacle`/`climbable`/`water` restent présents pour réutiliser la même interface/table admin
+  // mais ne sont jamais lus pour un marqueur (seul `platform3dTileFlags()` sur `tile.prop` les lit).
+  | 'marker:npc' | 'marker:familiar';
 
 export const PLATFORM3D_OBJECT_KINDS: Platform3DObjectKind[] = [
   'terrain:grass', 'terrain:sand', 'terrain:path', 'terrain:rock', 'terrain:water',
   'prop:tree', 'prop:bamboo', 'prop:baobab', 'prop:palm', 'prop:hut', 'prop:castle', 'prop:portal',
+  'marker:npc', 'marker:familiar',
 ];
 
 export interface Platform3DObjectFlags { obstacle: boolean; climbable: boolean; water: boolean; scale: number }
@@ -3286,6 +3292,11 @@ export const DEFAULT_PLATFORM3D_OBJECT_FLAGS: Record<Platform3DObjectKind, Platf
   'prop:hut':      { obstacle: true,  climbable: false, water: false, scale: 1 },
   'prop:castle':   { obstacle: true,  climbable: false, water: false, scale: 1 },
   'prop:portal':   { obstacle: false, climbable: false, water: false, scale: 1 },
+  // PNJ voxel (style Minecraft, voir NpcVoxel) légèrement plus grand que Synk (~1.2 unité) pour
+  // rester bien visible/lisible sur la carte. Le familier-dragon doit être NETTEMENT plus grand
+  // que Synk (le joueur doit pouvoir imaginer le chevaucher) — voir DragonMarker.
+  'marker:npc':      { obstacle: false, climbable: false, water: false, scale: 1.6 },
+  'marker:familiar': { obstacle: false, climbable: false, water: false, scale: 2.4 },
 };
 
 /**

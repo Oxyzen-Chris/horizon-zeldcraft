@@ -699,12 +699,16 @@ export function RepRulesPanel() {
               {PLATFORM3D_OBJECT_KINDS.map(kind => {
                 const flags = rules.platform3dObjectFlags?.[kind] ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS[kind];
                 const isTerrain = kind.startsWith('terrain:');
+                // Marqueurs (PNJ voxel / dragon-familier) : seul `scale` est pertinent, voir le
+                // commentaire sur Platform3DObjectKind dans gameState.ts — obstacle/climbable/eau
+                // ne s'appliquent qu'aux tuiles (tile.prop), jamais aux marqueurs de la carte.
+                const isMarker = kind.startsWith('marker:');
                 return (
                   <tr key={kind} className="border-t border-slate-800">
                     <td className="py-1 pr-2 text-slate-300">{t(`admin.repRules.platform3dKind.${kind.replace(':', '_')}`)}</td>
-                    <td className="text-center"><input type="checkbox" checked={flags.obstacle} onChange={e => setObjectFlag(kind, 'obstacle', e.target.checked)} /></td>
-                    <td className="text-center"><input type="checkbox" checked={flags.climbable} onChange={e => setObjectFlag(kind, 'climbable', e.target.checked)} /></td>
-                    <td className="text-center"><input type="checkbox" checked={flags.water} onChange={e => setObjectFlag(kind, 'water', e.target.checked)} /></td>
+                    <td className="text-center">{isMarker ? <span className="text-slate-600">—</span> : <input type="checkbox" checked={flags.obstacle} onChange={e => setObjectFlag(kind, 'obstacle', e.target.checked)} />}</td>
+                    <td className="text-center">{isMarker ? <span className="text-slate-600">—</span> : <input type="checkbox" checked={flags.climbable} onChange={e => setObjectFlag(kind, 'climbable', e.target.checked)} />}</td>
+                    <td className="text-center">{isMarker ? <span className="text-slate-600">—</span> : <input type="checkbox" checked={flags.water} onChange={e => setObjectFlag(kind, 'water', e.target.checked)} />}</td>
                     <td className="text-center">
                       {isTerrain ? (
                         <span className="text-slate-600">—</span>

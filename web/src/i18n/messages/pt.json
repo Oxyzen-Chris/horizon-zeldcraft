@@ -603,6 +603,8 @@
   "admin.repRules.platform3dKind.prop_hut": "🛖 Decoração — Cabana",
   "admin.repRules.platform3dKind.prop_castle": "🏰 Decoração — Castelo",
   "admin.repRules.platform3dKind.prop_portal": "🌀 Decoração — Portal",
+  "admin.repRules.platform3dKind.marker_npc": "🧑‍🌾 Marcador — PNJ (voxel)",
+  "admin.repRules.platform3dKind.marker_familiar": "🐉 Marcador — Familiar/Dragão",
   "admin.repRules.platform3dUnderwaterTitle": "Plataforma 3D — mundo subaquático",
   "admin.repRules.platform3dUnderwaterDescription": "Clique com o botão direito em uma tile de água: oferece nadar na superfície (padrão) ou mergulhar totalmente em um mundo subaquático decorativo (peixes, criaturas marinhas).",
   "admin.repRules.platform3dUnderwaterWorldEnabled": "Ativar o menu de clique direito «Mergulhar» e o mundo subaquático",

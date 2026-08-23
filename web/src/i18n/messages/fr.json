@@ -710,6 +710,8 @@
   "admin.repRules.platform3dKind.prop_hut": "🛖 Décor — Hutte",
   "admin.repRules.platform3dKind.prop_castle": "🏰 Décor — Château",
   "admin.repRules.platform3dKind.prop_portal": "🌀 Décor — Portail",
+  "admin.repRules.platform3dKind.marker_npc": "🧑‍🌾 Marqueur — PNJ (voxel)",
+  "admin.repRules.platform3dKind.marker_familiar": "🐉 Marqueur — Familier/Dragon",
   "admin.repRules.platform3dUnderwaterTitle": "Plateforme 3D — monde sous-marin",
   "admin.repRules.platform3dUnderwaterDescription": "Clic droit sur une dalle d'eau : propose de nager en surface (défaut) ou de plonger entièrement dans un monde sous-marin décoratif (poissons, créatures marines).",
   "admin.repRules.platform3dUnderwaterWorldEnabled": "Activer le menu clic droit « Plonger » et le monde sous-marin",

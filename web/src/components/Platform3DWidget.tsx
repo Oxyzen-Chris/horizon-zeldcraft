@@ -422,6 +422,302 @@ function DragonMarker({ color }: { color: string }) {
   );
 }
 
+/** Devine l'apparence d'un PNJ à partir de son id/nom (ex. "npc.thrall" / "Thrall (Chef de la
+ * Horde)") — reconnaissance par mots-clés (même principe que `familiarDragonColor` ci-dessus),
+ * repli neutre (robe/capuche générique) pour tout futur PNJ ajouté par l'admin sans mot-clé connu.
+ * Purement cosmétique (aucun impact stats/mécanique) — répond à la demande utilisateur « je veux
+ * que les PNJ soit représentés avec le même système que Synk donc comme des personnages style
+ * Minecraft » pour Thrall et tous les autres PNJ (Zelda, Steve, Marchand, Dragon Ancestral...). */
+function npcAppearance(id: string, name: string): { skin: string; outfit: string; hair: string; accent: string; hat: 'crown' | 'hood' | 'hair' } {
+  const s = `${id} ${name}`.toLowerCase();
+  if (s.includes('thrall') || s.includes('horde') || s.includes('orc') || s.includes('orque'))
+    return { skin: '#6a9a4a', outfit: '#3f3226', hair: '#151515', accent: '#8a6a45', hat: 'hair' };
+  if (s.includes('zelda') || s.includes('princesse') || s.includes('princess'))
+    return { skin: '#f2c99d', outfit: '#e6d5f0', hair: '#d4b83a', accent: '#d4af37', hat: 'crown' };
+  if (s.includes('steve') || s.includes('mineur') || s.includes('miner'))
+    return { skin: '#f2c99d', outfit: '#3b6ea5', hair: '#3b2412', accent: '#5b3a1e', hat: 'hair' };
+  if (s.includes('marchand') || s.includes('merchant'))
+    return { skin: '#e0ab7a', outfit: '#6b4a2a', hair: '#4a3a2a', accent: '#8a6a45', hat: 'hood' };
+  if (s.includes('dragon'))
+    return { skin: '#8a5a3a', outfit: '#7f1d1d', hair: '#3a1a1a', accent: '#d4af37', hat: 'hood' };
+  return { skin: '#e8c39e', outfit: '#5b6a8a', hair: '#3b2412', accent: '#7dd3fc', hat: 'hood' };
+}
+
+/** PNJ en voxels (façon Minecraft), même langage visuel que `SynkVoxel` (tête box + yeux/bouche,
+ * torse, bras, jambes/bottes) mais simplifié (pas d'équipement/animation de marche, PNJ statiques
+ * sur la carte) — remplace la précédente silhouette encapuchonnée générique par un vrai petit
+ * personnage reconnaissable, cohérent avec Synk. Léger balancement idle (tête/bras) pour rester
+ * vivant sans nécessiter le cycle de marche complet de Synk. Couleurs pilotées par
+ * `npcAppearance` ci-dessus. */
+function NpcVoxel({ appearance }: { appearance: ReturnType<typeof npcAppearance> }) {
+  const leftArmRef = useRef<THREE.Group>(null);
+  const rightArmRef = useRef<THREE.Group>(null);
+  const headRef = useRef<THREE.Group>(null);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    const sway = Math.sin(t * 0.7) * 0.05;
+    if (leftArmRef.current) leftArmRef.current.rotation.x = sway;
+    if (rightArmRef.current) rightArmRef.current.rotation.x = -sway;
+    if (headRef.current) headRef.current.rotation.y = Math.sin(t * 0.35) * 0.15;
+  });
+  const { skin, outfit, hair, accent, hat } = appearance;
+  return (
+    <group>
+      {/* Tête */}
+      <group ref={headRef} position={[0, 0.62, 0]}>
+        <mesh castShadow><boxGeometry args={[0.38, 0.38, 0.38]} /><meshStandardMaterial color={skin} /></mesh>
+        <mesh position={[-0.08, 0.03, 0.19]}><boxGeometry args={[0.06, 0.06, 0.03]} /><meshStandardMaterial color="#1e293b" /></mesh>
+        <mesh position={[0.08, 0.03, 0.19]}><boxGeometry args={[0.06, 0.06, 0.03]} /><meshStandardMaterial color="#1e293b" /></mesh>
+        <mesh position={[0, -0.1, 0.19]}><boxGeometry args={[0.12, 0.03, 0.03]} /><meshStandardMaterial color="#7f2d3a" /></mesh>
+        {hat === 'crown' ? (
+          <mesh position={[0, 0.22, 0]} castShadow><cylinderGeometry args={[0.16, 0.19, 0.1, 8]} /><meshStandardMaterial color={accent} metalness={0.6} roughness={0.3} /></mesh>
+        ) : hat === 'hood' ? (
+          <mesh position={[0, 0.17, -0.02]} castShadow><coneGeometry args={[0.24, 0.28, 8]} /><meshStandardMaterial color={outfit} roughness={0.85} /></mesh>
+        ) : (
+          <mesh position={[0, 0.18, -0.02]} castShadow><boxGeometry args={[0.4, 0.1, 0.4]} /><meshStandardMaterial color={hair} /></mesh>
+        )}
+      </group>
+      {/* Torse (tunique + ceinture d'accent) */}
+      <mesh position={[0, 0.2, 0]} castShadow><boxGeometry args={[0.34, 0.44, 0.24]} /><meshStandardMaterial color={outfit} /></mesh>
+      <mesh position={[0, -0.02, 0]} castShadow><boxGeometry args={[0.36, 0.06, 0.26]} /><meshStandardMaterial color={accent} metalness={0.3} roughness={0.6} /></mesh>
+      {/* Bras */}
+      <group ref={leftArmRef} position={[-0.24, 0.38, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow><boxGeometry args={[0.11, 0.36, 0.11]} /><meshStandardMaterial color={outfit} /></mesh>
+        <mesh position={[0, -0.38, 0]} castShadow><boxGeometry args={[0.12, 0.09, 0.12]} /><meshStandardMaterial color={skin} /></mesh>
+      </group>
+      <group ref={rightArmRef} position={[0.24, 0.38, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow><boxGeometry args={[0.11, 0.36, 0.11]} /><meshStandardMaterial color={outfit} /></mesh>
+        <mesh position={[0, -0.38, 0]} castShadow><boxGeometry args={[0.12, 0.09, 0.12]} /><meshStandardMaterial color={skin} /></mesh>
+      </group>
+      {/* Jambes + bottes */}
+      <mesh position={[-0.1, -0.2, 0]} castShadow><boxGeometry args={[0.13, 0.22, 0.13]} /><meshStandardMaterial color="#334155" /></mesh>
+      <mesh position={[0.1, -0.2, 0]} castShadow><boxGeometry args={[0.13, 0.22, 0.13]} /><meshStandardMaterial color="#334155" /></mesh>
+      <mesh position={[-0.1, -0.34, 0.01]} castShadow><boxGeometry args={[0.14, 0.1, 0.15]} /><meshStandardMaterial color="#3f2c1a" /></mesh>
+      <mesh position={[0.1, -0.34, 0.01]} castShadow><boxGeometry args={[0.14, 0.1, 0.15]} /><meshStandardMaterial color="#3f2c1a" /></mesh>
+    </group>
+  );
+}
+
+type TreasureCategory =
+  | 'sword' | 'dagger' | 'axe' | 'pickaxe' | 'bow' | 'shield' | 'armor' | 'helmet' | 'boots' | 'gauntlet'
+  | 'amulet' | 'potion' | 'book' | 'staff' | 'coinpurse' | 'mushroom' | 'apple' | 'egg' | 'airship' | 'chest';
+
+/** Devine la catégorie visuelle d'un trésor à partir de son id/libellé catalogue (ex.
+ * "treasure.champignon_lueur" / "🍄 Champignon Luminescent") — le catalogue complet des trésors
+ * (voir migrateNpcsTreasoresWorldsToFirebase.mjs) est une progression d'objets classiques de
+ * Donjons & Dragons (épées, boucliers, armures, potions/fioles, grimoires, arcs/carquois, bottes,
+ * heaumes, gantelets, amulettes, haches, pioche, bourse de rubis, œuf de dragon, nourriture
+ * enchantée) : chaque catégorie a SA propre forme réaliste ci-dessous (voir `TreasureIcon`),
+ * remplaçant le coffre générique unique pour TOUS les trésors (demande utilisateur : « le
+ * champignon Luminescent doit ressembler à un vrai champignon [...] et pas à un vulgaire coffre »).
+ * Repli `'chest'` (rendu identique à l'ancien coffre) pour tout futur trésor sans mot-clé connu. */
+function treasureCategory(id: string, name: string): TreasureCategory {
+  const s = `${id} ${name}`.toLowerCase();
+  if (s.includes('pomme')) return 'apple';
+  if (s.includes('champignon')) return 'mushroom';
+  if (s.includes('oeuf') || s.includes('œuf') || s.includes('egg')) return 'egg';
+  if (s.includes('aeronef') || s.includes('aéronef') || s.includes('airship')) return 'airship';
+  if (s.includes('sceptre') || s.includes('scepter')) return 'staff';
+  if (s.includes('dague') || s.includes('dagger')) return 'dagger';
+  if (s.includes('hache') || s.includes('axe')) return 'axe';
+  if (s.includes('pioche') || s.includes('pickaxe')) return 'pickaxe';
+  if (s.includes('epee') || s.includes('épée') || s.includes('sword') || s.includes('thunderfury')) return 'sword';
+  if (s.includes('arc') || s.includes('carquois') || s.includes('bow') || s.includes('quiver')) return 'bow';
+  if (s.includes('bouclier') || s.includes('shield')) return 'shield';
+  if (s.includes('heaume') || s.includes('casque') || s.includes('helm')) return 'helmet';
+  if (s.includes('bottes') || s.includes('boots')) return 'boots';
+  if (s.includes('gantelet') || s.includes('gauntlet')) return 'gauntlet';
+  if (s.includes('armure') || s.includes('armor')) return 'armor';
+  if (s.includes('amulette') || s.includes('amulet')) return 'amulet';
+  if (s.includes('fiole') || s.includes('potion') || s.includes('vial') || s.includes('essence')) return 'potion';
+  if (s.includes('grimoire') || s.includes('parchemin') || s.includes('book') || s.includes('scroll')) return 'book';
+  if (s.includes('bourse') || s.includes('rubis') || s.includes('purse') || s.includes('coin')) return 'coinpurse';
+  return 'chest';
+}
+
+/** Rendu 3D réaliste et texturé (matériaux différenciés bois/cuir/métal/verre/organique) d'un
+ * trésor selon sa catégorie (voir `treasureCategory`) — corrige la demande utilisateur de ne plus
+ * avoir "un vulgaire coffre" pour absolument tout le catalogue de trésors. Formes volontairement
+ * compactes (échelle cohérente avec les autres marqueurs flottants) mais immédiatement
+ * reconnaissables. `'chest'` reproduit EXACTEMENT l'ancien rendu (zéro régression pour les trésors
+ * non couverts par un mot-clé). */
+function TreasureIcon({ category }: { category: TreasureCategory }) {
+  switch (category) {
+    case 'sword':
+      return (
+        <group rotation={[0, 0, Math.PI / 2.3]}>
+          <mesh position={[0, -0.24, 0]} castShadow><sphereGeometry args={[0.035, 8, 8]} /><meshStandardMaterial color="#8a6a45" metalness={0.5} roughness={0.4} /></mesh>
+          <mesh position={[0, -0.16, 0]} castShadow><cylinderGeometry args={[0.022, 0.022, 0.16, 8]} /><meshStandardMaterial color="#5b3a1e" roughness={0.8} /></mesh>
+          <mesh position={[0, -0.07, 0]} castShadow><boxGeometry args={[0.22, 0.025, 0.03]} /><meshStandardMaterial color="#c7ccd1" metalness={0.75} roughness={0.25} /></mesh>
+          <mesh position={[0, 0.16, 0]} castShadow><boxGeometry args={[0.06, 0.46, 0.014]} /><meshStandardMaterial color="#c7ccd1" metalness={0.85} roughness={0.2} /></mesh>
+          <mesh position={[0, 0.43, 0]} castShadow><coneGeometry args={[0.03, 0.09, 4]} /><meshStandardMaterial color="#c7ccd1" metalness={0.85} roughness={0.2} /></mesh>
+        </group>
+      );
+    case 'dagger':
+      return (
+        <group rotation={[0, 0, Math.PI / 2.3]}>
+          <mesh position={[0, -0.14, 0]} castShadow><cylinderGeometry args={[0.02, 0.02, 0.14, 8]} /><meshStandardMaterial color="#6b4423" roughness={0.8} /></mesh>
+          <mesh position={[0, -0.04, 0]} castShadow><boxGeometry args={[0.14, 0.02, 0.025]} /><meshStandardMaterial color="#9aa0a6" metalness={0.6} roughness={0.3} /></mesh>
+          <mesh position={[0, 0.12, 0]} castShadow><boxGeometry args={[0.04, 0.3, 0.012]} /><meshStandardMaterial color="#9aa0a6" metalness={0.75} roughness={0.3} /></mesh>
+          <mesh position={[0, 0.28, 0]} castShadow><coneGeometry args={[0.02, 0.06, 4]} /><meshStandardMaterial color="#9aa0a6" metalness={0.75} roughness={0.3} /></mesh>
+        </group>
+      );
+    case 'axe':
+      return (
+        <group rotation={[0, 0, Math.PI / 2.3]}>
+          <mesh position={[0, -0.05, 0]} castShadow><cylinderGeometry args={[0.024, 0.024, 0.5, 8]} /><meshStandardMaterial color="#5b3a1e" roughness={0.8} /></mesh>
+          <mesh position={[0.09, 0.22, 0]} rotation={[0, 0, -0.3]} castShadow><boxGeometry args={[0.2, 0.22, 0.03]} /><meshStandardMaterial color="#9aa0a6" metalness={0.65} roughness={0.3} /></mesh>
+        </group>
+      );
+    case 'pickaxe':
+      return (
+        <group rotation={[0, 0, Math.PI / 2.3]}>
+          <mesh position={[0, -0.05, 0]} castShadow><cylinderGeometry args={[0.022, 0.022, 0.46, 8]} /><meshStandardMaterial color="#6b4423" roughness={0.8} /></mesh>
+          <mesh position={[0, 0.2, 0]} rotation={[0, 0, Math.PI / 2]} castShadow><coneGeometry args={[0.045, 0.34, 4]} /><meshStandardMaterial color="#7c8590" metalness={0.7} roughness={0.3} /></mesh>
+        </group>
+      );
+    case 'bow':
+      return (
+        <group>
+          <mesh castShadow rotation={[0, 0, Math.PI / 2]}><torusGeometry args={[0.24, 0.017, 6, 12, Math.PI]} /><meshStandardMaterial color="#6b4423" roughness={0.75} /></mesh>
+          <mesh rotation={[0, 0, Math.PI / 2]}><boxGeometry args={[0.48, 0.008, 0.008]} /><meshStandardMaterial color="#e5decf" /></mesh>
+          <group position={[0.16, 0.1, 0.02]} rotation={[0.2, 0, -0.3]}>
+            <mesh castShadow><cylinderGeometry args={[0.06, 0.07, 0.26, 8]} /><meshStandardMaterial color="#6b4423" /></mesh>
+            <mesh position={[0.015, 0.16, 0]}><boxGeometry args={[0.012, 0.18, 0.012]} /><meshStandardMaterial color="#c9a876" /></mesh>
+          </group>
+        </group>
+      );
+    case 'shield':
+      return (
+        <group rotation={[Math.PI / 2, 0, 0]}>
+          <mesh castShadow><cylinderGeometry args={[0.19, 0.19, 0.035, 16]} /><meshStandardMaterial color="#7a5230" roughness={0.7} /></mesh>
+          <mesh position={[0, 0, 0.001]}><torusGeometry args={[0.185, 0.016, 6, 16]} /><meshStandardMaterial color="#d4af37" metalness={0.6} roughness={0.3} /></mesh>
+          <mesh position={[0, 0, 0.02]} castShadow><sphereGeometry args={[0.055, 10, 8]} /><meshStandardMaterial color="#d4af37" metalness={0.65} roughness={0.3} /></mesh>
+        </group>
+      );
+    case 'armor':
+      return (
+        <group>
+          <mesh castShadow><boxGeometry args={[0.3, 0.4, 0.22]} /><meshStandardMaterial color="#9aa0a6" metalness={0.55} roughness={0.35} /></mesh>
+          <mesh position={[0, 0.22, 0]} castShadow><boxGeometry args={[0.34, 0.1, 0.26]} /><meshStandardMaterial color="#7c8590" metalness={0.6} roughness={0.3} /></mesh>
+          <mesh position={[0, -0.02, 0]}><boxGeometry args={[0.32, 0.05, 0.24]} /><meshStandardMaterial color="#d4af37" metalness={0.6} roughness={0.35} /></mesh>
+        </group>
+      );
+    case 'helmet':
+      return (
+        <group>
+          <mesh castShadow><sphereGeometry args={[0.2, 12, 8, 0, Math.PI * 2, 0, Math.PI / 1.7]} /><meshStandardMaterial color="#9aa0a6" metalness={0.7} roughness={0.35} /></mesh>
+          <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, -0.04, 0]}><torusGeometry args={[0.195, 0.022, 8, 16]} /><meshStandardMaterial color="#d4af37" metalness={0.6} roughness={0.3} /></mesh>
+          <mesh position={[0, -0.08, 0.18]} castShadow><boxGeometry args={[0.05, 0.11, 0.04]} /><meshStandardMaterial color="#9aa0a6" metalness={0.7} roughness={0.3} /></mesh>
+        </group>
+      );
+    case 'boots':
+      return (
+        <group>
+          <mesh position={[-0.1, 0, 0]} castShadow><boxGeometry args={[0.15, 0.28, 0.17]} /><meshStandardMaterial color="#5b3a1e" roughness={0.8} /></mesh>
+          <mesh position={[0.1, 0, 0]} castShadow><boxGeometry args={[0.15, 0.28, 0.17]} /><meshStandardMaterial color="#5b3a1e" roughness={0.8} /></mesh>
+          <mesh position={[-0.1, -0.15, 0.03]}><boxGeometry args={[0.16, 0.06, 0.2]} /><meshStandardMaterial color="#3f2c1a" /></mesh>
+          <mesh position={[0.1, -0.15, 0.03]}><boxGeometry args={[0.16, 0.06, 0.2]} /><meshStandardMaterial color="#3f2c1a" /></mesh>
+        </group>
+      );
+    case 'gauntlet':
+      return (
+        <group>
+          <mesh castShadow><cylinderGeometry args={[0.09, 0.1, 0.2, 8]} /><meshStandardMaterial color="#9aa0a6" metalness={0.6} roughness={0.35} /></mesh>
+          {[0, 1, 2, 3].map(i => (
+            <mesh key={i} position={[-0.06 + i * 0.04, -0.15, 0.06]} castShadow><boxGeometry args={[0.032, 0.14, 0.032]} /><meshStandardMaterial color="#7c8590" metalness={0.6} roughness={0.35} /></mesh>
+          ))}
+        </group>
+      );
+    case 'amulet':
+      return (
+        <group>
+          <mesh rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.1, 0.016, 6, 16]} /><meshStandardMaterial color="#c9a876" metalness={0.6} roughness={0.3} /></mesh>
+          <mesh position={[0, -0.14, 0]}><octahedronGeometry args={[0.09, 0]} /><meshStandardMaterial color="#7c3aed" emissive="#7c3aed" emissiveIntensity={0.6} metalness={0.3} roughness={0.2} /></mesh>
+        </group>
+      );
+    case 'potion':
+      return (
+        <group>
+          <mesh position={[0, -0.06, 0]} castShadow><sphereGeometry args={[0.14, 12, 10]} /><meshStandardMaterial color="#22c55e" emissive="#22c55e" emissiveIntensity={0.25} transparent opacity={0.75} roughness={0.15} /></mesh>
+          <mesh position={[0, 0.1, 0]} castShadow><cylinderGeometry args={[0.045, 0.06, 0.16, 8]} /><meshStandardMaterial color="#cfe8db" transparent opacity={0.55} roughness={0.1} /></mesh>
+          <mesh position={[0, 0.2, 0]}><cylinderGeometry args={[0.05, 0.05, 0.05, 8]} /><meshStandardMaterial color="#5b3a1e" roughness={0.8} /></mesh>
+        </group>
+      );
+    case 'book':
+      return (
+        <group rotation={[0.15, 0.3, 0]}>
+          <mesh castShadow><boxGeometry args={[0.34, 0.05, 0.26]} /><meshStandardMaterial color="#6b2c2c" roughness={0.7} /></mesh>
+          <mesh position={[0, 0.028, 0]}><boxGeometry args={[0.3, 0.008, 0.22]} /><meshStandardMaterial color="#e8d9ad" roughness={0.85} /></mesh>
+          <mesh position={[-0.16, 0, 0]}><boxGeometry args={[0.02, 0.052, 0.26]} /><meshStandardMaterial color="#d4af37" metalness={0.6} roughness={0.35} /></mesh>
+        </group>
+      );
+    case 'staff':
+      return (
+        <group>
+          <mesh position={[0, -0.1, 0]} castShadow><cylinderGeometry args={[0.024, 0.03, 0.5, 8]} /><meshStandardMaterial color="#5b3a1e" roughness={0.75} /></mesh>
+          <mesh position={[0, 0.2, 0]} castShadow><octahedronGeometry args={[0.075, 0]} /><meshStandardMaterial color="#7c3aed" emissive="#7c3aed" emissiveIntensity={0.55} metalness={0.3} roughness={0.2} /></mesh>
+        </group>
+      );
+    case 'coinpurse':
+      return (
+        <group>
+          <mesh castShadow><sphereGeometry args={[0.16, 12, 10]} /><meshStandardMaterial color="#8a5a2a" roughness={0.85} /></mesh>
+          <mesh position={[0, 0.15, 0]} castShadow><cylinderGeometry args={[0.025, 0.05, 0.1, 8]} /><meshStandardMaterial color="#6b4423" roughness={0.8} /></mesh>
+          <mesh position={[0, 0.19, 0]}><torusGeometry args={[0.05, 0.014, 6, 12]} /><meshStandardMaterial color="#c9a876" roughness={0.7} /></mesh>
+          <mesh position={[0.06, -0.02, 0.1]}><cylinderGeometry args={[0.035, 0.035, 0.01, 12]} /><meshStandardMaterial color="#d4af37" metalness={0.7} roughness={0.25} /></mesh>
+        </group>
+      );
+    case 'mushroom':
+      return (
+        <group>
+          <mesh position={[0, -0.1, 0]} castShadow><cylinderGeometry args={[0.045, 0.055, 0.2, 8]} /><meshStandardMaterial color="#e8d9ad" roughness={0.8} /></mesh>
+          <mesh position={[0, 0.04, 0]} castShadow><sphereGeometry args={[0.15, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2]} /><meshStandardMaterial color="#7c3aed" emissive="#7c3aed" emissiveIntensity={0.5} roughness={0.4} /></mesh>
+          {[[0.06, 0.09, 0.06], [-0.07, 0.1, -0.02], [0.01, 0.11, -0.08]].map(([px, py, pz], i) => (
+            <mesh key={i} position={[px, py, pz]}><sphereGeometry args={[0.018, 6, 6]} /><meshStandardMaterial color="#e9d5ff" emissive="#e9d5ff" emissiveIntensity={0.8} /></mesh>
+          ))}
+        </group>
+      );
+    case 'apple':
+      return (
+        <group>
+          <mesh castShadow><sphereGeometry args={[0.15, 14, 12]} /><meshStandardMaterial color="#eab308" metalness={0.3} roughness={0.25} emissive="#eab308" emissiveIntensity={0.2} /></mesh>
+          <mesh position={[0, 0.16, 0]} rotation={[0.3, 0, 0]}><cylinderGeometry args={[0.012, 0.012, 0.08, 6]} /><meshStandardMaterial color="#5b3a1e" roughness={0.8} /></mesh>
+          <mesh position={[0.05, 0.15, 0]} rotation={[0, 0, 0.6]}><coneGeometry args={[0.03, 0.06, 6]} /><meshStandardMaterial color="#22c55e" roughness={0.7} /></mesh>
+        </group>
+      );
+    case 'egg':
+      return (
+        <group>
+          <mesh castShadow scale={[1, 1.25, 1]}><sphereGeometry args={[0.16, 14, 12]} /><meshStandardMaterial color="#166534" roughness={0.5} /></mesh>
+          {[[0.05, 0.05, 0.1], [-0.06, -0.02, 0.09], [0.01, -0.1, 0.11]].map(([px, py, pz], i) => (
+            <mesh key={i} position={[px, py, pz]} rotation={[0, 0, i]}><circleGeometry args={[0.03, 6]} /><meshStandardMaterial color="#4ade80" emissive="#4ade80" emissiveIntensity={0.3} side={THREE.DoubleSide} /></mesh>
+          ))}
+        </group>
+      );
+    case 'airship':
+      return (
+        <group>
+          <mesh castShadow scale={[1, 0.55, 0.55]}><sphereGeometry args={[0.22, 12, 10]} /><meshStandardMaterial color="#dbeafe" roughness={0.6} transparent opacity={0.85} /></mesh>
+          <mesh position={[0, -0.18, 0]} castShadow><boxGeometry args={[0.22, 0.08, 0.12]} /><meshStandardMaterial color="#6b4423" roughness={0.75} /></mesh>
+          {[-0.12, 0.12].map((sx) => (
+            <mesh key={sx} position={[sx, -0.11, 0]}><cylinderGeometry args={[0.006, 0.006, 0.14, 4]} /><meshStandardMaterial color="#e5decf" /></mesh>
+          ))}
+        </group>
+      );
+    case 'chest':
+    default:
+      return (
+        <>
+          <mesh position={[0, -0.05, 0]} castShadow><boxGeometry args={[0.42, 0.28, 0.3]} /><meshStandardMaterial color="#6b4423" roughness={0.75} /></mesh>
+          <mesh position={[0, 0.12, 0]} rotation={[-0.18, 0, 0]} castShadow><boxGeometry args={[0.42, 0.16, 0.3]} /><meshStandardMaterial color="#5a3a1e" roughness={0.75} /></mesh>
+          <mesh position={[0, 0.02, 0.155]}><boxGeometry args={[0.1, 0.28, 0.03]} /><meshStandardMaterial color="#d4af37" metalness={0.6} roughness={0.35} /></mesh>
+          <mesh position={[0, 0.16, 0.15]}><boxGeometry args={[0.06, 0.06, 0.05]} /><meshStandardMaterial color="#d4af37" metalness={0.7} roughness={0.3} /></mesh>
+        </>
+      );
+  }
+}
+
 /** Marqueur (PNJ, familier, trésor, monde/portail, Zorghon, captif, POI, quête) matérialisé par un
  * petit socle coloré + une forme flottante animée — registre `MARKER_COLOR` extensible : ajouter un
  * nouveau `kind` n'importe où dans gameState.ts::MapMarkerKind sera automatiquement représenté ici
@@ -434,14 +730,17 @@ function DragonMarker({ color }: { color: string }) {
  * `kind==='poi' && poiType==='cave'` → arche rocheuse + cristaux, fixe au sol ; `kind==='poi' &&
  * poiType` ∈ {hut, tavern, stable, village_ally, village_enemy} → petite bâtisse (chaumière/taverne/
  * étable/village), fixe au sol, même silhouette que le décor `PropBlock` kind==='hut' pour rester
- * cohérent visuellement ; `kind==='familiar'` → `DragonMarker` coloré selon le catalogue ;
- * `kind==='npc'` → petite silhouette de PNJ encapuchonné ; `kind==='treasure'` → coffre au trésor
- * cerclé d'or ; `kind==='world'` → portail circulaire lumineux (type porte des étoiles) ;
+ * cohérent visuellement ; `kind==='familiar'` → `DragonMarker` coloré selon le catalogue, agrandi
+ * (`scale`, voir Platform3DObjectFlags['marker:familiar']) pour rester nettement plus grand que
+ * Synk ; `kind==='npc'` → `NpcVoxel` (voxel façon Minecraft, voir `npcAppearance`), également mis à
+ * l'échelle via `Platform3DObjectFlags['marker:npc']` ; `kind==='treasure'` → forme dédiée à sa
+ * catégorie (épée, bouclier, potion, champignon, pomme, œuf de dragon...), voir `TreasureIcon` ;
+ * `kind==='world'` → portail circulaire lumineux (type porte des étoiles) ;
  * `kind==='zorghon'` → silhouette sombre cornue menaçante ; `kind==='captive'` → silhouette liée.
  * Tout kind non couvert ci-dessus conserve EXACTEMENT le rendu octaédrique précédent — zéro
  * régression. */
-function MarkerBlock({ kind, poiType, name, markerId, x, z, onClick }: {
-  kind: string; poiType?: MapPoiType; name?: string; markerId?: string; x: number; z: number; onClick: () => void;
+function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, onClick }: {
+  kind: string; poiType?: MapPoiType; name?: string; markerId?: string; x: number; z: number; scale?: number; onClick: () => void;
 }) {
   // Ref générique : anime (flottaison + légère rotation) le contenu de TOUTES les branches "en
   // lévitation" (quête, familier, PNJ, trésor, monde, zorghon, captif, gemme par défaut) — les
@@ -527,43 +826,38 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, onClick }: {
   if (isFamiliar) {
     // Dragon-familier (tout le catalogue de familiers du jeu est composé de dragons de couleurs
     // variées) — voir `DragonMarker`/`familiarDragonColor` ci-dessus. Corrige la demande utilisateur
-    // « le Dragon Vert ressemble à un anneau alors qu'il devrait ressembler à un Dragon ».
+    // « le Dragon Vert ressemble à un anneau alors qu'il devrait ressembler à un Dragon ». `scale`
+    // (voir Platform3DObjectFlags['marker:familiar'], défaut 2.4) n'agrandit QUE le dragon, jamais
+    // le socle — un familier doit rester nettement plus grand que Synk (chevauchable).
     const dragonColor = familiarDragonColor(markerId ?? '', name ?? '');
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-        <group ref={bobRef}><DragonMarker color={dragonColor} /></group>
+        <group ref={bobRef} scale={scale}><DragonMarker color={dragonColor} /></group>
       </group>
     );
   }
   if (isNpc) {
-    // Silhouette de PNJ encapuchonné (robe conique + tête + capuche + bâton + petit orbe lumineux)
-    // — bien plus reconnaissable comme "personnage" que le gemme octaédrique générique.
+    // PNJ en voxels façon Minecraft (voir NpcVoxel/npcAppearance ci-dessus) — remplace la précédente
+    // silhouette encapuchonnée générique. `scale` (voir Platform3DObjectFlags['marker:npc'], défaut
+    // 1.6) n'agrandit QUE le PNJ, jamais le socle.
+    const appearance = npcAppearance(markerId ?? '', name ?? '');
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-        <group ref={bobRef} position={[0, -0.15, 0]}>
-          <mesh castShadow><coneGeometry args={[0.22, 0.5, 8]} /><meshStandardMaterial color={color} roughness={0.8} /></mesh>
-          <mesh position={[0, 0.32, 0]} castShadow><sphereGeometry args={[0.14, 10, 8]} /><meshStandardMaterial color="#e8c39e" /></mesh>
-          <mesh position={[0, 0.4, 0]} rotation={[0.15, 0, 0]} castShadow><coneGeometry args={[0.16, 0.22, 8]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
-          <mesh position={[0.2, 0.05, 0]} rotation={[0, 0, 0.3]}><cylinderGeometry args={[0.02, 0.02, 0.55, 6]} /><meshStandardMaterial color="#6b4a2a" /></mesh>
-          <mesh position={[0.29, 0.32, 0]}><octahedronGeometry args={[0.06, 0]} /><meshStandardMaterial color="#7dd3fc" emissive="#7dd3fc" emissiveIntensity={0.6} /></mesh>
-        </group>
+        <group ref={bobRef} scale={scale}><NpcVoxel appearance={appearance} /></group>
       </group>
     );
   }
   if (isTreasure) {
-    // Coffre au trésor (caisse bois + couvercle légèrement entrouvert + cerclages/serrure dorés) —
-    // remplace le gemme générique par une forme immédiatement reconnaissable comme un trésor.
+    // Trésor : forme réaliste dédiée à sa catégorie (épée/bouclier/armure/potion/grimoire/bottes/
+    // champignon/pomme/œuf de dragon/etc., voir `treasureCategory`/`TreasureIcon` ci-dessus) au lieu
+    // du coffre générique unique pour absolument tout le catalogue.
+    const category = treasureCategory(markerId ?? '', name ?? '');
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-        <group ref={bobRef}>
-          <mesh position={[0, -0.05, 0]} castShadow><boxGeometry args={[0.42, 0.28, 0.3]} /><meshStandardMaterial color="#6b4423" roughness={0.75} /></mesh>
-          <mesh position={[0, 0.12, 0]} rotation={[-0.18, 0, 0]} castShadow><boxGeometry args={[0.42, 0.16, 0.3]} /><meshStandardMaterial color="#5a3a1e" roughness={0.75} /></mesh>
-          <mesh position={[0, 0.02, 0.155]}><boxGeometry args={[0.1, 0.28, 0.03]} /><meshStandardMaterial color="#d4af37" metalness={0.6} roughness={0.35} /></mesh>
-          <mesh position={[0, 0.16, 0.15]}><boxGeometry args={[0.06, 0.06, 0.05]} /><meshStandardMaterial color="#d4af37" metalness={0.7} roughness={0.3} /></mesh>
-        </group>
+        <group ref={bobRef}><TreasureIcon category={category} /></group>
       </group>
     );
   }
@@ -1067,7 +1361,11 @@ function Scene({
           </group>
         );
       })}
-      {sceneMarkers.map(m => <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} onClick={() => onMarkerClick(m.marker)} />)}
+      {sceneMarkers.map(m => {
+        const markerScaleKind: Platform3DObjectKind | null = m.kind === 'npc' ? 'marker:npc' : m.kind === 'familiar' ? 'marker:familiar' : null;
+        const markerScale = markerScaleKind ? ((objectFlags ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS)[markerScaleKind]?.scale ?? 1) : 1;
+        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} onClick={() => onMarkerClick(m.marker)} />;
+      })}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
         facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled} standY={standY}

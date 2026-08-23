@@ -603,6 +603,8 @@
   "admin.repRules.platform3dKind.prop_hut": "🛖 Prop — Hut",
   "admin.repRules.platform3dKind.prop_castle": "🏰 Prop — Castle",
   "admin.repRules.platform3dKind.prop_portal": "🌀 Prop — Portal",
+  "admin.repRules.platform3dKind.marker_npc": "🧑‍🌾 Marker — NPC (voxel)",
+  "admin.repRules.platform3dKind.marker_familiar": "🐉 Marker — Familiar/Dragon",
   "admin.repRules.platform3dUnderwaterTitle": "3D Platform — underwater world",
   "admin.repRules.platform3dUnderwaterDescription": "Right-click on a water tile: offers to swim at the surface (default) or dive fully into a decorative underwater world (fish, sea creatures).",
   "admin.repRules.platform3dUnderwaterWorldEnabled": "Enable the right-click \"Dive\" menu and the underwater world",

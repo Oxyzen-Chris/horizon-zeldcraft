@@ -603,6 +603,8 @@
   "admin.repRules.platform3dKind.prop_hut": "🛖 Decorado — Cabaña",
   "admin.repRules.platform3dKind.prop_castle": "🏰 Decorado — Castillo",
   "admin.repRules.platform3dKind.prop_portal": "🌀 Decorado — Portal",
+  "admin.repRules.platform3dKind.marker_npc": "🧑‍🌾 Marcador — PNJ (voxel)",
+  "admin.repRules.platform3dKind.marker_familiar": "🐉 Marcador — Familiar/Dragón",
   "admin.repRules.platform3dUnderwaterTitle": "Plataforma 3D — mundo submarino",
   "admin.repRules.platform3dUnderwaterDescription": "Clic derecho en una casilla de agua: ofrece nadar en superficie (por defecto) o sumergirse por completo en un mundo submarino decorativo (peces, criaturas marinas).",
   "admin.repRules.platform3dUnderwaterWorldEnabled": "Activar el menú de clic derecho «Sumergirse» y el mundo submarino",

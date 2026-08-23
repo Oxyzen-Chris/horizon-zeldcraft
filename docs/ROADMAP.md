@@ -113,6 +113,40 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
       lac, chemin, pont, plage, cascade, mer/océan/étang/île) conserve EXACTEMENT le gemme précédent
       — zéro régression sur ces marqueurs décoratifs de terrain
 
+### 🎥 Historique — mise à l'échelle réaliste + PNJ voxel + suite du réalisme des trésors
+
+- **Mise à l'échelle réaliste des dragons/familiers et des PNJ** : le registre admin existant
+  `Platform3DObjectKind`/`PLATFORM3D_OBJECT_KINDS`/`DEFAULT_PLATFORM3D_OBJECT_FLAGS`
+  (`gameState.ts`) a été étendu avec deux nouvelles entrées `marker:npc` (échelle 1.6) et
+  `marker:familiar` (échelle 2.4), réutilisant le même tableau d'administration que les objets de
+  décor (`Administration > Widgets personnalisés`), sans nouvelle UI dédiée. Le panneau
+  `RepRulesPanel.tsx` masque désormais les cases obstacle/escaladable/aquatique (affiche « — ») pour
+  ces deux lignes « marqueur », ces attributs n'ayant pas de sens pour un PNJ/familier flottant.
+  Techniquement, ce facteur d'échelle n'est appliqué qu'au groupe `bobRef` (la créature qui flotte),
+  jamais au socle au sol, pour éviter d'agrandir la dalle de sol sous le marqueur.
+- **PNJ rendus avec le même système voxel Minecraft que Synk** : nouvelle fonction
+  `npcAppearance(id, name)` (choix de couleurs/couvre-chef par mots-clés — Thrall → peau verte
+  d'orc, princesse Zelda → couronne, Steve → bleu classique Minecraft, marchand → robe marron
+  encapuchonnée, PNJ « dragon » → teinte rougeâtre, générique en repli) et nouveau composant
+  `NpcVoxel` (même anatomie par blocs que `SynkVoxel` — tête/torse/bras/jambes — simplifiée, sans
+  équipement, avec une légère animation d'balancement de tête/bras au repos), remplaçant l'ancienne
+  silhouette encapuchonnée générique (robe + tête + bâton + orbe).
+- **Suite de la passe de réalisme des trésors** : nouveau classificateur `treasureCategory(id, name)`
+  (18 catégories par mots-clés : épée, dague, hache, pioche, arc, bouclier, armure, casque, bottes,
+  gantelet, amulette, potion, livre/parchemin, bâton, bourse de pièces, champignon, pomme, œuf,
+  vaisseau volant, coffre en repli) et nouveau composant `TreasureIcon` rendant un maillage distinct
+  et réaliste par catégorie, remplaçant le coffre générique unique utilisé jusqu'ici pour la
+  quasi-totalité du catalogue de trésors (~46 objets), y compris les objets explicitement cités par
+  le porteur du projet (Champignon Luminescent, Pomme Dorée Enchantée).
+- **Vérifié par Playwright** : connexion démo → Plateforme 3D → exploration à pied dans le monde
+  généré ; plusieurs PNJ rencontrés affichent bien la silhouette voxel façon Minecraft (variantes de
+  couleurs selon le PNJ), plusieurs trésors affichent des formes distinctes (parchemin roulé,
+  gemme/losange, bourse de pièces...) au lieu du coffre systématique, et un familier/dragon rouge
+  rencontré au loin apparaît nettement plus imposant qu'un marqueur de carte classique, distinct des
+  anneaux de portail de mondes (qui, eux, restent intentionnellement des anneaux). `npx tsc --noEmit`
+  et `npm run build` passent sans erreur ; aucune régression observée sur le rendu du décor/textures
+  ni sur les déplacements de Synk (travail des sessions précédentes intact)
+
 ## ⚠️ Dette technique connue — redéploiement du smart contract à prévoir
 
 - **Bug de cooldown des repas on-chain partagé entre les 4 types** (`feed()` dans
@@ -304,13 +338,13 @@ Vercel :
         direction du déplacement relatif à la caméra — activable/désactivable
         (`RepRules.platform3dChaseCameraEnabled`).
   - [x] **Fenêtre redimensionnable jusqu'au plein écran** (`RepRules.platform3dResizableEnabled`).
-- [ ] **Réalisme 3D — suite demandée (pas encore fait)** :
-  - [ ] Redimensionner les dragons (familiers/`DragonMarker`) et tous les autres PNJ (Thrall, Chef
+- [x] **Réalisme 3D — suite demandée** :
+  - [x] Redimensionner les dragons (familiers/`DragonMarker`) et tous les autres PNJ (Thrall, Chef
         de la Horde, etc.) pour qu'ils soient visiblement PLUS GRANDS que Synk (taille réelle d'un
         dragon/PNJ adulte), au lieu de l'échelle actuelle proche de celle des marqueurs de carte.
-  - [ ] Faire rendre TOUS les PNJ avec le MÊME système voxel Minecraft que Synk (`SynkVoxel`) au
+  - [x] Faire rendre TOUS les PNJ avec le MÊME système voxel Minecraft que Synk (`SynkVoxel`) au
         lieu de la silhouette encapuchonnée générique (robe + tête + bâton + orbe) actuelle.
-  - [ ] Poursuivre la passe de réalisme/texture pour les objets nommés du catalogue encore rendus
+  - [x] Poursuivre la passe de réalisme/texture pour les objets nommés du catalogue encore rendus
         comme des coffres génériques (ex. Champignon Luminescent → vrai champignon texturé, Pomme
         Dorée Enchantée → vraie pomme texturée) et le décor spécifique (landes cendrées d'Ember,
         etc.), en recensant tous les objets via les widgets Boutique/Inventaire/Quêtes/ZeldCraft
