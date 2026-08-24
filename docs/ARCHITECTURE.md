@@ -154,6 +154,55 @@ fatigue/raréfaction de l'air restent intégralement pilotées par `GameCanvas2D
 dans `game/page.tsx`) : le widget 3D n'en est qu'une vue et un canal de déplacement supplémentaires,
 sans y dupliquer aucune logique de décompte (zéro risque de régression/double-décompte).
 
+### 🔒 Déplacement de Synk en Plateforme 3D — architecture VERROUILLÉE (ne pas régresser)
+
+**Ceci est la référence technique à relire avant toute modification de `Platform3DWidget.tsx` ou
+`useHoldMovement.ts` touchant au déplacement/à la caméra.** Après **5 tentatives de correctif
+successives infructueuses** (chacune ayant réintroduit une boucle de rétroaction caméra↔déplacement
+sous une forme différente), l'architecture a été **volontairement simplifiée** plutôt que corrigée
+une 6e fois — voir `docs/ROADMAP.md` § « Historique — abandon complet de la caméra-relative/chase-cam »
+pour le récit complet des tentatives précédentes et leurs causes racines.
+
+**Règles impératives de cette architecture (NE JAMAIS les réintroduire à l'identique) :**
+
+1. **Déplacement en repère MONDE FIXE, jamais relatif à la caméra.** Haut = nord (`dy:-1`), Bas = sud
+   (`dy:+1`), Gauche = ouest (`dx:-1`), Droite = est (`dx:+1`) — strictement identique et indépendant
+   de l'orientation de la caméra, exactement comme `GameCanvas2D.tsx` (Plateforme 2D isométrique),
+   qui n'a jamais souffert de ce bug. `dispatchMove(dx, dy)` appelle directement `move(dx, dy)`
+   (ou `moveUnderwater` en plongée), **sans aucune rotation d'entrée par un angle de caméra.**
+2. **La caméra 3D (`OrbitControls`, drei) est une orbite 100% libre, pilotée UNIQUEMENT par la
+   souris du joueur.** Le code ne doit **jamais** la repositionner/rappeler `.update()` sur elle
+   automatiquement (pas de « caméra suiveuse »/chase-cam qui replace la caméra derrière Synk pendant
+   la marche — toutes les variantes de cette idée ont, sans exception, fini par réinjecter l'angle
+   caméra dans la résolution de direction et provoquer allers-retours/rotations sur place/dérive en
+   spirale). S'il faut un jour redonner ce confort visuel, il devra être implémenté de façon
+   **strictement à sens unique** : jamais lu en retour pour interpréter une touche.
+3. **Garde-fou anti-glissé obligatoire sur les clics 3D.** Les gestionnaires `onClick` de React
+   Three Fiber (`onMarkerClick3D`, `onPortalTileClick3D`, `onHutTileClick3D`, `onTileClick`) doivent
+   commencer par `if (dragStateRef.current?.dragged) return;` — sans ce garde-fou, un glissé-souris
+   d'orbite qui se termine au-dessus d'une tuile/d'un marqueur déclenche un déplacement/une
+   interaction non voulus EN PLUS de faire orbiter la caméra. Le seuil (`DRAG_THRESHOLD_PX = 6`) est
+   mesuré entre `pointerdown` et les `pointermove` suivants sur le conteneur du canevas
+   (`onCanvasPointerDownForDrag`/`onCanvasPointerMoveForDrag`).
+4. **Pas immédiat à la bascule marche→course (`useHoldMovement.ts::press`).** Au moment précis où le
+   seuil de course (`runHoldThresholdMs`) est atteint, un appel à `moveRef.current(dx, dy)` doit être
+   déclenché **avant** de démarrer le nouvel intervalle à cadence course (`runStepMs`) — sans ce pas
+   immédiat, le trou de cadence entre l'ancien intervalle (marche) et le nouveau (course) peut
+   dépasser `WALK_STOP_DELAY_MS`, ce qui repasse `isRunning`/`isWalking` à `false` quelques dizaines
+   de ms après être passé à `true`, sans jamais s'y remettre pour le reste du maintien (ce callback
+   n'est appelé qu'une seule fois par transition).
+5. Ce hook (`useHoldMovement.ts`) est **partagé entre la Plateforme 2D et la Plateforme 3D** — toute
+   modification doit être revalidée sur les DEUX widgets.
+
+**Test de non-régression Playwright de référence** (à rejouer intégralement avant tout changement
+touchant le déplacement/la caméra 3D) : voir `docs/ROADMAP.md` pour le scénario détaillé — 3 cycles
+Haut/Bas/Gauche/Droite en appui bref (1 case exacte, bon sens à chaque fois), maintien >1,5 s dans
+chacune des 4 directions (bascule en course confirmée ET stable jusqu'au relâchement), glissé-souris
+sur le canevas (Synk ne doit JAMAIS bouger), clic simple sans glissé (doit toujours déclencher le
+déplacement/l'interaction). Les attributs de débogage `data-synk-pos`/`data-synk-running`/
+`data-widget-collapsed` (invisibles, posés sur le conteneur du widget) permettent de rejouer ce
+scénario par script sans dépendre du rendu visuel Three.js.
+
 ## Architecture DLC / Content Packs
 
 `ContentPackDef` (`id`, `nom`, `description`, `actif`, `order`) est stocké dans

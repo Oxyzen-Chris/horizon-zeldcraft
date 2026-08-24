@@ -409,10 +409,6 @@ D'autre part, tu m'as bien mis des dragons en 3D, très bien, mais ils sont trop
 -----------------------------------------------------------------------------------------------------------------
 Tes derniers correctifs n'ont pas résolu le bug sur les déplacement de Synk dans la plateforme 3D, quand j'appuie par exemple sur la touche du bas pour le faire reculer, Synk se déplace d'une case en avant puis d'une case en arrière en bouclant sur ces deux cases sans jamais avancer. Les touches gauches et droites font déplacer Synk en carré qui s'élargit de plus en plus. Le déplacement de Synk est donc toujours complètement perturbé et tes correctifs n'ont pas corrigé les bugs de déplacement. Vérifie avec PlayWright avant de me dire que c'est ok, il suffit de voir qu'en appuyant sur la touche bas, Synk ne recule pas. C'est comme si c'était un bouton qui actionnait le sens où Synk bougera sur le prochain déplacement. Déplacement totalement erratique que l'on peu voir sur le widget 2D isométrique !
 -----------------------------------------------------------------------------------------------------------------
-
-
-
-
 Tes derniers correctifs n'ont toujours pas résolu le bug sur les déplacements de Synk dans la plateforme 3D. Fais en sorte que :
 	- si le joueur appuie sur la touche haut, Synk se déplace d'une case en avant
 	- si le joueur appuie sur la touche bas, Synk se déplace d'une case en arrière
@@ -426,6 +422,17 @@ Tes derniers correctifs n'ont toujours pas résolu le bug sur les déplacements 
 De plus, les rotations avec la souris (clique gauche enfoncé et déplacement de la souris) ne se font pas correctement, un coup éloigne la caméra, un autre déplace Synk alors que le but est juste de tourner autour Synk pour l'observer.
 Test les déplacements dans toutes les directions en marchant et en courant avec chaque touche du pavé directionnel du clavier et du clavier virtuel.
 Utilises Playwright pour simuler, tester, débugger et résoudre au besoin après avoir réglé l'incident avec ton correctif ou évolution afin d'optimiser les tests avec Playwright qui peuvent être long s'ils sont fait étape par étape. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Vérifie néanmoins que les solutions, développements et correctifs que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu.
+
+--> Résolution : Résumé
+J'ai résolu en profondeur le bug de déplacement de Synk en Plateforme 3D, en supprimant totalement l'ancienne architecture caméra-relative/chase-cam (source de 5 échecs successifs) au profit d'un déplacement en repère monde fixe (identique à la Plateforme 2D isométrique) et d'une caméra 100% orbite libre, jamais repositionnée par le code.
+
+Deux bugs supplémentaires découverts et corrigés en cours de vérification :
+
+• Glissé-souris qui bougeait Synk : garde-fou anti-glissé (seuil 6px) ajouté sur les gestionnaires de clic 3D.
+• La course ne s'affichait jamais correctement : un trou de cadence lors du passage marche→course faisait retomber  isRunning  à  false  presque aussitôt — corrigé dans  useHoldMovement.ts  (partagé 2D/3D).
+
+Vérifié intégralement via Playwright : les 4 directions déplacent Synk d'exactement une case dans le bon sens, le maintien >1.5s bascule en course et y reste jusqu'au relâchement, le glissé-souris n'affecte jamais la position de Synk, et un clic simple continue de fonctionner normalement (aucune régression).  tsc  et  npm run build  passent. Nettoyage des réglages admin devenus obsolètes, documentation mise à jour dans  docs/ROADMAP.md , commit poussé sur  main  ( 6746917 ).
+-----------------------------------------------------------------------------------------------------------------
 
 
 
