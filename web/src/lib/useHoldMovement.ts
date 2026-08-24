@@ -64,6 +64,19 @@ export function useHoldMovement(move: (dx: number, dy: number) => void, opts: Ho
     thresholdTimerRef.current = setTimeout(() => {
       runningRef.current = true;
       optsRef.current.onRunChange?.(true);
+      // Pas immédiat au moment précis de la bascule marche→course : SANS cela, l'ancienne cadence
+      // marche (walkStepMs, ex. 220ms) vient d'être coupée (le dernier pas peut dater de presque
+      // walkStepMs) et la nouvelle cadence course (runStepMs, ex. 110ms) ne produira son premier pas
+      // qu'après un délai supplémentaire — l'écart total entre le DERNIER pas "marche" et le PREMIER
+      // pas "course" peut donc dépasser `WALK_STOP_DELAY_MS` (le délai d'inactivité, côté appelant,
+      // qui remet `isRunning`/`isWalking` à false pour détecter un relâchement de touche). Ce trou de
+      // cadence déclenchait alors ce reset PENDANT que la touche restait pourtant maintenue,
+      // repassant `isRunning` à false quelques dizaines de ms à peine après être passé à true — et
+      // plus rien ne le repassait à true ensuite (cette transition n'est notifiée qu'une seule fois
+      // par maintien). Corrige le bug rapporté « je ne vois jamais Synk courir en maintenant une
+      // touche plus de 3s » : ce pas immédiat comble exactement ce trou.
+      const a = activeRef.current;
+      if (a) moveRef.current(a.dx, a.dy);
       startInterval(optsRef.current.runStepMs);
     }, Math.max(0, optsRef.current.runHoldThresholdMs));
   }, [clearTimers, startInterval]);

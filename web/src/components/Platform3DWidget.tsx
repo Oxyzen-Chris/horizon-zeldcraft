@@ -89,31 +89,6 @@ function directionFromDelta(dx: number, dy: number): SynkDirection | null {
   return dy < 0 ? 'up-right' : 'down-right';
 }
 
-/** Convertit une direction d'entrée (clavier/pavé directionnel, ex. « Haut » = dx=0,dy=-1) — pensée
- * comme relative à l'ÉCRAN (« s'éloigner de la caméra ») — en une direction MONDE (grille fixe
- * col/row), en tenant compte de l'angle horizontal actuel de la caméra (`yaw`, voir
- * OrbitControls::getAzimuthalAngle dans Scene ci-dessous). Corrige le bug persistant « Espace+Haut
- * ne fait pas grimper la montagne qui semble pourtant en face » : la caméra pouvant être orbitée
- * librement à la souris, "Haut" pointait auparavant TOUJOURS vers le nord du monde (dy=-1) quel que
- * soit l'angle de vue, ce qui ne correspondait plus forcément à la case visuellement en face de
- * Synk une fois la caméra tournée. Avec cette rotation, "Haut" désigne désormais TOUJOURS la case
- * qui s'éloigne de la caméra à l'écran (donc "en face" de Synk du point de vue du joueur), et
- * "Droite"/"Gauche" suivent la même logique — la sortie est ensuite alignée (arrondie) sur la plus
- * proche des 8 directions de la grille (cardinales + diagonales), pour rester un pas de case entier
- * valide. Paramétrable (voir RepRules.platform3dCameraRelativeMovement) pour revenir à l'ancien
- * comportement (direction monde fixe) en un clic en cas de souci.
- */
-function rotateInputByCameraYaw(dx: number, dy: number, yaw: number): { dx: number; dy: number } {
-  if (dx === 0 && dy === 0) return { dx: 0, dy: 0 };
-  // Angle de l'entrée BRUTE dans le repère écran (0 = "Haut" = s'éloigner de la caméra), au sens
-  // trigonométrique compatible avec l'angle azimutal de OrbitControls (voir Scene::onCameraYaw).
-  const inputAngle = Math.atan2(dx, -dy);
-  const worldAngle = inputAngle + yaw;
-  const step = Math.PI / 4;
-  const snapped = Math.round(worldAngle / step) * step;
-  return { dx: Math.round(Math.sin(snapped)), dy: Math.round(-Math.cos(snapped)) };
-}
-
 /** Hauteur (unités 3D) de la surface sur laquelle Synk se tient DEBOUT pour une tuile donnée —
  * réutilise EXACTEMENT les mêmes formules que `TerrainBlock`/`PropBlock` ci-dessus (roche : sommet
  * du bloc surélevé ; eau : surface du bloc d'eau abaissé/assombri selon la profondeur ; prairie/
@@ -1182,7 +1157,7 @@ interface SceneMarker { id: string; kind: string; x: number; z: number; marker: 
 function Scene({
   centerCol, centerRow, poiPoints, sceneMarkers, stage, walking, running, swimming, jumpTrigger, facing,
   equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
-  onCameraYaw, chaseCameraEnabled, eyeBlinkEnabled, eyeBlinkIntervalSec, objectFlags,
+  eyeBlinkEnabled, eyeBlinkIntervalSec, objectFlags,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
@@ -1193,154 +1168,11 @@ function Scene({
   onPortalTileClick: (wc: number, wr: number) => void;
   onHutTileClick: (wc: number, wr: number) => void;
   onMarkerClick: (m: MapMarker) => void;
-  onCameraYaw: (yaw: number) => void;
-  chaseCameraEnabled: boolean;
   eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
   /** Registre admin-paramétrable des tailles de décor (Administration > 🧱 Objets & décor 3D) — voir
    * Platform3DObjectFlags.scale ; `undefined` retombe sur DEFAULT_PLATFORM3D_OBJECT_FLAGS (scale 1). */
   objectFlags?: Record<Platform3DObjectKind, Platform3DObjectFlags>;
 }) {
-  // Ref vers l'instance OrbitControls (three.js), pour lire son angle azimutal (yaw) courant à
-  // chaque frame et le remonter au composant parent (voir rotateInputByCameraYaw) — un ref simple
-  // ET un callback (pas de state React) pour éviter tout re-rendu inutile à 60 fps.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const controlsRef = useRef<any>(null);
-  // ─── Caméra suiveuse ("chase cam", voir RepRules.platform3dChaseCameraEnabled) ─────────────────
-  // Dès que Synk marche, ramène en douceur l'angle azimutal de la caméra derrière lui (vu de dos,
-  // dans son sens de déplacement), même si le joueur a manuellement réorbité la vue — corrige la
-  // demande "l'observateur et la caméra reviendront à leur point d'origine pour ne pas perturber
-  // l'expérience". Le modèle de Synk (voir SynkVoxel) a son visage tourné vers +Z au repos (angle=0,
-  // voir FACING_ANGLE) ; une fois pivoté de `FACING_ANGLE[facing]` autour de Y, son vecteur "visage"
-  // pointe vers (sin(angle), 0, cos(angle)) — la caméra, pour rester DERRIÈRE lui (voir son dos),
-  // doit donc s'orbiter au même angle + π (le côté opposé). Seul le THETA (azimut) est ajusté : la
-  // distance/l'inclinaison choisies par le joueur (zoom/tilt) restent intactes, aucune régression
-  // sur l'orbite libre au repos (l'ajustement ne s'applique que pendant que `walking` est vrai).
-  //
-  // IMPORTANT : `<OrbitControls enableDamping>` (voir @react-three/drei) appelle DÉJÀ
-  // `controls.update()` automatiquement à CHAQUE frame (son propre `useFrame`, priorité -1). Une
-  // première version de ce correctif repositionnait la caméra elle-même PUIS appelait `update()`
-  // une seconde fois manuellement — deux mises à jour concurrentes de la même caméra dans la même
-  // frame, qui entraient en conflit avec l'amortissement interne (`_sphericalDelta`, notamment tout
-  // reliquat d'un glissé souris récent) et provoquaient des rotations erratiques/« frénétiques »
-  // tout en empêchant Synk d'avancer (bug rapporté). Une deuxième version n'injectait qu'une petite
-  // impulsion dans `_sphericalDelta.theta` (le mécanisme interne d'un glissé de souris) MAIS
-  // continuait de remonter l'angle RÉEL (encore en cours de rotation) via `onCameraYaw` — or cet
-  // angle alimente `cameraYawRef` utilisé par `rotateInputByCameraYaw` au moment d'échantillonner
-  // une NOUVELLE entrée clavier (voir dispatchMove/lastRawDirRef) : pendant que la chase-cam tournait
-  // encore la caméra vers sa cible, tout nouvel échantillonnage (ex. relâcher puis ré-appuyer une
-  // touche, ou après avoir réorbité à la souris juste avant de marcher) lisait un angle DIFFÉRENT à
-  // chaque frame, produisant une direction "monde" tantôt correcte tantôt fausse/bloquée — Synk
-  // marchait sur place (`isWalking`/`facing` mis à jour mais `moveTo` jamais atteint) et la course
-  // ne pouvait jamais progresser puisque la position ne changeait pas (bug rapporté "il fait du
-  // surplace" / "ne peut plus courir"). Une TROISIÈME version remontait, PENDANT la chase-cam, la
-  // CIBLE analytique `FACING_ANGLE[facing] + π` plutôt que l'angle réel, pensant la rendre "stable" —
-  // à tort : cette cible dépend de `facing`, lui-même calculé (dispatchMove/rotateInputByCameraYaw) à
-  // partir de `cameraYawRef.current`, alimenté par... cette même cible : boucle fermée. Une
-  // QUATRIÈME version (celle-ci) a ensuite essayé de remonter l'angle RÉEL en continu (y compris
-  // pendant la chase) au lieu de la cible — mais la boucle persistait quand même : pendant que la
-  // chase-cam tourne activement la caméra pour rattraper `facing`, l'angle RÉEL lui-même évolue à
-  // chaque frame EN FONCTION de `facing`, donc un nouvel appui (ex. "Gauche" répété rapidement, ou
-  // maintenu alors que `walking` reste vrai en continu grâce au délai `WALK_STOP_DELAY_MS`) pouvait
-  // échantillonner un angle réel encore EN TRANSITION vers l'ancienne cible, produisant une nouvelle
-  // direction "monde" légèrement décalée, dont la nouvelle cible décalait à son tour l'angle réel un
-  // peu plus loin — confirmé par logs (yaw dérivant de 0 → -0.83 → -1.63 → -2.43 → ... à chaque
-  // appui). CORRECTIF DÉFINITIF : `cameraYawRef` (donc `onCameraYaw`) n'est plus JAMAIS mis à jour
-  // PENDANT que la chase-cam est active (`chasing === true`) — il reste figé à sa dernière valeur
-  // connue (l'angle réel tel qu'il était juste AVANT que Synk ne commence à marcher, ou tel que le
-  // joueur l'a librement réorbité à la souris), ce qui casse ENTIÈREMENT la boucle de rétroaction :
-  // toute la résolution de direction d'une session de marche continue (même faite de plusieurs
-  // appuis rapprochés) utilise systématiquement le MÊME angle de référence, stable par construction.
-  // Dès que Synk s'arrête (`chasing` redevient faux), `onCameraYaw` reprend l'angle réel courant
-  // (désormais recentré derrière lui, voir le « snap » ci-dessous) pour la prochaine session de
-  // marche — et l'orbite libre à la souris au repos continue de fonctionner normalement (aucune
-  // régression).
-  const prevChasingRef = useRef(false);
-  useFrame(() => {
-    if (!controlsRef.current) return;
-    const controls = controlsRef.current;
-    const chasing = chaseCameraEnabled && walking;
-    if (chasing) {
-      const targetTheta = (FACING_ANGLE[facing] ?? 0) + Math.PI;
-      const current = controls.getAzimuthalAngle();
-      let delta = targetTheta - current;
-      while (delta > Math.PI) delta -= Math.PI * 2;
-      while (delta < -Math.PI) delta += Math.PI * 2;
-      // Repositionne directement la caméra (API publique `camera.position`/`controls.target`,
-      // AUCUNE dépendance à un champ interne de three-stdlib) en faisant tourner le vecteur
-      // caméra→cible autour de l'axe Y d'un petit pas vers `targetTheta` à chaque frame, ce qui
-      // ramène en douceur la caméra derrière Synk pendant qu'il marche. Remplace l'ancienne
-      // tentative d'écriture dans `controls._sphericalDelta` (champ interne à la fermeture du
-      // constructeur dans la version de three-stdlib installée, absent de l'objet public — l'écrit
-      // levait une exception à CHAQUE frame de marche, détectée via Playwright, et de toute façon
-      // ne faisait STRICTEMENT rien d'autre qu'échouer silencieusement avant même cette exception :
-      // la caméra ne "rattrapait" donc plus jamais Synk après une réorientation manuelle à la
-      // souris, ce qui, combiné au fait que `onCameraYaw` continue de figer la nouvelle direction de
-      // marche sur l'angle de la caméra resté immobile, faisait apparaître Synk de face/profil au
-      // lieu de dos — perçu par le joueur comme "la tête tournée à l'inverse" ou un déplacement
-      // erratique dès qu'il réorientait la vue à la souris avant de marcher).
-      if (Math.abs(delta) > 0.001) {
-        const step = delta * 0.08;
-        const camera = controls.object;
-        const target = controls.target;
-        const offX = camera.position.x - target.x;
-        const offZ = camera.position.z - target.z;
-        const cosA = Math.cos(step), sinA = Math.sin(step);
-        camera.position.x = target.x + (offX * cosA + offZ * sinA);
-        camera.position.z = target.z + (offZ * cosA - offX * sinA);
-        controls.update();
-      }
-      prevChasingRef.current = true;
-    } else {
-      // Synk vient tout juste de s'arrêter de marcher (transition chasing:true → false) : la
-      // convergence progressive ci-dessus (`step = delta * 0.08`) n'a le plus souvent pas eu le
-      // temps de se terminer avant qu'`isWalking` ne retombe (voir WALK_STOP_DELAY_MS), surtout
-      // lors d'appuis brefs/répétés — la caméra reste alors figée à mi-rotation. Comme plus rien ne
-      // la fait bouger dans cette branche, `onCameraYaw` gelait alors `cameraYawRef` sur cet angle
-      // INCOMPLET, qui servait de base à la PROCHAINE marche : chaque nouvel appui repartait donc
-      // d'un référentiel légèrement décalé par rapport à "pile derrière Synk", et l'écart s'accumulait
-      // d'appui en appui (confirmé par logs : yaw dérivant de 0 → -0.83 → -1.69 → -2.51 → ... lors
-      // d'appuis rapprochés sur une même touche) — cause résiduelle du bug « la touche gauche/droite
-      // le fait tourner sur lui-même ». Correctif : au moment précis de cette transition, on termine
-      // INSTANTANÉMENT (un seul « snap », sans à-coup perceptible car il ne reste jamais qu'une
-      // fraction de la rotation) le recentrage vers la cible EXACTE (`FACING_ANGLE[facing] + π`),
-      // pour que le référentiel gelé corresponde TOUJOURS très précisément à "pile derrière Synk",
-      // sans plus aucune dérive possible d'une session de marche à l'autre.
-      if (prevChasingRef.current) {
-        const targetTheta = (FACING_ANGLE[facing] ?? 0) + Math.PI;
-        const camera = controls.object;
-        const target = controls.target;
-        const dist = Math.hypot(camera.position.x - target.x, camera.position.z - target.z);
-        camera.position.x = target.x + Math.sin(targetTheta) * dist;
-        camera.position.z = target.z + Math.cos(targetTheta) * dist;
-        controls.update();
-        prevChasingRef.current = false;
-        // NE PAS appeler `onCameraYaw` ici (voir bug ci-dessous) : on saute volontairement la
-        // resynchronisation de `cameraYawRef` sur CETTE frame précise.
-      } else {
-        // Correctif « va-et-vient / carré qui s'élargit » : `cameraYawRef` ne doit refléter QUE
-        // l'orientation choisie librement par le joueur (orbite souris au repos), jamais l'angle
-        // du recentrage automatique ci-dessus. Avant ce correctif, la ligne `onCameraYaw(...)`
-        // était appelée à CHAQUE frame « non chasing », y compris celle qui suit immédiatement le
-        // snap (dans le `if` juste au-dessus) : elle gelait alors `cameraYawRef` sur
-        // `FACING_ANGLE[facing] + π` — un angle dérivé de la marche qui vient de se terminer, pas
-        // du tout une orientation neutre de caméra. Au prochain appui sur la MÊME touche brute
-        // (ex. « Bas » après un relâchement bref), `rotateInputByCameraYaw` combinait alors ce
-        // yaw figé avec l'entrée : la rotation résultante s'avère être l'EXACT OPPOSÉ de la
-        // précédente (confirmé par des logs Playwright : yaw 0 → π après le 1er pas, puis
-        // l'entrée « Bas » redonne (dx:0,dy:-1) au lieu de (dx:0,dy:1) au 2e appui) — d'où
-        // l'oscillation avant/arrière signalée sur une pression répétée de Bas, et une dérive
-        // cumulative (spirale) sur Gauche/Droite car chaque nouvelle touche recalculait sa
-        // direction à partir d'un référentiel différent à chaque fois. En sautant la
-        // resynchronisation sur la frame du snap (ci-dessus) et en ne mettant à jour
-        // `cameraYawRef` que sur les frames VRAIMENT au repos (ni en train de « chaser », ni la
-        // frame du snap), le référentiel reste stable d'une session de marche à l'autre tant que
-        // le joueur ne réoriente pas manuellement la caméra à la souris.
-        onCameraYaw(controls.getAzimuthalAngle());
-      }
-    }
-  });
-
-
   const tiles = useMemo(() => {
     const out: { tile: Tile; wc: number; wr: number; x: number; z: number }[] = [];
     for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
@@ -1393,7 +1225,6 @@ function Scene({
         eyeBlinkEnabled={eyeBlinkEnabled} eyeBlinkIntervalSec={eyeBlinkIntervalSec}
       />
       <OrbitControls
-        ref={controlsRef}
         enablePan={false} enableDamping dampingFactor={0.12}
         minDistance={3} maxDistance={11} minPolarAngle={0.25} maxPolarAngle={1.35}
         target={[0, 0.3, 0]}
@@ -1860,43 +1691,27 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
 
   // Aiguille le clavier/pavé directionnel/souris vers la nage sous-marine ou le déplacement normal,
   // selon la vue active — un SEUL point d'entrée partagé par useHoldMovement pour ne dupliquer
-  // aucune logique d'appui prolongé/course (voir useHoldMovement.ts). En exploration normale,
-  // convertit d'abord l'entrée écran (Haut/Bas/Gauche/Droite) en direction MONDE selon l'angle
-  // actuel de la caméra (voir rotateInputByCameraYaw/cameraYawRef) — corrige "Espace+Haut ne fait
-  // pas grimper la montagne en face" quand la caméra a été orbitée à la souris.
-  const cameraYawRef = useRef(0);
-  const onCameraYaw = useCallback((yaw: number) => {
-    cameraYawRef.current = yaw;
-  }, []);
-  const cameraRelativeMovement = rules?.platform3dCameraRelativeMovement ?? true;
-  // Mémorise la dernière entrée BRUTE (écran) et sa direction MONDE déjà calculée pour ce maintien
-  // en cours — corrige le déplacement erratique (diagonales/allers-retours parasites) observé en
-  // maintenant une touche : `OrbitControls.enableDamping` fait dériver légèrement l'angle de la
-  // caméra pendant quelques frames après toute rotation à la souris (inertie), et recalculer la
-  // rotation à CHAQUE pas du maintien (via `useHoldMovement`, cadence walkStepMs/runStepMs)
-  // ré-échantillonnait cet angle en léger mouvement, faisant parfois basculer la direction arrondie
-  // vers une case voisine en plein maintien. On ne ré-échantillonne désormais l'angle caméra que
-  // lorsque l'entrée BRUTE change réellement (nouvelle touche/diagonale), pas à chaque tick d'un
-  // maintien inchangé, ce qui fige la direction pour toute la durée d'un appui continu.
-  const lastRawDirRef = useRef<{ dx: number; dy: number } | null>(null);
-  const lastRotatedDirRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  // aucune logique d'appui prolongé/course (voir useHoldMovement.ts).
+  //
+  // IMPORTANT (historique) : ce déplacement a longtemps tenté d'être « relatif à la caméra »
+  // (« Haut » = s'éloigner de la caméra, quel que soit son orbite), via une rotation de l'entrée
+  // brute par l'angle azimutal courant de la caméra (`rotateInputByCameraYaw`/`cameraYawRef`,
+  // alimentés par la caméra suiveuse « chase cam »). Cinq tentatives successives de correctif ont
+  // toutes fini par réintroduire une boucle de rétroaction entre l'angle de la caméra et la
+  // direction résolue (la caméra suiveuse recalant son angle EN FONCTION de la direction de marche,
+  // qui elle-même dépendait de l'angle de la caméra), provoquant des allers-retours ou une dérive en
+  // spirale sur des appuis répétés/brefs — signalé à plusieurs reprises par l'utilisateur. Le
+  // déplacement est désormais VOLONTAIREMENT en repère MONDE FIXE (Haut = nord/dy:-1, Bas =
+  // sud/dy:+1, Gauche = ouest/dx:-1, Droite = est/dx:+1), strictement identique et indépendant de
+  // l'orientation de la caméra — exactement comme la Plateforme 2D isométrique (GameCanvas2D.tsx),
+  // ce qui élimine structurellement toute possibilité de boucle de rétroaction caméra↔déplacement.
+  // La caméra (OrbitControls, voir Scene ci-dessus) reste 100% libre à orbiter/zoomer à la souris,
+  // sans plus jamais être repositionnée automatiquement par le code ni jamais influencer la
+  // direction résolue.
   const dispatchMove = useCallback((dx: number, dy: number) => {
     if (underwaterMode && underwaterMoveEnabled) { moveUnderwater(dx, dy); return; }
-    if (cameraRelativeMovement) {
-      const last = lastRawDirRef.current;
-      let rotated: { dx: number; dy: number };
-      if (last && last.dx === dx && last.dy === dy) {
-        rotated = lastRotatedDirRef.current;
-      } else {
-        rotated = rotateInputByCameraYaw(dx, dy, cameraYawRef.current);
-        lastRawDirRef.current = { dx, dy };
-        lastRotatedDirRef.current = rotated;
-      }
-      move(rotated.dx, rotated.dy);
-    } else {
-      move(dx, dy);
-    }
-  }, [underwaterMode, underwaterMoveEnabled, moveUnderwater, move, cameraRelativeMovement]);
+    move(dx, dy);
+  }, [underwaterMode, underwaterMoveEnabled, moveUnderwater, move]);
 
   const hold = useHoldMovement(dispatchMove, {
     walkStepMs: rules?.movementWalkStepMs ?? 220,
@@ -1904,21 +1719,39 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     runHoldThresholdMs: rules?.movementRunHoldThresholdMs ?? 1500,
     onRunChange: setIsRunning,
   });
-  // Relâchement d'un maintien de direction (clavier ou pavé virtuel) : on efface le cache de
-  // direction monde figée (voir lastRawDirRef ci-dessus) pour forcer un nouvel échantillonnage de
-  // l'angle caméra au PROCHAIN appui — sinon un appui identique (ex. de nouveau "Haut") après avoir
-  // orbité la caméra à la souris sans bouger entre-temps réutiliserait à tort l'ancienne direction
-  // monde mise en cache.
   const releaseMovement = useCallback(() => {
-    lastRawDirRef.current = null;
     hold.release();
   }, [hold]);
   useEffect(() => () => { if (walkStopTimerRef.current) clearTimeout(walkStopTimerRef.current); }, []);
+
+  // ─── Distinction glissé-souris (orbite caméra) / simple clic (déplacement/interaction) ─────────
+  // Corrige le bug rapporté « les rotations à la souris... un coup déplace Synk » : OrbitControls
+  // et les gestionnaires `onClick` de `@react-three/fiber` posés sur chaque tuile/marqueur (voir
+  // TerrainBlock/PropBlock/MarkerBlock dans Scene ci-dessus) observent tous les DEUX les mêmes
+  // événements pointeur bruts sur le même `<canvas>` — un glissé-souris pour orbiter la caméra se
+  // termine par un `pointerup` qui, si le curseur est resté au-dessus d'une tuile/d'un marqueur
+  // (cas fréquent : on orbite SANS déplacer beaucoup le curseur en X/Y écran), peut être interprété
+  // par R3F comme un simple clic sur cette tuile et déclencher `moveTo`/l'interaction — en plus de
+  // faire orbiter la caméra. Un seuil de distance (en pixels écran, entre `pointerdown` et l'instant
+  // présent) permet de distinguer les deux : si le pointeur a parcouru plus de quelques pixels
+  // depuis l'appui initial, on considère qu'il s'agissait d'un glissé (orbite), et les gestionnaires
+  // de clic ci-dessous ignorent volontairement le `onClick` de R3F qui suit.
+  const dragStateRef = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
+  const DRAG_THRESHOLD_PX = 6;
+  const onCanvasPointerDownForDrag = useCallback((e: React.PointerEvent) => {
+    dragStateRef.current = { x: e.clientX, y: e.clientY, dragged: false };
+  }, []);
+  const onCanvasPointerMoveForDrag = useCallback((e: React.PointerEvent) => {
+    const s = dragStateRef.current;
+    if (!s || s.dragged) return;
+    if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > DRAG_THRESHOLD_PX) s.dragged = true;
+  }, []);
 
   // ─── Clic sur un marqueur (PNJ, familier, trésor, quête, monde, hutte) — même logique que
   // GameCanvas2D.tsx::onMarkerClick, pour garantir une interaction strictement identique entre les
   // 3 vues (2D isométrique/3D/mapmonde) et éviter toute duplication/divergence de mécanique.
   const onMarkerClick3D = useCallback((m: MapMarker) => {
+    if (dragStateRef.current?.dragged) return; // voir « Distinction glissé-souris / clic » ci-dessus
     const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure'
       || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && m.poiType === 'hut');
     if (!interactable) return;
@@ -1931,6 +1764,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
   // ─── Clic sur une tuile portant un portail décoratif (🌀) — même logique que
   // GameCanvas2D.tsx::onPortalTileClick (attribution déterministe à un monde du catalogue).
   const onPortalTileClick3D = useCallback((wc: number, wr: number) => {
+    if (dragStateRef.current?.dragged) return; // voir « Distinction glissé-souris / clic » ci-dessus
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(wc - Math.round(cur.x)), Math.abs(wr - Math.round(cur.y)));
     if (dist <= 1 && worldMarkers.length) {
@@ -1944,6 +1778,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
   // ─── Clic sur une tuile portant une hutte décorative (🛖) — même logique que
   // GameCanvas2D.tsx::onHutTileClick (pop-up de repos, cooldown partagé HutRestModal).
   const onHutTileClick3D = useCallback((wc: number, wr: number) => {
+    if (dragStateRef.current?.dragged) return; // voir « Distinction glissé-souris / clic » ci-dessus
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(wc - Math.round(cur.x)), Math.abs(wr - Math.round(cur.y)));
     if (dist <= 1) {
@@ -1957,6 +1792,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
   }, [moveTo, t]);
 
   const onTileClick = useCallback((wc: number, wr: number) => {
+    if (dragStateRef.current?.dragged) return; // voir « Distinction glissé-souris / clic » ci-dessus
     const cur = worldPosRef.current;
     const dx = wc - Math.round(cur.x), dy = wr - Math.round(cur.y);
     const dir = directionFromDelta(dx, dy);
@@ -2080,6 +1916,8 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
           title={t('game.platform3d.widgetTitle')}
+          data-synk-pos={`${worldPos.x},${worldPos.y}`}
+          data-widget-collapsed="1"
         >🧊</button>
         <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       </>
@@ -2116,6 +1954,8 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       style={{ left: pos.x, top: pos.y, width: size.w, zIndex: z }}
       onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
       onContextMenu={onContextMenu}
+      data-synk-pos={`${worldPos.x},${worldPos.y}`}
+      data-synk-running={isRunning ? '1' : '0'}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-lime-900/30 rounded-t-xl cursor-move"
@@ -2137,6 +1977,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       <div
         ref={fullscreenRef} className="relative bg-slate-950"
         style={{ width: isFullscreen ? '100vw' : size.w, height: isFullscreen ? '100vh' : size.h }}
+        onPointerDown={onCanvasPointerDownForDrag} onPointerMove={onCanvasPointerMoveForDrag}
         onContextMenu={(e) => {
           // Menu "nager/plonger" (voir RepRules.platform3dUnderwaterWorldEnabled) proposé
           // UNIQUEMENT quand Synk est déjà sur une dalle d'eau et pas encore en pleine plongée ;
@@ -2167,8 +2008,7 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
               facing={facing} equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
               standY={standY}
               onTileClick={onTileClick} onPortalTileClick={onPortalTileClick3D} onHutTileClick={onHutTileClick3D}
-              onMarkerClick={onMarkerClick3D} onCameraYaw={onCameraYaw}
-              chaseCameraEnabled={rules?.platform3dChaseCameraEnabled ?? true}
+              onMarkerClick={onMarkerClick3D}
               eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
               eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
               objectFlags={rules?.platform3dObjectFlags}

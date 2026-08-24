@@ -294,6 +294,69 @@ Cette version (skip de `onCameraYaw` sur la frame de snap dans `Platform3DWidget
 désormais la référence à ne plus modifier sans rejouer intégralement ce scénario de test Playwright
 (appuis brefs répétés dans les 4 directions + maintiens + orbite souris manuelle au repos).
 
+### 🎥 Historique — abandon complet de la caméra-relative/chase-cam au profit d'un déplacement monde fixe
+
+Malgré les correctifs successifs ci-dessus (verrous de recentrage, skip de `onCameraYaw` sur la
+frame de snap, cache de direction verrouillée pendant un maintien...), le déplacement restait encore
+erratique en usage réel : appuyer sur Bas faisait avancer puis reculer Synk en boucle sans jamais
+progresser, Gauche/Droite le faisaient tourner sur lui-même comme si c'était la caméra qui bougeait,
+et le glissé-souris (censé seulement orbiter autour de Synk) tantôt éloignait la caméra, tantôt
+déplaçait Synk. **Cinq tentatives de correctif successives** avaient toutes fini par réintroduire une
+boucle de rétroaction entre l'angle de la caméra (recalculé automatiquement par la « chase cam » pour
+suivre Synk de dos pendant la marche) et la direction résolue à partir des touches (calculée en
+fonction de cet angle) — la caméra suiveuse et le déplacement relatif à la caméra se nourrissaient
+mutuellement de leurs propres artefacts, quel que soit le nombre de garde-fous ajoutés.
+
+**Décision** : supprimer intégralement la caméra-relative et la caméra suiveuse plutôt que de
+continuer à les corriger. Le déplacement est désormais **en repère MONDE FIXE**, strictement
+identique et indépendant de l'orientation de la caméra — Haut = nord (`dy:-1`), Bas = sud (`dy:+1`),
+Gauche = ouest (`dx:-1`), Droite = est (`dx:+1`) — exactement comme la Plateforme 2D isométrique
+(`GameCanvas2D.tsx`), qui n'avait jamais souffert de ce bug. La caméra 3D (`OrbitControls`) n'est
+plus JAMAIS repositionnée par le code : elle reste une orbite 100 % libre pilotée uniquement par la
+souris du joueur, ce qui élimine structurellement toute possibilité de boucle de rétroaction
+caméra↔déplacement (il n'existe plus aucune dépendance entre les deux). Les réglages Administration
+`platform3dCameraRelativeMovement` et `platform3dChaseCameraEnabled` (devenus sans objet) ont été
+retirés du modèle de données, du panneau d'administration et des 4 fichiers de traduction.
+
+**Second bug distinct corrigé dans la foulée** : les gestionnaires `onClick` de React Three Fiber
+posés sur chaque tuile/marqueur (déplacement au clic, interaction PNJ/portail/hutte...) ne
+distinguent pas nativement un glissé (orbite à la souris) d'un simple clic — un glissé qui se
+termine par hasard au-dessus d'une tuile pouvait donc À LA FOIS faire orbiter la caméra ET déclencher
+un déplacement/une interaction non voulus. Ajout d'un seuil de distance en pixels (6 px) entre
+`pointerdown` et les `pointermove` suivants sur le canevas : si le curseur a parcouru plus que ce
+seuil, le geste est considéré comme un glissé et les 4 gestionnaires de clic concernés
+(`onMarkerClick3D`, `onPortalTileClick3D`, `onHutTileClick3D`, `onTileClick`) l'ignorent
+explicitement — un vrai clic net (aucun mouvement notable entre `pointerdown` et `pointerup`) continue
+de fonctionner normalement.
+
+**Troisième bug (découvert pendant la vérification Playwright de ce correctif, indépendant de la
+caméra)** : lors du passage marche → course (après `movementRunHoldThresholdMs`, 1,5 s par défaut),
+l'ancienne cadence de marche (`movementWalkStepMs`, 220 ms) est coupée pile au moment où la nouvelle
+cadence de course (`movementRunStepMs`, 110 ms) démarre — mais celle-ci ne produit son premier pas
+qu'après un délai supplémentaire, créant un trou de cadence pouvant dépasser le délai d'inactivité
+(`WALK_STOP_DELAY_MS`, 220 ms) qui repasse `isRunning`/`isWalking` à `false` pour détecter un
+relâchement de touche. Ce trou déclenchait donc ce reset alors que la touche restait pourtant
+maintenue, remettant `isRunning` à `false` quelques dizaines de ms à peine après être passé à `true`
+— et plus rien ne le repassait à `true` ensuite (cette transition n'est notifiée qu'une seule fois par
+maintien). Corrigé dans `useHoldMovement.ts` en déclenchant un pas immédiat pile au moment de la
+bascule marche→course (avant de démarrer le nouvel intervalle), qui comble exactement ce trou —
+partagé par la Plateforme 2D isométrique et la Plateforme 3D, aucune duplication de logique.
+
+**Vérifié via Playwright** (scénario automatisé rejoué sur les 3 correctifs ensemble) :
+- 12 appuis brefs (3 cycles Haut/Bas/Gauche/Droite) → déplacement d'exactement 1 case, dans le bon
+  sens à chaque fois, aucune inversion ni dérive.
+- Maintien > 1,5 s dans chacune des 4 directions → bascule en course confirmée (`isRunning` passe à
+  `true` et y **reste** en continu jusqu'au relâchement réel de la touche, sans plus jamais
+  re-basculer à `false` entre-temps).
+- Glissé-souris (clic gauche maintenu + déplacement de la souris sur le canevas 3D) → la position de
+  Synk ne change JAMAIS, y compris quand le glissé se termine au-dessus d'une tuile/d'un marqueur.
+- Un clic simple et net (sans glissé) sur une tuile → continue de déclencher normalement le
+  déplacement/l'approche (aucune régression du clic-pour-approcher).
+
+Cette architecture simplifiée (déplacement monde fixe + orbite libre pure + garde-fou anti-glissé +
+pas immédiat à la bascule course) est désormais la référence à ne plus modifier sans rejouer
+intégralement ce scénario Playwright.
+
 ### 🚑 Historique — déploiement Vercel figé sur un ancien commit (« Redeploy » trompeur)
 
 Après l'ajout des e-mails automatiques (§ Phase 4), plusieurs `git push` successifs semblaient ne

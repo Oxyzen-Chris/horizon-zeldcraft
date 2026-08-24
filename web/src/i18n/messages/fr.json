@@ -680,8 +680,6 @@
   "admin.repRules.platform3dEquipmentRenderEnabled": "Afficher l'équipement de Synk (arme, bouclier, casque, amulette, etc.) sur le modèle 3D",
   "admin.repRules.platform3dJumpEnabled": "Activer le saut (barre espace) pour franchir montagnes/roches",
   "admin.repRules.platform3dResizableEnabled": "Autoriser le redimensionnement (jusqu'au plein écran) du widget 3D",
-  "admin.repRules.platform3dCameraRelativeMovement": "Déplacements relatifs à l'angle de caméra (« Haut » = s'éloigner de la caméra, même après avoir orbité à la souris) — sinon direction monde fixe (nord/sud/est/ouest)",
-  "admin.repRules.platform3dChaseCameraEnabled": "Caméra suiveuse automatique : dès que Synk marche, la caméra se replace derrière lui (vu de dos) même si le joueur a réorbité la vue — désactive pour laisser l'orbite libre en permanence",
   "admin.repRules.platform3dClimbTitle": "Plateforme 3D — escalade, chute & dégâts",
   "admin.repRules.platform3dClimbDescription": "Grimper (Espace maintenu) sur une dalle plus haute que Synk peut, selon le dénivelé franchi en une seule fois (converti en « cubes »), infliger des dégâts mineurs voire une chute mortelle. Descendre reste toujours libre et sans dégât.",
   "admin.repRules.platform3dCubeHeightM": "Hauteur (m) représentant 1 cube",
