@@ -126,6 +126,43 @@ Dans l'ordre d'affichage :
     fine pour UN joueur en particulier (`players/{addr}/analytics/trackingOverride`, prime sur le
     réglage global) et d'afficher son profil détaillé (temps par widget, entonnoir de quêtes,
     évanouissements) sans avoir à suivre tous les joueurs.
+27. **Combinaisons de Potions / Élixirs** (`PotionComboAdminPanel.tsx`) — voir § dédiée ci-dessous.
+
+## Combinaisons de Potions (Élixirs)
+
+Mécanisme de fabrication d'objets, disponible dans le widget **"Sac / Besace"** (`InventoryWidget.tsx`,
+onglet Potions & Sortilèges, section "🧪 Combiner des potions") : le joueur combine plusieurs
+potions/sortilèges déjà possédés (recette fixe, quantités exactes) pour obtenir un **Élixir**
+surpuissant, dans l'esprit Donjons & Dragons.
+
+- **Modèle de données** (`gameState.ts`) : `PotionCombo` (id, label, icône, `ingredients`
+  (`{itemId, qty}[]`), `effectKind`, `durationMinutes`, `forceMultiplier`, `grantItem`, `active`),
+  stocké hors-chaîne à `catalog/potionCombos/{id}` (repli sur `DEFAULT_POTION_COMBOS` si vide,
+  fusion Firebase-prioritaire — même stratégie que le catalogue boutique).
+- **6 recettes de départ** : Invulnérabilité de Vie (24h), Force Titanesque (×2, 30min), Souffle
+  Éternel (oxygène plein, 30min), Vigueur Sans Fin (fatigue pleine, 10min), Festin Royal (faim
+  pleine, instantané), Épée Divine de Lumière (objet unique `grantItem`, non présent en boutique).
+- **Effets temporisés** (`hpInvulnerableUntil`, `forceBoostUntil`/`forceBoostMultiplier`,
+  `oxygenShieldUntil`, `fatigueShieldUntil` sur `PlayerState`) branchés au point d'entrée unique
+  `applyEffect()` (bloque toute perte de vie/oxygène/fatigue tant que le bouclier est actif — les
+  gains restent inchangés) et à `computePlayerDiceBonus()` (multiplie la contribution de la Force
+  au bonus de combat) — **aucun autre fichier** n'a eu besoin d'être modifié pour que les boucliers
+  s'appliquent partout (combats PNJ, noyade, altitude, fatigue).
+- **Pop-up "sablier" `ActiveElixirsBanner.tsx`** : bandeau fixe en haut de l'écran, clignotant
+  (`animate-pulse`), une carte par Élixir temporisé actif avec décompte live (⏳ animé), lu en
+  temps réel depuis `PlayerState` (`subscribePlayer`) — combiner deux fois la même recette
+  rafraîchit simplement son horodatage au lieu de dupliquer la carte.
+- **Administration** (`PotionComboAdminPanel.tsx`, menu Administration § 27) : CRUD complet des
+  recettes (ingrédients dynamiques, type d'effet, durée, multiplicateur de Force, objet unique
+  offert) — même patron que `PotionsSpellsAdminPanel.tsx`/`EquipmentAdminPanel.tsx`.
+- i18n complet FR/EN/ES/PT (`elixir.kind.*`, `elixir.desc.*`, `game.inventory.combine.*`,
+  `admin.potionCombos.*`).
+- Vérifié par un scénario Playwright bout-en-bout (session Démo anonyme → seed d'ingrédients →
+  combinaison des 6 recettes → vérification des messages de succès, de la consommation exacte des
+  ingrédients et de l'affichage simultané des 4 cartes temporisées dans le bandeau) : aucune
+  régression détectée sur le flux "Utiliser"/"Équiper" existant ni sur la section fixe dupliquée
+  `InventoryPanel.tsx` (volontairement non modifiée, le mécanisme n'existe que dans le widget
+  flottant, conformément à la demande).
 
 ## Modèle de terrain (Mapmonde / Plateforme 2D / Plateforme 3D)
 

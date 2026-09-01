@@ -112,6 +112,21 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
       sombre ; captif → silhouette liée. Tout `kind`/`poiType` non couvert (plaine, forêt, montagne,
       lac, chemin, pont, plage, cascade, mer/océan/étang/île) conserve EXACTEMENT le gemme précédent
       — zéro régression sur ces marqueurs décoratifs de terrain
+- [x] **Combinaisons de Potions (Élixirs)** : nouveau mécanisme de fabrication dans le widget
+      « Sac / Besace » (`InventoryWidget.tsx`, onglet Potions & Sortilèges) — combine plusieurs
+      potions/sortilèges possédés en un Élixir surpuissant (Invulnérabilité de Vie 24h, Force
+      Titanesque ×2 pendant 30min, Souffle Éternel/oxygène plein 30min, Vigueur Sans Fin/fatigue
+      pleine 10min, Festin Royal/faim pleine instantané, ou une arme unique « Épée Divine de
+      Lumière » non disponible en boutique). Pop-up clignotant en haut de l'écran avec sablier ⏳
+      animé et décompte live (`ActiveElixirsBanner.tsx`) tant qu'un effet temporisé est actif.
+      Entièrement paramétrable dans `Administration > Combinaisons de Potions / Élixirs`
+      (`PotionComboAdminPanel.tsx` : ingrédients, type d'effet, durée, multiplicateur de Force,
+      objet unique offert). Boucliers vie/oxygène/fatigue branchés au point d'entrée centralisé
+      `applyEffect()` (zéro fichier tiers à modifier pour que l'invulnérabilité bloque les dégâts
+      partout : combats PNJ, noyade, altitude). Vérifié par Playwright (session Démo anonyme, seed
+      des 6 recettes, combinaison de chacune, vérification des messages de succès, de la
+      consommation exacte des ingrédients et de l'affichage simultané des 4 cartes temporisées) —
+      aucune régression sur les flux « Utiliser »/« Équiper » existants
 
 ### 🎥 Historique — mise à l'échelle réaliste + PNJ voxel + suite du réalisme des trésors
 

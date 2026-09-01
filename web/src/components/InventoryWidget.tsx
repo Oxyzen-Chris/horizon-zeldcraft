@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import {
   subscribeInventory, getRepRules, subscribeFamiliars, getFamiliarDefs, familiarKeyOf,
   consumeInventoryItem, equipItem, equipFamiliar, FAMILIAR_DRAG_PREFIX,
-  type InventoryItem, type RepRules, type FamiliarDef,
+  getPotionCombos, combinePotions,
+  type InventoryItem, type RepRules, type FamiliarDef, type PotionCombo,
 } from '@/lib/gameState';
 import { ITEM_TAB_CATEGORIES as TAB_CATEGORIES, ITEM_TAB_ORDER as TAB_ORDER, ITEM_TAB_ICON as TAB_ICON, type ItemTab as Tab } from '@/lib/itemTabs';
 import { useI18n, itemLabel, localizeName } from '@/lib/i18n';
@@ -26,7 +27,8 @@ const MOUTH_CATEGORIES = new Set<InventoryItem['category']>([...TAB_CATEGORIES.f
 type ConfirmAction =
   | { kind: 'use'; item: InventoryItem }
   | { kind: 'equip'; item: InventoryItem }
-  | { kind: 'equipFamiliar'; familiar: FamiliarDef };
+  | { kind: 'equipFamiliar'; familiar: FamiliarDef }
+  | { kind: 'combine'; combo: PotionCombo };
 
 /**
  * Fenêtre flottante et déplaçable "Sac / Besace" — duplique InventoryPanel.tsx (section fixe de
@@ -58,6 +60,7 @@ export function InventoryWidget({ enabled = true }: { enabled?: boolean } = {}) 
   const [rules, setRules] = useState<RepRules | null>(null);
   const [familiars, setFamiliars] = useState<FamiliarDef[]>([]);
   const [owned, setOwned] = useState<Record<string, { obtainedAt: number }>>({});
+  const [combos, setCombos] = useState<PotionCombo[]>([]);
 
   useEffect(() => {
     if (!address) return;
@@ -65,6 +68,7 @@ export function InventoryWidget({ enabled = true }: { enabled?: boolean } = {}) 
   }, [address]);
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
   useEffect(() => { getFamiliarDefs().then(setFamiliars).catch(() => {}); }, []);
+  useEffect(() => { getPotionCombos().then(setCombos).catch(() => {}); }, []);
   useEffect(() => {
     if (!address) return;
     return subscribeFamiliars(address, setOwned);
@@ -89,6 +93,24 @@ export function InventoryWidget({ enabled = true }: { enabled?: boolean } = {}) 
     if (result === 'ok') flash('✅ ' + t('equip.equipped', { name: localizeName(t, f.i18nKey, f.label) }));
     else flash('❌ ' + t('equip.failed'));
   };
+  const doCombine = async (combo: PotionCombo) => {
+    if (!address) return;
+    const result = await combinePotions(address, combo.id);
+    if (result.ok) flash('✨ ' + t('game.inventory.combine.success', { name: elixirName(combo) }));
+    else if (result.reason === 'missingIngredients') flash(t('game.inventory.combine.missing'));
+    else flash(t('game.inventory.combine.noMatch'));
+  };
+  /** Résout le libellé localisé d'un Élixir combiné, EN SUBSTITUANT `{mult}` pour l'Élixir de
+   * Force Titanesque (`elixir.kind.forceX2` contient ce placeholder — voir ActiveElixirsBanner.tsx
+   * qui fait le même remplacement) — `localizeName()` ne supporte pas les variables, d'où cette
+   * résolution dédiée plutôt qu'un simple appel à `localizeName`. */
+  const elixirName = (combo: PotionCombo): string => {
+    if (!combo.i18nKey) return combo.label;
+    const key = `elixir.kind.${combo.i18nKey}`;
+    const vars = combo.i18nKey === 'forceX2' ? { mult: combo.forceMultiplier ?? 2 } : undefined;
+    const translated = t(key, vars);
+    return translated === key ? combo.label : translated;
+  };
   const runConfirm = async () => {
     const action = confirm;
     setConfirm(null);
@@ -96,6 +118,7 @@ export function InventoryWidget({ enabled = true }: { enabled?: boolean } = {}) 
     if (action.kind === 'use') await use(action.item);
     else if (action.kind === 'equip') await doEquip(action.item);
     else if (action.kind === 'equipFamiliar') await doEquipFamiliar(action.familiar);
+    else if (action.kind === 'combine') await doCombine(action.combo);
   };
 
   const renderEffect = (e: InventoryItem['effect']) => {
@@ -122,6 +145,13 @@ export function InventoryWidget({ enabled = true }: { enabled?: boolean } = {}) 
       </p>
     );
   };
+
+  /** Vrai si le joueur possède, EN QUANTITÉ SUFFISANTE, tous les ingrédients d'une recette —
+   * détermine si le bouton "Combiner" de cette recette est actif ou grisé (voir combinePotions). */
+  const hasIngredients = (combo: PotionCombo) => combo.ingredients.every((ing) => {
+    const owned = items.find((it) => it.itemId === ing.itemId)?.qty ?? 0;
+    return owned >= ing.qty;
+  });
 
   if (!enabled || !address || !pos) return null;
 
@@ -236,17 +266,46 @@ export function InventoryWidget({ enabled = true }: { enabled?: boolean } = {}) 
           )}
         </div>
 
+        {tab === 'potion' && combos.length > 0 && (
+          <div className="mt-3 border-t border-emerald-800/50 pt-2">
+            <p className="text-xs font-semibold text-fuchsia-300 mb-1">{t('game.inventory.combine.title')}</p>
+            <p className="text-[9px] text-slate-500 mb-2">{t('game.inventory.combine.hint')}</p>
+            <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+              {combos.map((combo) => {
+                const ready = hasIngredients(combo);
+                return (
+                  <div key={combo.id} className="bg-slate-800/60 rounded p-2">
+                    <p className="text-[11px] font-semibold">{combo.icon} {localizeName(t, combo.i18nKey ? `elixir.kind.${combo.i18nKey}` : undefined, combo.label)}</p>
+                    <p className="text-[9px] text-slate-400 mt-0.5">
+                      {combo.ingredients.map((ing) => {
+                        const owned = items.find((it) => it.itemId === ing.itemId)?.qty ?? 0;
+                        return `${itemLabel(t, ing.itemId, ing.itemId)} ×${ing.qty} (${owned}/${ing.qty})`;
+                      }).join(' + ')}
+                    </p>
+                    <button
+                      className="btn-secondary text-[10px] w-full mt-1 disabled:opacity-40"
+                      disabled={!ready}
+                      onClick={() => setConfirm({ kind: 'combine', combo })}
+                    >{t('game.inventory.combine.button')}</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {feedback && <p className="text-xs text-cyan-400 mt-2 text-center">{feedback}</p>}
         <p className="text-[9px] text-slate-500 mt-2 text-center">{t('game.inventory.dragHint')}</p>
       </div>
 
       <ConfirmDialog
         open={!!confirm}
-        title={confirm?.kind === 'use' ? t('game.inventory.confirmUseTitle') : t('game.inventory.confirmEquipTitle')}
+        title={confirm?.kind === 'use' ? t('game.inventory.confirmUseTitle') : confirm?.kind === 'combine' ? t('game.inventory.combine.confirmTitle') : t('game.inventory.confirmEquipTitle')}
         message={
           confirm?.kind === 'use' ? t('game.inventory.confirmUseMsg', { name: itemLabel(t, confirm.item.itemId, confirm.item.name) })
           : confirm?.kind === 'equip' ? t('game.inventory.confirmEquipMsg', { name: itemLabel(t, confirm.item.itemId, confirm.item.name) })
           : confirm?.kind === 'equipFamiliar' ? t('game.inventory.confirmEquipFamiliarMsg', { name: localizeName(t, confirm.familiar.i18nKey, confirm.familiar.label) })
+          : confirm?.kind === 'combine' ? t('game.inventory.combine.confirmMsg', { items: confirm.combo.ingredients.map((ing) => `${itemLabel(t, ing.itemId, ing.itemId)} ×${ing.qty}`).join(' + ') })
           : ''
         }
         onConfirm={runConfirm}

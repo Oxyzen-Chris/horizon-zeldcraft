@@ -48,6 +48,7 @@ import { HelpWidget } from '@/components/HelpWidget';
 import { ProgressWidget } from '@/components/ProgressWidget';
 import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { DemoSessionTimerWidget } from '@/components/DemoSessionTimerWidget';
+import { ActiveElixirsBanner } from '@/components/ActiveElixirsBanner';
 import { useI18n } from '@/lib/i18n';
 import {
   getOrCreatePlayer, subscribePlayer, logTx, applyEffect, getRepRules, getPlayerActivityStats,
@@ -183,6 +184,7 @@ export default function GamePage() {
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
       <AnnouncementBanner address={address} />
       <DemoSessionTimerWidget />
+      <ActiveElixirsBanner address={address} />
       <header className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <Link href="/" className="text-2xl font-bold text-voxlyn-crystal">🐉 {t('app.title')}</Link>
         <div className="flex flex-wrap gap-3 items-center">

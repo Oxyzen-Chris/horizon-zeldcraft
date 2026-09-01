@@ -30,6 +30,7 @@ import { CustomWidgetsAdminPanel } from '@/components/CustomWidgetsAdminPanel';
 import { EquipmentAdminPanel } from '@/components/EquipmentAdminPanel';
 import { FoodAdminPanel } from '@/components/FoodAdminPanel';
 import { PotionsSpellsAdminPanel } from '@/components/PotionsSpellsAdminPanel';
+import { PotionComboAdminPanel } from '@/components/PotionComboAdminPanel';
 import { MapFiltersAdminPanel } from '@/components/MapFiltersAdminPanel';
 import { MapNavigationAdminPanel } from '@/components/MapNavigationAdminPanel';
 import { ContentPacksAdminPanel } from '@/components/ContentPacksAdminPanel';
@@ -62,6 +63,7 @@ const ADMIN_TOC_SECTIONS: { id: string; labelKey: string; icon?: string }[] = [
   { id: 'admin-sec-equipment', labelKey: 'admin.equipment.title', icon: '⚔️' },
   { id: 'admin-sec-food', labelKey: 'admin.food.title', icon: '🍎' },
   { id: 'admin-sec-potions', labelKey: 'admin.potions.title', icon: '🧪' },
+  { id: 'admin-sec-potionCombos', labelKey: 'admin.potionCombos.title', icon: '⚗️' },
   { id: 'admin-sec-mapFilters', labelKey: 'admin.mapFilters.title', icon: '🔧' },
   { id: 'admin-sec-mapNav', labelKey: 'admin.mapNav.title', icon: '🖱️' },
   { id: 'admin-sec-chatScripts', labelKey: 'admin.chatScripts.title' },
@@ -412,6 +414,7 @@ export default function AdminPage() {
           <div id="admin-sec-equipment" className="scroll-mt-6"><EquipmentAdminPanel /></div>
           <div id="admin-sec-food" className="scroll-mt-6"><FoodAdminPanel /></div>
           <div id="admin-sec-potions" className="scroll-mt-6"><PotionsSpellsAdminPanel /></div>
+          <div id="admin-sec-potionCombos" className="scroll-mt-6"><PotionComboAdminPanel /></div>
           <div id="admin-sec-mapFilters" className="scroll-mt-6"><MapFiltersAdminPanel /></div>
           <div id="admin-sec-mapNav" className="scroll-mt-6"><MapNavigationAdminPanel /></div>
           <div id="admin-sec-chatScripts" className="scroll-mt-6"><ChatScriptsAdminPanel /></div>

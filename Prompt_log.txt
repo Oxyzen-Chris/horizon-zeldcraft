@@ -450,17 +450,17 @@ Dans le business modele de refacturation des couts aux utilisateurs et d'aide su
 		- etc...
 
 
-- Pour les sponsors, joueurs, on pourrait imaginer ajouter un éco-système directement dans le jeu pour leur permettre de financer ce dernier au travers de dépôt FIAT, de cryptomonaies ou par d'autres moyens que tu pourrais proposer et qui fonctionne bien pour ce type de projet sur le marché aujourd'hui.
+- Pour les sponsors ou les joueurs qui souhaitent m'aider à financer mon jeu, on pourrait imaginer ajouter un éco-système directement dans le jeu pour leur permettre de financer ce dernier en créditant mon compte FIAT, mon compte PayPal, ma cryptomonanie XXXX BTC ou par d'autres moyens que tu pourrais proposer et qui fonctionnent bien pour ce type de projet sur le marché aujourd'hui.
 Vérifie néanmoins que tes correctifs et la solution que tu implémenteras ne feront aucune régression de code, de stratégie déjà en place dans le jeu. Au besoin utilise Playwright pour tester, reproduire et corriger ces bugs.
 
 
 
-- Communiquer sur mon Linkedin pour promouvoir mon jeu au travers de mon profile avec les liens, quelques photos d'écran. Préciser que c'est le tout 1er jeu asisté 100% par IA (Copilot Github) mais construit avec le background d'un développeur. A voir si c'est plus vendeur de dire qu'un jeu comme Horizon-Zeldcraft peut-être construit en 3 semaines a raison de 3 ou 4 heures par jours notamment pour la rédaction in-line d'un prompt, des tests, des déploiements sur les infra (vercel, firebird, resend, ...), de la gestion des sources, des bugs nombreux, de la rechercher en R&D, de rester fidèle a Dungeons&Dragons.
+- Communiquer sur mon Linkedin pour promouvoir mon jeu au travers de mon profile avec les liens, quelques photos d'écran. Préciser que c'est le tout 1er jeu assisté 100% par IA (Copilot Github)  construit avec le background d'un développeur. A voir si c'est plus vendeur de dire qu'un jeu comme Horizon-Zeldcraft peut-être construit en 3 semaines a raison de 3 ou 4 heures par jours notamment pour la rédaction in-line des prompts, des tests, des déploiements sur les infra (vercel, firebird, resend, ...), de la gestion des sources, des bugs nombreux, de la rechercher en R&D, de rester fidèle a l'esprit de Dungeons & Dragons.
 
 
 
 
-- Travailler à réduire au maximum l'empreinte et donc l'utilisation du smart contract dans le jeu et juste laisser la possibilité de créditer en cryptomonnaie un compte ETH comme c'est déjà le cas sur SEPOLIA et demain sur Mainnet ! En réduisant et supprimant le smartcontract au maximum dans le jeu, on réduit et supprime les frais de gas, l'audit de sécurité avant passage en production réelle qui peut être un vrai frein au déploiement du jeu.
+- Travailler à réduire au maximum l'empreinte et donc l'utilisation du smart contract dans le jeu et juste laisser la possibilité de créditer en cryptomonnaie un compte ETH comme c'est déjà le cas sur SEPOLIA et Mainnet ! En réduisant et supprimant le smartcontract au maximum dans le jeu, on réduit et supprime les frais de gas ainsi que l'audit de sécurité avant passage en production réelle qui peut être un vrai frein au déploiement du jeu.
 
 
 
@@ -481,13 +481,16 @@ Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu"
 
 
 
-- Approfondir le module Widget de conversation avec un PNJ :
+- Approfondir le module Widget de discussion/conversation avec un PNJ :
 
 
 
 
 
-- Combiner plusieurs potions magique (Déterminer quelle potion + jour de pleine lune pour les plus puissante) pour en faire 1 très puissante capable de tout terrasser, attraper une monture, trouver une arme (épéé) divine, etc...
+- Dans le widget "Sac/Besace", mettre en place un mécanisme pour combiner plusieurs potions magiques (Détermines les potions a combiner ensemble) pour en faire 1 ou plusieurs très puissante (invulnérabilité de vie pendant 24h, force multipliée par 2 pendant 30 minutes, oxygène à 100% sous l'eau ou en montagne pendant 30 minutes, fatigue à 100% pendant 10 minutes, faim rassasiée à 100%) et capable de tout terrasser, attraper une monture, trouver une arme (épéé) divine, etc... Tu afficheras un pop-up qui clignotte avec un décompte de temps + une animation de sablier en haut de l'écran en indiquant le type de sort qui a été combiné et ce qu'il offre comme type d'invulnérabilité. Tu rendras paramétrable l'ensemble de ces éléments dans le menu Administration.
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
+
 
 
 
@@ -499,8 +502,12 @@ Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu"
 
 
 
-- Il y a encore des bugs dans les traduction [Fournir les copies d'écran dans le menu déroulant du jeu & dans les widget (Quests par exemple) où les traductions restent en français malgré le changement de langue (EN en)]
+- Il y a encore des bugs dans les traduction [Fournir les copies d'écran dans le menu déroulant du jeu & dans les widget (Quests par exemple) où les traductions restent en français malgré le changement de langue (EN en)]. Vérifie l'intégralité des traductions du jeu et corrige les bugs ! Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
+
+
+- Dans le widget de la plateforme 2D isométrique, se déplace le "Forgeron de Corail Hoku" et le "Dragon de Bronze" : Fait en sorte que je les vois également se déplacer dans le widget "Plateforme 3D" de telle manière à les voir passer de case en case, fonction de leur déplacement, en les matérialisant sous forme d'un personnage 3D PNJ et d'un Dragon.
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
 

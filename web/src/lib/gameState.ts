@@ -147,6 +147,20 @@ export interface PlayerState {
   welcomeEmailStatus?: 'sent' | 'failed';
   welcomeEmailError?: string;
   welcomeEmailSentAt?: number;
+  // ─── Élixirs combinés (voir PotionCombo/combinePotions, widget "Sac / Besace") ───
+  // Horodatages de fin d'effet des 4 buffs temporisés obtenus en combinant plusieurs potions/
+  // sortilèges dans la besace. Ces 3 boucliers sont lus par LE seul point d'entrée qui modifie
+  // hp/oxygen/fatigue — `applyEffect()` ci-dessous — donc AUCUNE autre fonction du jeu (combat,
+  // noyade, altitude, épuisement...) n'a besoin d'être modifiée pour respecter ces protections
+  // temporaires : elles s'appliquent automatiquement partout, sans risque de trou de couverture.
+  hpInvulnerableUntil?: number;      // "Élixir d'Invulnérabilité" — ignore toute perte de Vie
+  oxygenShieldUntil?: number;        // "Élixir de Souffle Éternel" — ignore toute perte d'Oxygène
+  fatigueShieldUntil?: number;       // "Élixir de Vigueur Sans Fin" — ignore toute perte de Fatigue
+  // "Élixir de Force Titanesque" — multiplie (par `forceBoostMultiplier`, défaut 2) la contribution
+  // de la Force au bonus de dé de combat (voir computePlayerDiceBonus) tant qu'actif ; NE modifie
+  // JAMAIS le stock brut de Force (toujours plafonné à forceMax comme d'habitude).
+  forceBoostUntil?: number;
+  forceBoostMultiplier?: number;
 }
 
 /**
@@ -292,6 +306,39 @@ export interface ShopItem {
   durabilityMax?: number;
   requiresArrow?: boolean;
   requiresFamiliarId?: string;
+}
+
+/** Type de récompense obtenue en combinant plusieurs potions/sortilèges à la fois dans la besace
+ * (voir InventoryWidget.tsx "🧪 Combiner des potions" et combinePotions() ci-dessous). Les 4
+ * premiers sont des buffs TEMPORAIRES (horodatage de fin stocké sur PlayerState, voir plus haut,
+ * lus par applyEffect()/computePlayerDiceBonus()) ; `hungerFull` est un effet INSTANTANÉ (pas de
+ * minuteur) ; `grantItem` offre un objet unique (arme/monture/trésor "divin", potentiellement
+ * introuvable ailleurs) directement dans la besace. */
+export type PotionComboEffectKind = 'invulnerability' | 'forceX2' | 'oxygenFull' | 'fatigueFull' | 'hungerFull' | 'grantItem';
+
+/** Recette de combinaison de potions — paramétrable en Administration (voir
+ * PotionComboAdminPanel.tsx), stockée hors-chaîne à `catalog/potionCombos/{id}`. Le joueur
+ * sélectionne dans l'onglet "Potions & Sortilèges" de la besace un multi-ensemble d'objets
+ * possédés correspondant EXACTEMENT à `ingredients` (mêmes itemId/qty, ordre indifférent — voir
+ * findMatchingPotionCombo()) pour déclencher la combinaison. */
+export interface PotionCombo {
+  id: string;
+  label: string;         // libellé FR de repli (affiché dans le pop-up sablier — voir ActiveElixirsBanner.tsx)
+  i18nKey?: string;       // clé i18n optionnelle (voir localizeName)
+  icon: string;           // emoji affiché dans la besace et le pop-up
+  ingredients: { itemId: string; qty: number }[]; // potions/sortilèges requis SIMULTANÉMENT (2+)
+  effectKind: PotionComboEffectKind;
+  durationMinutes?: number;  // ignoré pour hungerFull/grantItem (effet instantané)
+  forceMultiplier?: number;  // uniquement pour forceX2 — défaut 2 (voir combinePotions)
+  // Objet offert si effectKind === 'grantItem' (spécification complète auto-suffisante, façon
+  // NPC_FIGHT_LOOT_TABLE — pas besoin d'exister dans catalog/shop, peut donc être un objet
+  // "divin" uniquement obtenable via cette combinaison).
+  grantItem?: {
+    itemId: string; name: string; category: InventoryItem['category'];
+    slot?: EquipSlot; rarity?: ItemRarity; damage?: number; defense?: number; durabilityMax?: number;
+    effect?: InventoryItem['effect'];
+  };
+  active: boolean;
 }
 
 // ────────────────────────────────────── Init player ──────────────────────────────────────
@@ -518,9 +565,22 @@ export async function applyEffect(address: string, delta: Partial<PlayerState> &
   const happinessMax = cur.happinessMax ?? 100;
   const oxygenMax    = cur.oxygenMax    ?? 100;
   const fatigueMax   = cur.fatigueMax   ?? 100;
+  // ─── Boucliers d'Élixirs combinés (voir PlayerState.hpInvulnerableUntil/oxygenShieldUntil/
+  // fatigueShieldUntil et combinePotions() plus bas) — applyEffect() étant le SEUL point d'entrée
+  // qui modifie hp/oxygen/fatigue dans tout le jeu (combat, noyade, altitude, épuisement, dés
+  // d'action...), neutraliser ici toute perte (delta négatif) tant que le bouclier est actif
+  // protège automatiquement TOUTES ces sources sans avoir à toucher un seul de leurs appelants.
+  // Les gains (delta positif, ex. une potion de vie bue pendant l'invulnérabilité) restent inchangés.
+  const now = Date.now();
+  const hpShielded      = !!cur.hpInvulnerableUntil && cur.hpInvulnerableUntil > now;
+  const oxygenShielded  = !!cur.oxygenShieldUntil   && cur.oxygenShieldUntil   > now;
+  const fatigueShielded = !!cur.fatigueShieldUntil  && cur.fatigueShieldUntil  > now;
+  const hpDelta      = hpShielded      && (delta.hp      ?? 0) < 0 ? 0 : (delta.hp      ?? 0);
+  const oxygenDelta  = oxygenShielded  && (delta.oxygen  ?? 0) < 0 ? 0 : (delta.oxygen  ?? 0);
+  const fatigueDelta = fatigueShielded && (delta.fatigue ?? 0) < 0 ? 0 : (delta.fatigue ?? 0);
   const clamped: PlayerState = {
     ...cur,
-    hp:         clamp((cur.hp        ?? 100) + (delta.hp        ?? 0), 0, hpMax),
+    hp:         clamp((cur.hp        ?? 100) + hpDelta, 0, hpMax),
     hpMax,
     hunger:     clamp((cur.hunger    ?? 80)  + (delta.hunger    ?? 0), 0, hungerMax),
     hungerMax,
@@ -530,9 +590,9 @@ export async function applyEffect(address: string, delta: Partial<PlayerState> &
     forceMax,
     spells:     clamp((cur.spells    ?? 5)   + (delta.spells    ?? 0), 0, spellsMax),
     spellsMax,
-    oxygen:     clamp((cur.oxygen    ?? 100) + (delta.oxygen    ?? 0), 0, oxygenMax),
+    oxygen:     clamp((cur.oxygen    ?? 100) + oxygenDelta, 0, oxygenMax),
     oxygenMax,
-    fatigue:    clamp((cur.fatigue   ?? 100) + (delta.fatigue   ?? 0), 0, fatigueMax),
+    fatigue:    clamp((cur.fatigue   ?? 100) + fatigueDelta, 0, fatigueMax),
     fatigueMax,
     reputation: (cur.reputation ?? 0) + (delta.reputation ?? 0),
     wallet:     Math.max(0, (cur.wallet ?? 100) + (delta.wallet ?? 0)),
@@ -637,6 +697,207 @@ export async function consumeInventoryItem(address: string, item: InventoryItem,
     await applyEffect(address, item.effect);
   }
   await removeFromInventory(address, item.itemId, 1);
+}
+
+// ──────────────────────────── Combinaison de potions (Élixirs, D&D) ────────────────────────────
+// Voir InventoryWidget.tsx "🧪 Combiner des potions" (widget "Sac / Besace") : le joueur coche
+// plusieurs potions/sortilèges possédés dans l'onglet Potions, le jeu cherche une recette
+// (PotionCombo) dont `ingredients` correspond EXACTEMENT à la sélection, puis affiche un pop-up
+// clignotant avec sablier ⏳ et décompte (voir ActiveElixirsBanner.tsx) pour les effets temporisés.
+
+/** Recettes par défaut (seed si `catalog/potionCombos` est vide) — illustrent les 5 types d'effet
+ * demandés (invulnérabilité 24h, force ×2 30min, oxygène plein 30min, fatigue pleine 10min, faim
+ * pleine instantanée) plus un exemple d'arme "divine" obtenue par combinaison. 100% paramétrable/
+ * remplaçable ensuite par l'admin (PotionComboAdminPanel.tsx) — ce ne sont que des points de départ. */
+export const DEFAULT_POTION_COMBOS: PotionCombo[] = [
+  {
+    id: 'combo_invulnerabilite',
+    label: '🛡️✨ Élixir d\'Invulnérabilité',
+    i18nKey: 'invulnerability',
+    icon: '🛡️✨',
+    ingredients: [{ itemId: 'super_hp', qty: 1 }, { itemId: 'legend_hp', qty: 1 }],
+    effectKind: 'invulnerability',
+    durationMinutes: 1440, // 24h
+    active: true,
+  },
+  {
+    id: 'combo_force_titan',
+    label: '💪⚡ Élixir de Force Titanesque',
+    i18nKey: 'forceX2',
+    icon: '💪⚡',
+    ingredients: [{ itemId: 'super_force', qty: 1 }, { itemId: 'potion_sp', qty: 1 }],
+    effectKind: 'forceX2',
+    durationMinutes: 30,
+    forceMultiplier: 2,
+    active: true,
+  },
+  {
+    id: 'combo_souffle_eternel',
+    label: '🫧♾️ Élixir de Souffle Éternel',
+    i18nKey: 'oxygenFull',
+    icon: '🫧♾️',
+    ingredients: [{ itemId: 'potion_sp', qty: 1 }, { itemId: 'spell_fire', qty: 1 }],
+    effectKind: 'oxygenFull',
+    durationMinutes: 30,
+    active: true,
+  },
+  {
+    id: 'combo_vigueur_sans_fin',
+    label: '🥱🔋 Élixir de Vigueur Sans Fin',
+    i18nKey: 'fatigueFull',
+    icon: '🥱🔋',
+    ingredients: [{ itemId: 'super_spells', qty: 1 }, { itemId: 'potion_hp', qty: 1 }],
+    effectKind: 'fatigueFull',
+    durationMinutes: 10,
+    active: true,
+  },
+  {
+    id: 'combo_festin_royal',
+    label: '🍗✨ Élixir du Festin Royal',
+    i18nKey: 'hungerFull',
+    icon: '🍗✨',
+    ingredients: [{ itemId: 'potion_hp', qty: 2 }, { itemId: 'potion_sp', qty: 1 }],
+    effectKind: 'hungerFull',
+    active: true,
+  },
+  {
+    id: 'combo_epee_divine',
+    label: '⚔️🌟 Épée Divine de Lumière',
+    i18nKey: 'grantDivineSword',
+    icon: '⚔️🌟',
+    ingredients: [{ itemId: 'super_force', qty: 1 }, { itemId: 'super_hp', qty: 1 }, { itemId: 'super_spells', qty: 1 }],
+    effectKind: 'grantItem',
+    grantItem: {
+      itemId: 'epee_divine', name: '⚔️🌟 Épée Divine de Lumière', category: 'weapon', slot: 'weapon',
+      rarity: 'legendary', damage: 60, durabilityMax: 40, effect: { force: 40, hp: 20, spells: 20 },
+    },
+    active: true,
+  },
+];
+
+export async function getPotionCombos(): Promise<PotionCombo[]> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_POTION_COMBOS;
+  try {
+    const snap = await get(ref(db, 'catalog/potionCombos'));
+    const v = snap.val() as Record<string, PotionCombo> | null;
+    if (!v || !Object.keys(v).length) return DEFAULT_POTION_COMBOS;
+    // Fusionne avec les recettes par défaut (Firebase prioritaire par id) — même logique anti-
+    // régression que getShopCatalog() : un ajout partiel en base ne fait jamais disparaître les
+    // recettes de base qui n'y ont jamais été explicitement repoussées.
+    const merged: Record<string, PotionCombo> = {};
+    for (const c of DEFAULT_POTION_COMBOS) merged[c.id] = c;
+    for (const c of Object.values(v)) merged[c.id] = c;
+    return Object.values(merged).filter((c) => c.active !== false);
+  } catch (e) {
+    console.warn('[potionCombos] catalog read failed, using DEFAULT_POTION_COMBOS:', e);
+    return DEFAULT_POTION_COMBOS;
+  }
+}
+
+/** Variante admin (inclut aussi les recettes désactivées, pour pouvoir les réactiver). */
+export async function getAllPotionCombos(): Promise<PotionCombo[]> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_POTION_COMBOS;
+  try {
+    const snap = await get(ref(db, 'catalog/potionCombos'));
+    const v = snap.val() as Record<string, PotionCombo> | null;
+    const merged: Record<string, PotionCombo> = {};
+    for (const c of DEFAULT_POTION_COMBOS) merged[c.id] = c;
+    if (v) for (const c of Object.values(v)) merged[c.id] = c;
+    return Object.values(merged);
+  } catch {
+    return DEFAULT_POTION_COMBOS;
+  }
+}
+
+export async function setPotionCombo(combo: PotionCombo): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/potionCombos/${RKEY(combo.id)}`), combo);
+}
+
+export async function removePotionCombo(id: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/potionCombos/${RKEY(id)}`), null);
+}
+
+/** Cherche, parmi les recettes actives, celle dont `ingredients` correspond EXACTEMENT (mêmes
+ * itemId et quantités, ordre indifférent, aucun ingrédient en trop ni manquant) à la sélection du
+ * joueur dans la besace. Retourne `null` si aucune recette ne correspond. */
+export function findMatchingPotionCombo(selected: { itemId: string; qty: number }[], combos: PotionCombo[]): PotionCombo | null {
+  const selMap = new Map(selected.map((s) => [s.itemId, s.qty]));
+  for (const combo of combos) {
+    if (combo.active === false) continue;
+    if (combo.ingredients.length !== selMap.size) continue;
+    const matches = combo.ingredients.every((ing) => selMap.get(ing.itemId) === ing.qty);
+    if (matches) return combo;
+  }
+  return null;
+}
+
+export type CombinePotionsResult =
+  | { ok: true; combo: PotionCombo }
+  | { ok: false; reason: 'notFound' | 'missingIngredients' };
+
+/** Consomme les ingrédients d'une recette (vérifiés en quantité suffisante AVANT toute écriture,
+ * pour ne jamais retirer un ingrédient si un autre manque) puis applique l'effet obtenu — buff
+ * temporisé (Vie/Force/Oxygène/Fatigue, voir PlayerState), remplissage instantané de la Faim, ou
+ * objet unique ajouté à la besace (voir addToInventory). */
+export async function combinePotions(address: string, comboId: string): Promise<CombinePotionsResult> {
+  const db = getFirebaseDb();
+  if (!db) return { ok: false, reason: 'notFound' };
+  const combos = await getPotionCombos();
+  const combo = combos.find((c) => c.id === comboId);
+  if (!combo) return { ok: false, reason: 'notFound' };
+  await ensureAnonSignIn();
+  const k = KEY(address);
+  for (const ing of combo.ingredients) {
+    const snap = await get(ref(db, `players/${k}/inventory/${RKEY(ing.itemId)}`));
+    const it = snap.val() as InventoryItem | null;
+    if (!it || it.qty < ing.qty) return { ok: false, reason: 'missingIngredients' };
+  }
+  for (const ing of combo.ingredients) await removeFromInventory(address, ing.itemId, ing.qty);
+
+  const now = Date.now();
+  switch (combo.effectKind) {
+    case 'invulnerability':
+      await update(ref(db, `players/${k}`), { hpInvulnerableUntil: now + Math.max(1, combo.durationMinutes ?? 1440) * 60_000 });
+      break;
+    case 'forceX2':
+      await update(ref(db, `players/${k}`), {
+        forceBoostUntil: now + Math.max(1, combo.durationMinutes ?? 30) * 60_000,
+        forceBoostMultiplier: combo.forceMultiplier ?? 2,
+      });
+      break;
+    case 'oxygenFull': {
+      const cur = await getOrCreatePlayer(address);
+      await update(ref(db, `players/${k}`), { oxygenShieldUntil: now + Math.max(1, combo.durationMinutes ?? 30) * 60_000 });
+      const missing = Math.max(0, (cur.oxygenMax ?? 100) - (cur.oxygen ?? 100));
+      if (missing > 0) await applyEffect(address, { oxygen: missing });
+      break;
+    }
+    case 'fatigueFull': {
+      const cur = await getOrCreatePlayer(address);
+      await update(ref(db, `players/${k}`), { fatigueShieldUntil: now + Math.max(1, combo.durationMinutes ?? 10) * 60_000 });
+      const missing = Math.max(0, (cur.fatigueMax ?? 100) - (cur.fatigue ?? 100));
+      if (missing > 0) await applyEffect(address, { fatigue: missing });
+      break;
+    }
+    case 'hungerFull': {
+      const cur = await getOrCreatePlayer(address);
+      const missing = Math.max(0, (cur.hungerMax ?? 100) - (cur.hunger ?? 100));
+      if (missing > 0) await applyEffect(address, { hunger: missing });
+      break;
+    }
+    case 'grantItem':
+      if (combo.grantItem) await addToInventory(address, { ...combo.grantItem, qty: 1 });
+      break;
+  }
+  return { ok: true, combo };
 }
 
 // ────────────────────────────────────── Équipement (Vitruve) ──────────────────────────────────────
@@ -4066,14 +4327,25 @@ const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
  * Vie, Faim et Sortilèges (poids paramétrables via RepRules). Formule partagée par le combat PNJ
  * (`resolveFight` dans NpcEncounterPopup.tsx) et le widget de dés persistant (`DiceRollWidget.tsx`),
  * pour garantir une seule source de vérité sur le calcul du bonus joueur.
+ *
+ * `forceBoostUntil`/`forceBoostMultiplier` (optionnels) portent l'effet temporaire "Élixir de
+ * Force Titanesque" (voir PlayerState/combinePotions ci-dessus) : tant qu'actif, seule la
+ * CONTRIBUTION de la Force au bonus est multipliée (jamais le stock brut de Force, qui reste
+ * plafonné à forceMax comme d'habitude) — cohérent avec un buff de combat D&D à durée limitée.
  */
 export function computePlayerDiceBonus(
-  player: { hp: number; hpMax: number; hunger: number; hungerMax: number; force: number; forceMax: number; spells: number; spellsMax: number },
+  player: {
+    hp: number; hpMax: number; hunger: number; hungerMax: number; force: number; forceMax: number; spells: number; spellsMax: number;
+    forceBoostUntil?: number; forceBoostMultiplier?: number;
+  },
   rules: RepRules,
 ): number {
   const hpPct     = clamp01(player.hp     / (player.hpMax     || 100));
   const hungerPct = clamp01(player.hunger / (player.hungerMax || 100));
-  const forcePct  = clamp01(player.force  / (player.forceMax  || 100));
+  let forcePct    = clamp01(player.force  / (player.forceMax  || 100));
+  if (player.forceBoostUntil && player.forceBoostUntil > Date.now()) {
+    forcePct = clamp01(forcePct * (player.forceBoostMultiplier ?? 2));
+  }
   const spellsPct = clamp01(player.spells / (player.spellsMax || 100));
   return Math.round(
     forcePct  * (rules.fightForceWeight  ?? 6) +
