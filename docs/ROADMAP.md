@@ -445,6 +445,26 @@ comptes correspondants, les 3 autres restent intacts ; `tsc --noEmit` propre ; `
 erreur. Détail technique complet : `docs/ARCHITECTURE.md` § Suppression ciblée de joueurs par
 catégorie.
 
+### 🔒 Historique — champs de formulaire illisibles dans le menu Administration (texte clair sur fond blanc)
+
+Signalement (captures d'écran à l'appui, ~10 panneaux) : le texte des champs de saisie du menu
+Administration (valeurs numériques, adresses, listes déroulantes, zones de message, codes de
+confirmation) s'affichait en gris très clair sur fond blanc, quasi illisible.
+
+- **Cause** : la classe `className="input"` (~220 usages dans 18 composants) n'était définie NULLE
+  PART dans le CSS du projet ; le Preflight Tailwind applique `color: inherit` aux contrôles de
+  formulaire, qui héritaient donc du texte clair de `<body>` (pensé pour un fond sombre) sur un
+  fond blanc non stylé.
+- **Correctif** : définition centrale de `.input` dans `globals.css` (texte foncé, placeholder gris
+  moyen lisible, `<option>` de `<select>` stylées, état `:focus`/`:disabled`), sans classe de
+  largeur pour ne jamais entrer en conflit avec les `w-full`/`w-24`/`flex-1` déjà posés au cas par
+  cas par chaque appelant.
+- **Vérification** : page de test Playwright jetable reproduisant les combinaisons de classes
+  réelles (`input w-24`, `input flex-1`, `input w-full`, `select.input`+`<option>`,
+  `input:disabled`) — confirmé via `getComputedStyle()` un texte foncé lisible sur fond blanc et
+  aucune régression de largeur. `tsc --noEmit` propre. Détail technique complet :
+  `docs/ARCHITECTURE.md` § Lisibilité des champs de formulaire du menu Administration.
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la

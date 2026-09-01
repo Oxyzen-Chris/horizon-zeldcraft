@@ -242,6 +242,46 @@ suppression ciblée d'une seule catégorie ne supprime QUE les comptes correspon
 sans erreur (warnings préexistants sans rapport : dépendances optionnelles React Native/pino de
 wagmi/RainbowKit).
 
+## Lisibilité des champs de formulaire du menu Administration (classe partagée `.input`)
+
+**Bug signalé** : dans le menu Administration, le texte des champs (valeurs numériques du Barème
+de reconnaissance, adresses de joueurs, options de listes déroulantes, zones de message/annonce,
+codes de confirmation…) s'affichait en gris très clair sur fond blanc, quasi illisible —
+captures d'écran à l'appui sur ~10 panneaux différents (Statistiques par joueur, Barème de
+reconnaissance, Dé d'Action, Plafonds de statistiques, Pondération de l'humeur, Plateforme 3D,
+Pop-up profondeur/altitude…).
+
+**Cause racine** : la classe `className="input"`, utilisée par convention sur environ 220
+`<input>`/`<textarea>`/`<select>` répartis dans 18 composants (tous les panneaux admin, plus
+`ChatHistory.tsx`, `EncountersLog.tsx`, `PlayerEmailPanel.tsx`, `FiatTopupPresetsPanel.tsx`),
+**n'était définie nulle part** dans le CSS du projet (aucune règle `.input` dans `globals.css`, ni
+plugin Tailwind, ni `@apply` ailleurs). Les champs n'affichaient donc que le rendu par défaut du
+navigateur (fond blanc), mais le **Preflight de Tailwind** applique `color: inherit` aux contrôles
+de formulaire — le texte héritait donc du `color: #e2e8f0` (gris-bleu clair, pensé pour un fond
+sombre) posé sur `<body>`, d'où un texte clair sur fond blanc.
+
+**Correctif** : définition de la classe `.input` dans `web/src/app/globals.css` (fond blanc, texte
+`text-slate-900` foncé, `placeholder:text-slate-500` gris moyen lisible, bordure/coins arrondis,
+état `:focus` avec anneau `voxlyn-crystal`, état `:disabled` grisé, et `.input option` stylé
+explicitement pour que la liste déroulante native des `<select>` soit également lisible) — un seul
+point de correction central pour les ~220 usages, **sans** inclure de classe de largeur (pas de
+`w-full`/`w-24`/`flex-1`) dans `.input` afin de ne jamais entrer en conflit avec les classes de
+largeur ajoutées au cas par cas par chaque appelant (les utilitaires Tailwind, générés après les
+classes composants dans la cascade, restent prioritaires).
+
+**Vérification (Playwright)** : page de test jetable reproduisant exactement les combinaisons de
+classes trouvées dans `PlayerStats.tsx`/`RepRulesPanel.tsx`/`admin/page.tsx`
+(`input`, `input w-24`, `input flex-1`, `input w-full`, `input text-xs w-48`, `select.input`
+avec `<option>`, `input:disabled`) — confirmé via `getComputedStyle()` que le texte et les options
+de `<select>` passent de `rgb(226, 232, 240)` (illisible) à `rgb(15, 23, 42)` (foncé, lisible) sur
+fond `rgb(255, 255, 255)`, et que les largeurs (`w-24` = 96px vs `w-full` = largeur du conteneur)
+restent inchangées (aucune régression de mise en page). `npx tsc --noEmit` propre. Page de test et
+scripts supprimés après vérification (convention jetable du projet). Le panneau Admin lui-même
+(gated par `isOwner`, wallet propriétaire réel requis) n'est pas cliquable via Playwright dans cet
+environnement — limitation déjà documentée dans l'historique du projet — la vérification s'appuie
+donc sur le CSS réellement compilé par Tailwind contre les mêmes classes, pas sur un clic-through
+de l'UI admin protégée.
+
 ## Combinaisons de Potions (Élixirs)
 
 Mécanisme de fabrication d'objets, disponible dans le widget **"Sac / Besace"** (`InventoryWidget.tsx`,

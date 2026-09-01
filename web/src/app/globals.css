@@ -19,6 +19,32 @@ body {
 .btn-secondary { @apply btn bg-slate-700 hover:bg-slate-600 text-white; }
 .btn-danger { @apply btn bg-rose-600 hover:bg-rose-500 text-white; }
 
+/* Champs de formulaire du menu Administration (input/textarea/select — classe partagée "input",
+   ~220 usages dans 18 panneaux admin : PlayerStats, RepRulesPanel, EquipmentAdminPanel...).
+   Cette classe n'était définie NULLE PART (aucune règle `.input` dans le projet ni plugin
+   Tailwind) : les champs n'affichaient donc que le rendu par défaut du navigateur (fond blanc),
+   MAIS le texte héritait du `color: #e2e8f0` (gris-bleu clair) posé sur <body> — Tailwind Preflight
+   applique `color: inherit` aux contrôles de formulaire. Résultat : texte clair sur fond blanc,
+   quasi illisible (signalé par l'utilisateur, captures d'écran à l'appui : valeurs numériques du
+   Barème de reconnaissance, adresses de joueurs, listes déroulantes, zones de message...).
+   Corrigé une seule fois ici (texte foncé + placeholder gris moyen lisible + option de <select>
+   explicitement stylée pour la liste déroulante native) sans toucher aux classes de largeur
+   (w-full/w-24/flex-1/text-xs...) ajoutées au cas par cas par chaque appelant, pour ne rien casser
+   côté mise en page existante. */
+.input {
+  @apply bg-white text-slate-900 placeholder:text-slate-500 border border-slate-300 rounded-lg px-3 py-2;
+}
+.input:focus {
+  @apply outline-none ring-2 ring-voxlyn-crystal border-transparent;
+}
+.input:disabled {
+  @apply bg-slate-100 text-slate-500 cursor-not-allowed;
+}
+.input option {
+  color: #0f172a;
+  background-color: #ffffff;
+}
+
 /* Simulation graphique du lancer de dé (widget "Lancer de dés") : tumbling pendant le tirage,
    puis petit "pop" au moment où le résultat final s'affiche. */
 @keyframes dice-tumble {

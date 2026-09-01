@@ -442,10 +442,13 @@ Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vér
 Non, ce n'est pas tout à fait réglé, il y a encore des bugs dans les traduction, par exemple Kingkdom Quests où les traductions sont encore en français que l'on passe en langue EN, ES ou PT, regarde la copie d'écran :
 -----------------------------------------------------------------------------------------------------------------
 Dans le menu Administration dans la rubrique "Statistiques par joueur" Action irréversible : Ajouter une option pour ne supprimer spécifiquement que tous les joueurs "Accès Démo", ou ne supprimer spécifiquement que tous les joueurs "playwright", ou ne supprimer spécifiquement que tous les joueurs "dbg-move", ou ne supprimer spécifiquement que tous les joueurs "Jouer sans portfeuille". Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+-----------------------------------------------------------------------------------------------------------------
+Dans le menu Administration, peux-tu foncer un peu plus la couleur de la police de caractères qui est actuellement en gris clair sur un fond blanc car le texte est trop clair et non-lisible à l'écran. Fait cela pour toutes les polices de caractères qui ont la même couleur  gris clair et qui sont sur un fond blanc. En général, ce sont des zones de textes consultables ou modifiables par l'administrateur du jeu.
+Par exemple : 
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
 
-Peux-tu foncer un peu plus la police en couleur gris clair car ce n'est pas lisible à l'écran.
 
 
 
