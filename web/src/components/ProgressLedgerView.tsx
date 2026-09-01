@@ -100,6 +100,10 @@ function ThemeSection({ theme, isShopItem }: { theme: ProgressTheme; isShopItem:
 function SubgroupSection({
   subgroup, isShopItem, open, onToggle,
 }: { subgroup: ProgressSubgroup; isShopItem: boolean; open: boolean; onToggle: () => void }) {
+  const { t } = useI18n();
+  const label = subgroup.i18nKey && subgroup.title
+    ? `${subgroup.icon} ${localizeName(t, subgroup.i18nKey, subgroup.title)}`
+    : subgroup.label;
   return (
     <div className="border border-slate-700/60 rounded-md overflow-hidden ml-1">
       <button
@@ -108,7 +112,7 @@ function SubgroupSection({
       >
         <span className="text-[11px] flex items-center gap-1">
           <span>{open ? '▾' : '▸'}</span>
-          <span>{subgroup.label}</span>
+          <span>{label}</span>
         </span>
         <ProgressBar owned={subgroup.ownedCount} total={subgroup.totalCount} />
       </button>

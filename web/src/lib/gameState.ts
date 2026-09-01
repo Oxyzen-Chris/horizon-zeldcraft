@@ -4704,7 +4704,7 @@ export interface ProgressEntry { id: string; name: string; i18nKey?: string; own
  * d'éviter d'afficher les 400 quêtes en une seule liste plate (regroupement par chapitre, voir
  * KINGDOM_CHAPTERS). */
 export interface ProgressSubgroup {
-  key: string; label: string; icon: string; entries: ProgressEntry[];
+  key: string; label: string; icon: string; i18nKey?: string; title?: string; entries: ProgressEntry[];
   ownedCount: number; totalCount: number;
 }
 
@@ -4866,7 +4866,8 @@ export async function getPlayerProgressLedger(address: string): Promise<PlayerPr
   const kingdomSubgroups: ProgressSubgroup[] = KINGDOM_CHAPTERS.map(ch => {
     const entries = kingdomQuests.filter(q => q.kingdomChapter === ch.chapter).map(questEntry);
     return {
-      key: `chapter${ch.chapter}`, label: `${ch.icon} ${ch.title}`, icon: ch.icon, entries,
+      key: `chapter${ch.chapter}`, label: `${ch.icon} ${ch.title}`, icon: ch.icon,
+      i18nKey: ch.i18nKey, title: ch.title, entries,
       ownedCount: entries.filter(e => e.owned).length, totalCount: entries.length,
     };
   }).filter(g => g.totalCount > 0);

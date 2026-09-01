@@ -180,6 +180,23 @@ scripts/genMiscI18n.mjs` (ils n'écrivent que dans les 4 fichiers JSON locaux, j
 `seedIslandGeography.mjs` qui doit être ré-exécuté séparément pour propager le nouveau champ
 `i18nKey` sur les PNJ déjà existants en base, idempotent).
 
+**Second correctif (même audit, catégorie oubliée lors du premier passage)** : les 400 quêtes du
+Royaume elles-mêmes étaient bien traduites, mais pas les **40 NOMS DE CHAPITRE/RÉGION**
+(`KINGDOM_CHAPTERS` dans `gameState.ts`, ex. « Grottes de Kragmoor », « Terres Calcinées ») qui
+servent d'en-tête de regroupement dans 3 endroits : le widget "Kingdom Quests"
+(`KingdomQuestsWidget.tsx`), le widget "ZeldCraft Quests" / panneau admin "Statistiques par joueur"
+(sous-groupes du thème "Kingdom quests" dans `ProgressLedgerView.tsx`, via
+`getPlayerProgressLedger()`), et le filtre par région du "World Map" (`WorldMapWidget.tsx`). Ajout
+du script permanent `web/scripts/genKingdomChapterI18n.mjs` (40 clés `kingdom.chapter.1`–`.40` en
+EN/ES/PT ; pas de FR, le titre de `KINGDOM_CHAPTERS` faisant déjà foi de fallback français). Ce
+correctif a aussi révélé un bug distinct dans `ProgressLedgerView.tsx` : `ProgressSubgroup.label`
+était pré-calculé en clair (`${icon} ${title}` toujours en français, jamais passé par `t()`/
+`localizeName()`), contrairement à `ProgressEntry` qui porte déjà un `i18nKey`. Corrigé en ajoutant
+`i18nKey`/`title` optionnels à `ProgressSubgroup` et en localisant l'affichage dans
+`SubgroupSection` (`ProgressLedgerView.tsx`) avec repli sur `label` si absents (rétrocompatible avec
+d'éventuels futurs sous-groupes non traduits). Revérifié via Playwright dans les 3 langues (EN/ES/
+PT) sur les 2 widgets concernés : aucun résidu français, aucune erreur console.
+
 ## Combinaisons de Potions (Élixirs)
 
 Mécanisme de fabrication d'objets, disponible dans le widget **"Sac / Besace"** (`InventoryWidget.tsx`,

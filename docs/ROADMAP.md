@@ -419,6 +419,17 @@ langue vers EN. Investigation complète (pas seulement le cas signalé) :
   soit la langue — texte narratif libre, non structuré, hors quêtes/objets, sans impact sur la
   jouabilité.
 
+**Correctif complémentaire (catégorie oubliée du même audit)** : après ce premier correctif,
+l'utilisateur a signalé que les **noms de chapitre/région** du Royaume (« Grottes de Kragmoor »,
+« Terres Calcinées »...) restaient en français dans le widget "Kingdom Quests" — une catégorie
+distincte des 400 quêtes elles-mêmes (`KINGDOM_CHAPTERS` dans `gameState.ts`, clés
+`kingdom.chapter.1`–`.40`, jamais traduites). Corrigé avec un nouveau script permanent
+`genKingdomChapterI18n.mjs`, qui a aussi révélé un second bug distinct : le widget "ZeldCraft
+Quests" (sous-groupes de la progression Royaume dans `ProgressLedgerView.tsx`) affichait ces mêmes
+noms en clair sans jamais appeler `localizeName()` — corrigé en ajoutant un `i18nKey` optionnel à
+`ProgressSubgroup`. Revérifié via Playwright en EN/ES/PT sur les 2 widgets concernés, sans
+régression ni résidu français. Détail technique complet : `docs/ARCHITECTURE.md` § Traductions.
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la
