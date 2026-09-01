@@ -6,7 +6,8 @@
 - [x] Tests Hardhat
 - [x] Front Next.js + wagmi + RainbowKit
 - [x] Sélecteur Sepolia/Mainnet
-- [x] i18n FR/EN/ES/PT (1269 clés × 4 langues)
+- [x] i18n FR/EN/ES/PT (couverture complète, y compris tout le contenu procédural — voir
+      `docs/ARCHITECTURE.md` § Traductions)
 - [x] Admin panel
 - [x] Mobile Expo (dashboard basique)
 - [x] Skins pixel-art Synk (5 stades, façon Link/Minecraft)
@@ -392,6 +393,31 @@ Vercel :
   § Piège de déploiement. Depuis ce correctif, un simple `git push` suffit à nouveau pour déployer
   automatiquement (retour à la convention normale du projet — ne pas cumuler `git push` et
   `vercel --prod` manuel en usage courant, uniquement en cas de nouveau blocage à diagnostiquer).
+
+### 🔒 Historique — audit complet des traductions (« Quests » restaient en français)
+
+Signalement : certaines quêtes (Quests) restaient affichées en français malgré un changement de
+langue vers EN. Investigation complète (pas seulement le cas signalé) :
+
+- **Cause** : `localizeName()` (voir `docs/ARCHITECTURE.md` § Traductions) retombe intentionnellement
+  sur le libellé français stocké en base quand la clé i18n est absente de la langue active — le vrai
+  bug était l'absence totale de traductions générées pour 5 catégories de contenu procédural,
+  jamais un défaut du mécanisme de bascule de langue lui-même.
+- **506 entrées corrigées** : 400 Quêtes du Royaume, 50 Énigmes des Îles, 1 quête rare
+  d'invisibilité, 40 trésors supplémentaires, 15 PNJ indigènes des îles (ces derniers n'avaient même
+  pas de champ `i18nKey`). Détail technique complet, scripts créés (`genKingdomQuestI18n.mjs`,
+  `genIslandQuestI18n.mjs`, `genMiscI18n.mjs`) et convention de traduction (réponses/noms propres
+  invariants par langue) : voir `docs/ARCHITECTURE.md` § Traductions.
+- **Vérification en 3 étapes indépendantes** : validation JSON statique des 4 fichiers de langue,
+  script de vérification croisée lisant les données **réelles** Firebase (`catalog/quests`,
+  `catalog/treasureDefs`, `catalog/npcDefs`) contre les 4 fichiers de traduction (506/506 entrées
+  conformes), puis test Playwright bout-en-bout (connexion anonyme, résolution de 2 énigmes,
+  bascule EN, vérification DOM sans résidu français ni erreur console, retour FR sans résidu
+  anglais). Aucune régression détectée.
+- **Limitation assumée, non corrigée** : le champ `dialog` (texte d'ambiance libre) des PNJ et les
+  scripts de dialogue personnalisés créés depuis l'Administration restent en français quelle que
+  soit la langue — texte narratif libre, non structuré, hors quêtes/objets, sans impact sur la
+  jouabilité.
 
 ## 🔜 Phase 2 — Moteur de jeu
 

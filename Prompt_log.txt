@@ -437,6 +437,8 @@ Vérifié intégralement via Playwright : les 4 directions déplacent Synk d'exa
 Mets également à jour le widget "Aides" et la Visite Guidée avec cette nouvelle fonctionnalité.
 Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 -----------------------------------------------------------------------------------------------------------------
+- Il y a encore des bugs dans les traduction (Quests par exemple) où les traductions restent en français malgré le changement de langue (EN en)]. Vérifie l'intégralité des traductions du jeu et corrige les bugs ! Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
 
 
 
@@ -493,6 +495,7 @@ Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu"
 
 
 - Bug dans le widget Wallet top-up, je peux créditer mon compte de coins du jeu en cliquant sur les boutons en € des pack alors que je ne devrais pas le pouvoir tant que je n'ai pas configurer le mécanisme définitif.
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
 
@@ -500,7 +503,6 @@ Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu"
 
 
 
-- Il y a encore des bugs dans les traduction [Fournir les copies d'écran dans le menu déroulant du jeu & dans les widget (Quests par exemple) où les traductions restent en français malgré le changement de langue (EN en)]. Vérifie l'intégralité des traductions du jeu et corrige les bugs ! Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
 

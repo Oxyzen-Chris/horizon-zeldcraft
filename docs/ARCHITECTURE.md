@@ -54,7 +54,10 @@
 - **Wallets** : Metamask, Rainbow, WalletConnect, Ledger, Coinbase/Base (via RainbowKit)
 - **State** : wagmi v2 + TanStack Query
 - **Style** : Tailwind CSS
-- **i18n** : `next-intl` — fichiers `web/src/i18n/messages/{fr,en,es,pt}.json` (1269 clés x 4 langues)
+- **i18n** : `next-intl` — fichiers `web/src/i18n/messages/{fr,en,es,pt}.json` (1725 clés FR ;
+  2667 clés EN/ES/PT — l'écart s'explique par les ~940 clés `quest.kingdom.*`/`quest.island_*`
+  générées uniquement en EN/ES/PT, le FR utilisant le `label` français stocké en base comme
+  fallback via `localizeName()`, voir § Traductions ci-dessous)
 - **Sélecteur réseau** : composant `NetworkSwitcher` au login -> Sepolia / Mainnet
 - **Onboarding** : `OnboardingWizard.tsx` (3 écrans : bienvenue/stades, lore Zorghon/quêtes/saisons,
   guide des widgets), rejouable à tout moment via le widget flottant « Aides » (`HelpWidget.tsx`)
@@ -127,6 +130,55 @@ Dans l'ordre d'affichage :
     réglage global) et d'afficher son profil détaillé (temps par widget, entonnoir de quêtes,
     évanouissements) sans avoir à suivre tous les joueurs.
 27. **Combinaisons de Potions / Élixirs** (`PotionComboAdminPanel.tsx`) — voir § dédiée ci-dessous.
+
+## Traductions (i18n) — couverture complète du contenu généré
+
+**Mécanisme** : `t(key)` (`next-intl`) lit `web/src/i18n/messages/{locale}.json`. Pour tout contenu
+**généré par script et stocké en base** (quêtes, PNJ, trésors — par opposition aux libellés d'UI
+statiques), l'affichage passe par `localizeName(t, i18nKey, frenchFallback)`
+(`web/src/lib/i18n.tsx`) : si `t(i18nKey)` ne trouve pas la clé dans la langue active, le libellé
+français stocké en base (`label`/`name`) sert de repli — c'est un comportement **voulu**, pas un
+bug en soi. Le bug (signalé par l'utilisateur : « Quests » restent en français même en EN) venait
+du fait qu'aucune traduction n'avait jamais été générée pour de larges pans de contenu procédural,
+forçant systématiquement ce repli français quelle que soit la langue choisie.
+
+**Catégories corrigées** (506 entrées au total, vérifiées une à une contre les données Firebase
+réellement servies en jeu) :
+- **400 Quêtes du Royaume** (`quest.kingdom.ch01`–`ch40`, 10 types de quête par chapitre × label +
+  hint) — voir `web/scripts/seedKingdomQuests.mjs` (source FR, gabarits combinatoires) et
+  `web/scripts/genKingdomQuestI18n.mjs` (génère et fusionne les 800 clés EN/ES/PT en répliquant
+  exactement la logique d'assemblage par chapitre du script source, y compris la sélection de
+  variante `v = idx % 4` et les 3 cas spéciaux du chapitre 40 final).
+- **50 Énigmes des Îles** (`quest.island_01`–`_50`, archipel + île sauvage) — voir
+  `web/scripts/seedIslandQuests.mjs` et `web/scripts/genIslandQuestI18n.mjs` (phrases uniques
+  traduites une à une, pas de gabarit).
+- **1 quête rare d'invisibilité** (`quest.guardians_camel`) — voir
+  `web/scripts/seedInvisibilityQuest.mjs`, traduite dans `web/scripts/genMiscI18n.mjs`.
+- **40 trésors supplémentaires** (`treasure.*`, noms d'objets uniquement) — voir
+  `TREASURES_EXTRA` dans `web/scripts/migrateNpcsTreasuresWorldsToFirebase.mjs`, traduits dans
+  `web/scripts/genMiscI18n.mjs`.
+- **15 PNJ indigènes des îles** (`npc.island.*`) — contrairement aux 5 PNJ officiels
+  (`npc.official.*`), ces PNJ n'avaient **aucun champ `i18nKey`** dans
+  `web/scripts/seedIslandGeography.mjs` (pas seulement une traduction manquante : la clé elle-même
+  n'existait pas). Ajout du champ `i18nKey: npc.island.<id>` dans le script + traductions du nom
+  dans les 4 langues (y compris FR, par symétrie avec `npc.official.*`) dans
+  `web/scripts/genMiscI18n.mjs`. Le champ `dialog` (texte d'ambiance libre) reste non traduit —
+  limitation assumée, identique à celle des 5 PNJ officiels et des scripts de dialogue admin
+  personnalisés (texte libre, intraduisible automatiquement).
+
+**Convention de traduction** (identique à celle déjà en place pour les 5 énigmes historiques,
+`quest.riddle_*`, voir `seedRiddleAnswers.mjs`) : seul le texte narratif (label/hint) est traduit ;
+les réponses (`answer`/`answerHash`), les noms propres inventés (lieux, personnages) et tout champ
+dépendant d'un hash restent strictement identiques dans les 4 langues — un joueur EN/ES/PT doit
+toujours saisir la même réponse (souvent un mot français ou un nom propre) qu'un joueur FR.
+
+**Ces 3 scripts `gen*I18n.mjs` sont à conserver** (pas des scripts jetables) : ils encodent la
+logique de génération de traduction et doivent rester synchronisés avec leurs scripts `seed*`
+respectifs si de nouveaux chapitres/quêtes/trésors sont ajoutés. Ré-exécution idempotente depuis
+`web/` : `node scripts/genKingdomQuestI18n.mjs && node scripts/genIslandQuestI18n.mjs && node
+scripts/genMiscI18n.mjs` (ils n'écrivent que dans les 4 fichiers JSON locaux, jamais Firebase — sauf
+`seedIslandGeography.mjs` qui doit être ré-exécuté séparément pour propager le nouveau champ
+`i18nKey` sur les PNJ déjà existants en base, idempotent).
 
 ## Combinaisons de Potions (Élixirs)
 

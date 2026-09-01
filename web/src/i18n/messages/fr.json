@@ -1708,5 +1708,20 @@
   "onboarding.topic.demoFiat.title": "Jouer sans portefeuille",
   "onboarding.topic.demoFiat.body": "Pas de portefeuille crypto ? Depuis la page d'accueil, teste le jeu gratuitement avec « 🎟️ Accès Démo » (anonyme instantané ou connexion Google — accès immédiat) ou joue directement avec « 💳 Jouer sans portefeuille » (Google/e-mail) et recharge tes coins par carte, PayPal, Apple Pay ou Google Pay.",
   "onboarding.topic.accountSecurity.title": "Compte & mot de passe",
-  "onboarding.topic.accountSecurity.body": "Avec un compte e-mail/mot de passe (« Jouer sans portefeuille »), un e-mail de bienvenue confirme ta création de compte et, de temps en temps, un rapport de ta progression peut t'être envoyé. Tu peux changer ton mot de passe à tout moment via le bouton « 🔑 Reset mot de passe » à côté de ton adresse en jeu (avec confirmation et e-mail de sécurité). Si tu perds ton mot de passe, l'administrateur du jeu peut t'en générer un nouveau et te l'envoyer par e-mail."
+  "onboarding.topic.accountSecurity.body": "Avec un compte e-mail/mot de passe (« Jouer sans portefeuille »), un e-mail de bienvenue confirme ta création de compte et, de temps en temps, un rapport de ta progression peut t'être envoyé. Tu peux changer ton mot de passe à tout moment via le bouton « 🔑 Reset mot de passe » à côté de ton adresse en jeu (avec confirmation et e-mail de sécurité). Si tu perds ton mot de passe, l'administrateur du jeu peut t'en générer un nouveau et te l'envoyer par e-mail.",
+  "npc.island.chaman_koraya": "Chaman Koraya",
+  "npc.island.doyenne_banzuu": "Doyenne Ehiku de Ban-Zuu",
+  "npc.island.pecheur_taolani": "Pêcheur Vaimoana",
+  "npc.island.gardienne_perleverte": "Gardienne Nalei de Perle-Verte",
+  "npc.island.eclaireur_aurore": "Éclaireur Rangi de l'Aurore",
+  "npc.island.sculpteur_totems": "Sculpteur de Totems Moehau",
+  "npc.island.tisserande_voiles": "Tisserande Kalani",
+  "npc.island.sage_baobab": "Sage du Baobab Milu",
+  "npc.island.chasseur_recifs": "Chasseur de Récifs Tehani",
+  "npc.island.prtresse_lagon": "Prêtresse du Lagon Marama",
+  "npc.island.forgeron_corail": "Forgeron de Corail Hoku",
+  "npc.island.navigatrice_etoiles": "Navigatrice des Étoiles Anui",
+  "npc.island.gardien_mangroves": "Gardien des Mangroves Toa",
+  "npc.island.conteuse_sablorage": "Conteuse de Sablorage Fetia",
+  "npc.island.ancien_grisemont_pic": "Ancien du Pic Kavika"
 }

@@ -173,8 +173,12 @@ async function main() {
   const existingNpcs = existingNpcsSnap.val() ? Object.values(existingNpcsSnap.val()) : [];
   let nextNpcOrder = existingNpcs.reduce((mx, n) => Math.max(mx, n.order ?? -1), -1) + 1;
   for (const [id, name, dialog, xp, mapX, mapY, questKey] of ISLAND_NPCS) {
+    // i18nKey (même convention que npc.official.* dans migrateNpcsTreasuresWorldsToFirebase.mjs) —
+    // sans quoi ces 15 PNJ affichaient leur nom en français quelle que soit la langue choisie
+    // (bug de traduction signalé par l'utilisateur, voir web/src/i18n/messages/{en,es,pt,fr}.json).
+    const i18nKey = `npc.island.${id.split('.').slice(1).join('.')}`;
     const def = {
-      id, name, dialog, xpReward: xp, active: true, createdAt: now, order: nextNpcOrder, mapX, mapY,
+      id, name, dialog, xpReward: xp, active: true, createdAt: now, order: nextNpcOrder, mapX, mapY, i18nKey,
       ...(questKey ? { questId: questIdOf(questKey) } : {}),
     };
     await set(ref(db, `catalog/npcDefs/${rkey(id)}`), def);
