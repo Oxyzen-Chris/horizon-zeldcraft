@@ -11,6 +11,7 @@ import {
   subscribePlayersWithMeta, getPlayer, getTxs, getNpcsMetCount, getPlayerActivityStats, getRepRules,
   computeMoodHappiness, getCurrentSeason, seasonalWeatherIndex, getPlayerProgressLedger,
   getPlayerPlaytimeStats, computeOffchainStageLevel, deletePlayerAccount, deleteAllPlayers,
+  deletePlayersBulk,
   incrementPasswordResetCount, getDemoAccessRequest, pauseAccountAccess, resetDemoAccountTimer,
   setDemoSessionMaxDurationOverride,
   type PlayerState, type TxRecord, type PlayerActivityStats, type RepRules, type Season,
@@ -91,6 +92,25 @@ const FUNCTION_SELECTORS: Record<string, string> = {
   '0xd66d9e19': 'leaveTeam',
 };
 
+/** Catégories de suppression ciblée (voir §"Suppression ciblée par catégorie" plus bas). Chaque
+ * catégorie a son propre prédicat de correspondance appliqué à la liste `players` déjà chargée en
+ * mémoire (aucune lecture Firebase supplémentaire) : `demo`/`fiat` filtrent sur `accountType`
+ * (valeur fiable, posée une seule fois à la création du compte — voir PlayerState.accountType),
+ * tandis que `playwright`/`dbgMove` filtrent sur une sous-chaîne (insensible à la casse) du libellé
+ * affiché (`label` = e-mail ou pseudo, voir PlayerListEntry) — ces deux dernières catégories visent
+ * les comptes de test créés au fil des campagnes de vérification automatisée (voir docs/ROADMAP.md
+ * § Playwright) via un e-mail/pseudo contenant explicitement ce mot, PAS les sessions Démo
+ * anonymes (qui n'ont ni e-mail ni pseudo et sont déjà couvertes par la catégorie `demo`). */
+type PlayerDeleteCategory = 'demo' | 'fiat' | 'playwright' | 'dbgMove';
+function matchesDeleteCategory(p: PlayerListEntry, category: PlayerDeleteCategory): boolean {
+  switch (category) {
+    case 'demo': return p.accountType === 'demo';
+    case 'fiat': return p.accountType === 'fiat';
+    case 'playwright': return /playwright/i.test(p.label) || /playwright/i.test(p.email ?? '');
+    case 'dbgMove': return /dbg-?move/i.test(p.label) || /dbg-?move/i.test(p.email ?? '');
+  }
+}
+
 export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const { t } = useI18n();
   const chainId = useChainId();
@@ -120,6 +140,13 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
   const [savingDemoMaxDuration, setSavingDemoMaxDuration] = useState(false);
   const [demoMaxDurationFeedback, setDemoMaxDurationFeedback] = useState<string | null>(null);
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState('');
+  // ─── Suppression ciblée par catégorie (voir demande utilisateur : nettoyer spécifiquement les
+  // comptes "Accès Démo", "Jouer sans portefeuille", ou les comptes de test créés par les
+  // campagnes de vérification automatisée "playwright"/"dbg-move", sans toucher aux autres
+  // joueurs — contrairement à "Réinitialiser tous les joueurs" qui vide TOUT le jeu). ───
+  const [deleteCategory, setDeleteCategory] = useState<PlayerDeleteCategory>('demo');
+  const [deleteCategoryConfirmText, setDeleteCategoryConfirmText] = useState('');
+  const [deletingCategory, setDeletingCategory] = useState(false);
 
   // Écoute en temps réel (onValue) — remplace l'ancien chargement ponctuel + rappel manuel après
   // chaque suppression : la liste se met désormais à jour SEULE, y compris si la suppression est
@@ -379,6 +406,42 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
       await deleteAllPlayers();
       setTarget(null); setDbPlayer(null); setTxs([]); setAddr(''); setDemoRequest(null); setDeleteAllConfirmText('');
     } finally { setDeleting(false); }
+  };
+
+  // ─── Suppression ciblée par catégorie (voir demande utilisateur) : ne supprime QUE les joueurs
+  // correspondant à la catégorie choisie (`matchesDeleteCategory`), tous les autres comptes restent
+  // intacts — contrairement à `deleteAll()` ci-dessus qui vide TOUT le jeu. Même garde-fou "mot de
+  // code à saisir" + double confirmation que la suppression totale, pour une action tout aussi
+  // irréversible (juste plus ciblée). Le mot de code dépend de la catégorie sélectionnée pour éviter
+  // qu'un admin recopie le même mot par réflexe sans relire quelle catégorie est active.
+  const DELETE_CATEGORY_CODES: Record<PlayerDeleteCategory, string> = {
+    demo: 'SUPPRIMER DEMO', fiat: 'SUPPRIMER FIAT', playwright: 'SUPPRIMER PLAYWRIGHT', dbgMove: 'SUPPRIMER DBG-MOVE',
+  };
+  const categoryMatches = players.filter(p => matchesDeleteCategory(p, deleteCategory));
+  const deleteByCategory = async () => {
+    const code = DELETE_CATEGORY_CODES[deleteCategory];
+    if (deleteCategoryConfirmText.trim().toUpperCase() !== code) return;
+    if (categoryMatches.length === 0) return;
+    if (!window.confirm(t('admin.stats.deleteCategoryConfirm1', { count: categoryMatches.length }))) return;
+    if (!window.confirm(t('admin.stats.deleteAllConfirm2'))) return;
+    setDeletingCategory(true);
+    try {
+      // Même raison que deleteAll() ci-dessus : supprime aussi les comptes Firebase Authentication
+      // liés (uid) avant de retirer les joueurs de la RTDB, sinon un compte e-mail/mot de passe ne
+      // pourrait plus jamais être recréé avec la même adresse e-mail.
+      const uids = categoryMatches.map(p => p.uid).filter((u): u is string => !!u);
+      let anyNotConfigured = false;
+      for (const uid of uids) {
+        const res = await deleteFirebaseAuthUser(uid);
+        if (!res.ok && res.notConfigured) anyNotConfigured = true;
+      }
+      if (anyNotConfigured) alert(t('admin.stats.deleteAuthNotConfigured'));
+      await deletePlayersBulk(categoryMatches.map(p => ({ address: p.address, uid: p.uid })));
+      if (target && categoryMatches.some(p => p.address.toLowerCase() === target.toLowerCase())) {
+        setTarget(null); setDbPlayer(null); setTxs([]); setAddr(''); setDemoRequest(null);
+      }
+      setDeleteCategoryConfirmText('');
+    } finally { setDeletingCategory(false); }
   };
 
   // ─── Pause / réactivation du chrono Démo — déplacé depuis l'ancien panneau "Demandes d'accès
@@ -827,7 +890,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
               </button>
             )}
             {target && (
-              <button className="btn-secondary text-xs text-rose-400" disabled={deleting} onClick={deleteSelected}>
+              <button className="btn-secondary text-xs text-rose-400" disabled={deleting || deletingCategory} onClick={deleteSelected}>
                 🗑️ {t('admin.stats.deletePlayer')}
               </button>
             )}
@@ -836,6 +899,47 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
             <div className="mt-3 p-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-sm">
               <p className="text-amber-300 mb-1">{t('admin.stats.resetPasswordSuccess')}</p>
               <code className="text-amber-100 font-mono text-base select-all">{resetPwResult}</code>
+            </div>
+          )}
+          {/* Suppression ciblée par catégorie (voir demande utilisateur) : nettoyer spécifiquement
+              les comptes "Accès Démo", "Jouer sans portefeuille", ou les comptes de test créés par
+              les campagnes de vérification automatisée "playwright"/"dbg-move", SANS toucher aux
+              autres joueurs. Même garde-fou "mot de code" que "Supprimer tout" ci-dessous, mais un
+              mot différent par catégorie (voir DELETE_CATEGORY_CODES) pour forcer l'admin à relire
+              quelle catégorie est active avant de valider. */}
+          {players.length > 0 && (
+            <div className="mt-5 p-3 rounded-lg bg-rose-950/20 border-2 border-rose-800/40">
+              <p className="text-xs text-rose-300 mb-2">{t('admin.stats.deleteCategoryWarning')}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  className="input text-xs"
+                  value={deleteCategory}
+                  onChange={e => { setDeleteCategory(e.target.value as PlayerDeleteCategory); setDeleteCategoryConfirmText(''); }}
+                >
+                  <option value="demo">🎟️ {t('admin.accessMode.demo')}</option>
+                  <option value="fiat">💳 {t('admin.accessMode.fiat')}</option>
+                  <option value="playwright">🧪 {t('admin.stats.categoryPlaywright')}</option>
+                  <option value="dbgMove">🐞 {t('admin.stats.categoryDbgMove')}</option>
+                </select>
+                <span className="text-xs text-slate-400">{t('admin.stats.categoryCount', { count: categoryMatches.length })}</span>
+                <input
+                  type="text"
+                  className="input text-xs w-48"
+                  placeholder={DELETE_CATEGORY_CODES[deleteCategory]}
+                  value={deleteCategoryConfirmText}
+                  onChange={e => setDeleteCategoryConfirmText(e.target.value)}
+                />
+                <button
+                  className="btn-secondary text-xs text-rose-500"
+                  disabled={
+                    deleting || deletingCategory || categoryMatches.length === 0 ||
+                    deleteCategoryConfirmText.trim().toUpperCase() !== DELETE_CATEGORY_CODES[deleteCategory]
+                  }
+                  onClick={deleteByCategory}
+                >
+                  🗑️ {t('admin.stats.deleteCategoryButton')}
+                </button>
+              </div>
             </div>
           )}
           {/* "Supprimer tout" isolé visuellement (bordure/fond dédiés, très éloigné des autres
@@ -855,7 +959,7 @@ export function PlayerStats({ contract }: { contract: `0x${string}` }) {
                 />
                 <button
                   className="btn-secondary text-xs text-rose-500"
-                  disabled={deleting || deleteAllConfirmText.trim().toUpperCase() !== DELETE_ALL_CODE}
+                  disabled={deleting || deletingCategory || deleteAllConfirmText.trim().toUpperCase() !== DELETE_ALL_CODE}
                   onClick={deleteAll}
                 >
                   💥 {t('admin.stats.deleteAll')}

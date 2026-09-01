@@ -440,10 +440,7 @@ Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vér
 - Il y a encore des bugs dans les traduction (Quests par exemple) où les traductions restent en français malgré le changement de langue (EN en)]. Vérifie l'intégralité des traductions du jeu et corrige les bugs ! Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 -----------------------------------------------------------------------------------------------------------------
 Non, ce n'est pas tout à fait réglé, il y a encore des bugs dans les traduction, par exemple Kingkdom Quests où les traductions sont encore en français que l'on passe en langue EN, ES ou PT, regarde la copie d'écran :
-
-
-
-
+-----------------------------------------------------------------------------------------------------------------
 Dans le menu Administration dans la rubrique "Statistiques par joueur" Action irréversible : Ajouter une option pour ne supprimer spécifiquement que tous les joueurs "Accès Démo", ou ne supprimer spécifiquement que tous les joueurs "playwright", ou ne supprimer spécifiquement que tous les joueurs "dbg-move", ou ne supprimer spécifiquement que tous les joueurs "Jouer sans portfeuille". Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 

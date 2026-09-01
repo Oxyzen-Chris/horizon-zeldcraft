@@ -3039,6 +3039,41 @@ export async function deleteAllPlayers(): Promise<void> {
   });
 }
 
+/**
+ * Supprime un LOT ciblé de joueurs (par ex. tous les comptes "Accès Démo", tous les comptes de test
+ * "playwright"/"dbg-move" créés par les campagnes de vérification automatisée, ou tous les comptes
+ * "Jouer sans portefeuille") sans toucher aux autres — contrairement à `deleteAllPlayers()` qui
+ * vide TOUT le jeu. Réutilise le même garde-fou de format d'adresse et le même nettoyage
+ * (playerIndex, registre Démo/fiat, sessions actives, annonce ciblée) que `deletePlayerAccount()`,
+ * mais en un seul aller-retour Firebase par lot (`Promise.all`) plutôt qu'un appel séquentiel par
+ * adresse. La sélection des joueurs à inclure (catégorie) est calculée côté appelant (voir
+ * PlayerStats.tsx § "Suppression ciblée par catégorie") à partir de `PlayerListEntry` déjà chargé en
+ * mémoire (aucune lecture Firebase supplémentaire nécessaire). */
+export async function deletePlayersBulk(entries: { address: string; uid?: string }[]): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db || entries.length === 0) return;
+  await ensureAnonSignIn();
+  const ops: Promise<unknown>[] = [];
+  for (const { address, uid } of entries) {
+    // Même garde-fou que deletePlayerAccount() : une adresse vide/invalide résoudrait le chemin
+    // `players/` (racine du nœud) et supprimerait TOUS les joueurs au lieu du lot ciblé.
+    if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) continue;
+    const k = KEY(address);
+    ops.push(remove(ref(db, `players/${k}`)));
+    ops.push(remove(ref(db, `playerIndex/${k}`)));
+    if (uid) {
+      const ru = RKEY(uid);
+      ops.push(remove(ref(db, `demoAccessRequests/${ru}`)));
+      ops.push(remove(ref(db, `demoSessions/demo/${ru}`)));
+      ops.push(remove(ref(db, `demoSessions/anon/${ru}`)));
+    }
+    ops.push(remove(ref(db, `announcements/targeted/${k}`)).catch((e) => {
+      console.warn('[deletePlayersBulk] nettoyage announcements/targeted ignoré (non bloquant):', e);
+    }));
+  }
+  await Promise.all(ops);
+}
+
 // ────────────────────────────── Annonces en jeu (bandeau live admin) ──────────────────────────────
 // Bandeau clignotant affiché en haut de l'écran de jeu (AnnouncementBanner.tsx, monté dans
 // game/page.tsx) — voir Administration → "Statistiques par joueur" § "Annonce en direct". Deux

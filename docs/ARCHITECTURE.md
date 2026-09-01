@@ -197,6 +197,51 @@ correctif a aussi révélé un bug distinct dans `ProgressLedgerView.tsx` : `Pro
 d'éventuels futurs sous-groupes non traduits). Revérifié via Playwright dans les 3 langues (EN/ES/
 PT) sur les 2 widgets concernés : aucun résidu français, aucune erreur console.
 
+## Suppression ciblée de joueurs par catégorie (Administration → Statistiques par joueur)
+
+Dans la zone d'actions irréversibles du panneau **📊 Statistiques par joueur** (`PlayerStats.tsx`),
+en complément des actions existantes « supprimer le joueur sélectionné » et « réinitialiser TOUS
+les joueurs » (`deleteAllPlayers()`), une troisième option permet de **supprimer uniquement une
+catégorie précise** de comptes de test/démo sans toucher aux autres joueurs :
+
+- **Accès Démo** (`accountType === 'demo'`) — comptes créés via le flux « 🎟️ Accès Démo » (Google
+  ou anonyme).
+- **Jouer sans portefeuille** (`accountType === 'fiat'`) — comptes créés via le flux e-mail/mot de
+  passe sans wallet connecté.
+- **playwright** — comptes dont l'e-mail ou le libellé (`PlayerListEntry.label`) contient
+  « playwright » (insensible à la casse), résidus de campagnes de vérification automatisée passées.
+- **dbg-move** — comptes dont l'e-mail ou le libellé contient « dbg-move »/« dbgmove »
+  (`/dbg-?move/i`), résidus des sessions de débogage du système de déplacement de Synk.
+
+Ces catégories **ne sont pas mutuellement exclusives** par conception : un compte « fiat » dont
+l'e-mail contient accidentellement « playwright » correspondra aux deux filtres — c'est voulu, la
+sélection reste un filtre ciblé sur les joueurs déjà chargés en mémoire (`players:
+PlayerListEntry[]`), pas une classification stricte.
+
+**Implémentation** :
+- `matchesDeleteCategory(p: PlayerListEntry, category)` (module-scope dans `PlayerStats.tsx`) :
+  prédicat pur, aucun accès réseau, appliqué à la liste déjà chargée par
+  `subscribePlayersWithMeta()`.
+- `deletePlayersBulk(entries: {address, uid}[])` (`gameState.ts`, après `deleteAllPlayers()`) :
+  supprime en un seul `Promise.all` par lot les mêmes chemins Firebase que
+  `deletePlayerAccount()` pour chaque adresse (`players/{addr}`, `playerIndex/{addr}`,
+  `demoAccessRequests/{uid}`, `demoSessions/demo|anon/{uid}`, `announcements/targeted/{addr}` en
+  best-effort), avec le **même garde-fou de format d'adresse**
+  (`/^0x[a-fA-F0-9]{40}$/`) que le reste du code de suppression — une adresse vide/invalide
+  résoudrait sinon le chemin racine `players/` et supprimerait TOUT le jeu au lieu du lot ciblé.
+- **Sécurité UI** (même schéma que « réinitialiser tous les joueurs ») : un code de confirmation
+  **différent par catégorie** (`DELETE_CATEGORY_CODES` : `SUPPRIMER DEMO` / `SUPPRIMER FIAT` /
+  `SUPPRIMER PLAYWRIGHT` / `SUPPRIMER DBG-MOVE`) doit être saisi exactement (insensible à la
+  casse/espaces) pour activer le bouton, suivi de deux `window.confirm()` successifs. Le nombre de
+  joueurs correspondant à la catégorie sélectionnée s'affiche en direct à côté du menu déroulant.
+
+**Vérification** : script jetable rejouant exactement `matchesDeleteCategory()` et
+`deletePlayersBulk()` contre Firebase (4 faux joueurs injectés, un par catégorie) — confirmé que la
+suppression ciblée d'une seule catégorie ne supprime QUE les comptes correspondants et laisse les
+3 autres faux joueurs intacts, puis nettoyage complet. `npx tsc --noEmit` propre, `/admin` compile
+sans erreur (warnings préexistants sans rapport : dépendances optionnelles React Native/pino de
+wagmi/RainbowKit).
+
 ## Combinaisons de Potions (Élixirs)
 
 Mécanisme de fabrication d'objets, disponible dans le widget **"Sac / Besace"** (`InventoryWidget.tsx`,

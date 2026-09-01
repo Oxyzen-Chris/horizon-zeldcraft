@@ -430,6 +430,21 @@ noms en clair sans jamais appeler `localizeName()` — corrigé en ajoutant un `
 `ProgressSubgroup`. Revérifié via Playwright en EN/ES/PT sur les 2 widgets concernés, sans
 régression ni résidu français. Détail technique complet : `docs/ARCHITECTURE.md` § Traductions.
 
+### 🔒 Historique — suppression ciblée de joueurs par catégorie (Statistiques par joueur)
+
+Ajout demandé : dans la zone d'actions irréversibles du panneau **📊 Statistiques par joueur**,
+pouvoir supprimer spécifiquement les comptes « Accès Démo », « Jouer sans portefeuille »,
+« playwright » ou « dbg-move » (résidus de sessions de test passées) sans toucher aux autres
+joueurs — en complément de la suppression individuelle et de la réinitialisation totale déjà
+existantes. Implémenté (`matchesDeleteCategory()` + `deletePlayersBulk()`, UI dans
+`PlayerStats.tsx`), avec le même garde-fou de format d'adresse et le même schéma de confirmation à
+double niveau (code de confirmation distinct par catégorie + double `window.confirm`) que la
+réinitialisation totale. Vérifié bout-en-bout contre des données Firebase réelles (4 faux joueurs
+de test injectés, un par catégorie) : la suppression d'une seule catégorie ne supprime QUE les
+comptes correspondants, les 3 autres restent intacts ; `tsc --noEmit` propre ; `/admin` compile sans
+erreur. Détail technique complet : `docs/ARCHITECTURE.md` § Suppression ciblée de joueurs par
+catégorie.
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la
