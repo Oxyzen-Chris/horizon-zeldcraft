@@ -1469,6 +1469,8 @@
   "onboarding.topic.combat.body": "Chaque coup use un peu ton arme/protection équipée. Sans équipement, Synk se bat à mains nues avec un malus au jet de dés.",
   "onboarding.topic.potions.title": "Potions & Sortilèges",
   "onboarding.topic.potions.body": "Concocte ou achète des potions et sortilèges pour booster tes statistiques, te soigner ou obtenir des effets magiques temporaires.",
+  "onboarding.topic.elixirs.title": "Combinaisons de Potions (Élixirs)",
+  "onboarding.topic.elixirs.body": "Dans le Sac / Besace (onglet Potions), combine plusieurs potions/sortilèges possédés pour fabriquer un Élixir surpuissant : Invulnérabilité de Vie (24h), Force Titanesque (×2, 30 min), Souffle Éternel (oxygène plein, 30 min), Vigueur Sans Fin (fatigue pleine, 10 min), Festin Royal (faim pleine) ou même l'Épée Divine de Lumière, une arme unique introuvable en boutique. Un sablier ⏳ clignotant en haut de l'écran affiche le décompte de chaque Élixir actif.",
   "onboarding.topic.mapmonde.title": "Mapmonde & Plateforme 2D",
   "onboarding.topic.mapmonde.body": "La Mapmonde (zoom molette, glisser-clic droit, filtres par type) et la Plateforme 2D isométrique sont synchronisées en temps réel pour explorer le royaume.",
   "onboarding.topic.waterMountain.title": "Eau, montagne & oxygène",

@@ -1469,6 +1469,8 @@
   "onboarding.topic.combat.body": "Every hit wears down your equipped weapon/armor a little. Without gear, Synk fights bare-handed with a penalty to the dice roll.",
   "onboarding.topic.potions.title": "Potions & Spells",
   "onboarding.topic.potions.body": "Brew or buy potions and spells to boost your stats, heal yourself, or gain temporary magical effects.",
+  "onboarding.topic.elixirs.title": "Potion Combinations (Elixirs)",
+  "onboarding.topic.elixirs.body": "In the Bag / Pouch (Potions tab), combine several potions/spells you own to craft a powerful Elixir: Life Invulnerability (24h), Titanic Force (×2, 30 min), Eternal Breath (full oxygen, 30 min), Endless Vigor (full stamina, 10 min), Royal Feast (full hunger), or even the Divine Sword of Light, a unique weapon unavailable in the shop. A blinking hourglass ⏳ at the top of the screen shows the countdown for each active Elixir.",
   "onboarding.topic.mapmonde.title": "World Map & 2D Platform",
   "onboarding.topic.mapmonde.body": "The World Map (mouse-wheel zoom, right-click drag, filters by type) and the isometric 2D Platform are synced in real time to explore the realm.",
   "onboarding.topic.waterMountain.title": "Water, mountains & oxygen",

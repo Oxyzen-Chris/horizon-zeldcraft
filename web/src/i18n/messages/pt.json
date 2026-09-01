@@ -1469,6 +1469,8 @@
   "onboarding.topic.combat.body": "Cada golpe desgasta um pouco sua arma/proteção equipada. Sem equipamento, Synk luta desarmado com uma penalidade na rolagem de dados.",
   "onboarding.topic.potions.title": "Poções e Feitiços",
   "onboarding.topic.potions.body": "Prepare ou compre poções e feitiços para aumentar suas estatísticas, se curar ou obter efeitos mágicos temporários.",
+  "onboarding.topic.elixirs.title": "Combinações de Poções (Elixires)",
+  "onboarding.topic.elixirs.body": "Na Mochila / Bolsa (aba Poções), combine várias poções/feitiços que você possui para fabricar um Elixir poderoso: Invulnerabilidade de Vida (24h), Força Titânica (×2, 30 min), Fôlego Eterno (oxigênio pleno, 30 min), Vigor Sem Fim (fadiga plena, 10 min), Banquete Real (fome saciada) ou até a Espada Divina de Luz, uma arma única indisponível na loja. Uma ampulheta ⏳ piscando no topo da tela mostra a contagem regressiva de cada Elixir ativo.",
   "onboarding.topic.mapmonde.title": "Mapa-múndi e Plataforma 2D",
   "onboarding.topic.mapmonde.body": "O Mapa-múndi (zoom com a roda do mouse, arrastar com clique direito, filtros por tipo) e a Plataforma 2D isométrica estão sincronizados em tempo real para explorar o reino.",
   "onboarding.topic.waterMountain.title": "Água, montanhas e oxigênio",

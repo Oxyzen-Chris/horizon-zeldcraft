@@ -1469,6 +1469,8 @@
   "onboarding.topic.combat.body": "Cada golpe desgasta un poco tu arma/protección equipada. Sin equipo, Synk lucha a manos desnudas con una penalización en la tirada de dados.",
   "onboarding.topic.potions.title": "Pociones y Hechizos",
   "onboarding.topic.potions.body": "Prepara o compra pociones y hechizos para mejorar tus estadísticas, curarte u obtener efectos mágicos temporales.",
+  "onboarding.topic.elixirs.title": "Combinaciones de Pociones (Elixires)",
+  "onboarding.topic.elixirs.body": "En la Bolsa / Zurrón (pestaña Pociones), combina varias pociones/hechizos que poseas para fabricar un Elixir muy poderoso: Invulnerabilidad de Vida (24h), Fuerza Titánica (×2, 30 min), Aliento Eterno (oxígeno completo, 30 min), Vigor Eterno (fatiga completa, 10 min), Festín Real (hambre saciada) o incluso la Espada Divina de Luz, un arma única no disponible en la tienda. Un reloj de arena ⏳ parpadeante en la parte superior de la pantalla muestra la cuenta atrás de cada Elixir activo.",
   "onboarding.topic.mapmonde.title": "Mapamundi y Plataforma 2D",
   "onboarding.topic.mapmonde.body": "El Mapamundi (zoom con la rueda, arrastre con clic derecho, filtros por tipo) y la Plataforma 2D isométrica están sincronizados en tiempo real para explorar el reino.",
   "onboarding.topic.waterMountain.title": "Agua, montañas y oxígeno",

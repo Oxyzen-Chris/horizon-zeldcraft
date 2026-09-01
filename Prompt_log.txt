@@ -433,6 +433,11 @@ Deux bugs supplémentaires découverts et corrigés en cours de vérification :
 
 Vérifié intégralement via Playwright : les 4 directions déplacent Synk d'exactement une case dans le bon sens, le maintien >1.5s bascule en course et y reste jusqu'au relâchement, le glissé-souris n'affecte jamais la position de Synk, et un clic simple continue de fonctionner normalement (aucune régression).  tsc  et  npm run build  passent. Nettoyage des réglages admin devenus obsolètes, documentation mise à jour dans  docs/ROADMAP.md , commit poussé sur  main  ( 6746917 ).
 -----------------------------------------------------------------------------------------------------------------
+- Dans le widget "Sac/Besace", mettre en place un mécanisme pour combiner plusieurs potions magiques (Détermines les potions a combiner ensemble) pour en faire une ou plusieurs très puissante (invulnérabilité de vie pendant 24h, force multipliée par 2 pendant 30 minutes, oxygène à 100% sous l'eau ou en montagne pendant 30 minutes, fatigue à 100% pendant 10 minutes, faim rassasiée à 100%) et capable de tout terrasser, attraper une monture, trouver une arme (épéé) divine, etc... Tu afficheras un pop-up qui clignotte avec un décompte de temps + une animation de sablier en haut de l'écran en indiquant le type de sort qui a été combiné et ce qu'il offre comme type d'invulnérabilité. Tu rendras paramétrable l'ensemble de ces éléments dans le menu Administration.
+Mets également à jour le widget "Aides" et la Visite Guidée avec cette nouvelle fonctionnalité.
+Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+-----------------------------------------------------------------------------------------------------------------
+
 
 
 
@@ -482,13 +487,6 @@ Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu"
 
 
 - Approfondir le module Widget de discussion/conversation avec un PNJ :
-
-
-
-
-
-- Dans le widget "Sac/Besace", mettre en place un mécanisme pour combiner plusieurs potions magiques (Détermines les potions a combiner ensemble) pour en faire 1 ou plusieurs très puissante (invulnérabilité de vie pendant 24h, force multipliée par 2 pendant 30 minutes, oxygène à 100% sous l'eau ou en montagne pendant 30 minutes, fatigue à 100% pendant 10 minutes, faim rassasiée à 100%) et capable de tout terrasser, attraper une monture, trouver une arme (épéé) divine, etc... Tu afficheras un pop-up qui clignotte avec un décompte de temps + une animation de sablier en haut de l'écran en indiquant le type de sort qui a été combiné et ce qu'il offre comme type d'invulnérabilité. Tu rendras paramétrable l'ensemble de ces éléments dans le menu Administration.
-Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
 
