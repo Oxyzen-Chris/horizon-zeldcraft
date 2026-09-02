@@ -20,6 +20,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
+import { useRoamingActors, reportSynkWorldPos, ensureRoamingIdentities } from '@/lib/roamingActors';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
 import { SynkSkin } from './SynkSkin';
@@ -58,8 +59,6 @@ function directionFromDelta(dx: number, dy: number): SynkDirection | null {
   if (dx < 0) return dy < 0 ? 'up-left' : 'down-left';
   return dy < 0 ? 'up-right' : 'down-right';
 }
-
-interface Actor { id: string; col: number; row: number; icon: string; label: string }
 
 /** Construit la grille COLSxROWS visible à partir du coin (originCol, originRow) de la caméra. */
 function buildViewportGrid(originCol: number, originRow: number, poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[]): Tile[][] {
@@ -151,7 +150,7 @@ function computeRarefactionFactor(rules: RepRules, tile: Tile): number {
  * DÉTERMINISTE par coordonnée mapmonde, déplacement clavier/pavé virtuel/clic, PNJ/dragon qui
  * évoluent) exposant le même contrat de données (entités positionnées sur une grille, terrain
  * dérivé des POI de la mapmonde) qu'un futur export Godot/Unity WebGL pourrait consommer sans tout
- * réécrire — voir `worldTileAt()`/`Actor` ci-dessus.
+ * réécrire — voir `worldTileAt()` ci-dessus.
  *
  * Synchronisation avec la mapmonde (voir WorldMapWidget.tsx) : la position de Synk est désormais
  * partagée en TEMPS RÉEL entre les deux widgets via `players/{addr}/mapPos` (0-100% en x/y, même
@@ -301,15 +300,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     return () => { if (moveStopTimerRef.current) clearTimeout(moveStopTimerRef.current); };
   }, [worldPos, rules?.fatigueStopGraceSec]);
 
-  const [npc, setNpc] = useState<Actor>({ id: 'npc', col: 4, row: 3, icon: '🧙', label: t('canvas2d.npcLabel') });
-  const [dragon, setDragon] = useState<Actor>({ id: 'dragon', col: 7, row: 5, icon: '🐉', label: t('canvas2d.dragonLabel') });
-
-  // Identité catalogue (PNJ/familier-dragon réel) attribuée une fois au PNJ/Dragon errant, pour que
-  // leur clic ouvre le VRAI pop-up d'interaction (discussion/quête ou apprivoisement) au lieu de ne
-  // rien faire — voir onActorClick() plus bas. Choisie aléatoirement dès que le catalogue est chargé
-  // puis figée (ne change plus tant que le widget reste monté).
-  const [roamingNpcId, setRoamingNpcId] = useState<string | null>(null);
-  const [roamingDragonId, setRoamingDragonId] = useState<string | null>(null);
+  // PNJ errant et Dragon errant — position mapmonde et identité catalogue désormais gérées par le
+  // registre partagé lib/roamingActors.ts (voir sa documentation) afin que le même PNJ/Dragon,
+  // strictement à la même position, soit visible à la fois ici (2D isométrique) et dans
+  // Platform3DWidget.tsx (Plateforme 3D) — demande utilisateur « les voir se déplacer de façon
+  // cohérente dans les deux widgets ». `roamingActors.npc`/`.dragon` sont en coordonnées MAPMONDE
+  // (0-100 %) ; converties ci-dessous (voir npcLocal/dragonLocal) en coordonnées LOCALES de ce
+  // viewport pour le rendu, exactement comme pour tout autre marqueur catalogue.
+  const roamingActors = useRoamingActors();
 
   useEffect(() => {
     const savedSize = localStorage.getItem(SIZE_KEY);
@@ -347,28 +345,18 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
 
   // Attribue au PNJ errant et au Dragon errant une véritable entrée du catalogue (dès que les
   // marqueurs sont chargés), pour que cliquer sur eux ouvre le vrai pop-up (discussion/quête pour le
-  // PNJ, apprivoisement pour le dragon) — voir onActorClick(). Le dragon préfère un familier de type
-  // "dragon.*" (voir DragonSkin.tsx::dragonKindFromId) s'il en existe un dans le catalogue.
-  useEffect(() => {
-    if (!roamingNpcId) {
-      const pool = markers.filter(m => m.kind === 'npc');
-      if (pool.length) setRoamingNpcId(pool[Math.floor(Math.random() * pool.length)].id);
-    }
-    if (!roamingDragonId) {
-      const familiars = markers.filter(m => m.kind === 'familiar');
-      const dragons = familiars.filter(m => /^dragon\./i.test(m.id));
-      const pool = dragons.length ? dragons : familiars;
-      if (pool.length) setRoamingDragonId(pool[Math.floor(Math.random() * pool.length)].id);
-    }
-  }, [markers, roamingNpcId, roamingDragonId]);
+  // PNJ, apprivoisement pour le dragon) — voir onActorClick(). Idempotent et partagé avec
+  // Platform3DWidget.tsx (voir lib/roamingActors.ts::ensureRoamingIdentities) : quel que soit le
+  // widget qui charge son catalogue en premier, les DEUX widgets affichent la même identité.
+  useEffect(() => { ensureRoamingIdentities(markers); }, [markers]);
 
   const roamingNpcMarker = useMemo(
-    () => markers.find(m => m.kind === 'npc' && m.id === roamingNpcId) ?? null,
-    [markers, roamingNpcId],
+    () => markers.find(m => m.kind === 'npc' && m.id === roamingActors.npcMarkerId) ?? null,
+    [markers, roamingActors.npcMarkerId],
   );
   const roamingDragonMarker = useMemo(
-    () => markers.find(m => m.kind === 'familiar' && m.id === roamingDragonId) ?? null,
-    [markers, roamingDragonId],
+    () => markers.find(m => m.kind === 'familiar' && m.id === roamingActors.dragonMarkerId) ?? null,
+    [markers, roamingActors.dragonMarkerId],
   );
   const worldMarkers = useMemo(() => markers.filter(m => m.kind === 'world'), [markers]);
 
@@ -380,6 +368,11 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       if (p && p.mapId === DEFAULT_MAP_ID) setWorldPos({ x: p.x, y: p.y });
     });
   }, [address]);
+
+  // Signale la position mapmonde de Synk au registre partagé du PNJ/Dragon errant (voir
+  // lib/roamingActors.ts) — sert uniquement de repère d'« attache » pour leur errance, aucune
+  // incidence sur la mécanique de déplacement de Synk lui-même.
+  useEffect(() => { reportSynkWorldPos(worldPos.x, worldPos.y); }, [worldPos]);
 
   // Raccord avec la mapmonde : détermine le POI-décor le plus proche de la position réelle de Synk
   // (juste pour l'indication textuelle affichée sous le titre — le terrain lui-même est désormais
@@ -432,14 +425,22 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // plus des marqueurs du catalogue.
   const visibleMarkers = useMemo(() => {
     const out: (MapMarker & { col: number; row: number })[] = [];
-    const all = kingdomMarker ? [...markers, kingdomMarker, ...zorghonMarkers] : [...markers, ...zorghonMarkers];
+    // Exclut de la liste statique les fiches catalogue déjà incarnées par le PNJ/Dragon errant
+    // (voir lib/roamingActors.ts) — sans ce filtre, si leur position CATALOGUE (fixe) se trouve
+    // elle-même dans la fenêtre de caméra actuelle, on verrait le même PNJ/Dragon apparaître EN
+    // DOUBLE (une fois figé à sa position catalogue, une fois errant) alors qu'un seul exemplaire
+    // doit exister à la fois. Même filtre appliqué côté Platform3DWidget.tsx pour rester cohérent.
+    const baseMarkers = (roamingActors.npcMarkerId || roamingActors.dragonMarkerId)
+      ? markers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId)
+      : markers;
+    const all = kingdomMarker ? [...baseMarkers, kingdomMarker, ...zorghonMarkers] : [...baseMarkers, ...zorghonMarkers];
     for (const m of all) {
       const wc = Math.round(m.x), wr = Math.round(m.y);
       const col = wc - origin.col, row = wr - origin.row;
       if (col >= 0 && col < COLS && row >= 0 && row < ROWS) out.push({ ...m, col, row });
     }
     return out;
-  }, [markers, kingdomMarker, zorghonMarkers, origin]);
+  }, [markers, kingdomMarker, zorghonMarkers, origin, roamingActors.npcMarkerId, roamingActors.dragonMarkerId]);
 
   // Filtres d'affichage par catégorie (boutons de WorldMapWidget.tsx, voir lib/mapFilters.ts) —
   // se synchronise EN TEMPS RÉEL avec la Mapmonde (même état partagé, portée module). Appliqué
@@ -457,6 +458,17 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const playerCell = {
     col: Math.max(0, Math.min(COLS - 1, worldCol - origin.col)),
     row: Math.max(0, Math.min(ROWS - 1, worldRow - origin.row)),
+  };
+  // Conversion mapmonde → viewport LOCAL du PNJ/Dragon errant (voir lib/roamingActors.ts, source
+  // de vérité partagée avec Platform3DWidget.tsx) — clampée pour rester visible dans la fenêtre de
+  // caméra même si l'attache les place juste hors-cadre au moment d'un recadrage de `origin`.
+  const npcLocal = {
+    col: clampCoord(Math.round(roamingActors.npc.x) - origin.col, COLS),
+    row: clampCoord(Math.round(roamingActors.npc.y) - origin.row, ROWS),
+  };
+  const dragonLocal = {
+    col: clampCoord(Math.round(roamingActors.dragon.x) - origin.col, COLS),
+    row: clampCoord(Math.round(roamingActors.dragon.y) - origin.row, ROWS),
   };
   // Cellule adjacente à Synk où matérialiser le PNJ "en approche" (voir encounterNpc) — juste au
   // nord de Synk, ou au sud si Synk est déjà collé au bord haut de la fenêtre de caméra.
@@ -906,17 +918,18 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   }, [moveTo]);
 
   // ─── Clic sur le PNJ errant ou le Dragon errant (icônes qui se déplacent seules dans la grille) ───
-  // Contrairement aux marqueurs catalogue ci-dessus, ces acteurs n'existent qu'en coordonnées LOCALES
-  // (col/row dans la fenêtre de caméra) : l'adjacence se calcule donc contre `playerCell` (lui aussi
-  // local), et « se rapprocher » convertit leur position locale en coordonnées mapmonde absolues
-  // (origin + col/row) pour réutiliser moveTo(). `marker` est la véritable entrée catalogue (PNJ ou
-  // familier-dragon) attribuée plus haut : sans elle (catalogue vide), le clic ne fait rien.
-  const onActorClick = useCallback((actor: Actor, marker: MapMarker | null) => {
+  // Leur position (voir lib/roamingActors.ts) est désormais directement en coordonnées MAPMONDE
+  // (0-100 %, comme worldPosRef) : l'adjacence et le déplacement se calculent donc exactement comme
+  // pour un marqueur catalogue classique (voir onMarkerClick ci-dessus), sans conversion locale.
+  // `marker` est la véritable entrée catalogue (PNJ ou familier-dragon) attribuée par
+  // `ensureRoamingIdentities` : sans elle (catalogue vide), le clic ne fait rien.
+  const onActorClick = useCallback((actorWorldX: number, actorWorldY: number, marker: MapMarker | null) => {
     if (!marker) return;
-    const dist = Math.max(Math.abs(actor.col - playerCell.col), Math.abs(actor.row - playerCell.row));
+    const cur = worldPosRef.current;
+    const dist = Math.max(Math.abs(Math.round(actorWorldX) - Math.round(cur.x)), Math.abs(Math.round(actorWorldY) - Math.round(cur.y)));
     if (dist <= 1) setInteractionMarker(marker);
-    else moveTo(origin.col + actor.col, origin.row + actor.row);
-  }, [moveTo, origin, playerCell]);
+    else moveTo(actorWorldX, actorWorldY);
+  }, [moveTo]);
 
   // ─── Clic sur une tuile portant un portail décoratif (🌀 généré aléatoirement par worldTileAt) ───
   // Chaque portail décoratif est associé de façon déterministe (même case ⇒ toujours le même monde)
@@ -1013,14 +1026,10 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     };
   }, [collapsed, hold]);
 
-  // PNJ et dragon errent doucement dans la grille pour donner l'impression d'un monde vivant.
-  useEffect(() => {
-    const iv = setInterval(() => {
-      setNpc(p => ({ ...p, col: clampCoord(p.col + (Math.random() < 0.5 ? -1 : 1), COLS), row: clampCoord(p.row + (Math.random() < 0.5 ? -1 : 1), ROWS) }));
-      setDragon(p => ({ ...p, col: clampCoord(p.col + (Math.random() < 0.5 ? -1 : 1), COLS), row: clampCoord(p.row + (Math.random() < 0.5 ? -1 : 1), ROWS) }));
-    }, 4000);
-    return () => clearInterval(iv);
-  }, []);
+  // PNJ et dragon errent doucement dans la grille pour donner l'impression d'un monde vivant —
+  // mouvement désormais centralisé dans lib/roamingActors.ts (voir useRoamingActors() ci-dessus)
+  // afin d'être visible de façon cohérente dans Platform3DWidget.tsx également (même cadence/
+  // amplitude qu'avant : 4000 ms, ±1 case aléatoire par axe — zéro régression sur le rendu 2D).
 
   const onResizePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -1229,6 +1238,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
           title={t('canvas2d.title')}
+          data-roaming-npc={`${roamingActors.npcMarkerId ?? ''},${roamingActors.npc.x},${roamingActors.npc.y}`}
+          data-roaming-dragon={`${roamingActors.dragonMarkerId ?? ''},${roamingActors.dragon.x},${roamingActors.dragon.y}`}
         >🧩</button>
         <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
         {oxygenUi}
@@ -1249,6 +1260,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       className="fixed z-40 bg-slate-950 border-2 border-emerald-600 rounded-xl shadow-2xl select-none flex flex-col"
       style={{ left: pos.x, top: pos.y, width: size.w, height: size.h, zIndex: z }}
       onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}
+      data-roaming-npc={`${roamingActors.npcMarkerId ?? ''},${roamingActors.npc.x},${roamingActors.npc.y}`}
+      data-roaming-dragon={`${roamingActors.dragonMarkerId ?? ''},${roamingActors.dragon.x},${roamingActors.dragon.y}`}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-emerald-900/40 rounded-t-xl cursor-move shrink-0"
@@ -1327,23 +1340,23 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
             );
           })}
 
-          {/* PNJ errant — cliquable dès qu'un PNJ du catalogue lui a été attribué (voir roamingNpcId) */}
+          {/* PNJ errant — cliquable dès qu'un PNJ du catalogue lui a été attribué (voir roamingActors.npcMarkerId) */}
           <div
             className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingNpcMarker ? 'cursor-pointer' : 'cursor-help'}`}
-            style={{ left: projX(npc.col, npc.row), top: projY(npc.col, npc.row) - 22, zIndex: npc.col + npc.row + 2 }}
-            title={roamingNpcMarker ? `${npc.icon} ${localizeName(t, roamingNpcMarker.i18nKey, roamingNpcMarker.name)}` : npc.label}
-            onClick={() => onActorClick(npc, roamingNpcMarker)}
+            style={{ left: projX(npcLocal.col, npcLocal.row), top: projY(npcLocal.col, npcLocal.row) - 22, zIndex: npcLocal.col + npcLocal.row + 2 }}
+            title={roamingNpcMarker ? `🧙 ${localizeName(t, roamingNpcMarker.i18nKey, roamingNpcMarker.name)}` : t('canvas2d.npcLabel')}
+            onClick={() => onActorClick(roamingActors.npc.x, roamingActors.npc.y, roamingNpcMarker)}
           >
-            <span className="text-lg">{npc.icon}</span>
+            <span className="text-lg">🧙</span>
           </div>
           {/* Dragon errant — cliquable dès qu'un familier-dragon du catalogue lui a été attribué */}
           <div
             className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingDragonMarker ? 'cursor-pointer' : 'cursor-help'}`}
-            style={{ left: projX(dragon.col, dragon.row), top: projY(dragon.col, dragon.row) - 22, zIndex: dragon.col + dragon.row + 2 }}
-            title={roamingDragonMarker ? `${dragon.icon} ${localizeName(t, roamingDragonMarker.i18nKey, roamingDragonMarker.name)}` : dragon.label}
-            onClick={() => onActorClick(dragon, roamingDragonMarker)}
+            style={{ left: projX(dragonLocal.col, dragonLocal.row), top: projY(dragonLocal.col, dragonLocal.row) - 22, zIndex: dragonLocal.col + dragonLocal.row + 2 }}
+            title={roamingDragonMarker ? `🐉 ${localizeName(t, roamingDragonMarker.i18nKey, roamingDragonMarker.name)}` : t('canvas2d.dragonLabel')}
+            onClick={() => onActorClick(roamingActors.dragon.x, roamingActors.dragon.y, roamingDragonMarker)}
           >
-            <span className="text-xl">{dragon.icon}</span>
+            <span className="text-xl">🐉</span>
           </div>
           {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) juste à
               côté de Synk, tant que le pop-up reste affiché (voir encounterNpc/onEncounterChange).

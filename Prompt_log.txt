@@ -444,8 +444,28 @@ Non, ce n'est pas tout à fait réglé, il y a encore des bugs dans les traducti
 Dans le menu Administration dans la rubrique "Statistiques par joueur" Action irréversible : Ajouter une option pour ne supprimer spécifiquement que tous les joueurs "Accès Démo", ou ne supprimer spécifiquement que tous les joueurs "playwright", ou ne supprimer spécifiquement que tous les joueurs "dbg-move", ou ne supprimer spécifiquement que tous les joueurs "Jouer sans portfeuille". Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 -----------------------------------------------------------------------------------------------------------------
 Dans le menu Administration, peux-tu foncer un peu plus la couleur de la police de caractères qui est actuellement en gris clair sur un fond blanc car le texte est trop clair et non-lisible à l'écran. Fait cela pour toutes les polices de caractères qui ont la même couleur  gris clair et qui sont sur un fond blanc. En général, ce sont des zones de textes consultables ou modifiables par l'administrateur du jeu.
-Par exemple : 
+Par exemple : [Photos ici]
 Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+-----------------------------------------------------------------------------------------------------------------
+
+
+
+
+- Dans le widget de la "Plateforme 2D isométrique", se déplacent différents PNJ définis dans le jeu commme le "Forgeron de Corail Hoku", le "Dragon de Bronze", le "Thrall (Chef de la Horde)", le "Dragon d'Argent" ou d'autres : Fait en sorte que je les vois également se déplacer dans le widget "Plateforme 3D" de telle manière à les voir passer de case en case et que leur déplacement soit cohérent avec leur déplacement dans le widget "Plateforme 2D isométrique" (Il pourrait très bien se déplacer devant, derrière, à côté de Synk ou bien plus loin par exemple) en les matérialisant sous forme de personnages 3D tout comme Synk, les PNJ ou les familiers comme des Dragons. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
+
+- Quand un PNJ vient solliciter le joueur pour lui proposer une quête, un troc, un combat, etc..., je veux le voir progressivement arriver, se déplacer progressivement jusqu'à Synk dans le widget de la "Plateforme 2D isométrique" et le widget de la "Plateforme 3D" puisque ces deux widgets sont évidement synchroniser ensemble. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
+
+
+- Bug dans le widget Wallet top-up, je peux créditer mon compte de coins du jeu en cliquant sur les boutons en € des pack pour la credit card, applepay, Paypal, GooglePay alors que je ne devrais pas le pouvoir tant que je n'ai pas configurer le mécanisme définitif et surtout ne pas l'activer en mode démo ou en mode sans portefeuille. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
+- Créer une nouvelle langue "US us" et affecter la monnaie $ (dollar) à la place d'euros (€) quand cette langue est sélectionnée dans toutes les parties du jeu ou dans le menu Administration. Il faudra bien sûr pouvoir crédit son compte autant en euros qu'en dollars en fonction du choix de la langue, donc faire en sorte que les mécanismes de paiements FIAT par CB, APPLEPAY, ANDROID, PAYPAL puisse accepter autant l'euro que le dollar pour paiement. Procéder à la traduction de tous les textes du jeu vers la langue US. Définir la langue par défaut, au lancement du jeu, en fonction des paramètres locaux du poste de travail (pc, mobile, tablette, etc...) et/ou du système d'exploitation, du pays/région sur lequel le joueur se connecte. Dans le menu Administration, rendre paramétrable le choix de la monnaie en fonction de la langue/pays et rendre paramétrable la langue par défaut séléctionnée à l'ouverture du jeu : soit FR, US, EN, ES, SP. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
+- Insérer un module/mécanisme pour créer des terrains/maps avec un widget dans le jeu qui s’appellera “Créateur” permettant de les créer, modifier, charger, supprimer, copier puis coller sous forme de pattern afin d'aller plus vite dans la conception des maps ou terrain.
+Ce module widget permettra également au joueur moyennant un abonnement supplémentaire à payer en euros ou dollars (CB, PayPal, ApplePay, GooglePay) ou cryptomonnaies de pouvoir créer ses propres terrains et mappes. Définir le mode batisseur en payant. Tu ajouteras cet abonnement et son paramétrage dans le rubrique “Statistiques par joueur” du menu Administration.
+Tu ajouteras donc dans ce module tout type d'objets du jeu comme des dalles (ground, montagne, eau), tout type de bloc (terre, rocher, eau) texturé à la couleur de la terre ou de la roche qui pourront être insérés sur un plan 3D (coordonnées x, y et z) pour créer un sol, eau en imbriquant les blocks ensembles de la même manière que sous Minecraft pour batir un univers entièrement en 3D. les blocs pourront alors être empilés les uns sur les autres pour faire des montagnes, créé des ponts, des chateaux forts, des huttes, des maisons et tailler, extruder, bisoter pour les travailler de telle manière à customiser l'unvivers 3D du jeu, par exemple. Tu rendras possible d'extruder le sol, les montagnes, les blocs, etc... Tu ajouteras également un sélecteur de bloc où le joueur pourra aller piocher selon ses envies de créations des blocs spécifiques à empiler pour créer des montagnes (empiler pourquoi pas les unes sur les autres), des mers, des océans, des lacs, des rivières, des étangs, des donjons, des granges, des maisons, des châteaux et à termes tout type d’objets dans le jeu, il faudra donc faire cela de façon évolutive et scalable. Tu créeras des grilles ou plateau modifiable pour poser ces blocs et dalles, par exemple 100x100 ou 600x699 ou modifiable en laissant le joueur saisir les dimensions de son plateau. Le mode “Créateur” une fois l’abonnement payé pourra permettra au joueur de créer, modifier, supprimer des objets, dalles, blocs sur la sa mappes. Sinon, si le joueur n’a pas d’abonnement les boutons ou menus créer, modifier, supprimer seront grisées et désactivées. Ne sera activé que la possibilité de “Charger” une mappe. Tu ajouteras dans les options l’achat, des packs de blocs ou dalles en les rendant plus attractif à l’achat en groupe qu’à l’unité de type “Pack maisons”, “Pack donjons”, “Pack châteaux”, “Pack catapulte”, “Pack bateau”, “Pack drakkar”, etc… À toi de définir les prix des blocks à l’unité, le prix des packs de blocks, etc…. Tu penseras à rendre modifiable et paramétrable les blocs, type de block, pack de blocs, leur coût à chacun, à l’unité, en pack, en solde d’hiver quand la saison sera l’hiver, en solde d’automne quand la saison sera en automne, en solde d’été quand la saison sera en été, etc.. Innove mais inspire toi aussi des mécanismes et de l'univers de Minecraft. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
 
 
 
@@ -501,29 +521,14 @@ Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu"
 
 
 
-
-- Bug dans le widget Wallet top-up, je peux créditer mon compte de coins du jeu en cliquant sur les boutons en € des pack alors que je ne devrais pas le pouvoir tant que je n'ai pas configurer le mécanisme définitif.
-Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
-
-
-
 - Bug dans le Widget "Team chat", je n'arrive pas a supprimer les échanges !
 
 
 
+- Créer un mode multi-joueur en ligne :
 
 
-
-- Dans le widget de la plateforme 2D isométrique, se déplace le "Forgeron de Corail Hoku" et le "Dragon de Bronze" : Fait en sorte que je les vois également se déplacer dans le widget "Plateforme 3D" de telle manière à les voir passer de case en case, fonction de leur déplacement, en les matérialisant sous forme d'un personnage 3D PNJ et d'un Dragon.
-Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
-
-
-
-Insérer un module/mécanisme pour créer des terrains/maps avec un widget dans le jeu qui s’appellera “Créateur” permettant de les charger.
-Ce module widget permettra également au joueur moyennant un abonnement supplémentaire à payer en euros (CB, PayPal, ApplePay, GooglePay)  ou cryptomonnaies de pouvoir créer ses propres terrains et mappes. Tu ajouteras cet abonnement et son paramétrage dans le rubrique “Statistiques par jour” du menu Administration.
-Tu ajouteras donc dans ce module tout type de dalle (ground, montagne, eau), tout type de bloc (terre, rocher) texturé à la couleur de la terre ou de la roche qui pourront être insérer sur un plan 2D (coordonnées x et y) pour créer un sol, eau et sur un plan 3D (coordonnées x, y et z) pour créer la hauteur/profondeur, les blocs pourront alors être empilés les uns sur les autres pour faire des montagnes, par exemple. Tu rendras possible d'extruder le sol, les montagnes. Tu ajouteras également un sélecteur de bloc où le joueur pourra aller piocher selon ses envies de créations des blocs spécifiques à empiler pour créer des montagnes (empiler pourquoi pas les unes sur les autres), des mers, des océans, des lacs, des rivières, des étangs, des donjons, des granges, des maisons, des châteaux et à termes tout type d’objets dans le jeu, il faudra donc faire cela de façon évolutive et scalable. Tu créeras des grilles ou plateau modifiable pour poser ces blocs et dalles, par exemple 100x100 ou 600x699 ou modifiable en laissant le joueur saisir les dimensions de son plateau. Le mode “Créateur” une fois l’abonnement payé pourra permettra au joueur de créer, modifier, supprimer des objets, dalles, blocs sur la sa mappes. Sinon, si le joueur n’a pas d’abonnement les boutons ou menus créer, modifier, supprimer seront grisées et désactivées. Ne sera activé que la possibilité de “Charger” une mappe. Tu ajouteras dans les options l’achat, des packs de blocs ou dalles en les rendant plus attractif à l’achat en groupe qu’à l’unité de type “Pack maisons”, “Pack donjons”, “Pack châteaux”, “Pack catapulte”, “Pack bateau”, “Pack drakkar”, etc… À toi de définir les prix des blocks à l’unité, le prix des packs de blocks, etc…. Tu penseras à rendre modifiable et paramétrable les blocs, type de block, pack de blocs, leur coût à chacun, à l’unité, en pack, en solde d’hiver quand la saison sera l’hiver, en solde d’automne quand la saison sera en automne, en solde d’été quand la saison sera en été, etc..
-
-
+- Copier/coller dans le prompt des images de Minecraft pour montrer le type de terrain à bâtir et ce que j'attends de la map d'Horizon Zeldcraft
 
 
 - Tout au long du jeu, ajouter dans la boucle de progresion une quête pour regrouper toutes les pièces mécanique d'un engin appelé Quantico qui permet de voyager dans une autre partie mystérieuse du jeu qui change totalement le gameplay (voir si faire un shoot'em up ou un autre style de jeu mais il faudra mettre en place un système type factory ou création de jeux pour donner de l'orginialité et ne jamais avoir ou très rarement le même jeu).
@@ -558,6 +563,8 @@ Au besoin utilise Playwright pour tester, reproduire et corriger ces bugs.
 Fait ces évolutions et vérifies que les solutions que tu implémentes ne font aucune régression de code, de stratégie déjà en place dans le jeu.
 -----------------------------------------------------------------------------------------------------------------
 Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+-----------------------------------------------------------------------------------------------------------------
+Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub.
 -----------------------------------------------------------------------------------------------------------------
 
 

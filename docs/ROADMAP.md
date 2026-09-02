@@ -465,6 +465,33 @@ confirmation) s'affichait en gris très clair sur fond blanc, quasi illisible.
   aucune régression de largeur. `tsc --noEmit` propre. Détail technique complet :
   `docs/ARCHITECTURE.md` § Lisibilité des champs de formulaire du menu Administration.
 
+### 🔒 Historique — PNJ/Dragon errant synchronisé entre Plateforme 2D isométrique et Plateforme 3D
+
+Demande utilisateur : le PNJ (ex. « Forgeron de Corail Hoku ») et le Dragon (ex. « Dragon de
+Bronze ») qui errent dans la Plateforme 2D isométrique devaient aussi être visibles, à la même
+position et en cohérence de déplacement case par case, dans la Plateforme 3D — matérialisés comme
+de véritables personnages 3D (même rendu que les PNJ/familiers fixes déjà en place), sans jamais
+régresser le comportement 2D existant.
+
+- **Cause du manque** : `GameCanvas2D.tsx` gérait l'errance du PNJ/Dragon en état local (coordonnées
+  de viewport, propres à ce widget) ; `Platform3DWidget.tsx` n'avait aucune connaissance de ces deux
+  acteurs et ne rendait que les marqueurs statiques du catalogue.
+- **Correctif** : nouveau registre partagé `web/src/lib/roamingActors.ts` (portée module + pub/sub,
+  même convention que `lib/mapFilters.ts`), source de vérité unique en coordonnées mapmonde, avec
+  mécanisme d'« attache » autour de la position courante de Synk et attribution d'identité catalogue
+  idempotente partagée entre les deux widgets. `Platform3DWidget.tsx` matérialise l'acteur errant via
+  un marqueur 3D synthétique réutilisant tel quel le rendu voxel PNJ/Dragon existant (`MarkerBlock`).
+- **Bug détecté et corrigé pendant la mise en œuvre** : clé React dupliquée en 3D (et risque de
+  doublon visuel en 2D) quand la fiche catalogue statique de l'acteur errant tombait aussi dans le
+  rayon affiché — corrigé en excluant cette fiche statique de la liste de marqueurs dans les DEUX
+  widgets avant d'y injecter la position errante courante.
+- **Vérification** : scripts Playwright jetables (attributs de débogage `data-roaming-npc`/
+  `data-roaming-dragon` posés sur les deux widgets) confirmant identité identique, position
+  identique entre 2D et 3D à deux instants, mouvement effectif entre les deux instants, zéro erreur
+  console après le correctif anti-duplication, et absence de régression sur le clic d'interaction
+  du PNJ/Dragon en 2D. `tsc --noEmit` propre. Détail technique complet : `docs/ARCHITECTURE.md`
+  § PNJ/Dragon errant synchronisé entre la Plateforme 2D isométrique et la Plateforme 3D.
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la

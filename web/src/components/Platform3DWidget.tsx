@@ -23,6 +23,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
+import { useRoamingActors, reportSynkWorldPos, ensureRoamingIdentities } from '@/lib/roamingActors';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
@@ -1384,8 +1385,18 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     });
   }, [address]);
 
+  // Signale la position mapmonde de Synk au registre partagé du PNJ/Dragon errant (voir
+  // lib/roamingActors.ts — même registre que GameCanvas2D.tsx) : sert uniquement de repère
+  // d'« attache » pour leur errance, aucune incidence sur la mécanique de déplacement de Synk.
+  useEffect(() => { reportSynkWorldPos(worldPos.x, worldPos.y); }, [worldPos]);
+  const roamingActors = useRoamingActors();
+
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   useEffect(() => { getAllMapMarkers(DEFAULT_MAP_ID).then(setMarkers).catch(() => {}); }, []);
+  // Attribue au PNJ errant/Dragon errant une entrée catalogue réelle — idempotent et PARTAGÉ avec
+  // GameCanvas2D.tsx (voir lib/roamingActors.ts::ensureRoamingIdentities) : garantit que le PNJ/
+  // Dragon visible ici est strictement le même que celui visible sur la Plateforme 2D isométrique.
+  useEffect(() => { ensureRoamingIdentities(markers); }, [markers]);
   const poiPoints = useMemo(
     () => markers.filter(m => m.kind === 'poi').map(m => ({ x: m.x, y: m.y, poiType: m.poiType, radius: m.radius })),
     [markers],
@@ -1445,22 +1456,48 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
   const centerCol = Math.round(clamp100(worldPos.x));
   const centerRow = Math.round(clamp100(worldPos.y));
 
-  // Marqueurs (catalogue + Quête du Royaume + Zorghon/prisonniers) dans le rayon 3D affiché,
-  // convertis en coordonnées relatives (x,z) centrées sur Synk — même filtre de fenêtre que
-  // GameCanvas2D.tsx::visibleMarkers, juste un rayon circulaire plutôt qu'un rectangle COLSxROWS.
+  // Marqueurs (catalogue + Quête du Royaume + Zorghon/prisonniers + PNJ/Dragon errants) dans le
+  // rayon 3D affiché, convertis en coordonnées relatives (x,z) centrées sur Synk — même filtre de
+  // fenêtre que GameCanvas2D.tsx::visibleMarkers, juste un rayon circulaire plutôt qu'un rectangle
+  // COLSxROWS. Le PNJ/Dragon errant (voir lib/roamingActors.ts, registre partagé avec
+  // GameCanvas2D.tsx) est matérialisé ici comme un marqueur synthétique dont x/y suivent sa
+  // position mapmonde COURANTE (pas sa position catalogue statique, qui n'a pas de sens pour une
+  // entité mobile) — reprend l'identité (nom/icône) de sa véritable fiche catalogue afin que
+  // MarkerBlock choisisse le bon rendu 3D (npcAppearance/familiarDragonColor) exactement comme
+  // pour n'importe quel PNJ/familier fixe.
   const sceneMarkers = useMemo<SceneMarker[]>(() => {
     const zorghonMarkers: MapMarker[] = (!zorghonEncounter || zorghonEncounter.rescued) ? [] : [
       { id: 'zorghon.boss', kind: 'zorghon', name: 'Zorghon', icon: '👹', x: zorghonEncounter.zorghonX, y: zorghonEncounter.zorghonY },
       { id: 'zorghon.captives', kind: 'captive', name: 'Captifs', icon: '🧝‍♀️', x: zorghonEncounter.captiveX, y: zorghonEncounter.captiveY },
     ];
-    const all = kingdomMarker ? [...markers, kingdomMarker, ...zorghonMarkers] : [...markers, ...zorghonMarkers];
+    const roamingMarkers: MapMarker[] = [];
+    if (roamingActors.npcMarkerId) {
+      const base = markers.find(mk => mk.kind === 'npc' && mk.id === roamingActors.npcMarkerId);
+      if (base) roamingMarkers.push({ ...base, x: roamingActors.npc.x, y: roamingActors.npc.y });
+    }
+    if (roamingActors.dragonMarkerId) {
+      const base = markers.find(mk => mk.kind === 'familiar' && mk.id === roamingActors.dragonMarkerId);
+      if (base) roamingMarkers.push({ ...base, x: roamingActors.dragon.x, y: roamingActors.dragon.y });
+    }
+    // Exclut du catalogue statique les entrées dont l'identité vient d'être réutilisée ci-dessus
+    // (roamingMarkers) : sans ce filtre, un PNJ/Dragon dont la fiche catalogue se trouve ELLE-MÊME
+    // dans le rayon 3D affiché apparaîtrait EN DOUBLE (sa position catalogue fixe ET sa position
+    // errante courante) avec la MÊME clé React (`m.id`) — avertissement "duplicate key" et rendu
+    // indéterminé. Toujours le même comportement pour 2D/3D (le widget 2D n'affiche déjà QUE la
+    // position errante pour ces deux identités, jamais leur fiche catalogue statique séparément).
+    const baseMarkers = (roamingActors.npcMarkerId || roamingActors.dragonMarkerId)
+      ? markers.filter(mk => mk.id !== roamingActors.npcMarkerId && mk.id !== roamingActors.dragonMarkerId)
+      : markers;
+    const all = kingdomMarker
+      ? [...baseMarkers, kingdomMarker, ...zorghonMarkers, ...roamingMarkers]
+      : [...baseMarkers, ...zorghonMarkers, ...roamingMarkers];
     const out: SceneMarker[] = [];
     for (const m of all) {
       const dx = Math.round(m.x) - centerCol, dz = Math.round(m.y) - centerRow;
       if (Math.abs(dx) <= VIEW_RADIUS && Math.abs(dz) <= VIEW_RADIUS) out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m });
     }
     return out;
-  }, [markers, kingdomMarker, zorghonEncounter, centerCol, centerRow]);
+  }, [markers, kingdomMarker, zorghonEncounter, centerCol, centerRow, roamingActors]);
 
   const currentTile = useMemo(() => worldTileAt(centerCol, centerRow, poiPoints), [centerCol, centerRow, poiPoints]);
   const swimming = currentTile.terrain === 'water';
@@ -1918,6 +1955,8 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
           title={t('game.platform3d.widgetTitle')}
           data-synk-pos={`${worldPos.x},${worldPos.y}`}
           data-widget-collapsed="1"
+          data-roaming-npc={`${roamingActors.npcMarkerId ?? ''},${roamingActors.npc.x},${roamingActors.npc.y}`}
+          data-roaming-dragon={`${roamingActors.dragonMarkerId ?? ''},${roamingActors.dragon.x},${roamingActors.dragon.y}`}
         >🧊</button>
         <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       </>
@@ -1956,6 +1995,8 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       onContextMenu={onContextMenu}
       data-synk-pos={`${worldPos.x},${worldPos.y}`}
       data-synk-running={isRunning ? '1' : '0'}
+      data-roaming-npc={`${roamingActors.npcMarkerId ?? ''},${roamingActors.npc.x},${roamingActors.npc.y}`}
+      data-roaming-dragon={`${roamingActors.dragonMarkerId ?? ''},${roamingActors.dragon.x},${roamingActors.dragon.y}`}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-lime-900/30 rounded-t-xl cursor-move"

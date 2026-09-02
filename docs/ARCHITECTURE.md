@@ -345,6 +345,66 @@ fatigue/raréfaction de l'air restent intégralement pilotées par `GameCanvas2D
 dans `game/page.tsx`) : le widget 3D n'en est qu'une vue et un canal de déplacement supplémentaires,
 sans y dupliquer aucune logique de décompte (zéro risque de régression/double-décompte).
 
+## PNJ/Dragon errant synchronisé entre la Plateforme 2D isométrique et la Plateforme 3D
+
+Depuis leur création, la Plateforme 2D isométrique (`GameCanvas2D.tsx`) fait « errer » doucement un
+PNJ générique (🧙) et un Dragon générique (🐉) dans sa grille, pour donner l'impression d'un monde
+vivant — chacun se voit attribuer une fois une véritable identité catalogue (PNJ ou familier-dragon
+réel, voir `getAllMapMarkers`) afin qu'un clic ouvre le vrai pop-up d'interaction. Demande
+utilisateur : que ce MÊME PNJ/Dragon, à la MÊME position et strictement synchronisé, soit également
+visible dans `Platform3DWidget.tsx`, matérialisé comme un personnage 3D voxel (même rendu que les
+PNJ/familiers fixes du catalogue), se déplaçant case par case en cohérence avec la vue 2D.
+
+**Registre partagé `web/src/lib/roamingActors.ts`** (portée module, même technique que
+`lib/mapFilters.ts`/`lib/platform3dActive.ts` — aucun Context nécessaire, les deux widgets sont
+montés simultanément dans `/game`) devient la SEULE source de vérité :
+
+- **Position en coordonnées MAPMONDE (0-100 %)**, pas en coordonnées de viewport local — l'échelle
+  native de `players/{addr}/mapPos`. Chaque widget convertit ensuite vers son propre repère
+  d'affichage : `GameCanvas2D.tsx` soustrait son `origin` de caméra pour revenir en coordonnées
+  LOCALES (`npcLocal`/`dragonLocal`, clampées via `clampCoord` comme n'importe quelle autre tuile
+  du viewport) ; `Platform3DWidget.tsx` soustrait directement `centerCol`/`centerRow` de Synk,
+  exactement comme pour tout marqueur catalogue statique (voir `sceneMarkers`).
+- **Cadence/amplitude d'errance INCHANGÉES** par rapport à l'ancienne implémentation locale de
+  `GameCanvas2D.tsx` (4000 ms, ±1 case aléatoire par axe) — zéro régression sur le comportement 2D
+  déjà en place. L'intervalle de mouvement démarre au premier widget abonné et s'arrête au dernier
+  (`subscribeRoamingActors`/`useRoamingActors`), jamais de minuteur qui tourne dans le vide.
+- **Mécanisme d'« attache » (`TETHER_X=5`/`TETHER_Y=4`)** : chaque widget signale la position
+  mapmonde courante de Synk via `reportSynkWorldPos(x, y)` (depuis son effet `worldPos` existant) ;
+  l'errance reste clampée dans cette fenêtre autour de la dernière position connue de Synk — reproduit
+  l'effet de bord qu'avait l'ancien viewport local de `GameCanvas2D.tsx` (les acteurs ne pouvaient pas
+  s'éloigner de la caméra centrée sur Synk), sans quoi rien n'empêcherait une dérive indéfinie hors
+  de vue en coordonnées mapmonde globales.
+- **Identité catalogue idempotente** (`ensureRoamingIdentities(markers)`, appelée par les DEUX
+  widgets dès que leur propre `markers` est chargé) : le premier appelant gagne (`if (!state.npcMarkerId)`),
+  garantissant que 2D et 3D affichent toujours le même PNJ/Dragon nommé, quel que soit l'ordre de
+  montage des deux widgets.
+
+**Rendu 3D** : `Platform3DWidget.tsx::sceneMarkers` matérialise le PNJ/Dragon errant comme un
+marqueur SYNTHÉTIQUE (même mécanisme que les marqueurs Zorghon/captifs déjà générés dynamiquement)
+dont `x`/`y` suivent la position mapmonde COURANTE (pas la position catalogue statique, qui n'a pas
+de sens pour une entité mobile), mais dont `name`/`id`/`icon` proviennent de sa véritable fiche
+catalogue — afin que `MarkerBlock` choisisse le bon rendu voxel (`npcAppearance`/`NpcVoxel` ou
+`familiarDragonColor`/`DragonMarker`, déjà utilisés pour tout PNJ/familier fixe, réutilisés SANS
+AUCUNE modification). Aucune interpolation de mouvement n'a été ajoutée : la position se met à jour
+instantanément à chaque tick (4 s), exactement comme tous les autres marqueurs/tuiles de la scène 3D
+lorsque Synk se déplace (cohérence avec l'esthétique « par case » existante de tout le moteur).
+
+**Anti-duplication (bug détecté et corrigé pendant la mise en œuvre)** : si la fiche catalogue du
+PNJ/Dragon errant se trouve ELLE-MÊME dans le rayon affiché (`VIEW_RADIUS` en 3D, la fenêtre de
+caméra en 2D), l'ancienne liste statique l'aurait affichée EN DOUBLE (une fois à sa position
+catalogue fixe, une fois à sa position errante courante) — en 3D cela produisait une clé React
+dupliquée (`MarkerBlock key={m.id}`) avec avertissement console et rendu indéterminé. Les deux
+widgets EXCLUENT désormais de leur liste de marqueurs statiques toute fiche dont l'id correspond à
+l'identité errante en cours (`markers.filter(m => m.id !== roamingActors.npcMarkerId && ...)`).
+
+**Débogage/Playwright** : les deux widgets exposent `data-roaming-npc`/`data-roaming-dragon`
+(`"<id-catalogue>,<x>,<y>"`, invisibles) sur leur conteneur racine (icône réduite ET fenêtre
+dépliée) — même convention que `data-synk-pos`/`data-synk-running` déjà en place pour le
+déplacement de Synk — permettant de vérifier par script (sans dépendre du rendu WebGL) que
+l'identité et la position restent identiques entre les deux widgets à tout instant, et que la
+position change bien à chaque cycle de 4 s.
+
 ### 🔒 Déplacement de Synk en Plateforme 3D — architecture VERROUILLÉE (ne pas régresser)
 
 **Ceci est la référence technique à relire avant toute modification de `Platform3DWidget.tsx` ou
