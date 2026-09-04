@@ -365,20 +365,74 @@ montés simultanément dans `/game`) devient la SEULE source de vérité :
   LOCALES (`npcLocal`/`dragonLocal`, clampées via `clampCoord` comme n'importe quelle autre tuile
   du viewport) ; `Platform3DWidget.tsx` soustrait directement `centerCol`/`centerRow` de Synk,
   exactement comme pour tout marqueur catalogue statique (voir `sceneMarkers`).
-- **Cadence/amplitude d'errance INCHANGÉES** par rapport à l'ancienne implémentation locale de
-  `GameCanvas2D.tsx` (4000 ms, ±1 case aléatoire par axe) — zéro régression sur le comportement 2D
-  déjà en place. L'intervalle de mouvement démarre au premier widget abonné et s'arrête au dernier
-  (`subscribeRoamingActors`/`useRoamingActors`), jamais de minuteur qui tourne dans le vide.
-- **Mécanisme d'« attache » (`TETHER_X=5`/`TETHER_Y=4`)** : chaque widget signale la position
-  mapmonde courante de Synk via `reportSynkWorldPos(x, y)` (depuis son effet `worldPos` existant) ;
-  l'errance reste clampée dans cette fenêtre autour de la dernière position connue de Synk — reproduit
-  l'effet de bord qu'avait l'ancien viewport local de `GameCanvas2D.tsx` (les acteurs ne pouvaient pas
-  s'éloigner de la caméra centrée sur Synk), sans quoi rien n'empêcherait une dérive indéfinie hors
-  de vue en coordonnées mapmonde globales.
+- **Cadence d'errance INCHANGÉE** (`STEP_MS = 4000`) par rapport à l'ancienne implémentation locale
+  de `GameCanvas2D.tsx`. L'intervalle de mouvement démarre au premier widget abonné et s'arrête au
+  dernier (`subscribeRoamingActors`/`useRoamingActors`), jamais de minuteur qui tourne dans le vide.
 - **Identité catalogue idempotente** (`ensureRoamingIdentities(markers)`, appelée par les DEUX
   widgets dès que leur propre `markers` est chargé) : le premier appelant gagne (`if (!state.npcMarkerId)`),
   garantissant que 2D et 3D affichent toujours le même PNJ/Dragon nommé, quel que soit l'ordre de
   montage des deux widgets.
+
+### 🔒 Errance sur la mapmonde ENTIÈRE avec démarche persistante (ne pas réintroduire l'« attache »)
+
+Retour utilisateur après la première version ci-dessus : le PNJ et le Dragon errants restaient
+« aimantés » à Synk (mécanisme d'attache `TETHER_X=5`/`TETHER_Y=4` qui clampait leur position dans une
+fenêtre autour de la dernière position connue de Synk, signalée via `reportSynkWorldPos(x, y)` depuis
+l'effet `worldPos` de chaque widget) — ce qui donnait l'impression que les deux PNJ suivaient Synk
+comme des animaux de compagnie au lieu de vivre leur propre vie sur l'île. Ce mécanisme d'attache a
+été **entièrement supprimé** (`reportSynkWorldPos`, `TETHER_X`, `TETHER_Y`, `synkPos` n'existent
+plus dans `roamingActors.ts`, et les deux widgets n'appellent/n'importent plus `reportSynkWorldPos`) :
+
+- **Bornes d'errance = mapmonde complète** : `ROAM_MARGIN = 3` de chaque bord, soit un déplacement
+  possible dans `[3, WORLD_SIZE-3] = [3, 97]` sur les deux axes (`WORLD_SIZE = 100`, importé de
+  `worldTerrain.ts`), sans aucune dépendance à la position de Synk.
+- **Marche à direction persistante** (au lieu d'un tirage aléatoire indépendant ±1 par tique, qui
+  produisait des trajectoires en dents de scie non naturelles) : chaque acteur choisit une direction
+  parmi 8 (ou une pause, `PAUSE_PROBABILITY = 0.2`) et la CONSERVE pendant `MIN_HOLD_TICKS = 3` à
+  `MAX_HOLD_TICKS = 9` tiques (12 à 36 s), avant de retirer une nouvelle direction — ce qui donne une
+  trajectoire qui ressemble à une vraie marche (lignes droites courtes, pauses occasionnelles) plutôt
+  qu'à un tremblement aléatoire. Toucher le bord de la mapmonde force un nouveau tirage immédiat
+  (`holdTicks = 0`) plutôt que de rester bloqué contre le mur pendant le reste de la tenue.
+- **Orientation exposée** : `RoamingActorsState` porte désormais `npcFacing`/`dragonFacing`
+  (type `SynkDirection`, calculé à partir du delta de déplacement de la tique précédente, via une
+  copie locale de `directionFromDelta` — même convention de duplication volontaire que dans
+  `GameCanvas2D.tsx`/`Platform3DWidget.tsx`) et `npcMoving`/`dragonMoving` (faux pendant une pause).
+
+### 🔒 Correctif « toupie » + démarche articulée en 3D (ne pas réintroduire la rotation continue)
+
+**Bug détecté** : dans `Platform3DWidget.tsx::MarkerBlock`, le `useFrame` faisait
+`obj.rotation.y += isQuest ? 0.006 : 0.01` pour TOUT marqueur « flottant » (quête, familier, PNJ,
+trésor, portail-monde, zorghon, captif confondus) — ce qui faisait tourner sur eux-mêmes en continu
+non seulement les objets inanimés (parchemins, trésors, portails, pour lesquels une rotation lente
+est un effet voulu) mais aussi les PNJ et Dragons, personnages vivants qui ne doivent jamais pivoter
+sans raison (effet « toupie » signalé par l'utilisateur).
+
+**Correctif** : introduction d'un drapeau `spinning = floating && !isNpc && !isFamiliar` qui exclut
+désormais les PNJ/Dragons de cet incrément continu ; à la place, leur `<group>` reçoit une rotation
+PONCTUELLE `rotation={[0, facingAngle, 0]}` dérivée de leur direction de déplacement courante
+(`FACING_ANGLE[facing]`, même table que `SynkVoxel`), qui ne change que lorsque l'acteur change
+réellement de direction. `facing`/`moving` ne sont renseignés QUE pour les deux entités errantes
+(comparaison `m.id === roamingActors.npcMarkerId`/`.dragonMarkerId` dans `sceneMarkers`) ; tout autre
+PNJ/familier statique du catalogue garde `facingAngle = 0` (orientation par défaut inchangée, sans
+aucune régression visuelle).
+
+**Démarche articulée** : `MarkerBlock` transmet `walking={!!moving}` à `NpcVoxel`/`DragonMarker`,
+mais UNIQUEMENT pour les deux instances réellement errantes (tout autre PNJ/familier fixe du
+catalogue reçoit `walking=false`, conservant son ancien balancement d'idle inchangé) :
+- **`NpcVoxel`** : les jambes, auparavant des mailles statiques, sont désormais deux `<group>`
+  articulés (`leftLegRef`/`rightLegRef`) pivotés à la hanche, positionnés de façon à reproduire
+  EXACTEMENT la position absolue des anciennes mailles statiques (zéro régression visuelle en idle,
+  `rotation.x` forcé à `0` quand `walking=false`). Quand `walking=true`, un cycle de marche complet
+  anime bras/jambes en controlatéral (`legSwing = Math.sin(t·8)·0.55`, `armSwing = -legSwing·0.7`)
+  plus un léger rebond du corps.
+- **`DragonMarker`** : ajout de 4 pattes articulées avec pieds (`legFrontLeftRef`/`legFrontRightRef`/
+  `legBackLeftRef`/`legBackRightRef`) positionnées sous le corps ellipsoïdal, et de deux yeux (sphère
+  blanche + pupille sombre) près de la tête/des cornes — absents jusqu'ici sur TOUS les dragons/
+  familiers du jeu (le rendu `DragonMarker` étant partagé par tout marqueur familier-dragon, pas
+  seulement le Dragon errant). Quand `walking=true`, une démarche quadrupède en diagonale anime les
+  pattes (`Math.sin(t·8)·0.5` : avant-gauche + arrière-droite en phase, avant-droit + arrière-gauche
+  en opposition de phase) ; au repos les pattes restent statiques comme n'importe quel autre familier
+  posé sur le sol (zéro régression pour les marqueurs familiers fixes du catalogue).
 
 **Rendu 3D** : `Platform3DWidget.tsx::sceneMarkers` matérialise le PNJ/Dragon errant comme un
 marqueur SYNTHÉTIQUE (même mécanisme que les marqueurs Zorghon/captifs déjà générés dynamiquement)

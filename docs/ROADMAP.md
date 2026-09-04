@@ -492,6 +492,42 @@ régresser le comportement 2D existant.
   du PNJ/Dragon en 2D. `tsc --noEmit` propre. Détail technique complet : `docs/ARCHITECTURE.md`
   § PNJ/Dragon errant synchronisé entre la Plateforme 2D isométrique et la Plateforme 3D.
 
+### 🔒 Historique — errance sur la mapmonde entière, fin de l'effet « aimanté »/« toupie », démarche articulée et pattes+yeux de dragon
+
+Retour utilisateur après la synchronisation 2D/3D ci-dessus : le PNJ et le Dragon errants restaient
+« aimantés » à Synk (ils le suivaient partout au lieu de vivre leur propre vie sur l'île), tournaient
+sur eux-mêmes en continu comme une toupie en 3D, et n'avaient ni démarche articulée ni, pour le
+Dragon, de pattes ou d'yeux.
+
+- **Attache supprimée** : le mécanisme `TETHER_X`/`TETHER_Y`/`reportSynkWorldPos` a été entièrement
+  retiré de `web/src/lib/roamingActors.ts` (et des deux widgets) ; les deux acteurs errent désormais
+  librement sur toute la mapmonde (`[ROAM_MARGIN=3, WORLD_SIZE-3]`), sans aucune dépendance à la
+  position de Synk.
+- **Marche à direction persistante** : remplacement du tirage aléatoire indépendant ±1 par tique
+  (trajectoire en dents de scie) par une direction choisie parmi 8 (ou une pause) et conservée
+  12 à 36 s avant nouveau tirage — trajectoire naturelle, avec re-tirage immédiat en cas de collision
+  avec le bord de la mapmonde.
+- **Bug « toupie » corrigé** : dans `Platform3DWidget.tsx::MarkerBlock`, la rotation continue
+  (`obj.rotation.y += ...`) appliquée à tout marqueur flottant s'appliquait à tort aux PNJ/Dragons
+  (personnages vivants) en plus des objets inanimés (parchemins, trésors, portails) — désormais
+  exclue pour les PNJ/Dragons via un drapeau `spinning`, remplacée par une orientation ponctuelle
+  vers leur direction de déplacement courante (aucun changement pour les objets inanimés, qui
+  continuent de tourner comme avant).
+- **Démarche articulée ajoutée** : `NpcVoxel` (bras/jambes en controlatéral + rebond du corps) et
+  `DragonMarker` (démarche quadrupède en diagonale des 4 pattes), activée uniquement pour les deux
+  instances réellement errantes (`walking` prop) — tout PNJ/familier statique du catalogue conserve
+  son ancien comportement d'idle inchangé (zéro régression).
+- **Pattes et yeux ajoutés à `DragonMarker`** (rendu partagé par TOUS les marqueurs familier-dragon
+  du jeu, pas seulement le Dragon errant) : 4 pattes avec pieds + 2 yeux (sphère blanche + pupille),
+  absents jusqu'ici.
+- **Vérification** : `tsc --noEmit` propre ; script Playwright confirmant identité/position
+  synchronisées entre les deux widgets à deux instants (20 s d'écart) avec mouvement effectif
+  constaté (PNJ et Dragon ont bien changé de case) ; script Playwright de capture zéro-erreur-console
+  sur le rendu 3D après le correctif toupie/démarche ; confirmation visuelle par capture d'écran
+  (orbite de caméra) des cornes/silhouette du Dragon rendu et de la tenue capuche du PNJ rendue
+  correctement en scène. Détail technique complet : `docs/ARCHITECTURE.md` § Errance sur la mapmonde
+  ENTIÈRE avec démarche persistante / § Correctif « toupie » + démarche articulée en 3D.
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la

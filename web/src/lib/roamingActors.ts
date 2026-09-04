@@ -1,50 +1,77 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { clamp100 } from './worldTerrain';
-import type { MapMarker } from './gameState';
+import { WORLD_SIZE } from './worldTerrain';
+import type { MapMarker, SynkDirection } from './gameState';
 
 /**
  * Registre partagé (portée module, même technique que lib/mapFilters.ts et lib/platform3dActive.ts
  * — aucun Context nécessaire, les deux widgets sont montés simultanément dans le même arbre
  * `/game`) pour le PNJ errant et le Dragon errant qui peuplent la Plateforme 2D isométrique
- * (GameCanvas2D.tsx) depuis leur création.
+ * (GameCanvas2D.tsx) et la Plateforme 3D (Platform3DWidget.tsx).
  *
  * Corrige la demande utilisateur : « faire en sorte que je les vois également se déplacer dans le
  * widget Plateforme 3D, de telle manière à les voir passer de case en case, de façon cohérente avec
- * leur déplacement dans la Plateforme 2D isométrique ». Avant ce module, chaque widget gérait SA
- * PROPRE errance en `useState` local (coordonnées de VIEWPORT LOCAL pour GameCanvas2D, qui n'a même
- * pas de sens pour Platform3DWidget) : impossible de les synchroniser sans dupliquer la logique.
+ * leur déplacement dans la Plateforme 2D isométrique ». Ce module est la SEULE source de vérité, en
+ * coordonnées MAPMONDE (0-100 %, exactement l'échelle de `players/{addr}/mapPos`, voir
+ * gameState.ts::setPlayerMapPos) plutôt qu'en coordonnées de viewport : chaque widget convertit
+ * ensuite vers son propre repère d'affichage (GameCanvas2D soustrait son `origin` de caméra pour
+ * revenir en coordonnées LOCALES ; Platform3DWidget soustrait directement `centerCol`/`centerRow`
+ * de Synk, exactement comme pour tout marqueur catalogue via `sceneMarkers`). Ainsi le PNJ/Dragon
+ * errant occupe TOUJOURS la même position mapmonde, quel que soit le widget qui l'affiche, avec la
+ * même identité catalogue (voir `ensureRoamingIdentities`).
  *
- * Ce module devient donc la SEULE source de vérité, en coordonnées MAPMONDE (0-100 %, exactement
- * l'échelle de `players/{addr}/mapPos`, voir gameState.ts::setPlayerMapPos) plutôt qu'en coordonnées
- * de viewport : chaque widget convertit ensuite vers son propre repère d'affichage (GameCanvas2D
- * soustrait son `origin` de caméra pour revenir en coordonnées LOCALES ; Platform3DWidget soustrait
- * directement `centerCol`/`centerRow` de Synk, exactement comme pour tout marqueur catalogue via
- * `sceneMarkers`). Ainsi le PNJ/Dragon errant occupe TOUJOURS la même position mapmonde, quel que
- * soit le widget qui l'affiche, avec la même identité catalogue (voir `ensureRoamingIdentities`).
+ * 🔧 Errance NATURELLE sur TOUTE la mapmonde (et non plus « aimantée » à Synk) : demande
+ * utilisateur — « il faut que les deux PNJ se déplacent sur toute la mapmonde [...] car cela ne
+ * fait pas réaliste [...] quand Synk se déplace [...] les deux PNJ le suivent comme s'ils étaient
+ * aimantés à Synk, cela ne fait pas naturel ». L'ancien mécanisme d'« attache » (TETHER_X/TETHER_Y
+ * autour de la dernière position connue de Synk, reporté via `reportSynkWorldPos`) a donc été
+ * SUPPRIMÉ : chaque acteur erre librement dans toute la plage mapmonde `[ROAM_MARGIN, WORLD_SIZE -
+ * ROAM_MARGIN]`, indépendamment de la position de Synk.
  *
- * Cadence et amplitude d'errance INCHANGÉES par rapport à l'ancienne implémentation locale de
- * GameCanvas2D.tsx (4000 ms, ±1 case aléatoire par axe) — zéro régression sur le comportement 2D
- * déjà en place. Un mécanisme d'« attache » (TETHER_X/TETHER_Y, reporté via `reportSynkWorldPos`)
- * reproduit l'effet de bord qu'avait le viewport local de GameCanvas2D (les acteurs ne pouvaient
- * pas s'éloigner de la caméra centrée sur Synk) : sans lui, en coordonnées mapmonde globales, rien
- * n'empêcherait le PNJ/Dragon de dériver indéfiniment hors de vue au fil du temps.
+ * Pour rester crédible (ni téléportation ni zigzag erratique à chaque tick), chaque acteur conserve
+ * désormais une DIRECTION persistante (`dx`/`dy` ∈ {-1,0,1}, tirée au sort) pendant plusieurs ticks
+ * consécutifs (`randomHoldTicks`, voir plus bas) avant d'en choisir une nouvelle — reproduit une
+ * démarche de PNJ qui marche un moment dans une direction, s'arrête parfois, puis repart ailleurs,
+ * plutôt qu'un « saut » aléatoire indépendant sur chaque axe à chaque tick. Un bord de mapmonde
+ * force immédiatement le choix d'une nouvelle direction (évite de rester bloqué contre le bord).
+ * Cadence historique inchangée (`STEP_MS = 4000`) — zéro régression sur le rythme déjà en place.
+ *
+ * `npcFacing`/`dragonFacing` (direction 8 valeurs) et `npcMoving`/`dragonMoving` (booléen) sont
+ * dérivés de la direction courante et exposés pour piloter, côté 3D, l'orientation du personnage et
+ * sa démarche animée (bras/jambes articulés, voir Platform3DWidget.tsx::NpcVoxel/DragonMarker) au
+ * lieu de l'ancienne rotation continue générique (« toupie ») appliquée à tous les marqueurs
+ * flottants.
  */
 export interface RoamingActorPos { x: number; y: number }
 export interface RoamingActorsState {
   npc: RoamingActorPos;
   dragon: RoamingActorPos;
+  npcFacing: SynkDirection;
+  dragonFacing: SynkDirection;
+  npcMoving: boolean;
+  dragonMoving: boolean;
   /** Identité catalogue (voir gameState.ts::MapMarker) attribuée une fois, figée tant que le
    * catalogue reste chargé — garantit que 2D et 3D affichent le même PNJ/Dragon nommé. */
   npcMarkerId: string | null;
   dragonMarkerId: string | null;
 }
 
+interface ActorMotion { dx: number; dy: number; holdTicks: number }
+
 const STEP_MS = 4000; // cadence historique (voir ancien setInterval de GameCanvas2D.tsx)
-// Demi-amplitude d'attache autour de la dernière position connue de Synk — reprend l'ordre de
-// grandeur de l'ancien viewport local COLSxROWS (10x8) de GameCanvas2D.tsx (moitié ~5x4).
-const TETHER_X = 5, TETHER_Y = 4;
+// Marge de bordure : l'acteur erre dans [ROAM_MARGIN, WORLD_SIZE-ROAM_MARGIN], jamais collé pile
+// au bord 0/100 du mapmonde (où le décor/la caméra 3D deviennent moins lisibles).
+const ROAM_MARGIN = 3;
+// Nombre de ticks (à STEP_MS) pendant lesquels une direction tirée au sort est conservée avant
+// d'en choisir une nouvelle — démarche crédible (marche un moment, s'arrête parfois, repart).
+const MIN_HOLD_TICKS = 3, MAX_HOLD_TICKS = 9; // 12s à 36s de marche continue dans le même axe
+const PAUSE_PROBABILITY = 0.2; // probabilité de rester immobile un moment plutôt que de repartir
+
+const DIRECTIONS: { dx: number; dy: number }[] = [
+  { dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+  { dx: -1, dy: -1 }, { dx: 1, dy: -1 }, { dx: -1, dy: 1 }, { dx: 1, dy: 1 },
+];
 
 // Positions de départ proches du point d'apparition par défaut partagé par les deux widgets
 // (voir `useState<Pos>({ x: 50, y: 88 })` dans GameCanvas2D.tsx ET Platform3DWidget.tsx) — reste
@@ -52,32 +79,81 @@ const TETHER_X = 5, TETHER_Y = 4;
 let state: RoamingActorsState = {
   npc: { x: 52, y: 87 },
   dragon: { x: 48, y: 90 },
+  npcFacing: 'down',
+  dragonFacing: 'down',
+  npcMoving: false,
+  dragonMoving: false,
   npcMarkerId: null,
   dragonMarkerId: null,
 };
 
-let synkPos: RoamingActorPos = { x: 50, y: 88 };
+let npcMotion: ActorMotion = { dx: 0, dy: 0, holdTicks: 0 };
+let dragonMotion: ActorMotion = { dx: 0, dy: 0, holdTicks: 0 };
 const listeners = new Set<(s: RoamingActorsState) => void>();
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
 function notify(): void { listeners.forEach((l) => l(state)); }
 
-/** Clampe `v` à la fois dans la fenêtre d'attache [center±half] ET dans les bornes mapmonde 0-100. */
-function clampTethered(v: number, center: number, half: number): number {
-  return clamp100(Math.max(center - half, Math.min(center + half, v)));
+/** Déduit la direction de marche à 8 valeurs à partir d'un delta (dx,dy) — copie fidèle de
+ * GameCanvas2D.tsx/Platform3DWidget.tsx::directionFromDelta (non exportée là-bas) pour rester
+ * cohérent visuellement entre les 3 vues (2D isométrique/3D/mapmonde). */
+function directionFromDelta(dx: number, dy: number): SynkDirection | null {
+  if (dx === 0 && dy === 0) return null;
+  if (dx === 0) return dy < 0 ? 'up' : 'down';
+  if (dy === 0) return dx < 0 ? 'left' : 'right';
+  if (dx < 0) return dy < 0 ? 'up-left' : 'down-left';
+  return dy < 0 ? 'up-right' : 'down-right';
+}
+
+function pickDirection(): { dx: number; dy: number } {
+  if (Math.random() < PAUSE_PROBABILITY) return { dx: 0, dy: 0 };
+  return DIRECTIONS[Math.floor(Math.random() * DIRECTIONS.length)];
+}
+
+function randomHoldTicks(): number {
+  return MIN_HOLD_TICKS + Math.floor(Math.random() * (MAX_HOLD_TICKS - MIN_HOLD_TICKS + 1));
+}
+
+/** Fait avancer un acteur d'un tick : choisit une nouvelle direction si le maintien courant est
+ * épuisé (ou si un bord de mapmonde vient d'être atteint), applique le déplacement borné à
+ * `[ROAM_MARGIN, WORLD_SIZE-ROAM_MARGIN]`, et renvoie la nouvelle position/motion/facing/moving. */
+function advanceActor(pos: RoamingActorPos, motion: ActorMotion): {
+  pos: RoamingActorPos; motion: ActorMotion; moving: boolean; facing: SynkDirection | null;
+} {
+  let { dx, dy, holdTicks } = motion;
+  if (holdTicks <= 0) {
+    const dir = pickDirection();
+    dx = dir.dx; dy = dir.dy;
+    holdTicks = randomHoldTicks();
+  }
+  let nx = pos.x, ny = pos.y, blockedByEdge = false;
+  if (dx !== 0 || dy !== 0) {
+    const rawX = pos.x + dx, rawY = pos.y + dy;
+    nx = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawX));
+    ny = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawY));
+    blockedByEdge = nx !== rawX || ny !== rawY;
+  }
+  holdTicks -= 1;
+  // Bord de mapmonde atteint : force le choix d'une nouvelle direction au prochain tick plutôt que
+  // de rester à pousser contre le mur jusqu'à épuisement du maintien courant.
+  if (blockedByEdge) holdTicks = 0;
+  const moving = dx !== 0 || dy !== 0;
+  return { pos: { x: nx, y: ny }, motion: { dx, dy, holdTicks }, moving, facing: moving ? directionFromDelta(dx, dy) : null };
 }
 
 function stepActors(): void {
+  const npcResult = advanceActor(state.npc, npcMotion);
+  const dragonResult = advanceActor(state.dragon, dragonMotion);
+  npcMotion = npcResult.motion;
+  dragonMotion = dragonResult.motion;
   state = {
     ...state,
-    npc: {
-      x: clampTethered(state.npc.x + (Math.random() < 0.5 ? -1 : 1), synkPos.x, TETHER_X),
-      y: clampTethered(state.npc.y + (Math.random() < 0.5 ? -1 : 1), synkPos.y, TETHER_Y),
-    },
-    dragon: {
-      x: clampTethered(state.dragon.x + (Math.random() < 0.5 ? -1 : 1), synkPos.x, TETHER_X),
-      y: clampTethered(state.dragon.y + (Math.random() < 0.5 ? -1 : 1), synkPos.y, TETHER_Y),
-    },
+    npc: npcResult.pos,
+    dragon: dragonResult.pos,
+    npcFacing: npcResult.facing ?? state.npcFacing,
+    dragonFacing: dragonResult.facing ?? state.dragonFacing,
+    npcMoving: npcResult.moving,
+    dragonMoving: dragonResult.moving,
   };
   notify();
 }
@@ -88,13 +164,6 @@ function ensureInterval(): void {
 }
 function maybeStopInterval(): void {
   if (listeners.size === 0 && intervalId) { clearInterval(intervalId); intervalId = null; }
-}
-
-/** Signale la position mapmonde courante de Synk — appelé par les DEUX widgets depuis leur effet
- * `worldPos` existant. Purement une donnée de référence pour l'attache (ci-dessus) : ne déclenche
- * jamais lui-même de notification (le prochain tick de `stepActors` suffit à recentrer si besoin). */
-export function reportSynkWorldPos(x: number, y: number): void {
-  synkPos = { x, y };
 }
 
 /** Attribue au PNJ/Dragon errant une véritable entrée du catalogue, dès que celui-ci est chargé —

@@ -20,7 +20,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, reportSynkWorldPos, ensureRoamingIdentities } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
 import { SynkSkin } from './SynkSkin';
@@ -368,11 +368,6 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       if (p && p.mapId === DEFAULT_MAP_ID) setWorldPos({ x: p.x, y: p.y });
     });
   }, [address]);
-
-  // Signale la position mapmonde de Synk au registre partagé du PNJ/Dragon errant (voir
-  // lib/roamingActors.ts) — sert uniquement de repère d'« attache » pour leur errance, aucune
-  // incidence sur la mécanique de déplacement de Synk lui-même.
-  useEffect(() => { reportSynkWorldPos(worldPos.x, worldPos.y); }, [worldPos]);
 
   // Raccord avec la mapmonde : détermine le POI-décor le plus proche de la position réelle de Synk
   // (juste pour l'indication textuelle affichée sous le titre — le terrain lui-même est désormais

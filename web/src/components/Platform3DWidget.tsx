@@ -23,7 +23,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, reportSynkWorldPos, ensureRoamingIdentities } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
@@ -366,11 +366,32 @@ function familiarDragonColor(id: string, name: string): string {
   return MARKER_COLOR.familiar;
 }
 
-/** Dragon-familier stylisé (corps, cou+tête cornue, queue effilée, deux ailes membraneuses) — bien
- * plus reconnaissable que le gemme octaédrique générique pour représenter, par exemple, le "Dragon
- * Vert" du catalogue (voir demande utilisateur : « le Dragon Vert ressemble à un anneau alors qu'il
- * devrait ressembler à un Dragon »). Couleur pilotée par `familiarDragonColor` ci-dessus. */
-function DragonMarker({ color }: { color: string }) {
+/** Dragon-familier stylisé (corps, cou+tête cornue avec des yeux, quatre pattes articulées, queue
+ * effilée, deux ailes membraneuses) — bien plus reconnaissable que le gemme octaédrique générique
+ * pour représenter, par exemple, le "Dragon Vert" du catalogue (voir demande utilisateur : « le
+ * Dragon Vert ressemble à un anneau alors qu'il devrait ressembler à un Dragon »). Couleur pilotée
+ * par `familiarDragonColor` ci-dessus. Pattes + yeux ajoutés suite à la demande utilisateur « tu
+ * ajouteras des jambes de dragons et des yeux aux dragons et à tous les dragons qui pourraient
+ * apparaître ou exister dans le jeu » — s'applique donc à TOUT familier-dragon affiché (roulement
+ * de scène 3D, boutique, inventaire), pas seulement au Dragon errant. `walking` (PNJ/Dragon errant
+ * uniquement, voir lib/roamingActors.ts) anime les 4 pattes en démarche quadrupède (paires
+ * diagonales en phase) au lieu de rester figées — sinon (survol/statique), pattes immobiles. */
+function DragonMarker({ color, walking = false }: { color: string; walking?: boolean }) {
+  const legFrontLeftRef = useRef<THREE.Group>(null);
+  const legFrontRightRef = useRef<THREE.Group>(null);
+  const legBackLeftRef = useRef<THREE.Group>(null);
+  const legBackRightRef = useRef<THREE.Group>(null);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    const swing = walking ? Math.sin(t * 8) * 0.5 : 0;
+    // Démarche quadrupède : pattes diagonalement opposées (avant-gauche/arrière-droite et
+    // avant-droite/arrière-gauche) se déplacent en phase, chaque paire en opposition de l'autre.
+    if (legFrontLeftRef.current) legFrontLeftRef.current.rotation.x = swing;
+    if (legBackRightRef.current) legBackRightRef.current.rotation.x = swing;
+    if (legFrontRightRef.current) legFrontRightRef.current.rotation.x = -swing;
+    if (legBackLeftRef.current) legBackLeftRef.current.rotation.x = -swing;
+  });
+  const legColor = color;
   return (
     <group>
       <mesh castShadow scale={[1, 0.6, 0.78]}>
@@ -383,6 +404,13 @@ function DragonMarker({ color }: { color: string }) {
         {[[-0.02, 0.24, 0.045], [-0.02, 0.24, -0.045]].map(([hx, hy, hz], i) => (
           <mesh key={i} position={[hx, hy, hz]} rotation={[0, 0, 0.7]}><coneGeometry args={[0.02, 0.09, 4]} /><meshStandardMaterial color="#f5e6c8" /></mesh>
         ))}
+        {/* Yeux (globe blanc + pupille sombre) de part et d'autre du museau, sur la tête cornue. */}
+        {[0.055, -0.055].map((ez, i) => (
+          <group key={i} position={[0.16, 0.22, ez]}>
+            <mesh><sphereGeometry args={[0.028, 8, 8]} /><meshStandardMaterial color="#fef3c7" emissive="#fef3c7" emissiveIntensity={0.25} /></mesh>
+            <mesh position={[0.018, 0, ez > 0 ? 0.012 : -0.012]}><sphereGeometry args={[0.013, 6, 6]} /><meshStandardMaterial color="#1c1917" /></mesh>
+          </group>
+        ))}
       </group>
       <mesh position={[-0.3, 0.02, 0]} rotation={[0, 0, 0.3]} castShadow>
         <coneGeometry args={[0.075, 0.42, 6]} />
@@ -393,6 +421,19 @@ function DragonMarker({ color }: { color: string }) {
           <coneGeometry args={[0.3, 0.045, 3]} />
           <meshStandardMaterial color={color} roughness={0.7} transparent opacity={0.92} side={THREE.DoubleSide} />
         </mesh>
+      ))}
+      {/* Pattes (4, courtes, griffues) sous le corps — avant vers la tête (+x), arrière vers la
+          queue (-x), gauche/droite écartées sur l'axe z. */}
+      {([
+        { ref: legFrontLeftRef, x: 0.11, z: 0.15 },
+        { ref: legFrontRightRef, x: 0.11, z: -0.15 },
+        { ref: legBackLeftRef, x: -0.11, z: 0.15 },
+        { ref: legBackRightRef, x: -0.11, z: -0.15 },
+      ] as const).map((leg, i) => (
+        <group key={i} ref={leg.ref} position={[leg.x, -0.09, leg.z]}>
+          <mesh position={[0, -0.07, 0]} castShadow><cylinderGeometry args={[0.028, 0.036, 0.16, 6]} /><meshStandardMaterial color={legColor} roughness={0.6} /></mesh>
+          <mesh position={[0, -0.16, 0.015]} castShadow><boxGeometry args={[0.055, 0.04, 0.09]} /><meshStandardMaterial color={legColor} roughness={0.7} /></mesh>
+        </group>
       ))}
     </group>
   );
@@ -420,25 +461,46 @@ function npcAppearance(id: string, name: string): { skin: string; outfit: string
 }
 
 /** PNJ en voxels (façon Minecraft), même langage visuel que `SynkVoxel` (tête box + yeux/bouche,
- * torse, bras, jambes/bottes) mais simplifié (pas d'équipement/animation de marche, PNJ statiques
- * sur la carte) — remplace la précédente silhouette encapuchonnée générique par un vrai petit
- * personnage reconnaissable, cohérent avec Synk. Léger balancement idle (tête/bras) pour rester
- * vivant sans nécessiter le cycle de marche complet de Synk. Couleurs pilotées par
+ * torse, bras, jambes/bottes) — remplace la précédente silhouette encapuchonnée générique par un
+ * vrai petit personnage reconnaissable, cohérent avec Synk. `walking` (PNJ errant uniquement, voir
+ * lib/roamingActors.ts) déclenche un cycle de marche complet (bras/jambes en contre-mouvement,
+ * même formule que SynkVoxel) au lieu du léger balancement idle (tête/bras) utilisé pour tout PNJ
+ * statique du catalogue — corrige la demande utilisateur « tu leur donneras une démarche naturelle
+ * [...] tu articuleras les bras, les jambes, le corps de ces PNJ ». Couleurs pilotées par
  * `npcAppearance` ci-dessus. */
-function NpcVoxel({ appearance }: { appearance: ReturnType<typeof npcAppearance> }) {
+function NpcVoxel({ appearance, walking = false }: { appearance: ReturnType<typeof npcAppearance>; walking?: boolean }) {
   const leftArmRef = useRef<THREE.Group>(null);
   const rightArmRef = useRef<THREE.Group>(null);
+  const leftLegRef = useRef<THREE.Group>(null);
+  const rightLegRef = useRef<THREE.Group>(null);
   const headRef = useRef<THREE.Group>(null);
+  const bodyRef = useRef<THREE.Group>(null);
   useFrame((state) => {
     const t = state.clock.elapsedTime;
-    const sway = Math.sin(t * 0.7) * 0.05;
-    if (leftArmRef.current) leftArmRef.current.rotation.x = sway;
-    if (rightArmRef.current) rightArmRef.current.rotation.x = -sway;
-    if (headRef.current) headRef.current.rotation.y = Math.sin(t * 0.35) * 0.15;
+    if (walking) {
+      // Cycle de marche : balancement contro-latéral bras/jambes (même cadence/amplitude que la
+      // marche de Synk, voir SynkVoxel) + léger rebond du corps au rythme des pas.
+      const legSwing = Math.sin(t * 8) * 0.55, armSwing = -legSwing * 0.7;
+      if (leftLegRef.current) leftLegRef.current.rotation.x = legSwing;
+      if (rightLegRef.current) rightLegRef.current.rotation.x = -legSwing;
+      if (leftArmRef.current) leftArmRef.current.rotation.x = -armSwing;
+      if (rightArmRef.current) rightArmRef.current.rotation.x = armSwing;
+      if (headRef.current) headRef.current.rotation.y = 0;
+      if (bodyRef.current) bodyRef.current.position.y = Math.abs(Math.sin(t * 8)) * 0.06;
+    } else {
+      // Immobile : léger balancement idle (tête/bras) pour rester vivant sans cycle de marche complet.
+      const sway = Math.sin(t * 0.7) * 0.05;
+      if (leftArmRef.current) leftArmRef.current.rotation.x = sway;
+      if (rightArmRef.current) rightArmRef.current.rotation.x = -sway;
+      if (leftLegRef.current) leftLegRef.current.rotation.x = 0;
+      if (rightLegRef.current) rightLegRef.current.rotation.x = 0;
+      if (headRef.current) headRef.current.rotation.y = Math.sin(t * 0.35) * 0.15;
+      if (bodyRef.current) bodyRef.current.position.y = 0;
+    }
   });
   const { skin, outfit, hair, accent, hat } = appearance;
   return (
-    <group>
+    <group ref={bodyRef}>
       {/* Tête */}
       <group ref={headRef} position={[0, 0.62, 0]}>
         <mesh castShadow><boxGeometry args={[0.38, 0.38, 0.38]} /><meshStandardMaterial color={skin} /></mesh>
@@ -465,11 +527,15 @@ function NpcVoxel({ appearance }: { appearance: ReturnType<typeof npcAppearance>
         <mesh position={[0, -0.18, 0]} castShadow><boxGeometry args={[0.11, 0.36, 0.11]} /><meshStandardMaterial color={outfit} /></mesh>
         <mesh position={[0, -0.38, 0]} castShadow><boxGeometry args={[0.12, 0.09, 0.12]} /><meshStandardMaterial color={skin} /></mesh>
       </group>
-      {/* Jambes + bottes */}
-      <mesh position={[-0.1, -0.2, 0]} castShadow><boxGeometry args={[0.13, 0.22, 0.13]} /><meshStandardMaterial color="#334155" /></mesh>
-      <mesh position={[0.1, -0.2, 0]} castShadow><boxGeometry args={[0.13, 0.22, 0.13]} /><meshStandardMaterial color="#334155" /></mesh>
-      <mesh position={[-0.1, -0.34, 0.01]} castShadow><boxGeometry args={[0.14, 0.1, 0.15]} /><meshStandardMaterial color="#3f2c1a" /></mesh>
-      <mesh position={[0.1, -0.34, 0.01]} castShadow><boxGeometry args={[0.14, 0.1, 0.15]} /><meshStandardMaterial color="#3f2c1a" /></mesh>
+      {/* Jambes + bottes (groupes articulés, pivot à la hanche, même principe que SynkVoxel) */}
+      <group ref={leftLegRef} position={[-0.1, -0.09, 0]}>
+        <mesh position={[0, -0.11, 0]} castShadow><boxGeometry args={[0.13, 0.22, 0.13]} /><meshStandardMaterial color="#334155" /></mesh>
+        <mesh position={[0, -0.25, 0.01]} castShadow><boxGeometry args={[0.14, 0.1, 0.15]} /><meshStandardMaterial color="#3f2c1a" /></mesh>
+      </group>
+      <group ref={rightLegRef} position={[0.1, -0.09, 0]}>
+        <mesh position={[0, -0.11, 0]} castShadow><boxGeometry args={[0.13, 0.22, 0.13]} /><meshStandardMaterial color="#334155" /></mesh>
+        <mesh position={[0, -0.25, 0.01]} castShadow><boxGeometry args={[0.14, 0.1, 0.15]} /><meshStandardMaterial color="#3f2c1a" /></mesh>
+      </group>
     </group>
   );
 }
@@ -715,12 +781,21 @@ function TreasureIcon({ category }: { category: TreasureCategory }) {
  * `kind==='zorghon'` → silhouette sombre cornue menaçante ; `kind==='captive'` → silhouette liée.
  * Tout kind non couvert ci-dessus conserve EXACTEMENT le rendu octaédrique précédent — zéro
  * régression. */
-function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, onClick }: {
-  kind: string; poiType?: MapPoiType; name?: string; markerId?: string; x: number; z: number; scale?: number; onClick: () => void;
+function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, moving, onClick }: {
+  kind: string; poiType?: MapPoiType; name?: string; markerId?: string; x: number; z: number; scale?: number;
+  /** Renseignés UNIQUEMENT pour le PNJ/Dragon errant (voir lib/roamingActors.ts) — orientent le
+   * personnage dans sa direction de marche et déclenchent sa démarche animée (voir NpcVoxel/
+   * DragonMarker) ; `undefined` pour tout autre marqueur (comportement idle inchangé). */
+  facing?: SynkDirection; moving?: boolean;
+  onClick: () => void;
 }) {
   // Ref générique : anime (flottaison + légère rotation) le contenu de TOUTES les branches "en
-  // lévitation" (quête, familier, PNJ, trésor, monde, zorghon, captif, gemme par défaut) — les
-  // branches "fixes au sol" (grotte, bâtisses) ne l'utilisent jamais et ne sont donc jamais animées.
+  // lévitation" (quête, trésor, monde, zorghon, captif, gemme par défaut) — les branches "fixes au
+  // sol" (grotte, bâtisses) ne l'utilisent jamais et ne sont donc jamais animées. PNJ/familier
+  // (personnages vivants, voir NpcVoxel/DragonMarker) en sont exclus depuis la correction du bug
+  // « toupie » ci-dessous — un personnage debout/marchant ne doit jamais tourner sur lui-même en
+  // continu comme un objet magique en lévitation (demande utilisateur : « fait en sorte que ces
+  // deux PNJ arrêtent de tourner sur eux-mêmes comme une toupie »).
   const bobRef = useRef<THREE.Group>(null);
   const isCave = kind === 'poi' && poiType === 'cave';
   const isBuilding = kind === 'poi' && !!poiType && (['hut', 'tavern', 'stable', 'village_ally', 'village_enemy'] as MapPoiType[]).includes(poiType);
@@ -732,13 +807,18 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, onClick }
   const isZorghon = kind === 'zorghon';
   const isCaptive = kind === 'captive';
   const floating = !isCave && !isBuilding;
+  const spinning = floating && !isNpc && !isFamiliar;
   const bobAmplitude = isQuest ? 0.25 : 0.15;
   useFrame((state) => {
     const obj = bobRef.current;
     if (!obj || !floating) return;
     obj.position.y = bobAmplitude + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06;
-    obj.rotation.y += isQuest ? 0.006 : 0.01;
+    if (spinning) obj.rotation.y += isQuest ? 0.006 : 0.01;
   });
+  // Orientation du PNJ/Dragon errant selon sa direction de marche courante (voir FACING_ANGLE,
+  // même mapping que SynkVoxel) — appliquée une fois par changement de direction (pas d'animation
+  // de rotation continue), remplace l'ancien spin permanent pour ces deux kinds.
+  const facingAngle = facing ? (FACING_ANGLE[facing] ?? 0) : 0;
   const color = MARKER_COLOR[kind] ?? '#94a3b8';
   if (isBuilding) {
     // Bâtisse (Auberge/Taverne/Étable/Village) — même silhouette de chaumière que le décor
@@ -804,24 +884,26 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, onClick }
     // variées) — voir `DragonMarker`/`familiarDragonColor` ci-dessus. Corrige la demande utilisateur
     // « le Dragon Vert ressemble à un anneau alors qu'il devrait ressembler à un Dragon ». `scale`
     // (voir Platform3DObjectFlags['marker:familiar'], défaut 2.4) n'agrandit QUE le dragon, jamais
-    // le socle — un familier doit rester nettement plus grand que Synk (chevauchable).
+    // le socle — un familier doit rester nettement plus grand que Synk (chevauchable). `rotation`
+    // suit sa direction de marche courante (`facingAngle`, PNJ/Dragon errant uniquement) ; `walking`
+    // déclenche l'articulation des pattes (voir DragonMarker) au lieu de rester figé.
     const dragonColor = familiarDragonColor(markerId ?? '', name ?? '');
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-        <group ref={bobRef} scale={scale}><DragonMarker color={dragonColor} /></group>
+        <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}><DragonMarker color={dragonColor} walking={!!moving} /></group>
       </group>
     );
   }
   if (isNpc) {
     // PNJ en voxels façon Minecraft (voir NpcVoxel/npcAppearance ci-dessus) — remplace la précédente
     // silhouette encapuchonnée générique. `scale` (voir Platform3DObjectFlags['marker:npc'], défaut
-    // 1.6) n'agrandit QUE le PNJ, jamais le socle.
+    // 1.6) n'agrandit QUE le PNJ, jamais le socle. `rotation`/`walking` : voir isFamiliar ci-dessus.
     const appearance = npcAppearance(markerId ?? '', name ?? '');
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-        <group ref={bobRef} scale={scale}><NpcVoxel appearance={appearance} /></group>
+        <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}><NpcVoxel appearance={appearance} walking={!!moving} /></group>
       </group>
     );
   }
@@ -1148,7 +1230,14 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
   );
 }
 
-interface SceneMarker { id: string; kind: string; x: number; z: number; marker: MapMarker }
+interface SceneMarker {
+  id: string; kind: string; x: number; z: number; marker: MapMarker;
+  /** Renseignés UNIQUEMENT pour le PNJ/Dragon errant (voir lib/roamingActors.ts) — pilotent son
+   * orientation et sa démarche animée dans MarkerBlock (voir facing/moving ci-dessous) ; `undefined`
+   * pour tout marqueur catalogue statique (npc/familiar fixes, trésors, quêtes...), qui gardent leur
+   * rendu idle inchangé — zéro régression sur l'affichage des entités non-errantes. */
+  facing?: SynkDirection; moving?: boolean;
+}
 
 /** Contenu 3D de la scène (terrain + Synk + entités) — composant séparé pour pouvoir utiliser
  * `useFrame`/les hooks R3F, qui exigent d'être montés SOUS `<Canvas>`. Le clic sur une tuile route
@@ -1218,7 +1307,7 @@ function Scene({
       {sceneMarkers.map(m => {
         const markerScaleKind: Platform3DObjectKind | null = m.kind === 'npc' ? 'marker:npc' : m.kind === 'familiar' ? 'marker:familiar' : null;
         const markerScale = markerScaleKind ? ((objectFlags ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS)[markerScaleKind]?.scale ?? 1) : 1;
-        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} onClick={() => onMarkerClick(m.marker)} />;
+        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={() => onMarkerClick(m.marker)} />;
       })}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
@@ -1385,10 +1474,6 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     });
   }, [address]);
 
-  // Signale la position mapmonde de Synk au registre partagé du PNJ/Dragon errant (voir
-  // lib/roamingActors.ts — même registre que GameCanvas2D.tsx) : sert uniquement de repère
-  // d'« attache » pour leur errance, aucune incidence sur la mécanique de déplacement de Synk.
-  useEffect(() => { reportSynkWorldPos(worldPos.x, worldPos.y); }, [worldPos]);
   const roamingActors = useRoamingActors();
 
   const [markers, setMarkers] = useState<MapMarker[]>([]);
@@ -1494,7 +1579,16 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
     const out: SceneMarker[] = [];
     for (const m of all) {
       const dx = Math.round(m.x) - centerCol, dz = Math.round(m.y) - centerRow;
-      if (Math.abs(dx) <= VIEW_RADIUS && Math.abs(dz) <= VIEW_RADIUS) out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m });
+      if (Math.abs(dx) > VIEW_RADIUS || Math.abs(dz) > VIEW_RADIUS) continue;
+      // Facing/moving : uniquement pour le PNJ/Dragon errant (voir lib/roamingActors.ts) — oriente
+      // le personnage 3D dans sa direction de marche courante et déclenche sa démarche animée
+      // (bras/jambes articulés, voir NpcVoxel/DragonMarker) au lieu de l'ancienne rotation continue
+      // générique ("toupie") appliquée par défaut à tout marqueur flottant.
+      const facing = m.id === roamingActors.npcMarkerId ? roamingActors.npcFacing
+        : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonFacing : undefined;
+      const moving = m.id === roamingActors.npcMarkerId ? roamingActors.npcMoving
+        : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonMoving : undefined;
+      out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m, facing, moving });
     }
     return out;
   }, [markers, kingdomMarker, zorghonEncounter, centerCol, centerRow, roamingActors]);
