@@ -528,6 +528,31 @@ Dragon, de pattes ou d'yeux.
   correctement en scène. Détail technique complet : `docs/ARCHITECTURE.md` § Errance sur la mapmonde
   ENTIÈRE avec démarche persistante / § Correctif « toupie » + démarche articulée en 3D.
 
+### 🔒 Historique — PNJ/Dragon coincés sur le bord de la grille en Plateforme 2D isométrique après l'errance mapmonde entière
+
+Retour utilisateur après l'errance sur mapmonde entière ci-dessus : le Dragon et le PNJ errants
+n'étaient plus visibles dans la Plateforme 3D (comportement attendu, ils avaient erré loin de Synk)
+mais restaient visibles en permanence dans la Plateforme 2D isométrique, épinglés sur le bord de sa
+grille 8×10 — donnant l'impression que la mapmonde était « décorrélée » de cette grille, comme s'ils
+étaient bloqués dedans.
+
+- **Cause** : `GameCanvas2D.tsx` convertissait la position mapmonde du PNJ/Dragon errant en
+  coordonnées locales via `clampCoord()` de façon INCONDITIONNELLE (contrairement à tous les autres
+  marqueurs de `visibleMarkers`, qui disparaissent explicitement hors de la fenêtre de caméra) — un
+  delta très hors-limites (l'acteur pouvant désormais errer sur toute la mapmonde 100×100) se
+  retrouvait donc toujours ramené sur la case de bord la plus proche au lieu d'être masqué.
+- **Correctif** : calcul explicite d'un booléen `npcInView`/`dragonInView` à partir du delta BRUT
+  (non clampé), avec le même test de plage que `visibleMarkers` ; les marqueurs 🧙/🐉 ne sont
+  désormais rendus dans le JSX que si ce booléen est vrai, exactement comme la Plateforme 3D masque
+  déjà ces mêmes acteurs hors de son `VIEW_RADIUS` — cohérence rétablie entre les deux vues.
+- **Vérification** : script Playwright jetable, Synk immobile, échantillonnage toutes les 8 s sur
+  ~90 s de la position mapmonde ET de la présence effective du marqueur DOM (filtré sur sa classe
+  CSS dédiée pour ne pas confondre avec d'autres PNJ/familiers statiques du catalogue partageant les
+  mêmes émojis) : confirmé que le PNJ et le Dragon disparaissent bien du widget une fois hors de la
+  fenêtre de caméra, sans jamais rester épinglés au bord. Zéro erreur console. `tsc --noEmit` propre.
+  Détail technique complet : `docs/ARCHITECTURE.md` § Correctif « PNJ/Dragon coincés sur le bord de
+  la grille » en Plateforme 2D isométrique.
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la

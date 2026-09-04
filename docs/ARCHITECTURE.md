@@ -362,9 +362,11 @@ montés simultanément dans `/game`) devient la SEULE source de vérité :
 - **Position en coordonnées MAPMONDE (0-100 %)**, pas en coordonnées de viewport local — l'échelle
   native de `players/{addr}/mapPos`. Chaque widget convertit ensuite vers son propre repère
   d'affichage : `GameCanvas2D.tsx` soustrait son `origin` de caméra pour revenir en coordonnées
-  LOCALES (`npcLocal`/`dragonLocal`, clampées via `clampCoord` comme n'importe quelle autre tuile
-  du viewport) ; `Platform3DWidget.tsx` soustrait directement `centerCol`/`centerRow` de Synk,
-  exactement comme pour tout marqueur catalogue statique (voir `sceneMarkers`).
+  LOCALES (`npcLocal`/`dragonLocal`) ; `Platform3DWidget.tsx` soustrait directement
+  `centerCol`/`centerRow` de Synk, exactement comme pour tout marqueur catalogue statique (voir
+  `sceneMarkers`). **Le marqueur n'est rendu QUE si cette position locale tombe réellement dans la
+  fenêtre de caméra actuelle** (`npcInView`/`dragonInView` en 2D ; garde `Math.abs(dx) > VIEW_RADIUS`
+  en 3D) — voir le correctif ci-dessous, ceci n'a pas toujours été le cas en 2D.
 - **Cadence d'errance INCHANGÉE** (`STEP_MS = 4000`) par rapport à l'ancienne implémentation locale
   de `GameCanvas2D.tsx`. L'intervalle de mouvement démarre au premier widget abonné et s'arrête au
   dernier (`subscribeRoamingActors`/`useRoamingActors`), jamais de minuteur qui tourne dans le vide.
@@ -458,6 +460,35 @@ dépliée) — même convention que `data-synk-pos`/`data-synk-running` déjà e
 déplacement de Synk — permettant de vérifier par script (sans dépendre du rendu WebGL) que
 l'identité et la position restent identiques entre les deux widgets à tout instant, et que la
 position change bien à chaque cycle de 4 s.
+
+### 🔒 Correctif « PNJ/Dragon coincés sur le bord de la grille » en Plateforme 2D isométrique (ne pas réintroduire le clamp inconditionnel)
+
+**Bug détecté** : une fois l'errance étendue à la mapmonde ENTIÈRE (voir section précédente), le
+PNJ et le Dragon errants restaient visibles en permanence dans `GameCanvas2D.tsx`, épinglés sur le
+bord de la grille 8×10 (`COLS=10`, `ROWS=8`), alors même qu'ils se trouvaient déjà loin de Synk sur
+la mapmonde et n'apparaissaient plus dans `Platform3DWidget.tsx` (qui, lui, les masque correctement
+hors de son `VIEW_RADIUS`). Cause : `npcLocal`/`dragonLocal` passaient leur delta
+(position-mapmonde − `origin`) dans `clampCoord(v, max) = Math.max(0, Math.min(max-1, v))`
+**inconditionnellement**, donc même un delta très hors-limites (ex. -40 ou +60) se retrouvait
+ramené à la case `0` ou `COLS-1`/`ROWS-1` — l'acteur restait donc « collé » au bord de la fenêtre de
+caméra au lieu de disparaître, contrairement à tous les autres marqueurs de `visibleMarkers`
+(construits avec une garde explicite `if (col >= 0 && col < COLS && row >= 0 && row < ROWS)`).
+
+**Correctif** : calcul explicite de `npcInView`/`dragonInView` (même test de plage que
+`visibleMarkers`) à partir du delta BRUT (`npcRawCol`/`npcRawRow`, non clampé) ; les deux `<div>`
+marqueurs (`🧙`/`🐉`) ne sont désormais rendus dans le JSX que si leur booléen `InView` respectif
+est vrai — `clampCoord` n'est conservé que pour le calcul de `left`/`top` du marqueur (sûr, puisqu'il
+n'est utilisé que lorsque déjà dans la plage). Résultat : le PNJ/Dragon disparaît bien de la
+Plateforme 2D isométrique dès qu'il erre hors de la fenêtre de caméra de Synk, exactement comme il
+disparaît déjà de la Plateforme 3D — cohérence rétablie entre les deux vues.
+
+**Vérification** : script Playwright jetable — Synk immobile (origine de caméra fixe), position
+mapmonde du PNJ/Dragon et présence effective de leur `<div>` marqueur (filtré sur la classe CSS
+`duration-[1500ms]`, propre à ces deux marqueurs, pour ne pas confondre avec d'autres marqueurs
+PNJ/familiers statiques du catalogue qui réutilisent les mêmes émojis 🧙/🐉) échantillonnés toutes
+les 8 s sur ~90 s : confirmé que `npcVisible`/`dragonVisible` passent bien de `true` à `false` au fur
+et à mesure que leur position s'éloigne de la fenêtre de caméra (plus aucun cas où ils restent
+affichés indéfiniment à distance). Zéro erreur console. `tsc --noEmit` propre.
 
 ### 🔒 Déplacement de Synk en Plateforme 3D — architecture VERROUILLÉE (ne pas régresser)
 

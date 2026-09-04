@@ -455,16 +455,22 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     row: Math.max(0, Math.min(ROWS - 1, worldRow - origin.row)),
   };
   // Conversion mapmonde → viewport LOCAL du PNJ/Dragon errant (voir lib/roamingActors.ts, source
-  // de vérité partagée avec Platform3DWidget.tsx) — clampée pour rester visible dans la fenêtre de
-  // caméra même si l'attache les place juste hors-cadre au moment d'un recadrage de `origin`.
-  const npcLocal = {
-    col: clampCoord(Math.round(roamingActors.npc.x) - origin.col, COLS),
-    row: clampCoord(Math.round(roamingActors.npc.y) - origin.row, ROWS),
-  };
-  const dragonLocal = {
-    col: clampCoord(Math.round(roamingActors.dragon.x) - origin.col, COLS),
-    row: clampCoord(Math.round(roamingActors.dragon.y) - origin.row, ROWS),
-  };
+  // de vérité partagée avec Platform3DWidget.tsx). Le PNJ/Dragon errent désormais sur TOUTE la
+  // mapmonde (100x100), bien plus vaste que cette fenêtre de caméra COLSxROWS (8x10) — il ne faut
+  // donc PLUS les clamper dans la grille visible quand ils sont hors-cadre (l'ancien clampCoord()
+  // les épinglait à tort sur le bord de la grille, donnant l'illusion qu'ils restaient « coincés »
+  // dans le widget alors qu'ils étaient en réalité ailleurs sur la mapmonde, invisibles dans
+  // Platform3DWidget.tsx qui applique déjà ce même critère de visibilité via VIEW_RADIUS). On
+  // calcule donc une visibilité stricte (même logique que `visibleMarkers` ci-dessous : col/row
+  // dans [0, COLS)/[0, ROWS)) et on n'affiche le marqueur QUE s'il tombe dans la fenêtre actuelle.
+  const npcRawCol = Math.round(roamingActors.npc.x) - origin.col;
+  const npcRawRow = Math.round(roamingActors.npc.y) - origin.row;
+  const npcInView = npcRawCol >= 0 && npcRawCol < COLS && npcRawRow >= 0 && npcRawRow < ROWS;
+  const npcLocal = { col: clampCoord(npcRawCol, COLS), row: clampCoord(npcRawRow, ROWS) };
+  const dragonRawCol = Math.round(roamingActors.dragon.x) - origin.col;
+  const dragonRawRow = Math.round(roamingActors.dragon.y) - origin.row;
+  const dragonInView = dragonRawCol >= 0 && dragonRawCol < COLS && dragonRawRow >= 0 && dragonRawRow < ROWS;
+  const dragonLocal = { col: clampCoord(dragonRawCol, COLS), row: clampCoord(dragonRawRow, ROWS) };
   // Cellule adjacente à Synk où matérialiser le PNJ "en approche" (voir encounterNpc) — juste au
   // nord de Synk, ou au sud si Synk est déjà collé au bord haut de la fenêtre de caméra.
   const encounterCell = {
@@ -1335,24 +1341,33 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
             );
           })}
 
-          {/* PNJ errant — cliquable dès qu'un PNJ du catalogue lui a été attribué (voir roamingActors.npcMarkerId) */}
-          <div
-            className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingNpcMarker ? 'cursor-pointer' : 'cursor-help'}`}
-            style={{ left: projX(npcLocal.col, npcLocal.row), top: projY(npcLocal.col, npcLocal.row) - 22, zIndex: npcLocal.col + npcLocal.row + 2 }}
-            title={roamingNpcMarker ? `🧙 ${localizeName(t, roamingNpcMarker.i18nKey, roamingNpcMarker.name)}` : t('canvas2d.npcLabel')}
-            onClick={() => onActorClick(roamingActors.npc.x, roamingActors.npc.y, roamingNpcMarker)}
-          >
-            <span className="text-lg">🧙</span>
-          </div>
-          {/* Dragon errant — cliquable dès qu'un familier-dragon du catalogue lui a été attribué */}
-          <div
-            className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingDragonMarker ? 'cursor-pointer' : 'cursor-help'}`}
-            style={{ left: projX(dragonLocal.col, dragonLocal.row), top: projY(dragonLocal.col, dragonLocal.row) - 22, zIndex: dragonLocal.col + dragonLocal.row + 2 }}
-            title={roamingDragonMarker ? `🐉 ${localizeName(t, roamingDragonMarker.i18nKey, roamingDragonMarker.name)}` : t('canvas2d.dragonLabel')}
-            onClick={() => onActorClick(roamingActors.dragon.x, roamingActors.dragon.y, roamingDragonMarker)}
-          >
-            <span className="text-xl">🐉</span>
-          </div>
+          {/* PNJ errant — cliquable dès qu'un PNJ du catalogue lui a été attribué (voir roamingActors.npcMarkerId).
+              N'est affiché QUE si sa position mapmonde courante tombe réellement dans la fenêtre de
+              caméra actuelle (npcInView) — il erre désormais sur toute la mapmonde (100x100), bien
+              plus vaste que cette grille COLSxROWS (8x10), donc la plupart du temps il doit être
+              invisible ici (tout comme il l'est déjà dans Platform3DWidget.tsx via VIEW_RADIUS). */}
+          {npcInView && (
+            <div
+              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingNpcMarker ? 'cursor-pointer' : 'cursor-help'}`}
+              style={{ left: projX(npcLocal.col, npcLocal.row), top: projY(npcLocal.col, npcLocal.row) - 22, zIndex: npcLocal.col + npcLocal.row + 2 }}
+              title={roamingNpcMarker ? `🧙 ${localizeName(t, roamingNpcMarker.i18nKey, roamingNpcMarker.name)}` : t('canvas2d.npcLabel')}
+              onClick={() => onActorClick(roamingActors.npc.x, roamingActors.npc.y, roamingNpcMarker)}
+            >
+              <span className="text-lg">🧙</span>
+            </div>
+          )}
+          {/* Dragon errant — cliquable dès qu'un familier-dragon du catalogue lui a été attribué.
+              Même critère de visibilité que le PNJ ci-dessus (dragonInView). */}
+          {dragonInView && (
+            <div
+              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingDragonMarker ? 'cursor-pointer' : 'cursor-help'}`}
+              style={{ left: projX(dragonLocal.col, dragonLocal.row), top: projY(dragonLocal.col, dragonLocal.row) - 22, zIndex: dragonLocal.col + dragonLocal.row + 2 }}
+              title={roamingDragonMarker ? `🐉 ${localizeName(t, roamingDragonMarker.i18nKey, roamingDragonMarker.name)}` : t('canvas2d.dragonLabel')}
+              onClick={() => onActorClick(roamingActors.dragon.x, roamingActors.dragon.y, roamingDragonMarker)}
+            >
+              <span className="text-xl">🐉</span>
+            </div>
+          )}
           {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) juste à
               côté de Synk, tant que le pop-up reste affiché (voir encounterNpc/onEncounterChange).
               Purement informatif (pointer-events-none) : l'interaction se fait dans le pop-up lui-même. */}
