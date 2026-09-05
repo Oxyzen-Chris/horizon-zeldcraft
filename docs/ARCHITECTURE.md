@@ -242,6 +242,62 @@ suppression ciblée d'une seule catégorie ne supprime QUE les comptes correspon
 sans erreur (warnings préexistants sans rapport : dépendances optionnelles React Native/pino de
 wagmi/RainbowKit).
 
+## 🔒 Mise en pause admin appliquée immédiatement à une session déjà en cours + sablier Démo qui disparaît
+
+**Bug n°1 signalé** : en Administration → 📊 Statistiques par joueur, mettre un joueur en pause
+(« ⏸ Mettre en pause ») ou le réactiver n'avait **AUCUN effet visible** tant que le joueur ne se
+déconnectait/reconnectait pas volontairement — inacceptable pour une action de modération (abus,
+triche suspectée en cours) censée être immédiate.
+
+**Cause racine n°1** : le champ `paused` (`demoAccessRequests/{uid}`) n'était vérifié **QUE** dans
+`logAccountAccess()` (`gameState.ts`), c'est-à-dire uniquement AU MOMENT de la connexion
+(`NoWalletAccessPanel.tsx`). Aucun code ne l'observait ensuite pendant qu'une session Démo/Fiat
+était déjà active — la mise en pause admin modifiait bien la base (RTDB), mais rien côté client
+n'écoutait ce champ en temps réel une fois le joueur connecté.
+
+**Correctif n°1** : nouvelle fonction `subscribePausedStatus(uid, cb)` (`gameState.ts`) qui écoute
+`demoAccessRequests/{uid}/paused` en `onValue` temps réel, branchée dans un nouvel effet de
+`EffectiveAccountProvider` (`effectiveAccount.tsx`) actif pour toute session `kind === 'demo'`
+**ou** `'fiat'` (les deux modes partagent le même nœud `demoAccessRequests/{uid}`, voir
+`logAccountAccess`). Dès que `paused` passe à `true` : déconnexion forcée
+(`disconnectSession()` — libère le slot de concurrence + `signOutFirebase()`), pose d'un flag
+`sessionStorage` (`zc.pausedByAdmin`) puis navigation complète (`window.location.href = '/'`, même
+schéma que l'expiration du chrono Démo ci-dessous — évite tout état React/Firebase résiduel). La
+page d'accueil (`page.tsx`) lit ce flag via `consumePausedByAdminFlag()`
+(`effectiveAccount.tsx`) et affiche le message `home.demo.pausedByAdmin` (déjà traduit FR/EN/ES/PT,
+préexistant mais jusqu'ici seulement affiché en cas de refus AU MOMENT de la connexion).
+
+**Bug n°2 signalé** : le sablier ⏳ de compte-à-rebours Démo (`DemoSessionTimerWidget.tsx`, en haut
+à droite) cessait de s'afficher « au bout d'un certain temps », après un rafraîchissement de page,
+ou après une déconnexion/reconnexion — le joueur ne savait alors plus combien de temps il lui
+restait.
+
+**Cause racine n°2** : `demoAccessRequests`/`demoSessions` exigent `auth != null` dans les règles
+RTDB (voir `docs/FIREBASE_CHAT.md` § 4). `subscribeDemoTimerInfo()` (tout comme la nouvelle
+`subscribePausedStatus()` ci-dessus avant son propre correctif) attachait son `onValue` **avant**
+d'attendre que Firebase Auth ait fini de restaurer l'utilisateur déjà connecté (restauration
+asynchrone depuis IndexedDB, qui prend un court instant après un rafraîchissement de page ou la
+réhydratation de la session mémorisée dans `localStorage` par `EffectiveAccountProvider`). Cette
+course déclenchait sporadiquement une erreur `permission denied` sur le tout premier essai
+d'attache du listener — erreur jamais rattrapée : le listener mourait silencieusement et `cb`
+n'était plus JAMAIS rappelée, bloquant `startedAt` à `null` pour le reste de la session (`deadline`
+donc toujours `null` ⇒ le widget `return null` en permanence, sans navigation ni message d'erreur).
+
+**Correctif n°2** : `subscribeDemoTimerInfo()` et `subscribePausedStatus()` attendent désormais
+explicitement `ensureAnonSignIn()` (résout dès que `onAuthStateChanged` confirme l'utilisateur
+restauré — anonyme, Google OU e-mail, sans jamais écraser une identité déjà connectée, voir
+`firebase.ts`) **avant** d'attacher `onValue`, exactement comme le font déjà toutes les fonctions
+d'écriture de ce module (`logAccountAccess`, `pauseAccountAccess`, etc.). La fonction de
+désabonnement retournée gère l'annulation si le composant démonte avant la résolution de la
+promesse (`cancelled` flag), pour ne jamais attacher un listener orphelin.
+
+**Vérification** : script Playwright jetable — session Démo anonyme démarrée, sablier confirmé
+visible avant ET après un rafraîchissement complet de la page (`page.reload()`) ; puis écriture
+RTDB directe (`update(..., { paused: true })`, simulant l'action admin) sur le nœud
+`demoAccessRequests/{uid}` de la session active pendant qu'elle est en train de jouer : redirection
+automatique vers l'accueil détectée en moins de 8 s, message de pause visible sur la page de
+destination. Zéro erreur console. `tsc --noEmit` propre.
+
 ## Lisibilité des champs de formulaire du menu Administration (classe partagée `.input`)
 
 **Bug signalé** : dans le menu Administration, le texte des champs (valeurs numériques du Barème

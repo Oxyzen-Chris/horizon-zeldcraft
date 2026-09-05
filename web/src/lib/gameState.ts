@@ -5926,6 +5926,35 @@ export async function pauseAccountAccess(uid: string, paused: boolean): Promise<
   await update(ref(db, `demoAccessRequests/${RKEY(uid)}`), { paused });
 }
 
+/** Écoute EN TEMPS RÉEL le champ `paused` d'UN compte Démo/fiat identifié — voir
+ * `EffectiveAccountProvider` (effectiveAccount.tsx) qui l'utilise pour déconnecter IMMÉDIATEMENT
+ * une session déjà en cours dès qu'un admin appuie sur "⏸ Mettre en pause" (PlayerStats.tsx),
+ * sans attendre une prochaine reconnexion.
+ * ⚠️ Bug corrigé : jusqu'ici, `paused` n'était vérifié QUE dans `logAccountAccess` (donc au moment
+ * de la connexion) — mettre un joueur en pause pendant qu'il jouait déjà n'avait AUCUN effet
+ * visible avant sa prochaine déconnexion/reconnexion volontaire, ce qui n'est pas acceptable pour
+ * une action de modération censée être immédiate (abus/triche en cours). Cette écoute `onValue`
+ * comble ce trou : toute bascule de `paused` faite par l'admin est reflétée en quelques centaines
+ * de ms dans la session du joueur concerné, qu'il soit en mode 'demo' (Accès Démo) ou 'fiat'
+ * (Jouer sans portefeuille) — les deux modes sont enregistrés dans le même nœud
+ * `demoAccessRequests/{uid}` (voir `logAccountAccess`). Attend `ensureAnonSignIn()` avant
+ * d'attacher `onValue` (même correctif de course auth que `subscribeDemoTimerInfo` ci-dessous —
+ * `demoAccessRequests` exige `auth != null`, voir docs/FIREBASE_CHAT.md § 4). */
+export function subscribePausedStatus(uid: string, cb: (paused: boolean) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(false); return () => {}; }
+  let cancelled = false;
+  let detach: () => void = () => {};
+  ensureAnonSignIn().then(() => {
+    if (cancelled) return;
+    const r = ref(db, `demoAccessRequests/${RKEY(uid)}/paused`);
+    const handler = (snap: DataSnapshot) => cb(snap.val() === true);
+    onValue(r, handler);
+    detach = () => off(r, 'value', handler);
+  });
+  return () => { cancelled = true; detach(); };
+}
+
 /** Nombre de sessions Démo actives simultanément, par sous-mode ('demo' approuvé vs 'anon' anonyme)
  * — alimenté par registerDemoSession/releaseDemoSession (présence Firebase `onDisconnect`). */
 export async function countActiveDemoSessions(kind: 'demo' | 'anon'): Promise<number> {
@@ -6040,26 +6069,49 @@ export async function getDemoTimerStartedAt(
  * Administration > Statistiques par joueur) — sans que le joueur ait besoin de se reconnecter ni
  * d'attendre un sondage périodique (bug corrigé : le sondage à 30s laissait croire que le
  * changement n'était "jamais pris en compte" si le joueur se déconnectait avant l'écoulement du
- * délai). */
+ * délai).
+ *
+ * ⚠️ Bug corrigé : `demoAccessRequests`/`demoSessions` exigent `auth != null` (voir
+ * docs/FIREBASE_CHAT.md § 4). Juste après un RAFRAÎCHISSEMENT de page (ou la restauration d'une
+ * session mémorisée dans `localStorage` par `EffectiveAccountProvider`), le SDK Firebase Auth met
+ * un court instant à restaurer l'utilisateur déjà connecté (lecture asynchrone d'IndexedDB) —
+ * l'ancien code appelait `onValue()` IMMÉDIATEMENT au montage du widget, AVANT que cette
+ * restauration soit terminée, ce qui déclenchait une erreur "permission denied" ponctuelle. Cette
+ * erreur n'était jamais rattrapée : le listener mourrait silencieusement et `cb` n'était plus JAMAIS
+ * rappelée, laissant `startedAt` bloqué à `null` pour le reste de la session (`deadline` toujours
+ * `null` ⇒ le sablier ne s'affichait plus du tout, jusqu'à la prochaine reconnexion complète) —
+ * exactement le symptôme rapporté ("le sablier n'apparaît plus après un rafraîchissement"). On
+ * attend désormais explicitement `ensureAnonSignIn()` (qui résout dès que
+ * `onAuthStateChanged` confirme l'utilisateur restauré — anonyme, Google OU e-mail, cf.
+ * firebase.ts — sans jamais écraser une identité déjà connectée) AVANT d'attacher `onValue`, comme
+ * le font déjà toutes les fonctions d'écriture de ce module (`logAccountAccess`,
+ * `pauseAccountAccess`, etc.). */
 export function subscribeDemoTimerInfo(
   uid: string, mode: 'approved' | 'anonymous',
   cb: (info: { startedAt: number | null; maxDurationMinOverride?: number }) => void,
 ): () => void {
   const db = getFirebaseDb();
   if (!db) { cb({ startedAt: null }); return () => {}; }
-  if (mode === 'anonymous') {
-    const r = ref(db, `demoSessions/anonTimer/${RKEY(uid)}`);
-    const handler = (snap: DataSnapshot) => cb({ startedAt: (snap.val() as { startedAt?: number } | null)?.startedAt ?? null });
+  let cancelled = false;
+  let detach: () => void = () => {};
+  ensureAnonSignIn().then(() => {
+    if (cancelled) return;
+    if (mode === 'anonymous') {
+      const r = ref(db, `demoSessions/anonTimer/${RKEY(uid)}`);
+      const handler = (snap: DataSnapshot) => cb({ startedAt: (snap.val() as { startedAt?: number } | null)?.startedAt ?? null });
+      onValue(r, handler);
+      detach = () => off(r, 'value', handler);
+      return;
+    }
+    const r = ref(db, `demoAccessRequests/${RKEY(uid)}`);
+    const handler = (snap: DataSnapshot) => {
+      const v = snap.val() as DemoAccessRequest | null;
+      cb({ startedAt: v?.demoSessionStartedAt ?? v?.requestedAt ?? null, maxDurationMinOverride: v?.maxDurationMinOverride });
+    };
     onValue(r, handler);
-    return () => off(r, 'value', handler);
-  }
-  const r = ref(db, `demoAccessRequests/${RKEY(uid)}`);
-  const handler = (snap: DataSnapshot) => {
-    const v = snap.val() as DemoAccessRequest | null;
-    cb({ startedAt: v?.demoSessionStartedAt ?? v?.requestedAt ?? null, maxDurationMinOverride: v?.maxDurationMinOverride });
-  };
-  onValue(r, handler);
-  return () => off(r, 'value', handler);
+    detach = () => off(r, 'value', handler);
+  });
+  return () => { cancelled = true; detach(); };
 }
 
 /** Relance le chrono Démo d'UN joueur identifié (Google) en particulier — bouton admin "🔄

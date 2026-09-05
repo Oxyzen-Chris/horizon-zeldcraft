@@ -579,6 +579,36 @@ toucher au mécanisme de déplacement (verrouillé, voir § Déplacement de Synk
   console. `tsc --noEmit` propre. Détail technique complet : `docs/ARCHITECTURE.md` § Correctif
   « tête/corps de Synk tournant en miroir » en Plateforme 3D.
 
+### 🔒 Historique — mise en pause admin non-immédiate + sablier Démo qui disparaît (refresh/reconnexion)
+
+Retour utilisateur : en Administration → 📊 Statistiques par joueur, mettre un joueur en pause
+n'était pas pris en compte immédiatement dans sa session déjà en cours (uniquement à sa prochaine
+reconnexion) ; de plus, le sablier ⏳ de compte-à-rebours Démo cessait de s'afficher après un
+certain temps, un rafraîchissement de page, ou une déconnexion/reconnexion (compte
+christophe.sintes.oxyzen@gmail.com).
+
+- **Cause n°1 (pause non-immédiate)** : le champ `paused` n'était vérifié qu'au moment de la
+  connexion (`logAccountAccess`) — aucun code n'observait ce champ pendant qu'une session Démo/Fiat
+  était déjà active.
+- **Correctif n°1** : nouvelle écoute temps réel `subscribePausedStatus()` (`gameState.ts`), branchée
+  dans `EffectiveAccountProvider` (`effectiveAccount.tsx`) pour toute session `'demo'` ou `'fiat'` —
+  déconnexion forcée + retour à l'accueil avec message dès que l'admin active la pause, sans attendre
+  une reconnexion.
+- **Cause n°2 (sablier qui disparaît)** : `demoAccessRequests`/`demoSessions` exigent
+  `auth != null` — `subscribeDemoTimerInfo()` attachait son `onValue` avant que Firebase Auth ait
+  fini de restaurer l'utilisateur déjà connecté après un rafraîchissement, provoquant une erreur
+  `permission denied` ponctuelle jamais rattrapée : le listener mourait silencieusement et
+  `startedAt` restait bloqué à `null` pour le reste de la session.
+- **Correctif n°2** : `subscribeDemoTimerInfo()` et `subscribePausedStatus()` attendent désormais
+  `ensureAnonSignIn()` avant d'attacher `onValue`, comme le font déjà toutes les fonctions
+  d'écriture de ce module.
+- **Vérification** : script Playwright jetable — sablier confirmé visible avant ET après un
+  rafraîchissement complet de page ; écriture RTDB directe simulant une mise en pause admin pendant
+  qu'une session Démo est active : redirection automatique vers l'accueil détectée en moins de 8 s,
+  message de pause affiché. Zéro erreur console. `tsc --noEmit` propre. Détail technique complet :
+  `docs/ARCHITECTURE.md` § « Mise en pause admin appliquée immédiatement à une session déjà en
+  cours + sablier Démo qui disparaît ».
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la

@@ -20,9 +20,9 @@
  * `app/admin/page.tsx` — la sécurité de propriétaire du contrat — et `NetworkSwitcher.tsx` — qui
  * bascule le réseau d'un VRAI portefeuille — restent volontairement sur le vrai `useAccount()`).
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react';
 import { useAccount } from 'wagmi';
-import { releaseDemoSession } from './gameState';
+import { releaseDemoSession, subscribePausedStatus } from './gameState';
 import { signOutFirebase } from './firebase';
 
 export type EffectiveAccountKind = 'wallet' | 'demo' | 'fiat';
@@ -42,6 +42,10 @@ export interface EffectiveSession {
 }
 
 const STORAGE_KEY = 'zc.effectiveSession';
+/** Flag posé juste avant la déconnexion forcée pour cause de mise en pause admin (voir
+ * `EffectiveAccountProvider` ci-dessous) — lu une seule fois par la page d'accueil
+ * (`consumePausedByAdminFlag()`, voir page.tsx) pour afficher `home.demo.pausedByAdmin`. */
+const PAUSED_FLAG_KEY = 'zc.pausedByAdmin';
 
 function readStoredSession(): EffectiveSession | null {
   if (typeof window === 'undefined') return null;
@@ -97,6 +101,38 @@ export function EffectiveAccountProvider({ children }: { children: ReactNode }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wagmiAccount.isConnected]);
 
+  // ⚠️ Bug corrigé : mettre un joueur en pause depuis Administration > Statistiques par joueur
+  // ("⏸ Mettre en pause") n'avait AUCUN effet sur une session Démo/Fiat DÉJÀ en cours — `paused`
+  // n'était vérifié qu'à la connexion (`logAccountAccess`), donc un joueur déjà connecté pouvait
+  // continuer à jouer normalement jusqu'à sa prochaine déconnexion/reconnexion volontaire. Cette
+  // écoute `onValue` (subscribePausedStatus) réagit IMMÉDIATEMENT (quelques centaines de ms) à une
+  // mise en pause (ou réactivation, qui n'a ici qu'à ne rien faire) déclenchée par l'admin PENDANT
+  // que le joueur est en train de jouer : déconnexion forcée + retour à l'accueil avec message
+  // explicite, exactement comme l'expiration du chrono Démo (voir DemoSessionTimerWidget.tsx, même
+  // schéma). S'applique aux DEUX modes 'demo' ET 'fiat' (les deux sont enregistrés dans le même
+  // nœud `demoAccessRequests/{uid}`, voir gameState.ts::logAccountAccess).
+  const pausedHandled = useRef(false);
+  useEffect(() => {
+    pausedHandled.current = false;
+    if (!session || (session.kind !== 'demo' && session.kind !== 'fiat')) return;
+    const unsub = subscribePausedStatus(session.uid, (paused) => {
+      if (!paused || pausedHandled.current) return;
+      pausedHandled.current = true;
+      (async () => {
+        await disconnectSession();
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem(PAUSED_FLAG_KEY, '1');
+          // Navigation complète (PAS de router.push) : même raison que pour l'expiration du chrono
+          // Démo (voir DemoSessionTimerWidget.tsx) — garantit un réaffichage propre du message et
+          // une réinitialisation complète des hooks wagmi/Firebase.
+          window.location.href = '/';
+        }
+      })();
+    });
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.uid, session?.kind]);
+
   const value = useMemo(
     () => ({ session, setSession, disconnectSession }),
     [session, setSession, disconnectSession],
@@ -139,4 +175,16 @@ export function useEffectiveSession(): EffectiveSession | null {
 /** Démarre/termine explicitement une session Démo/Fiat (voir page.tsx, game/page.tsx). */
 export function useEffectiveSessionControls() {
   return useContext(EffectiveAccountContext);
+}
+
+/** À appeler sur la page d'accueil (une seule fois, voir page.tsx) pour afficher le message
+ * "accès mis en pause par l'administrateur" après une déconnexion forcée déclenchée par la mise en
+ * pause EN TEMPS RÉEL d'un compte Démo/Fiat déjà connecté (voir l'effet `subscribePausedStatus`
+ * dans `EffectiveAccountProvider` ci-dessus) — même schéma que `consumeDemoExpiredFlag()`
+ * (DemoSessionTimerWidget.tsx). */
+export function consumePausedByAdminFlag(): boolean {
+  if (typeof window === 'undefined') return false;
+  const v = window.sessionStorage.getItem(PAUSED_FLAG_KEY);
+  if (v) window.sessionStorage.removeItem(PAUSED_FLAG_KEY);
+  return !!v;
 }

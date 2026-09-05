@@ -13,6 +13,7 @@ import { useI18n } from '@/lib/i18n';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { getRepRules } from '@/lib/gameState';
 import { consumeDemoExpiredFlag } from '@/components/DemoSessionTimerWidget';
+import { consumePausedByAdminFlag } from '@/lib/effectiveAccount';
 
 export default function Home() {
   const { isConnected, accountType } = useEffectiveAccount();
@@ -22,6 +23,7 @@ export default function Home() {
   const { t } = useI18n();
   const [walletConnectEnabled, setWalletConnectEnabled] = useState(true);
   const [demoExpiredMessage, setDemoExpiredMessage] = useState(false);
+  const [pausedMessage, setPausedMessage] = useState(false);
 
   useEffect(() => { getRepRules().then((r) => setWalletConnectEnabled(r.walletConnectEnabled !== false)).catch(() => {}); }, []);
   useEffect(() => {
@@ -30,6 +32,7 @@ export default function Home() {
     // la 2e lecture renverrait toujours `false` et effacerait silencieusement le message (bug
     // constaté via Playwright). On ne met à jour l'état QUE si le flag était bien présent.
     if (consumeDemoExpiredFlag()) setDemoExpiredMessage(true);
+    if (consumePausedByAdminFlag()) setPausedMessage(true);
   }, []);
 
   // Le bouton "Connecter le portefeuille" reste TOUJOURS visible pour un joueur déjà connecté
@@ -68,6 +71,11 @@ export default function Home() {
             {demoExpiredMessage && (
               <p className="text-sm text-amber-300 bg-amber-950/40 border border-amber-700/50 rounded p-2 mt-4 max-w-xl mx-auto">
                 ⏳ {t('home.demo.sessionExpired')}
+              </p>
+            )}
+            {pausedMessage && (
+              <p className="text-sm text-amber-300 bg-amber-950/40 border border-amber-700/50 rounded p-2 mt-4 max-w-xl mx-auto">
+                ⏸ {t('home.demo.pausedByAdmin')}
               </p>
             )}
             <NoWalletAccessPanel />
