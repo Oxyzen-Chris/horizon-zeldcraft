@@ -1380,6 +1380,8 @@
   "map.filters.questsClassic": "Missões clássicas",
   "map.filters.questsNpc": "Missões de PNJ",
   "map.filters.questsKingdom": "Missões do Reino",
+  "map.filters.declutter": "Reduzir a sobrecarga",
+  "map.filters.declutterHint": "Filtro inteligente: oculta os marcadores do catálogo distantes de Synk para desafogar o mapa. O PNJ/Dragão errante, o PNJ que se aproxima e a Missão do Reino permanecem sempre visíveis.",
   "map.filters.kingdomChapters": "Capítulos",
   "map.filters.kingdomChaptersAll": "Todos",
   "map.filters.kingdomFullMoon": "Lua cheia",

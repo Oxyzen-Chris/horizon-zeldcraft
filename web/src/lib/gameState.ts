@@ -2643,11 +2643,15 @@ export interface MapFilterDefaults {
   showPois: boolean; showWorlds: boolean; showNpcs: boolean; showTreasures: boolean; showFamiliars: boolean;
   showQuestsClassic: boolean; showQuestsNpc: boolean; showQuestsKingdom: boolean;
   kingdomFullMoonMode: 'all' | 'onlyFullMoon' | 'onlyNormal';
+  /** "Filtre intelligent" par défaut (voir lib/mapFilters.ts::MapFilterState.declutter) — `false`
+   * par défaut (comportement historique inchangé). */
+  declutter: boolean;
   updatedAt: number;
 }
 export const DEFAULT_MAP_FILTER_DEFAULTS: MapFilterDefaults = {
   showPois: true, showWorlds: true, showNpcs: true, showTreasures: true, showFamiliars: true,
-  showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true, kingdomFullMoonMode: 'all', updatedAt: 0,
+  showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true, kingdomFullMoonMode: 'all',
+  declutter: false, updatedAt: 0,
 };
 export async function getMapFilterDefaults(): Promise<MapFilterDefaults> {
   const db = getFirebaseDb();

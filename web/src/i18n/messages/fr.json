@@ -1380,6 +1380,8 @@
   "map.filters.questsClassic": "Quêtes classiques",
   "map.filters.questsNpc": "Quêtes PNJ",
   "map.filters.questsKingdom": "Quêtes du Royaume",
+  "map.filters.declutter": "Réduire l'affichage",
+  "map.filters.declutterHint": "Filtre intelligent : masque les marqueurs catalogue éloignés de Synk pour désencombrer la carte. Les PNJ/Dragon errants, le PNJ en approche et la Quête du Royaume restent toujours visibles.",
   "map.filters.kingdomChapters": "Chapitres",
   "map.filters.kingdomChaptersAll": "Tous",
   "map.filters.kingdomFullMoon": "Pleine lune",

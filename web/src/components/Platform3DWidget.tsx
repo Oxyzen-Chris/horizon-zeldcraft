@@ -18,16 +18,18 @@ import {
   isObstacleAt, type Tile,
 } from '@/lib/worldTerrain';
 import { STAGE_NAMES } from '@/lib/contract';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
+import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
+import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 
 const POS_KEY = 'zc.platform3dWidgetPos';
 const COLLAPSED_KEY = 'zc.platform3dWidgetCollapsed';
@@ -1321,7 +1323,12 @@ function Scene({
       {sceneMarkers.map(m => {
         const markerScaleKind: Platform3DObjectKind | null = m.kind === 'npc' ? 'marker:npc' : m.kind === 'familiar' ? 'marker:familiar' : null;
         const markerScale = markerScaleKind ? ((objectFlags ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS)[markerScaleKind]?.scale ?? 1) : 1;
-        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={() => onMarkerClick(m.marker)} />;
+        // Le PNJ "en approche" (voir lib/npcApproach.ts) est un marqueur SYNTHÉTIQUE, absent du
+        // catalogue (`getAllMapMarkers`) — un clic dessus ne doit donc jamais router vers
+        // onMarkerClick (qui suppose un vrai MapMarker catalogue), l'interaction se fait déjà dans
+        // le pop-up NpcEncounterPopup lui-même. Purement informatif, comme en 2D.
+        const isEncounterMarker = m.id === 'encounter.npc.live';
+        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={isEncounterMarker ? () => {} : () => onMarkerClick(m.marker)} />;
       })}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
@@ -1446,7 +1453,7 @@ function UnderwaterScene({ stage, facing, equipment, equipmentRenderEnabled, fis
  * + un canal de déplacement supplémentaire, donc zéro risque de régression sur les mécaniques
  * existantes.
  */
-export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stage: number; playerXp?: number; enabled?: boolean }) {
+export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = true }: { stage: number; playerXp?: number; encounterNpc?: EncounterMarkerInfo; enabled?: boolean }) {
   const { t } = useI18n();
   const { address } = useEffectiveAccount();
   const { z, bringToFront } = useWindowZIndex();
@@ -1487,8 +1494,16 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       if (p && p.mapId === DEFAULT_MAP_ID) setWorldPos({ x: p.x, y: p.y });
     });
   }, [address]);
+  // Alimente lib/npcApproach.ts avec la position COURANTE de Synk (voir GameCanvas2D.tsx, même
+  // appel) — les deux widgets peuvent chacun être démonté/masqué indépendamment (repRules), donc
+  // les deux rapportent la même valeur pour garantir que l'approche reste alimentée quel que soit
+  // celui effectivement monté.
+  useEffect(() => { reportSynkApproachTarget(worldPos.x, worldPos.y); }, [worldPos]);
 
   const roamingActors = useRoamingActors();
+  // Position live du PNJ actuellement "en approche" (rencontre sollicitée) — voir
+  // lib/npcApproach.ts et son utilisation symétrique dans GameCanvas2D.tsx.
+  const npcApproach = useNpcApproach();
 
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   useEffect(() => { getAllMapMarkers(DEFAULT_MAP_ID).then(setMarkers).catch(() => {}); }, []);
@@ -1578,6 +1593,16 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       const base = markers.find(mk => mk.kind === 'familiar' && mk.id === roamingActors.dragonMarkerId);
       if (base) roamingMarkers.push({ ...base, x: roamingActors.dragon.x, y: roamingActors.dragon.y });
     }
+    // PNJ "en approche" (rencontre sollicitée, voir lib/npcApproach.ts) — matérialisé ici comme un
+    // marqueur synthétique `kind: 'npc'` (jamais issu du catalogue, `markerId` dédié
+    // 'encounter.npc.live' pour une apparence déterministe stable via npcAppearance()) qui marche
+    // progressivement vers Synk, EXACTEMENT comme le PNJ errant ci-dessus, au lieu de rester absent
+    // de la Plateforme 3D (bug initial : ce widget ne recevait même pas `encounterNpc`).
+    const encounterMarkers: MapMarker[] = (encounterNpc && npcApproach.active) ? [{
+      id: 'encounter.npc.live', kind: 'npc',
+      name: localizeName(t, `npc.archetype.${encounterNpc.baseKey}`, encounterNpc.baseKey),
+      icon: '❗', x: npcApproach.x, y: npcApproach.y,
+    }] : [];
     // Exclut du catalogue statique les entrées dont l'identité vient d'être réutilisée ci-dessus
     // (roamingMarkers) : sans ce filtre, un PNJ/Dragon dont la fiche catalogue se trouve ELLE-MÊME
     // dans le rayon 3D affiché apparaîtrait EN DOUBLE (sa position catalogue fixe ET sa position
@@ -1588,24 +1613,27 @@ export function Platform3DWidget({ stage, playerXp = 0, enabled = true }: { stag
       ? markers.filter(mk => mk.id !== roamingActors.npcMarkerId && mk.id !== roamingActors.dragonMarkerId)
       : markers;
     const all = kingdomMarker
-      ? [...baseMarkers, kingdomMarker, ...zorghonMarkers, ...roamingMarkers]
-      : [...baseMarkers, ...zorghonMarkers, ...roamingMarkers];
+      ? [...baseMarkers, kingdomMarker, ...zorghonMarkers, ...roamingMarkers, ...encounterMarkers]
+      : [...baseMarkers, ...zorghonMarkers, ...roamingMarkers, ...encounterMarkers];
     const out: SceneMarker[] = [];
     for (const m of all) {
       const dx = Math.round(m.x) - centerCol, dz = Math.round(m.y) - centerRow;
       if (Math.abs(dx) > VIEW_RADIUS || Math.abs(dz) > VIEW_RADIUS) continue;
-      // Facing/moving : uniquement pour le PNJ/Dragon errant (voir lib/roamingActors.ts) — oriente
-      // le personnage 3D dans sa direction de marche courante et déclenche sa démarche animée
-      // (bras/jambes articulés, voir NpcVoxel/DragonMarker) au lieu de l'ancienne rotation continue
-      // générique ("toupie") appliquée par défaut à tout marqueur flottant.
+      // Facing/moving : PNJ/Dragon errant (voir lib/roamingActors.ts) OU PNJ "en approche" (voir
+      // lib/npcApproach.ts) — oriente le personnage 3D dans sa direction de marche courante et
+      // déclenche sa démarche animée (bras/jambes articulés, voir NpcVoxel/DragonMarker) au lieu de
+      // l'ancienne rotation continue générique ("toupie") appliquée par défaut à tout marqueur
+      // flottant. `undefined` pour tout marqueur catalogue statique — comportement idle inchangé.
       const facing = m.id === roamingActors.npcMarkerId ? roamingActors.npcFacing
-        : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonFacing : undefined;
+        : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonFacing
+        : m.id === 'encounter.npc.live' ? npcApproach.facing : undefined;
       const moving = m.id === roamingActors.npcMarkerId ? roamingActors.npcMoving
-        : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonMoving : undefined;
+        : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonMoving
+        : m.id === 'encounter.npc.live' ? npcApproach.moving : undefined;
       out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m, facing, moving });
     }
     return out;
-  }, [markers, kingdomMarker, zorghonEncounter, centerCol, centerRow, roamingActors]);
+  }, [markers, kingdomMarker, zorghonEncounter, centerCol, centerRow, roamingActors, encounterNpc, npcApproach, t]);
 
   const currentTile = useMemo(() => worldTileAt(centerCol, centerRow, poiPoints), [centerCol, centerRow, poiPoints]);
   const swimming = currentTile.terrain === 'water';

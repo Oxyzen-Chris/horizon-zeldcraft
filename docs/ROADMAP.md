@@ -629,6 +629,38 @@ dans son filtre d'affichage « PNJ ».
   console. `tsc --noEmit` propre. Détail technique complet : `docs/ARCHITECTURE.md` §
   « Identification des PNJ/Dragon errants sur la Mapmonde + intégration aux filtres ».
 
+### 🔒 Historique — approche progressive du PNJ de rencontre + marqueur live Mapmonde + filtre « declutter »
+
+Retour utilisateur : quand un PNJ vient solliciter le joueur (quête/troc/combat/discussion), le
+voir arriver progressivement (déplacement naturel, même esprit que le PNJ/Dragon errant) jusqu'à
+Synk dans la « Plateforme 2D isométrique » ET la « Plateforme 3D », au lieu d'apparaître
+instantanément à côté de lui — et être clairement identifié sur la Mapmonde (anneau clignotant +
+libellé + filtres « PNJ »/« Familiers »), avec un filtre intelligent pour éviter la surcharge de
+marqueurs sur la Mapmonde.
+
+- **Cause** : le PNJ de rencontre (`NpcEncounterPopup.tsx`) n'avait aucune position propre par
+  conception — chaque widget le dessinait instantanément à côté de Synk, sans déplacement ni
+  présence sur la Mapmonde ; `Platform3DWidget.tsx` ne recevait même pas cette info du tout
+  (prop manquante dans `game/page.tsx`), d'où son absence totale du widget 3D.
+- **Correctif** : nouveau module `lib/npcApproach.ts` (même patron que `lib/roamingActors.ts`)
+  pilotant une position live d'approche progressive (démarre à 3-6 cases de Synk, avance par
+  à-coups toutes les 1100 ms) ; consommé par `GameCanvas2D.tsx` (glissement CSS + rebond à
+  l'arrivée) et `Platform3DWidget.tsx` (personnage voxel articulé, via un marqueur synthétique
+  réutilisant le pipeline existant) ; `WorldMapWidget.tsx` affiche désormais ce PNJ avec le même
+  anneau clignotant que le PNJ/Dragon errant, son libellé indiquant le type de sollicitation
+  (« Quête »/« Troc »/« Combat »/« Discussion »). Nouveau filtre « declutter » (🧹,
+  `lib/mapFilters.ts`) masquant les marqueurs catalogue éloignés de Synk (rayon configurable),
+  toujours désactivé par défaut, avec exemption permanente des PNJ/Dragon errants, du PNJ en
+  approche, des marqueurs de Royaume et des marqueurs rares (`zorghon`/`captive`).
+- **Vérification** : script Playwright jetable — rencontre PNJ forcée (5 tirages : Quête/Troc/
+  Combat/Discussion confirmés), 3 anneaux clignotants sur la Mapmonde avec libellés corrects,
+  marqueur équivalent confirmé en Plateforme 2D isométrique (position + transition + rebond à
+  l'arrivée) et personnage voxel confirmé visible en Plateforme 3D (capture d'écran). Filtre
+  « declutter » : 222 → 89 marqueurs à l'activation → 222 à la désactivation (aucune régression
+  persistante). Zéro erreur console. `tsc --noEmit` propre. Détail technique complet :
+  `docs/ARCHITECTURE.md` § « Approche progressive du PNJ de rencontre + marqueur live Mapmonde +
+  filtre "declutter" ».
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la

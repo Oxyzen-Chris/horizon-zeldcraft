@@ -27,6 +27,7 @@ import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
+import { useNpcApproach } from '@/lib/npcApproach';
 
 const POS_KEY = 'zc.mapWidgetPos';
 const SIZE_KEY = 'zc.mapWidgetSize';
@@ -144,6 +145,37 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     }
     return list;
   }, [roamingActors.npcMarkerId, roamingActors.dragonMarkerId, roamingActors.npc.x, roamingActors.npc.y, roamingActors.dragon.x, roamingActors.dragon.y, roamingNpcMarker, roamingDragonMarker, t]);
+
+  // ─── PNJ "en approche" (rencontre sollicitée — quête/troc/combat, voir NpcEncounterPopup.tsx) ───
+  // Position live partagée (voir lib/npcApproach.ts) : marche progressivement vers Synk au lieu
+  // d'apparaître instantanément à sa position (voir demande utilisateur « je veux le voir
+  // progressivement arriver [...] je veux qu['il] soit clairement identifié sur la mapmonde [...]
+  // avec un anneau clignotant [...] en respectant bien les filtres PNJ/Familiers »). Fusionné avec
+  // `roamingLiveMarkers` ci-dessus dans `liveActorMarkers` pour partager EXACTEMENT le même rendu
+  // (anneau `animate-ping` + libellé toujours visible) et le même filtrage.
+  const npcApproach = useNpcApproach();
+  const encounterLiveMarker = useMemo<MapMarker | null>(() => {
+    if (!encounterNpc || !npcApproach.active) return null;
+    return {
+      id: 'encounter.npc.live', kind: 'npc',
+      name: localizeName(t, `npc.archetype.${encounterNpc.baseKey}`, encounterNpc.baseKey),
+      icon: NPC_SKINS[encounterNpc.skin] ?? '❗',
+      x: npcApproach.x, y: npcApproach.y,
+    };
+  }, [encounterNpc, npcApproach.active, npcApproach.x, npcApproach.y, t]);
+  const liveActorMarkers = useMemo<MapMarker[]>(
+    () => encounterLiveMarker ? [...roamingLiveMarkers, encounterLiveMarker] : roamingLiveMarkers,
+    [roamingLiveMarkers, encounterLiveMarker],
+  );
+  /** Libellé de catégorie affiché en suffixe du marqueur "en direct" (voir rendu plus bas) —
+   * distingue "PNJ errant"/"Dragon errant" (errance ambiante) du PNJ "en approche" (dont le
+   * libellé reprend le TYPE de sollicitation : quête/troc/combat/discussion, bien plus parlant
+   * qu'un simple "errant" pour un PNJ qui vient délibérément à la rencontre du joueur). */
+  const liveActorKindLabel = useCallback((m: MapMarker): string => {
+    if (m.id === 'roaming.dragon.live') return t('canvas2d.dragonLabel');
+    if (m.id === 'encounter.npc.live' && encounterNpc) return localizeName(t, `npc.offer.${encounterNpc.offer}`, encounterNpc.offer);
+    return t('canvas2d.npcLabel');
+  }, [encounterNpc, t]);
 
   const [toast, setToast] = useState<string | null>(null);
   const [travelConfirm, setTravelConfirm] = useState<WorldDef | null>(null);
@@ -555,7 +587,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
               <button
                 key={cat.key}
                 onClick={() => setMapFilters({ [cat.key]: !mapFilters[cat.key] } as Partial<typeof mapFilters>)}
-                title={t(cat.i18nKey)}
+                title={cat.key === 'declutter' ? t('map.filters.declutterHint') : t(cat.i18nKey)}
                 className={`text-xs px-1.5 py-0.5 rounded border ${
                   mapFilters[cat.key] ? 'bg-emerald-800/70 border-emerald-500 text-emerald-100' : 'bg-slate-800/60 border-slate-600 text-slate-400 opacity-60'
                 }`}
@@ -682,7 +714,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
               ci-dessous) est exclu ICI (`m.id !== roamingActors.npcMarkerId && ...`) pour ne jamais
               afficher deux fois le même personnage : une fois à sa position CATALOGUE figée, une
               fois à sa position EN DIRECT — seule cette dernière doit apparaître. */}
-          {[...entityMarkers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId), ...(kingdomMarker ? [kingdomMarker] : []), ...zorghonMarkers].filter(m => markerMatchesFilters(m, mapFilters)).map(m => (
+          {[...entityMarkers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId), ...(kingdomMarker ? [kingdomMarker] : []), ...zorghonMarkers].filter(m => markerMatchesFilters(m, mapFilters, mapPos)).map(m => (
             <div key={`${m.kind}-${m.id}`} title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
               className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none ${m.isKingdom ? 'animate-pulse' : ''}`}
               style={{ left: `${m.x}%`, top: `${m.y}%` }}>
@@ -690,16 +722,20 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
             </div>
           ))}
 
-          {/* PNJ/Dragon errant — position EN DIRECT sur toute la mapmonde (voir lib/roamingActors.ts),
-              pour que le joueur sache TOUJOURS où ils se trouvent actuellement (répond à la demande
-              utilisateur « identifie clairement [...] afin de savoir où ils se trouvent »). Anneau
-              pulsant + nom TOUJOURS visible (indépendamment du niveau de zoom, contrairement aux POI
-              ci-dessus) pour bien les distinguer des marqueurs catalogue figés. Respecte les mêmes
-              filtres « PNJ »/« Familiers » que leurs homologues statiques (voir roamingLiveMarkers :
-              kind 'npc'/'familiar') — répond à « les ajouter dans le filtre d'affichage des PNJ ». */}
-          {roamingLiveMarkers.filter(m => markerMatchesFilters(m, mapFilters)).map(m => (
-            <div key={`roaming-${m.kind}-${m.id}`}
-              title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)} · ${m.kind === 'npc' ? t('canvas2d.npcLabel') : t('canvas2d.dragonLabel')}`}
+          {/* PNJ/Dragon errant + PNJ "en approche" — position EN DIRECT sur toute la mapmonde (voir
+              lib/roamingActors.ts/lib/npcApproach.ts), pour que le joueur sache TOUJOURS où ils se
+              trouvent actuellement (répond à la demande utilisateur « identifie clairement [...]
+              afin de savoir où ils se trouvent » ainsi que « je veux que [le PNJ en approche] soit
+              clairement identifié sur la mapmonde [...] avec un anneau clignotant [...] tout comme
+              le PNJ et le Dragon errants »). Anneau pulsant + nom TOUJOURS visible (indépendamment
+              du niveau de zoom, contrairement aux POI ci-dessus, et TOUJOURS visible même si le
+              "filtre intelligent" declutter est actif, voir LIVE_ACTOR_MARKER_IDS dans
+              lib/mapFilters.ts) pour bien les distinguer des marqueurs catalogue figés. Respecte
+              les mêmes filtres « PNJ »/« Familiers » que leurs homologues statiques (kind
+              'npc'/'familiar') — répond à « les ajouter dans le filtre d'affichage des PNJ ». */}
+          {liveActorMarkers.filter(m => markerMatchesFilters(m, mapFilters, mapPos)).map(m => (
+            <div key={`live-${m.kind}-${m.id}`}
+              title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)} · ${liveActorKindLabel(m)}`}
               className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none transition-all duration-[1500ms]"
               style={{ left: `${m.x}%`, top: `${m.y}%` }}>
               <span className="absolute rounded-full border-2 border-amber-400 animate-ping" style={{ width: 20 + zoom * 8, height: 20 + zoom * 8 }} />
@@ -728,18 +764,10 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
             );
           })}
 
-          {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) juste au
-              nord de Synk, tant que le pop-up reste affiché (voir encounterNpc/onEncounterChange) */}
-          {encounterNpc && (
-            <div
-              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center animate-bounce"
-              style={{ left: `${mapPos.x}%`, top: `${Math.max(0, mapPos.y - 1)}%` }}
-              title={`${NPC_SKINS[encounterNpc.skin]} ${localizeName(t, `npc.archetype.${encounterNpc.baseKey}`, encounterNpc.baseKey)} · ${localizeName(t, `npc.offer.${encounterNpc.offer}`, encounterNpc.offer)}`}
-            >
-              <span className="text-[10px] leading-none">❗</span>
-              <span style={{ fontSize: 14 + zoom * 6 }}>{NPC_SKINS[encounterNpc.skin]}</span>
-            </div>
-          )}
+          {/* PNJ "en approche" — désormais rendu via liveActorMarkers ci-dessus (anneau clignotant +
+              libellé, position live lib/npcApproach.ts) : ce bloc statique (téléportation instantanée
+              juste au nord de Synk, sans anneau ni respect des filtres) a été retiré pour éviter un
+              double affichage du même PNJ. */}
 
           {/* Position de Synk */}
           <div

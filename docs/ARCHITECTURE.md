@@ -345,6 +345,83 @@ du filtre « PNJ » ⇒ le marqueur PNJ errant disparaît, le marqueur Dragon er
 réactivation puis désactivation du filtre « Familiers » ⇒ inverse (Dragon errant disparaît, PNJ
 errant reste visible). Zéro erreur console. `tsc --noEmit` propre.
 
+## 🔒 Approche progressive du PNJ de rencontre + marqueur live Mapmonde + filtre « declutter »
+
+**Demande utilisateur** : quand un PNJ vient solliciter le joueur (quête/troc/combat/discussion,
+voir `NpcEncounterPopup.tsx`), le voir **arriver progressivement** avec un déplacement naturel
+(même esprit que les commits `80b4109`/`7cb9439`/`3770616`, déplacement du PNJ/Dragon errant)
+jusqu'à Synk dans la « Plateforme 2D isométrique » ET la « Plateforme 3D » (widgets synchronisés),
+au lieu d'apparaître instantanément à côté de lui. Il doit aussi être **clairement identifié sur la
+Mapmonde** avec un anneau clignotant + libellé toujours visible + position live, en respectant les
+filtres « PNJ »/« Familiers » — exactement comme le PNJ/Dragon errant (`c1941cc`). Enfin, un
+**« filtre intelligent »** sur la Mapmonde doit éviter la surcharge visuelle de marqueurs.
+
+**Cause racine** : `NpcEncounterPopup.tsx` expose l'info de rencontre (`EncounterMarkerInfo` :
+archétype, skin, alignement, offre) via `onEncounterChange`, mais **sans aucune position propre par
+conception** — chaque widget se contentait auparavant de le dessiner INSTANTANÉMENT juste à côté de
+la position courante de Synk (aucun déplacement, aucune présence sur la Mapmonde).
+`Platform3DWidget.tsx` ne recevait même pas la prop `encounterNpc` du tout (absente de son
+appel dans `game/page.tsx`), d'où sa disparition totale du widget 3D.
+
+**Correctif** :
+- **`lib/npcApproach.ts` (nouveau module, portée module comme `lib/roamingActors.ts`)** : pilote
+  une position live dédiée pour le PNJ « en approche ». Démarre à un point aléatoire (3 à 6 cases
+  de Synk), avance par à-coups (`tick` toutes les 1100 ms, jusqu'à 1,1 case/tick) vers une case
+  adjacente à Synk, expose `{active, x, y, facing, moving}`. `beginNpcApproach()`/
+  `endNpcApproach()` sont appelées **uniquement** depuis `game/page.tsx::handleEncounterChange`
+  (source de vérité unique, via `wasEncounterActiveRef` détectant les transitions null→info et
+  info→null — évite tout déclenchement en double depuis plusieurs widgets).
+  `reportSynkApproachTarget(x, y)` est appelée en continu par `GameCanvas2D.tsx` ET
+  `Platform3DWidget.tsx` (chacun suit déjà la position monde de Synk via `subscribePlayerMapPos`).
+- **`game/page.tsx`** : ajout du déclenchement begin/end + correction de la prop `encounterNpc`
+  manquante sur `<Platform3DWidget>`.
+- **`GameCanvas2D.tsx`** : l'ancien encart figé « adjacent à Synk » est remplacé par un rendu à la
+  position live (`approachInView`/`approachLocal`, même gating de fenêtre de vue que le PNJ/Dragon
+  errant), avec `transition-all duration-[1500ms]` pour l'effet de glissement, et `animate-bounce`
+  seulement une fois arrivé (`!npcApproach.moving`).
+- **`Platform3DWidget.tsx`** : ajout de la prop `encounterNpc` (absente jusqu'ici) ; un marqueur
+  synthétique `id: 'encounter.npc.live'` (`kind: 'npc'`) est injecté dans `sceneMarkers`, avec
+  position/`facing`/`moving` venant de `npcApproach` — réutilise intégralement le pipeline voxel
+  articulé existant (`npcAppearance(id, name)` dérive une apparence 3D complète depuis un hash de
+  l'id/nom, donc un marqueur synthétique sans entrée catalogue réelle s'affiche parfaitement). Le
+  clic sur ce marqueur est un no-op délibéré (`onMarkerClick3D` suppose une entrée catalogue réelle).
+- **`WorldMapWidget.tsx`** : nouveau mémo `encounterLiveMarker` (marqueur synthétique `kind: 'npc'`
+  à la position `npcApproach.x/y`, actif seulement si `npcApproach.active`), fusionné avec
+  `roamingLiveMarkers` dans `liveActorMarkers` pour un rendu unique (anneau `animate-ping` +
+  libellé toujours visible, identique au PNJ/Dragon errant). Le libellé de catégorie est calculé
+  par `liveActorKindLabel(m)` : pour ce marqueur, il affiche le **type de sollicitation**
+  (`npc.offer.trade/quest/fight/chat` → « Troc »/« Quête »/« Combat »/« Discussion »), pas
+  « PNJ errant » (qui n'aurait aucun sens ici). L'ancien encart statique (téléportation instantanée,
+  sans anneau, sans filtre) a été retiré pour éviter un double affichage.
+- **Filtre « declutter » (🧹, `lib/mapFilters.ts`)** : nouveau champ `declutter: boolean` (défaut
+  `false` partout, pour ne jamais changer silencieusement la visibilité des marqueurs d'un joueur
+  existant) ; constante `DECLUTTER_RADIUS_PCT = 24` (échelle Mapmonde 0-100) ; ensemble
+  `LIVE_ACTOR_MARKER_IDS` (PNJ/Dragon errants + PNJ en approche) toujours exempté, de même que les
+  marqueurs `isKingdom` et de type `zorghon`/`captive` (rares/temporaires, doivent rester visibles
+  quelle que soit la distance). `markerMatchesFilters(m, f, playerPos?)` accepte un 3ᵉ paramètre
+  optionnel `playerPos` : si `f.declutter` est actif et le marqueur non exempté, il est masqué au
+  -delà de `DECLUTTER_RADIUS_PCT` de la position de Synk. Rétrocompatible : les appels existants de
+  `GameCanvas2D.tsx` (sans ce 3ᵉ argument) restent inchangés — le fenêtrage caméra de ce widget est
+  déjà bien plus étroit que le rayon de déclutter, rendant ce filtre inutile à cet endroit. Ajout
+  d'une entrée dans `MAP_FILTER_CATEGORIES` : câble automatiquement un bouton joueur (barre de
+  filtres de `WorldMapWidget.tsx`) et un défaut admin-configurable (`MapFiltersAdminPanel.tsx`,
+  `gameState.ts::MapFilterDefaults`), sans code UI supplémentaire (les deux réutilisent une boucle
+  `.map()` générique sur ce tableau).
+
+**Vérification** : script Playwright jetable — session Démo anonyme, widgets Mapmonde/Plateforme 2D
+isométrique/Plateforme 3D ouverts, rencontre PNJ forcée (horodatages `localStorage`
+`zc.popupNext.*`/`zc.popupCount.*` du planificateur « battement de cœur » de `NpcEncounterPopup.tsx`
+remis à zéro puis rechargement) : popup de rencontre confirmé affiché (offres « Quête »/« Troc »/
+« Combat »/« Discussion » testées sur 5 tirages), 3 anneaux clignotants présents sur la Mapmonde
+(PNJ errant, Dragon errant, PNJ en approche) avec libellés corrects (`"🥷 Templier · Quête"`,
+`"🧙 Voleur · Combat"`, `"🧝 Sorcier · Troc"`, `"🧛 Villageois · Discussion"`), position en `%`
+avec transition `1500ms` confirmée ; marqueur équivalent confirmé dans `GameCanvas2D.tsx` (position
+locale en pixels, même transition, `animate-bounce` une fois arrivé) ; personnage voxel articulé
+confirmé visible à proximité de Synk dans `Platform3DWidget.tsx` (capture d'écran). Filtre
+« declutter » : 222 marqueurs catalogue avant activation → 89 après activation → 222 après
+désactivation (retour exact à l'état initial, aucune régression persistante). Zéro erreur console
+sur l'ensemble des scénarios. `tsc --noEmit` propre.
+
 ## Lisibilité des champs de formulaire du menu Administration (classe partagée `.input`)
 
 **Bug signalé** : dans le menu Administration, le texte des champs (valeurs numériques du Barème

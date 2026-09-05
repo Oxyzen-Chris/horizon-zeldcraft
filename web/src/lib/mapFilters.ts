@@ -34,13 +34,30 @@ export interface MapFilterState {
   kingdomChapters: number[] | null;
   /** Sous-filtre "quêtes de pleine lune" parmi les Quêtes du Royaume (voir demande utilisateur). */
   kingdomFullMoonMode: 'all' | 'onlyFullMoon' | 'onlyNormal';
+  /** "Filtre intelligent" (voir demande utilisateur : « pour ne pas avoir trop d'éléments qui
+   * surchargent l'affichage ») — masque, UNIQUEMENT sur la Mapmonde (voir markerMatchesFilters,
+   * paramètre `playerPos`), les marqueurs catalogue (POI/PNJ/trésors/familiers/quêtes classiques
+   * ou PNJ) situés à plus de DECLUTTER_RADIUS_PCT de la position courante de Synk. Les marqueurs
+   * "en direct" (PNJ/Dragon errants + PNJ en approche, voir lib/roamingActors.ts/lib/npcApproach.ts)
+   * ainsi que la Quête du Royaume et la traque de Zorghon restent TOUJOURS visibles, quelle que
+   * soit leur distance — ce sont précisément les éléments dynamiques/rares que le joueur doit
+   * pouvoir suivre en permanence. Désactivé par défaut (comportement historique inchangé tant que
+   * le joueur ou l'admin ne l'active pas explicitement).
+   */
+  declutter: boolean;
 }
 
 export const DEFAULT_MAP_FILTERS: MapFilterState = {
   showPois: true, showWorlds: true, showNpcs: true, showTreasures: true, showFamiliars: true,
   showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true,
-  kingdomChapters: null, kingdomFullMoonMode: 'all',
+  kingdomChapters: null, kingdomFullMoonMode: 'all', declutter: false,
 };
+
+// Rayon (en % de l'échelle mapmonde 0-100, même échelle que MapMarker.x/y) au-delà duquel un
+// marqueur catalogue est masqué quand le "filtre intelligent" (declutter) est actif — voir
+// MapFilterState.declutter ci-dessus. ~1/4 de la largeur totale de la mapmonde : assez large pour
+// rester utile en exploration locale, assez restreint pour vraiment désencombrer une carte pleine.
+const DECLUTTER_RADIUS_PCT = 24;
 
 function loadInitial(): MapFilterState {
   if (typeof window === 'undefined') return DEFAULT_MAP_FILTERS;
@@ -79,7 +96,7 @@ export function hasUserMapFilterChoice(): boolean { return hasUserChoice; }
 export function applyAdminMapFilterDefaults(defaults: {
   showPois: boolean; showWorlds: boolean; showNpcs: boolean; showTreasures: boolean; showFamiliars: boolean;
   showQuestsClassic: boolean; showQuestsNpc: boolean; showQuestsKingdom: boolean;
-  kingdomFullMoonMode: 'all' | 'onlyFullMoon' | 'onlyNormal';
+  kingdomFullMoonMode: 'all' | 'onlyFullMoon' | 'onlyNormal'; declutter?: boolean;
 }) {
   if (hasUserChoice) return;
   current = { ...current, ...defaults };
@@ -110,29 +127,47 @@ export const MAP_FILTER_CATEGORIES: { key: keyof MapFilterState; icon: string; i
   { key: 'showQuestsClassic', icon: '📜', i18nKey: 'map.filters.questsClassic' },
   { key: 'showQuestsNpc', icon: '❓', i18nKey: 'map.filters.questsNpc' },
   { key: 'showQuestsKingdom', icon: '👑', i18nKey: 'map.filters.questsKingdom' },
+  { key: 'declutter', icon: '🧹', i18nKey: 'map.filters.declutter' },
 ];
+
+/** Identifiants des marqueurs "en direct" (PNJ/Dragon errants, PNJ en approche — voir
+ * lib/roamingActors.ts/lib/npcApproach.ts) : toujours exemptés du "filtre intelligent" (voir
+ * MapFilterState.declutter), qu'ils soient ou non à portée de Synk. */
+const LIVE_ACTOR_MARKER_IDS = new Set(['roaming.npc.live', 'roaming.dragon.live', 'encounter.npc.live']);
 
 /** Prédicat de filtrage d'un marqueur — utilisé IDENTIQUEMENT par WorldMapWidget.tsx (rendu de la
  * carte) et GameCanvas2D.tsx (rendu de la caméra isométrique), appliqué uniquement à la liste
- * RENDUE (jamais aux pools fonctionnels : biais de terrain, PNJ/dragon errant, tuiles-portail…). */
-export function markerMatchesFilters(m: MapMarker, f: MapFilterState): boolean {
+ * RENDUE (jamais aux pools fonctionnels : biais de terrain, PNJ/dragon errant, tuiles-portail…).
+ * `playerPos` (optionnel) active le "filtre intelligent" (`f.declutter`) — voir
+ * MapFilterState.declutter ci-dessus ; à ne fournir QUE depuis WorldMapWidget.tsx (la Plateforme
+ * 2D isométrique restreint déjà nativement l'affichage à une petite fenêtre de caméra locale,
+ * bien plus étroite que DECLUTTER_RADIUS_PCT — un appel sans `playerPos` y laisse le comportement
+ * historique strictement inchangé). */
+export function markerMatchesFilters(m: MapMarker, f: MapFilterState, playerPos?: { x: number; y: number }): boolean {
+  let matchesCategory: boolean;
   switch (m.kind) {
-    case 'poi': return f.showPois;
-    case 'world': return f.showWorlds;
-    case 'npc': return f.showNpcs;
-    case 'treasure': return f.showTreasures;
-    case 'familiar': return f.showFamiliars;
+    case 'poi': matchesCategory = f.showPois; break;
+    case 'world': matchesCategory = f.showWorlds; break;
+    case 'npc': matchesCategory = f.showNpcs; break;
+    case 'treasure': matchesCategory = f.showTreasures; break;
+    case 'familiar': matchesCategory = f.showFamiliars; break;
     case 'quest': {
       if (m.questCategory === 'kingdom') {
-        if (!f.showQuestsKingdom) return false;
-        if (f.kingdomChapters && m.kingdomChapter != null && !f.kingdomChapters.includes(m.kingdomChapter)) return false;
-        if (f.kingdomFullMoonMode === 'onlyFullMoon' && !m.fullMoonOnly) return false;
-        if (f.kingdomFullMoonMode === 'onlyNormal' && m.fullMoonOnly) return false;
-        return true;
-      }
-      if (m.questCategory === 'npc') return f.showQuestsNpc;
-      return f.showQuestsClassic; // 'classic' (ou non renseigné, par prudence)
+        if (!f.showQuestsKingdom) { matchesCategory = false; break; }
+        if (f.kingdomChapters && m.kingdomChapter != null && !f.kingdomChapters.includes(m.kingdomChapter)) { matchesCategory = false; break; }
+        if (f.kingdomFullMoonMode === 'onlyFullMoon' && !m.fullMoonOnly) { matchesCategory = false; break; }
+        if (f.kingdomFullMoonMode === 'onlyNormal' && m.fullMoonOnly) { matchesCategory = false; break; }
+        matchesCategory = true;
+      } else if (m.questCategory === 'npc') matchesCategory = f.showQuestsNpc;
+      else matchesCategory = f.showQuestsClassic; // 'classic' (ou non renseigné, par prudence)
+      break;
     }
-    default: return true;
+    default: matchesCategory = true;
   }
+  if (!matchesCategory) return false;
+  if (f.declutter && playerPos && !m.isKingdom && m.kind !== 'zorghon' && m.kind !== 'captive' && !LIVE_ACTOR_MARKER_IDS.has(m.id)) {
+    const dist = Math.hypot(m.x - playerPos.x, m.y - playerPos.y);
+    if (dist > DECLUTTER_RADIUS_PCT) return false;
+  }
+  return true;
 }

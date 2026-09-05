@@ -21,6 +21,7 @@ import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
 import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
+import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
 import { SynkSkin } from './SynkSkin';
@@ -308,6 +309,11 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // (0-100 %) ; converties ci-dessous (voir npcLocal/dragonLocal) en coordonnées LOCALES de ce
   // viewport pour le rendu, exactement comme pour tout autre marqueur catalogue.
   const roamingActors = useRoamingActors();
+  // Position live du PNJ actuellement "en approche" (rencontre sollicitée, voir
+  // lib/npcApproach.ts) — même principe que roamingActors ci-dessus, mais piloté par
+  // beginNpcApproach()/endNpcApproach() (déclenchés depuis game/page.tsx) plutôt qu'une errance
+  // continue.
+  const npcApproach = useNpcApproach();
 
   useEffect(() => {
     const savedSize = localStorage.getItem(SIZE_KEY);
@@ -368,6 +374,12 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       if (p && p.mapId === DEFAULT_MAP_ID) setWorldPos({ x: p.x, y: p.y });
     });
   }, [address]);
+
+  // Alimente lib/npcApproach.ts avec la position COURANTE de Synk — nécessaire pour que le PNJ "en
+  // approche" (voir npcApproach ci-dessus) sache vers quelle case marcher, y compris si Synk se
+  // déplace pendant la rencontre. Sans effet tant qu'aucune rencontre n'est active (voir
+  // beginNpcApproach()/état `active`) — appel bon marché, purement écriture d'une variable module.
+  useEffect(() => { reportSynkApproachTarget(worldPos.x, worldPos.y); }, [worldPos]);
 
   // Raccord avec la mapmonde : détermine le POI-décor le plus proche de la position réelle de Synk
   // (juste pour l'indication textuelle affichée sous le titre — le terrain lui-même est désormais
@@ -471,12 +483,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const dragonRawRow = Math.round(roamingActors.dragon.y) - origin.row;
   const dragonInView = dragonRawCol >= 0 && dragonRawCol < COLS && dragonRawRow >= 0 && dragonRawRow < ROWS;
   const dragonLocal = { col: clampCoord(dragonRawCol, COLS), row: clampCoord(dragonRawRow, ROWS) };
-  // Cellule adjacente à Synk où matérialiser le PNJ "en approche" (voir encounterNpc) — juste au
-  // nord de Synk, ou au sud si Synk est déjà collé au bord haut de la fenêtre de caméra.
-  const encounterCell = {
-    col: playerCell.col,
-    row: playerCell.row > 0 ? playerCell.row - 1 : Math.min(ROWS - 1, playerCell.row + 1),
-  };
+  // Conversion mapmonde → viewport LOCAL du PNJ "en approche" (voir lib/npcApproach.ts) — même
+  // principe que npcInView/npcLocal ci-dessus pour le PNJ/Dragon errant : sa position de départ
+  // (quelques cases de Synk) peut être hors-cadre le temps qu'il s'approche, il ne doit alors PAS
+  // être affiché (plutôt que clampé à tort sur le bord de la grille).
+  const approachRawCol = Math.round(npcApproach.x) - origin.col;
+  const approachRawRow = Math.round(npcApproach.y) - origin.row;
+  const approachInView = npcApproach.active && approachRawCol >= 0 && approachRawCol < COLS && approachRawRow >= 0 && approachRawRow < ROWS;
+  const approachLocal = { col: clampCoord(approachRawCol, COLS), row: clampCoord(approachRawRow, ROWS) };
 
   // Tuile actuellement sous Synk (voir worldTileAt) — sert à détecter les dalles d'eau/montagne
   // pour la mécanique Oxygène (+ leur altitude/profondeur pour la raréfaction de l'air, voir
@@ -1368,13 +1382,17 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
               <span className="text-xl">🐉</span>
             </div>
           )}
-          {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) juste à
-              côté de Synk, tant que le pop-up reste affiché (voir encounterNpc/onEncounterChange).
-              Purement informatif (pointer-events-none) : l'interaction se fait dans le pop-up lui-même. */}
-          {encounterNpc && (
+          {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) en le
+              faisant marcher progressivement vers Synk (voir lib/npcApproach.ts, transition CSS
+              duration-[1500ms] pour la même démarche visuelle que le PNJ/Dragon errant), plutôt que
+              d'apparaître instantanément juste à côté de lui. `approachInView` masque le marqueur
+              tant qu'il est hors-cadre (position de départ potentiellement à plusieurs cases de
+              Synk, voir START_MIN_DIST/MAX_DIST). Purement informatif (pointer-events-none) :
+              l'interaction se fait dans le pop-up lui-même. */}
+          {encounterNpc && approachInView && (
             <div
-              className="absolute -translate-x-1/2 flex flex-col items-center pointer-events-none animate-bounce"
-              style={{ left: projX(encounterCell.col, encounterCell.row), top: projY(encounterCell.col, encounterCell.row) - 22, zIndex: encounterCell.col + encounterCell.row + 2 }}
+              className={`absolute -translate-x-1/2 flex flex-col items-center pointer-events-none transition-all duration-[1500ms] ${npcApproach.moving ? '' : 'animate-bounce'}`}
+              style={{ left: projX(approachLocal.col, approachLocal.row), top: projY(approachLocal.col, approachLocal.row) - 22, zIndex: approachLocal.col + approachLocal.row + 2 }}
               title={`${NPC_SKINS[encounterNpc.skin]} ${localizeName(t, `npc.archetype.${encounterNpc.baseKey}`, encounterNpc.baseKey)} · ${localizeName(t, `npc.offer.${encounterNpc.offer}`, encounterNpc.offer)}`}
             >
               <span className="text-[10px] leading-none">❗</span>

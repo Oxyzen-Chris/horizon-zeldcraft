@@ -1380,6 +1380,8 @@
   "map.filters.questsClassic": "Classic quests",
   "map.filters.questsNpc": "NPC quests",
   "map.filters.questsKingdom": "Kingdom Quests",
+  "map.filters.declutter": "Reduce clutter",
+  "map.filters.declutterHint": "Smart filter: hides catalog markers far from Synk to declutter the map. Roaming NPC/Dragon, the approaching NPC and the Kingdom Quest always stay visible.",
   "map.filters.kingdomChapters": "Chapters",
   "map.filters.kingdomChaptersAll": "All",
   "map.filters.kingdomFullMoon": "Full moon",

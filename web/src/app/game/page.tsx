@@ -25,6 +25,7 @@ import { WorldList } from '@/components/WorldList';
 import { TeamsPanel } from '@/components/TeamsPanel';
 import { FamiliarsList } from '@/components/FamiliarsList';
 import { NpcEncounterPopup, type EncounterMarkerInfo } from '@/components/NpcEncounterPopup';
+import { beginNpcApproach, endNpcApproach } from '@/lib/npcApproach';
 import { DiceRollWidget, type DiceEventKind, type DiceEventOutcome } from '@/components/DiceRollWidget';
 import { TeamChatWidget } from '@/components/TeamChatWidget';
 import { CustomWidgetsRenderer } from '@/components/CustomWidgetsRenderer';
@@ -271,9 +272,20 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
     localStorage.setItem('zc.onboardingSeen.v1', '1');
   }, []);
   // PNJ actuellement "en approche" (pop-up de rencontre ouvert) — remonté par NpcEncounterPopup
-  // pour être matérialisé à côté de Synk dans WorldMapWidget et GameCanvas2D (voir EncounterMarkerInfo).
+  // pour être matérialisé à côté de Synk dans WorldMapWidget, GameCanvas2D et Platform3DWidget (voir
+  // EncounterMarkerInfo). `wasEncounterActiveRef` déclenche l'approche progressive partagée (voir
+  // lib/npcApproach.ts) EXACTEMENT une fois par rencontre (transition null→info / info→null) — ce
+  // composant est le seul point central qui détient déjà `encounterNpc`, évitant tout déclenchement
+  // en double si plusieurs widgets recevaient chacun la même responsabilité.
   const [encounterNpc, setEncounterNpc] = useState<EncounterMarkerInfo>(null);
-  const handleEncounterChange = useCallback((info: EncounterMarkerInfo) => setEncounterNpc(info), []);
+  const wasEncounterActiveRef = useRef(false);
+  const handleEncounterChange = useCallback((info: EncounterMarkerInfo) => {
+    setEncounterNpc(info);
+    const active = !!info;
+    if (active && !wasEncounterActiveRef.current) beginNpcApproach();
+    else if (!active && wasEncounterActiveRef.current) endNpcApproach();
+    wasEncounterActiveRef.current = active;
+  }, []);
 
   // ─── Pont "lancer de dés obligatoire" entre NpcEncounterPopup (combat PNJ) et DiceRollWidget ───
   // Un combat PNJ réclame désormais un jet du widget "Lancer de dès" (bouton "Lancer...") avant de
@@ -622,7 +634,7 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
       {/* Fenêtre flottante et déplaçable "Plateforme 3D" (Phase 3 Roadmap — Moteur de jeu) — rendu
           3D façon Minecraft de Synk et de son univers, synchronisé avec la Plateforme 2D
           isométrique et la Mapmonde (même position/décor/marqueurs, voir Platform3DWidget.tsx) */}
-      <Platform3DWidget stage={Number(stage)} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} enabled={repRules?.platform3dWidgetEnabled !== false} />
+      <Platform3DWidget stage={Number(stage)} playerXp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} encounterNpc={encounterNpc} enabled={repRules?.platform3dWidgetEnabled !== false} />
       {/* Fenêtre flottante et déplaçable "Statistiques" — duplique le tableau fixe ci-dessus */}
       <StatsWidget
         xp={Math.max(0, Number(xp) + (player?.xpBonus ?? 0))} xpCap={xpCap}
