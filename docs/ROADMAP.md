@@ -553,6 +553,32 @@ grille 8×10 — donnant l'impression que la mapmonde était « décorrélée »
   Détail technique complet : `docs/ARCHITECTURE.md` § Correctif « PNJ/Dragon coincés sur le bord de
   la grille » en Plateforme 2D isométrique.
 
+### 🔒 Historique — tête/corps de Synk tournant en miroir (gauche↔droite inversé) en Plateforme 3D
+
+Retour utilisateur : en Plateforme 3D, appuyer sur ← faisait tourner la tête et le corps de Synk
+vers la DROITE de l'écran (et inversement pour →), alors que le déplacement lui-même restait
+correct. L'utilisateur a explicitement demandé de ne corriger QUE cette orientation visuelle, sans
+toucher au mécanisme de déplacement (verrouillé, voir § Déplacement de Synk en Plateforme 3D).
+
+- **Cause** : la table `FACING_ANGLE` (angle de rotation Y appliqué au groupe 3D de Synk, et
+  partagée avec le PNJ/Dragon errant) avait le signe inversé pour toute direction comportant une
+  composante gauche/droite. Avec un modèle dont le visage regarde +Z au repos et la caméra par
+  défaut alignée sur l'axe « droite écran = +X monde », la rotation Y de Three.js donne un vecteur
+  de visage `(sin(angle), 0, cos(angle))` — les anciennes valeurs produisaient donc un visage tourné
+  côté opposé pour `left`, `right`, et les 4 diagonales (`down`/`up`, sans composante X, n'étaient
+  pas affectés, d'où le fait que seuls gauche/droite étaient rapportés comme buggés).
+- **Correctif STRICTEMENT limité** à l'inversion du signe des angles latéraux dans `FACING_ANGLE`
+  (`Platform3DWidget.tsx`) — **aucune ligne de la logique de déplacement** (`directionFromDelta`,
+  `useHoldMovement`, gestion clavier/course, `moveTo`) n'a été touchée, conformément à la demande.
+- **Vérification** : script Playwright jetable avec instrumentation temporaire (`window.__debugSynk
+  Facing`/`__debugSynkFacingAngle`, exposée puis retirée après test) confirmant que `left` produit
+  désormais l'angle `-π/2`, `right` produit `+π/2` (`up`/`down` inchangés à `π`/`0`) — cohérent avec
+  la convention caméra vérifiée par calcul (caméra par défaut `[0, 3.2, 5.6]` → axe droite-écran =
+  +X monde). Script de non-régression additionnel confirmant que le déplacement (position mapmonde
+  après chaque touche, mode course au maintien) fonctionne toujours normalement. Zéro erreur
+  console. `tsc --noEmit` propre. Détail technique complet : `docs/ARCHITECTURE.md` § Correctif
+  « tête/corps de Synk tournant en miroir » en Plateforme 3D.
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la

@@ -490,6 +490,45 @@ les 8 s sur ~90 s : confirmé que `npcVisible`/`dragonVisible` passent bien de `
 et à mesure que leur position s'éloigne de la fenêtre de caméra (plus aucun cas où ils restent
 affichés indéfiniment à distance). Zéro erreur console. `tsc --noEmit` propre.
 
+### 🔒 Correctif « tête/corps de Synk tournant en miroir » en Plateforme 3D (ne pas réinverser les angles)
+
+**Bug détecté** : appuyer sur ← faisait pivoter la tête et le corps de Synk vers la DROITE de
+l'écran au lieu de la gauche, et inversement pour → (le déplacement lui-même — la case atteinte —
+restait, lui, toujours correct ; seule l'orientation visuelle du modèle était en cause).
+
+**Cause racine** : `FACING_ANGLE` (table d'angle de rotation Y en radians par direction à 8 valeurs,
+`Platform3DWidget.tsx`, partagée par `SynkVoxel` ET par `MarkerBlock` pour le PNJ/Dragon errant, voir
+section précédente) appliquait un angle de signe INVERSÉ pour toute direction comportant une
+composante gauche/droite. Démonstration : le modèle de `SynkVoxel` a son visage (yeux/nez) tourné
+vers `+Z` au repos (angle 0, voir les meshes d'yeux positionnés à `z > 0`). Le groupe englobant subit
+`rotation={[0, angle, 0]}` ; la formule standard de rotation Y de Three.js transforme le vecteur de
+visage `(0,0,1)` en `(sin(angle), 0, cos(angle))`. Or la caméra par défaut (`[0, 3.2, 5.6]`, visant
+l'origine où Synk reste fixe — c'est le décor qui défile autour de lui, voir `centerCol`/`centerRow`)
+a, par construction géométrique standard (caméra sans roulis, `up=(0,1,0)`), son axe « droite-écran »
+aligné sur `+X` monde. Avec l'ancienne table (`left: +π/2`, `right: -π/2`, diagonales correspondantes
+inversées), le visage tourné donnait `(+1,0,0)` pour `left` (donc **+X = DROITE écran**, alors que
+« gauche » devrait donner `-X`) et `(-1,0,0)` pour `right` (donc **-X = GAUCHE écran**, inversé). Les
+directions `up`/`down` (sans composante X) n'étaient, elles, pas affectées — ce qui explique
+pourquoi seuls gauche/droite (et implicitement les 4 diagonales, non signalées séparément par
+l'utilisateur mais souffrant du même mécanisme) étaient en cause.
+
+**Correctif STRICTEMENT limité à la table `FACING_ANGLE`** (inversion du signe des angles latéraux :
+`left: -π/2`, `right: +π/2`, `down-left: -π/4`, `up-left: -3π/4`, `up-right: +3π/4`,
+`down-right: +π/4` ; `down: 0` et `up: π` inchangés) — **aucune autre ligne modifiée**. En
+particulier, `directionFromDelta`, `useHoldMovement.ts`, la gestion clavier (maintien/course), le
+callback `move`/`moveTo`, et l'architecture verrouillée ci-dessous restent **strictement intacts**,
+conformément à la demande explicite de l'utilisateur de ne corriger QUE l'orientation visuelle sans
+toucher au déplacement (fonctionnalité longuement stabilisée après plusieurs tentatives, voir
+ci-dessous).
+
+**Vérification** : instrumentation Playwright temporaire (exposition ponctuelle de
+`window.__debugSynkFacing`/`__debugSynkFacingAngle` dans `SynkVoxel`, retirée immédiatement après
+test, jamais committée) confirmant qu'un appui sur ← donne bien l'angle `-π/2` et → l'angle `+π/2`
+(`up`/`down` inchangés à `π`/`0`) ; script de non-régression complémentaire confirmant que la
+position mapmonde de Synk évolue toujours normalement après chaque touche (haut/bas/gauche/droite)
+et que le mode course au maintien prolongé continue de fonctionner. Zéro erreur console.
+`tsc --noEmit` propre.
+
 ### 🔒 Déplacement de Synk en Plateforme 3D — architecture VERROUILLÉE (ne pas régresser)
 
 **Ceci est la référence technique à relire avant toute modification de `Platform3DWidget.tsx` ou

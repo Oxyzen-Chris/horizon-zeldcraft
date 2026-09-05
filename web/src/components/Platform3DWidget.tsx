@@ -73,10 +73,24 @@ const RARITY_COLOR_3D: Record<string, string> = {
 };
 
 /** Angle de rotation (radians) du modèle de Synk par direction affichée — même 8 directions que
- * GameCanvas2D.tsx/SynkSkin.tsx (voir SynkDirection). */
+ * GameCanvas2D.tsx/SynkSkin.tsx (voir SynkDirection).
+ *
+ * 🔒 Bug corrigé (rapporté par l'utilisateur) : la tête/le corps de Synk (et du PNJ/Dragon errant,
+ * qui partage cette même table via `MarkerBlock`) se tournaient en MIROIR par rapport à la
+ * direction réelle de déplacement — appuyer sur ← faisait pivoter le modèle vers la droite de
+ * l'écran, et inversement pour →. Cause : avec `group rotation={[0, angle, 0]}` appliqué à un
+ * modèle dont le visage regarde +Z au repos (angle 0, voir les yeux de `SynkVoxel` positionnés à
+ * z>0), la formule de rotation Y de Three.js donne un vecteur de visage
+ * `(sin(angle), 0, cos(angle))` ; hors la caméra par défaut (`[0, 3.2, 5.6]`, regardant vers
+ * l'origine) a son axe « droite écran » aligné sur +X monde. Les valeurs précédentes avaient donc
+ * le signe inversé pour toute direction comportant une composante gauche/droite (seuls `down`
+ * (visage vers la caméra) et `up` (visage à l'opposé) n'ont pas de composante X et n'étaient donc
+ * pas affectés). Corrigé en inversant le signe de chaque angle latéral — NE PAS réintroduire
+ * l'ancien mapping, et NE PAS toucher à la logique de déplacement (dx/dy, useHoldMovement,
+ * directionFromDelta) qui reste strictement inchangée et fonctionne correctement. */
 const FACING_ANGLE: Record<SynkDirection, number> = {
-  down: 0, 'down-left': Math.PI / 4, left: Math.PI / 2, 'up-left': (3 * Math.PI) / 4,
-  up: Math.PI, 'up-right': -(3 * Math.PI) / 4, right: -Math.PI / 2, 'down-right': -Math.PI / 4,
+  down: 0, 'down-left': -Math.PI / 4, left: -Math.PI / 2, 'up-left': -(3 * Math.PI) / 4,
+  up: Math.PI, 'up-right': (3 * Math.PI) / 4, right: Math.PI / 2, 'down-right': Math.PI / 4,
 };
 
 /** Déduit la direction de marche à 8 valeurs à partir d'un delta (dx,dy) — copie fidèle de
