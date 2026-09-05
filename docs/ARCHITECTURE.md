@@ -298,6 +298,53 @@ RTDB directe (`update(..., { paused: true })`, simulant l'action admin) sur le n
 automatique vers l'accueil détectée en moins de 8 s, message de pause visible sur la page de
 destination. Zéro erreur console. `tsc --noEmit` propre.
 
+## 🔒 Identification des PNJ/Dragon errants sur la Mapmonde + intégration aux filtres
+
+**Bug signalé** : les deux acteurs errants partagés entre la « Plateforme 2D isométrique » et la
+« Plateforme 3D » (un PNJ — ex. « Forgeron de Corail Hoku », « Thrall (Chef de la Horde) » — et un
+Dragon — ex. « Dragon de Bronze », « Dragon d'Argent ») n'étaient **pas identifiables** sur le
+widget **Mapmonde** (`WorldMapWidget.tsx`) : impossible de savoir où ils se trouvaient réellement.
+De plus, ils n'apparaissaient pas dans le filtre d'affichage « PNJ » de ce widget.
+
+**Cause racine** : `lib/roamingActors.ts` est la source de vérité unique (état module-scope, hors
+React Context — même patron que `lib/mapFilters.ts`/`lib/windowZOrder.ts`) de la position live
+(coordonnées 0-100 %, même échelle que `players/{addr}/mapPos`) des deux acteurs errants, de leur
+identité (`npcMarkerId`/`dragonMarkerId`, assignée une seule fois via `ensureRoamingIdentities()`)
+et de leur direction/état de mouvement. `GameCanvas2D.tsx` exploitait déjà correctement cet état :
+il exclut le marqueur catalogue STATIQUE (position x/y fixe en base) des deux acteurs errants de sa
+liste de marqueurs affichés, et rend à la place un marqueur de position live distinct pour chacun,
+respectant `markerMatchesFilters()` (`lib/mapFilters.ts`). **`WorldMapWidget.tsx` ne faisait ni
+l'un ni l'autre** : il affichait TOUS les marqueurs catalogue (dont les deux entrées des acteurs
+errants) à leur position fixe/figée en base, sans aucune couche de position live.
+
+**Correctif** (`WorldMapWidget.tsx` uniquement — `GameCanvas2D.tsx`/`Platform3DWidget.tsx`/
+`roamingActors.ts` déjà corrects, non modifiés) :
+- Import de `useRoamingActors`/`ensureRoamingIdentities` (`lib/roamingActors.ts`) ; appel de
+  `ensureRoamingIdentities(entityMarkers)` dans un effet (idempotent — sans effet si déjà résolu
+  par `GameCanvas2D.tsx`).
+- Nouveau mémo `roamingLiveMarkers` : construit deux `MapMarker` synthétiques
+  (`id: 'roaming.npc.live'`, `kind: 'npc'` et `id: 'roaming.dragon.live'`, `kind: 'familiar'`) à la
+  position live `roamingActors.npc.x/y` / `.dragon.x/y`, en réutilisant le nom/icône du marqueur
+  catalogue résolu (repli sur les clés i18n `canvas2d.npcLabel` = « PNJ errant » /
+  `canvas2d.dragonLabel` = « Dragon errant » et les icônes 🧙/🐉 si le catalogue n'est pas encore
+  chargé).
+- Le bloc de rendu des marqueurs catalogue existants exclut désormais
+  `roamingActors.npcMarkerId`/`dragonMarkerId` (évite un doublon figé à côté du marqueur live).
+- Nouveau bloc de rendu pour `roamingLiveMarkers`, filtré par le même `markerMatchesFilters()` que
+  les autres marqueurs (donner `kind: 'npc'`/`'familiar'` aux marqueurs synthétiques suffit à les
+  faire respecter automatiquement les boutons de filtre « PNJ »/« Familiers », sans code
+  supplémentaire dans `lib/mapFilters.ts`) — avec un anneau `animate-ping` ambré et un libellé de
+  nom toujours visible (contrairement aux POI statiques, qui n'affichent leur libellé qu'à fort
+  zoom) pour les rendre clairement identifiables.
+
+**Vérification** : script Playwright jetable — session Démo anonyme démarrée, widget Mapmonde
+(collapsé par défaut, bouton `button[title="Mapmonde"]` 🗺️) déplié, filtres ouverts
+(`button[title="Filtres d'affichage de la carte"]`) ; confirmé la présence d'un marqueur
+`title` contenant « PNJ errant » et d'un marqueur `title` contenant « Dragon errant » ; désactivation
+du filtre « PNJ » ⇒ le marqueur PNJ errant disparaît, le marqueur Dragon errant reste visible ;
+réactivation puis désactivation du filtre « Familiers » ⇒ inverse (Dragon errant disparaît, PNJ
+errant reste visible). Zéro erreur console. `tsc --noEmit` propre.
+
 ## Lisibilité des champs de formulaire du menu Administration (classe partagée `.input`)
 
 **Bug signalé** : dans le menu Administration, le texte des champs (valeurs numériques du Barème

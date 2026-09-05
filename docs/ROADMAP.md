@@ -609,6 +609,26 @@ christophe.sintes.oxyzen@gmail.com).
   `docs/ARCHITECTURE.md` § « Mise en pause admin appliquée immédiatement à une session déjà en
   cours + sablier Démo qui disparaît ».
 
+### 🔒 Historique — PNJ/Dragon errants non identifiables sur la Mapmonde + absents du filtre « PNJ »
+
+Retour utilisateur : le PNJ et le Dragon errants (partagés entre « Plateforme 2D isométrique » et
+« Plateforme 3D ») n'étaient pas identifiables sur le widget **Mapmonde**, et n'apparaissaient pas
+dans son filtre d'affichage « PNJ ».
+
+- **Cause** : `WorldMapWidget.tsx` affichait tous les marqueurs catalogue (dont les entrées
+  STATIQUES/figées des deux acteurs errants) à leur position fixe en base, sans jamais lire l'état
+  de position live partagé (`lib/roamingActors.ts`) déjà exploité correctement par
+  `GameCanvas2D.tsx`.
+- **Correctif** : `WorldMapWidget.tsx` exclut désormais les marqueurs catalogue figés des deux
+  acteurs errants et rend à la place deux marqueurs de position live (`kind: 'npc'`/`'familiar'`,
+  labellisés « PNJ errant »/« Dragon errant », anneau `animate-ping` + libellé toujours visible),
+  qui respectent nativement les filtres d'affichage existants (« PNJ », « Familiers »).
+- **Vérification** : script Playwright jetable — présence confirmée des deux marqueurs live avec
+  leur titre attendu ; désactivation du filtre « PNJ » ⇒ seul le marqueur PNJ errant disparaît ;
+  désactivation du filtre « Familiers » ⇒ seul le marqueur Dragon errant disparaît. Zéro erreur
+  console. `tsc --noEmit` propre. Détail technique complet : `docs/ARCHITECTURE.md` §
+  « Identification des PNJ/Dragon errants sur la Mapmonde + intégration aux filtres ».
+
 ## 🔜 Phase 2 — Moteur de jeu
 
 > **Réordonnancée avant l'ex-Phase 2 "Auth sociale & UX"** (devenue Phase 3, voir juste après) à la

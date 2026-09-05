@@ -26,6 +26,7 @@ import { NPC_SKINS } from '@/lib/contract';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
+import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
 
 const POS_KEY = 'zc.mapWidgetPos';
 const SIZE_KEY = 'zc.mapWidgetSize';
@@ -98,6 +99,51 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   // (seule source de vérité pour la position réelle de Synk) ; ce widget se contente de refléter en
   // temps réel la position courante de Zorghon/de ses prisonniers.
   const [zorghonEncounter, setZorghonEncounter] = useState<ZorghonEncounterState | null>(null);
+
+  // ─── PNJ/Dragon errant (voir lib/roamingActors.ts) — même registre partagé que GameCanvas2D.tsx/
+  // Platform3DWidget.tsx, en coordonnées MAPMONDE directement compatibles avec ce widget (aucune
+  // conversion nécessaire, contrairement aux deux autres vues qui doivent soustraire une origine de
+  // caméra locale). Corrige la demande utilisateur : « identifie clairement sur la mapmonde les
+  // deux PNJ [...] afin de savoir où ils se trouvent [...] les ajouter dans le filtre d'affichage
+  // des PNJ ». Voir `roamingLiveMarkers`/le rendu plus bas pour le détail. */
+  const roamingActors = useRoamingActors();
+  useEffect(() => { ensureRoamingIdentities(entityMarkers); }, [entityMarkers]);
+  // Identité catalogue (nom/icône) du PNJ/Dragon errant — utilisée pour le libellé du marqueur
+  // EN DIRECT ci-dessous ; leur marqueur CATALOGUE (position fixe, potentiellement très éloignée
+  // de leur position réelle) est exclu du rendu principal (voir le filtre appliqué juste avant le
+  // `.map()` des marqueurs statiques) pour ne jamais afficher deux fois le même PNJ/Dragon à deux
+  // endroits différents de la carte.
+  const roamingNpcMarker = useMemo(
+    () => entityMarkers.find(m => m.kind === 'npc' && m.id === roamingActors.npcMarkerId) ?? null,
+    [entityMarkers, roamingActors.npcMarkerId],
+  );
+  const roamingDragonMarker = useMemo(
+    () => entityMarkers.find(m => m.kind === 'familiar' && m.id === roamingActors.dragonMarkerId) ?? null,
+    [entityMarkers, roamingActors.dragonMarkerId],
+  );
+  // Marqueurs synthétiques à la position EN DIRECT (mise à jour toutes les 4s, voir STEP_MS dans
+  // roamingActors.ts) — `kind: 'npc'`/`'familiar'` afin de respecter EXACTEMENT les mêmes filtres
+  // d'affichage (boutons "PNJ"/"Familiers") que leurs homologues catalogue statiques.
+  const roamingLiveMarkers = useMemo<MapMarker[]>(() => {
+    const list: MapMarker[] = [];
+    if (roamingActors.npcMarkerId) {
+      list.push({
+        id: 'roaming.npc.live', kind: 'npc',
+        name: roamingNpcMarker?.name ?? t('canvas2d.npcLabel'),
+        i18nKey: roamingNpcMarker?.i18nKey, icon: roamingNpcMarker?.icon ?? '🧙',
+        x: roamingActors.npc.x, y: roamingActors.npc.y,
+      });
+    }
+    if (roamingActors.dragonMarkerId) {
+      list.push({
+        id: 'roaming.dragon.live', kind: 'familiar',
+        name: roamingDragonMarker?.name ?? t('canvas2d.dragonLabel'),
+        i18nKey: roamingDragonMarker?.i18nKey, icon: roamingDragonMarker?.icon ?? '🐉',
+        x: roamingActors.dragon.x, y: roamingActors.dragon.y,
+      });
+    }
+    return list;
+  }, [roamingActors.npcMarkerId, roamingActors.dragonMarkerId, roamingActors.npc.x, roamingActors.npc.y, roamingActors.dragon.x, roamingActors.dragon.y, roamingNpcMarker, roamingDragonMarker, t]);
 
   const [toast, setToast] = useState<string | null>(null);
   const [travelConfirm, setTravelConfirm] = useState<WorldDef | null>(null);
@@ -632,12 +678,35 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
               La Quête du Royaume en cours (👑, getKingdomQuestMarker) est fusionnée ici avec un
               léger effet pulsant pour bien la distinguer des marqueurs classiques. Filtré par
               catégorie (PNJ/trésors/familiers/quêtes classiques-PNJ-Royaume) selon les boutons de
-              filtre — voir markerMatchesFilters(). */}
-          {[...entityMarkers, ...(kingdomMarker ? [kingdomMarker] : []), ...zorghonMarkers].filter(m => markerMatchesFilters(m, mapFilters)).map(m => (
+              filtre — voir markerMatchesFilters(). Le PNJ/Dragon errant (voir roamingLiveMarkers
+              ci-dessous) est exclu ICI (`m.id !== roamingActors.npcMarkerId && ...`) pour ne jamais
+              afficher deux fois le même personnage : une fois à sa position CATALOGUE figée, une
+              fois à sa position EN DIRECT — seule cette dernière doit apparaître. */}
+          {[...entityMarkers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId), ...(kingdomMarker ? [kingdomMarker] : []), ...zorghonMarkers].filter(m => markerMatchesFilters(m, mapFilters)).map(m => (
             <div key={`${m.kind}-${m.id}`} title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
               className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none ${m.isKingdom ? 'animate-pulse' : ''}`}
               style={{ left: `${m.x}%`, top: `${m.y}%` }}>
               <span style={{ fontSize: (m.isKingdom ? 16 : 13) + zoom * 5 }}>{m.icon}</span>
+            </div>
+          ))}
+
+          {/* PNJ/Dragon errant — position EN DIRECT sur toute la mapmonde (voir lib/roamingActors.ts),
+              pour que le joueur sache TOUJOURS où ils se trouvent actuellement (répond à la demande
+              utilisateur « identifie clairement [...] afin de savoir où ils se trouvent »). Anneau
+              pulsant + nom TOUJOURS visible (indépendamment du niveau de zoom, contrairement aux POI
+              ci-dessus) pour bien les distinguer des marqueurs catalogue figés. Respecte les mêmes
+              filtres « PNJ »/« Familiers » que leurs homologues statiques (voir roamingLiveMarkers :
+              kind 'npc'/'familiar') — répond à « les ajouter dans le filtre d'affichage des PNJ ». */}
+          {roamingLiveMarkers.filter(m => markerMatchesFilters(m, mapFilters)).map(m => (
+            <div key={`roaming-${m.kind}-${m.id}`}
+              title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)} · ${m.kind === 'npc' ? t('canvas2d.npcLabel') : t('canvas2d.dragonLabel')}`}
+              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none transition-all duration-[1500ms]"
+              style={{ left: `${m.x}%`, top: `${m.y}%` }}>
+              <span className="absolute rounded-full border-2 border-amber-400 animate-ping" style={{ width: 20 + zoom * 8, height: 20 + zoom * 8 }} />
+              <span style={{ fontSize: 15 + zoom * 6 }}>{m.icon}</span>
+              <span className="text-[9px] text-amber-950 font-bold whitespace-nowrap bg-amber-100/80 px-1 rounded shadow-sm">
+                {localizeName(t, m.i18nKey, m.name)}
+              </span>
             </div>
           ))}
 
