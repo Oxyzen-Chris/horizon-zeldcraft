@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
-import { HORIZON_ABI, FEED_TYPES, STAGE_NAMES, WEATHER, WEATHER_KEYS } from '@/lib/contract';
+import { HORIZON_ABI, FEED_TYPES, STAGE_NAMES, WEATHER, WEATHER_KEYS, NPC_SKINS } from '@/lib/contract';
 import { useEffectiveAccount, useEffectiveSession } from '@/lib/effectiveAccount';
 import { SynkSkin } from '@/components/SynkSkin';
 import { Countdown } from '@/components/Countdown';
@@ -25,7 +25,8 @@ import { WorldList } from '@/components/WorldList';
 import { TeamsPanel } from '@/components/TeamsPanel';
 import { FamiliarsList } from '@/components/FamiliarsList';
 import { NpcEncounterPopup, type EncounterMarkerInfo } from '@/components/NpcEncounterPopup';
-import { beginNpcApproach, endNpcApproach } from '@/lib/npcApproach';
+import { beginNpcApproach, endNpcApproach, getNpcApproachState } from '@/lib/npcApproach';
+import { spawnExtraRoamingActor } from '@/lib/roamingActors';
 import { DiceRollWidget, type DiceEventKind, type DiceEventOutcome } from '@/components/DiceRollWidget';
 import { TeamChatWidget } from '@/components/TeamChatWidget';
 import { CustomWidgetsRenderer } from '@/components/CustomWidgetsRenderer';
@@ -280,12 +281,33 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
   const [encounterNpc, setEncounterNpc] = useState<EncounterMarkerInfo>(null);
   const wasEncounterActiveRef = useRef(false);
   const handleEncounterChange = useCallback((info: EncounterMarkerInfo) => {
-    setEncounterNpc(info);
     const active = !!info;
+    // ─── Persistance du PNJ après la rencontre (voir demande utilisateur « les PNJ qui viennent à
+    // la rencontre de Synk ne doivent pas disparaitre ensuite [...] mais continuer à progresser,
+    // se déplacer puis revenir si besoin vers Synk ») — à la fermeture du pop-up (transition
+    // info→null), on capture la DERNIÈRE position live connue via getNpcApproachState() (encore
+    // valide juste avant endNpcApproach()) et on la transforme en acteur errant persistant (voir
+    // lib/roamingActors.ts::spawnExtraRoamingActor) AVANT d'arrêter l'approche, pour que le PNJ
+    // continue naturellement sa route au lieu de disparaître instantanément. Utilise
+    // `encounterNpc` (état React précédent, toujours l'ancien PNJ non-null au moment de cette
+    // transition) plutôt que `info` (déjà null ici). Paramétrable via
+    // RepRules.npcPersistAfterEncounter (défaut true) / npcMaxPersistentExtras (défaut 5).
+    if (!active && wasEncounterActiveRef.current && repRules?.npcPersistAfterEncounter !== false && encounterNpc) {
+      const approach = getNpcApproachState();
+      spawnExtraRoamingActor({
+        id: `encounter.extra.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`,
+        kind: 'npc',
+        name: encounterNpc.baseKey,
+        i18nKey: `npc.archetype.${encounterNpc.baseKey}`,
+        icon: NPC_SKINS[encounterNpc.skin] ?? '🧙',
+        x: approach.x, y: approach.y,
+      }, repRules?.npcMaxPersistentExtras ?? 5);
+    }
+    setEncounterNpc(info);
     if (active && !wasEncounterActiveRef.current) beginNpcApproach();
     else if (!active && wasEncounterActiveRef.current) endNpcApproach();
     wasEncounterActiveRef.current = active;
-  }, []);
+  }, [encounterNpc, repRules?.npcPersistAfterEncounter, repRules?.npcMaxPersistentExtras]);
 
   // ─── Pont "lancer de dés obligatoire" entre NpcEncounterPopup (combat PNJ) et DiceRollWidget ───
   // Un combat PNJ réclame désormais un jet du widget "Lancer de dès" (bouton "Lancer...") avant de

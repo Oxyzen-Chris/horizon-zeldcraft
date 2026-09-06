@@ -5,11 +5,12 @@ import { createPortal } from 'react-dom';
 import {
   getNpcDefs, meetNpcOffchain, getMetNpcIds,
   getFamiliarDefs, tameFamiliar, subscribeFamiliars, familiarKeyOf, getInventoryOnce,
-  getTreasureDefs, openTreasureOffchain, getFoundTreasureIds,
+  getTreasureDefs, openTreasureOffchain, getFoundTreasureEntries, isTreasureCurrentlyHidden,
   getQuestDefs, submitQuestAnswerOffchain, getUnlockedQuestIds, unlockQuestForPlayer, getSolvedQuest,
   getWorldDefs, discoverWorldOffchain, subscribeUnlockedWorldIds,
   getHutRestRemainingMs, RKEY,
   type MapMarker, type RepRules, type NpcDef, type FamiliarDef, type TreasureDef, type QuestDef, type WorldDef,
+  type TreasureFoundEntry,
 } from '@/lib/gameState';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -33,11 +34,12 @@ function formatRemaining(ms: number): string {
  * in-widget.
  */
 export function PoiInteractionModal({
-  marker, address, playerXp, rules, onClose, onRequestHutRest,
+  marker, address, playerXp, playerWallet, rules, onClose, onRequestHutRest,
 }: {
   marker: Marker | null;
   address?: string;
   playerXp: number;
+  playerWallet?: number;
   rules: RepRules | null;
   onClose: () => void;
   onRequestHutRest: () => void;
@@ -51,7 +53,7 @@ export function PoiInteractionModal({
   let body: React.ReactNode;
   if (marker.kind === 'npc') body = <NpcBody marker={marker} address={address} />;
   else if (marker.kind === 'familiar') body = <FamiliarBody marker={marker} address={address} playerXp={playerXp} />;
-  else if (marker.kind === 'treasure') body = <TreasureBody marker={marker} address={address} playerXp={playerXp} />;
+  else if (marker.kind === 'treasure') body = <TreasureBody marker={marker} address={address} playerXp={playerXp} playerWallet={playerWallet ?? 0} rules={rules} />;
   else if (marker.kind === 'quest') body = <QuestBody marker={marker} address={address} playerXp={playerXp} rules={rules} />;
   else if (marker.kind === 'world') body = <WorldBody marker={marker} address={address} playerXp={playerXp} />;
   else body = <HutBody address={address} rules={rules} onRequestHutRest={() => { onClose(); onRequestHutRest(); }} />;
@@ -204,27 +206,46 @@ function FamiliarBody({ marker, address, playerXp }: { marker: Marker; address?:
 }
 
 // ────────────────────────────────────────── Trésor ──────────────────────────────────────────
-function TreasureBody({ marker, address, playerXp }: { marker: Marker; address?: string; playerXp: number }) {
+/** `playerWallet` (Player.wallet, monnaie de jeu — voir gameState.ts) et `rules` (RepRules) sont
+ * nécessaires depuis la demande utilisateur « il doit aller dans la besace [...] si toutes les
+ * conditions sont remplies (moyennant expériences ou suffisamment de coins nécessaire) [...]
+ * réapparaître [...] seulement quelques temps plus tard (48 heures par exemple) » : condition
+ * alternative XP OU pièces (`xpOk || coinsOk`, voir TreasureDef.coinsRequired/
+ * RepRules.treasureCoinsUnlockEnabled), et réapparition différée après ramassage (voir
+ * RepRules.treasureRespawnHours/isTreasureCurrentlyHidden). Le marqueur lui-même est masqué en
+ * temps réel dans les 3 widgets par `lib/treasureVisibility.ts` dès l'ouverture (voir
+ * `openTreasureOffchain` qui écrit `foundAt`) — ce composant se contente d'un `getFoundTreasureEntries`
+ * ponctuel (le pop-up est démonté à la fermeture, un abonnement temps réel serait inutile ici). */
+function TreasureBody({ marker, address, playerXp, playerWallet, rules }: { marker: Marker; address?: string; playerXp: number; playerWallet: number; rules: RepRules | null }) {
   const { t } = useI18n();
   const [def, setDef] = useState<TreasureDef | null>(null);
-  const [found, setFound] = useState(false);
+  const [entry, setEntry] = useState<TreasureFoundEntry | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     getTreasureDefs().then((all) => setDef(all.find((tr) => tr.id === marker.id) ?? null)).catch(() => setDef(null));
-    if (address) getFoundTreasureIds(address).then((ids) => setFound(ids.has(RKEY(marker.id)))).catch(() => {});
+    if (address) getFoundTreasureEntries(address).then((entries) => setEntry(entries[RKEY(marker.id)] ?? null)).catch(() => {});
   }, [marker.id, address]);
 
   if (!def) return <p className="text-sm text-slate-400">⏳</p>;
 
-  const canOpen = !found && playerXp >= def.xpRequired;
+  const respawnHours = rules?.treasureRespawnHours ?? 48;
+  const hidden = isTreasureCurrentlyHidden(entry, respawnHours);
+  const xpOk = playerXp >= def.xpRequired;
+  const coinsUnlockEnabled = rules?.treasureCoinsUnlockEnabled !== false;
+  const coinsOk = coinsUnlockEnabled && !!def.coinsRequired && playerWallet >= def.coinsRequired;
+  const canOpen = !hidden && (xpOk || coinsOk);
+  // Ne débite les pièces QUE si la voie XP gratuite n'est pas déjà satisfaite (voir
+  // lib/gameState.ts::openTreasureOffchain, condition OR et non AND).
+  const payWithCoins = !xpOk && coinsOk;
+  const respawnRemainingMs = (entry && respawnHours > 0) ? (entry.foundAt + respawnHours * 3_600_000) - Date.now() : 0;
 
   const open = async () => {
-    if (!address || busy) return;
+    if (!address || busy || !canOpen) return;
     setBusy(true);
     try {
-      await openTreasureOffchain(address, def);
-      setFound(true);
+      await openTreasureOffchain(address, def, { respawnHours, payWithCoins });
+      setEntry({ foundAt: Date.now(), itemGranted: !!def.itemReward });
     } finally {
       setBusy(false);
     }
@@ -232,15 +253,25 @@ function TreasureBody({ marker, address, playerXp }: { marker: Marker; address?:
 
   return (
     <div className="text-sm">
-      {found ? (
-        <p className="text-emerald-400 text-xs">💎 {t('game.treasures.found')}</p>
+      {hidden ? (
+        <>
+          <p className="text-emerald-400 text-xs">💎 {t('game.treasures.found')}</p>
+          {respawnHours > 0 && respawnRemainingMs > 0 && (
+            <p className="text-xs text-slate-500 mt-1">⏳ {t('game.treasures.respawnIn', { time: formatRemaining(respawnRemainingMs) })}</p>
+          )}
+        </>
       ) : (
         <>
-          <p className="text-xs text-slate-500 mb-2">{t('game.treasures.xpRequired', { v: def.xpRequired })}</p>
-          {canOpen && (
+          <p className="text-xs text-slate-500 mb-1">{t('game.treasures.xpRequired', { v: def.xpRequired })}</p>
+          {coinsUnlockEnabled && !!def.coinsRequired && (
+            <p className="text-xs text-slate-500 mb-2">{t('game.treasures.coinsAlternative', { v: def.coinsRequired })}</p>
+          )}
+          {canOpen ? (
             <button className="btn-primary text-xs w-full" disabled={busy} onClick={open}>
-              {busy ? '⏳' : t('game.treasures.open')}
+              {busy ? '⏳' : payWithCoins ? t('game.treasures.openWithCoins', { v: def.coinsRequired ?? 0 }) : t('game.treasures.open')}
             </button>
+          ) : (
+            <p className="text-xs text-amber-400">{t('map.locked', { xp: def.xpRequired })}</p>
           )}
         </>
       )}

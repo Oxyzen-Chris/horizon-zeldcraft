@@ -422,6 +422,93 @@ confirmé visible à proximité de Synk dans `Platform3DWidget.tsx` (capture d'�
 désactivation (retour exact à l'état initial, aucune régression persistante). Zéro erreur console
 sur l'ensemble des scénarios. `tsc --noEmit` propre.
 
+## 🔒 PNJ de rencontre persistants (fantômes errants) + trésors qui disparaissent/réapparaissent
+
+**Demande utilisateur** : (1) les PNJ qui viennent solliciter Synk (voir section précédente) ne
+doivent **plus disparaître** une fois le popup de rencontre fermé — ils doivent continuer à
+progresser/se déplacer naturellement sur la Mapmonde, la Plateforme 2D isométrique et la
+Plateforme 3D, et pouvoir revenir près de Synk plus tard ; ceux à moins de **10 cases** de Synk
+doivent être matérialisés par un anneau clignotant sur la Mapmonde (paramétrable). (2) Un objet 3D
+ramassé dans la Plateforme 3D doit naturellement rejoindre la Besace de Synk **si les conditions
+sont remplies** (assez d'XP **ou** assez de pièces), disparaître de son emplacement précis, et n'y
+réapparaître qu'après un délai (48h par défaut, paramétrable).
+
+**Correctif — PNJ persistants** :
+- **`lib/roamingActors.ts`** : le module (portée module, même pattern que `npcApproach.ts`) gagne un
+  tableau additif `extras: ExtraRoamingActor[]` (en plus des PNJ/Dragon errants historiques,
+  inchangés). `spawnExtraRoamingActor(actor, maxCount)` est **idempotent par id** (un PNJ déjà
+  fantôme n'est pas dupliqué), **éviction FIFO** au-delà de `RepRules.npcMaxPersistentExtras`
+  (défaut 5 — évite un encombrement infini de la carte au fil des rencontres), et purge les entrées
+  orphelines de la map interne `extraMotions` à chaque éviction.
+- **`game/page.tsx::handleEncounterChange`** : au moment où une rencontre se termine
+  (`active → false`, transition détectée via `wasEncounterActiveRef`, AVANT l'appel à
+  `endNpcApproach()`), si `repRules.npcPersistAfterEncounter` (défaut `true`) est actif, la dernière
+  position connue du PNJ en approche (`getNpcApproachState()`) + son identité (`encounterNpc`) sont
+  figées dans un `ExtraRoamingActor` persistant via `spawnExtraRoamingActor(...,
+  repRules.npcMaxPersistentExtras)`. Le PNJ « fantôme » continue ensuite d'errer indéfiniment (pas
+  de despawn automatique, seulement borné par le plafond FIFO).
+- **Rendu identique dans les 3 widgets** : `WorldMapWidget.tsx` fusionne les extras dans
+  `liveActorMarkers` (nouveau cas `formerEncounterLabel` dans `liveActorKindLabel`) ;
+  `GameCanvas2D.tsx` les affiche via `extrasInView` (icônes fantômes non interactives, même
+  transition `duration-[1500ms]` que les autres acteurs vivants) ; `Platform3DWidget.tsx` les
+  injecte dans `sceneMarkers` via une map `extraById` (facing/moving en O(1)), avec
+  `isEncounterMarker` étendu pour exempter le préfixe `encounter.extra.` du routage de clic (les
+  fantômes restent volontairement non interactifs, sans identité catalogue).
+- **Anneau conditionnel à la proximité (changement de comportement assumé)** : sur la Mapmonde, le
+  **libellé reste toujours visible** (garantie verrouillée du commit `c1941cc`), mais l'**anneau**
+  clignotant (`animate-ping`) n'apparaît désormais que si le marqueur est à moins de
+  `RepRules.npcProximityRadiusTiles` (défaut 10 cases, distance euclidienne directe — l'espace
+  Mapmonde est déjà en coordonnées 0-100, aucune conversion d'unité nécessaire) de la position
+  courante de Synk, via un nouveau garde `isNearSynk()`. Ce comportement s'applique à **tous** les
+  acteurs vivants (PNJ/Dragon errants historiques + PNJ en approche + fantômes persistants), pas
+  seulement aux nouveaux — demande explicite du porteur de projet dans cette itération.
+
+**Correctif — trésors avec disparition/réapparition + condition XP OU pièces** :
+- **`lib/gameState.ts`** : `TreasureDef.coinsRequired?: number` (nouveau champ catalogue, admin) ;
+  nouveau type `TreasureFoundEntry` + `getFoundTreasureEntries()`/`subscribeFoundTreasureEntries()`
+  (variantes de `getFoundTreasureIds`/`subscribeFoundTreasureIds`, conservées intactes pour les
+  autres appelants) qui exposent aussi le timestamp `foundAt` déjà stocké dans
+  `treasuresFound/{RKEY(id)}` ; `isTreasureCurrentlyHidden(entry, respawnHours)` calcule si un
+  trésor doit rester masqué (`respawnHours <= 0` = ne réapparaît jamais, comportement historique
+  conservé comme échappatoire). `openTreasureOffchain(address, treasure, opts?: {respawnHours?,
+  payWithCoins?})` déduit désormais le portefeuille (`applyEffect(address, {wallet: -coût})`,
+  clampé à 0) quand `payWithCoins` est vrai, et utilise `isTreasureCurrentlyHidden()` pour la
+  vérification « déjà ouvert ».
+- **`lib/treasureVisibility.ts` (nouveau fichier)** : hook partagé `useHiddenTreasureIds(address,
+  respawnHours)` (s'abonne à `subscribeFoundTreasureEntries`, retourne un `Set` de clés **RKEY'd**)
+  consommé identiquement par les 3 widgets pour filtrer les marqueurs de trésors déjà ramassés et
+  pas encore réapparus. ⚠️ Piège documenté dans le JSDoc du fichier : les ids bruts de marqueurs de
+  trésor (contenant parfois des points) diffèrent de leur clé de stockage Firebase — les appelants
+  doivent tester `hiddenTreasureIds.has(RKEY(m.id))`, jamais `.has(m.id)` directement.
+- **`GameCanvas2D.tsx`/`Platform3DWidget.tsx`** : la donnée brute de marqueurs a été renommée
+  `rawMarkers`, et une nouvelle valeur dérivée `markers` (via `useMemo`, filtrée par
+  `useHiddenTreasureIds`) est utilisée partout en aval — préserve tous les noms/usages existants
+  dans ces gros fichiers (aucun autre site d'appel modifié).
+- **`PoiInteractionModal.tsx` (`TreasureBody`)** : nouvelle logique `canOpen = xpOk || coinsOk`
+  (condition **OU**, pas ET — interprétation retenue pour la formulation « moyennant expériences ou
+  suffisamment de coins nécessaire », documentée en commentaire de code au cas où le porteur de
+  projet souhaite l'inverser en ET) ; `payWithCoins = !xpOk && coinsOk` (les pièces ne sont déduites
+  que si le palier XP n'est pas déjà atteint) ; affichage d'un décompte du temps restant avant
+  réapparition si le trésor est actuellement masqué ; prop `playerWallet` ajoutée au composant
+  racine et propagée depuis les deux widgets porteurs.
+- **`RepRulesPanel.tsx` / `admin/page.tsx`** : nouvelle section admin « 🧙 PNJ vivants & Trésors »
+  (`npcPersistAfterEncounter`, `npcMaxPersistentExtras`, `npcProximityRadiusTiles`,
+  `treasureCoinsUnlockEnabled`, `treasureRespawnHours`) ; champ `coinsRequired` ajouté au formulaire
+  de création de trésor et à `TreasureRow` (édition), avec badge `🪙` d'affichage.
+
+**Vérification** : `npx tsc --noEmit` propre, `npm run build` réussi (warnings pré-existants
+inchangés, liés aux dépendances wallet WalletConnect/MetaMask, sans rapport avec ces
+modifications). Script Playwright jetable : connexion Démo anonyme → ouverture Mapmonde/Plateforme
+2D isométrique/Plateforme 3D → aucune erreur console sur l'ensemble du parcours. L'accès au menu
+Administration nécessitant un wallet réel correspondant au propriétaire du contrat (`isOwner` dans
+`admin/page.tsx`), les nouveaux champs `RepRulesPanel` n'ont pas pu être exercés en boîte noire dans
+ce contexte Playwright — validés par revue de code (même schéma que les champs `RepRules` existants
+juste au-dessus, mêmes conventions de nommage/persistance). Toutes les nouvelles clés i18n
+ajoutées dans `fr.json`/`en.json`/`es.json`/`pt.json` (les 4 langues, validées JSON-valides).
+Aucune régression : le système de déplacement de Synk (verrouillé), le PNJ/Dragon errant historique
+et le filtre « declutter » (`ce78d9d`, section précédente) restent intacts et continuent de
+fonctionner exactement comme avant.
+
 ## Lisibilité des champs de formulaire du menu Administration (classe partagée `.input`)
 
 **Bug signalé** : dans le menu Administration, le texte des champs (valeurs numériques du Barème

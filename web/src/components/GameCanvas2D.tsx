@@ -6,10 +6,11 @@ import {
   getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem, subscribeInventory,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, relocateZorghonCaptives, rescuePocaPoka,
-  CORNER_POSITION_CLASSES, trackFaintEvent,
+  CORNER_POSITION_CLASSES, trackFaintEvent, RKEY,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem, type ZorghonEncounterState,
   type SynkDirection,
 } from '@/lib/gameState';
+import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import {
   TERRAIN_COLOR, PROP_ICON, TERRAIN_I18N_KEY, PROP_I18N_KEY, worldTileAt, clamp100, WORLD_SIZE, hashRand,
   isObstacleAt,
@@ -270,7 +271,17 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // Tous les marqueurs de la mapmonde (décor/terrain, mondes, PNJ, trésors, familiers, quêtes PNJ —
   // voir gameState.ts::getAllMapMarkers), positionnés IDENTIQUEMENT à WorldMapWidget.tsx (même
   // fonction, même repli déterministe) afin que les deux vues soient toujours cohérentes.
-  const [markers, setMarkers] = useState<MapMarker[]>([]);
+  const [rawMarkers, setRawMarkers] = useState<MapMarker[]>([]);
+  // Masque les trésors déjà ramassés par CE joueur et pas encore réapparus (voir
+  // lib/treasureVisibility.ts, RepRules.treasureRespawnHours) — répond à la demande utilisateur
+  // « disparaitre de l'endroit précis où il a été récupéré [...] réapparaitre [...] seulement
+  // quelques temps plus tard (48 heures par exemple) ». `markers` (nom historique, inchangé) reste
+  // dérivé afin de ne pas avoir à retoucher ses dizaines de sites d'usage plus bas.
+  const hiddenTreasureIds = useHiddenTreasureIds(address, rules?.treasureRespawnHours ?? 48);
+  const markers = useMemo(
+    () => rawMarkers.filter(m => m.kind !== 'treasure' || !hiddenTreasureIds.has(RKEY(m.id))),
+    [rawMarkers, hiddenTreasureIds],
+  );
   const poiPoints = useMemo(
     () => markers.filter(m => m.kind === 'poi').map(m => ({ x: m.x, y: m.y, poiType: m.poiType, radius: m.radius })),
     [markers],
@@ -322,7 +333,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
 
   // Tous les marqueurs de la mapmonde (une fois) — décor pour le biais de terrain local (voir
   // worldTileAt) ET affichage direct dans la fenêtre de la caméra (voir rendu plus bas).
-  useEffect(() => { getAllMapMarkers(DEFAULT_MAP_ID).then(setMarkers).catch(() => {}); }, []);
+  useEffect(() => { getAllMapMarkers(DEFAULT_MAP_ID).then(setRawMarkers).catch(() => {}); }, []);
 
   // Marqueur unique de la Quête du Royaume en cours (👑, voir getKingdomQuestMarker) — fusionné
   // dans visibleMarkers ci-dessous (kind: 'quest', réutilise le même clic → PoiInteractionModal
@@ -483,6 +494,20 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const dragonRawRow = Math.round(roamingActors.dragon.y) - origin.row;
   const dragonInView = dragonRawCol >= 0 && dragonRawCol < COLS && dragonRawRow >= 0 && dragonRawRow < ROWS;
   const dragonLocal = { col: clampCoord(dragonRawCol, COLS), row: clampCoord(dragonRawRow, ROWS) };
+  // PNJ de rencontre PERSISTÉS (voir lib/roamingActors.ts::ExtraRoamingActor et demande utilisateur
+  // « les PNJ qui viennent à la rencontre de Synk ne doivent pas disparaitre [...] mais continuer à
+  // progresser [...] sur map 2D, 3D ou la mapmonde ») — même conversion mapmonde→local que npc/
+  // dragon ci-dessus, mais en liste (nombre variable, plafonné par RepRules.npcMaxPersistentExtras).
+  // Non-interactifs (pas de `kind` catalogue réel, voir doc du module) : rendus en lecture seule,
+  // exactement comme le PNJ "en approche" pendant sa marche.
+  const extrasInView = useMemo(() => roamingActors.extras
+    .map((e) => {
+      const col = Math.round(e.x) - origin.col, row = Math.round(e.y) - origin.row;
+      return { actor: e, col, row, inView: col >= 0 && col < COLS && row >= 0 && row < ROWS };
+    })
+    .filter((e) => e.inView),
+    [roamingActors.extras, origin.col, origin.row],
+  );
   // Conversion mapmonde → viewport LOCAL du PNJ "en approche" (voir lib/npcApproach.ts) — même
   // principe que npcInView/npcLocal ci-dessus pour le PNJ/Dragon errant : sa position de départ
   // (quelques cases de Synk) peut être hors-cadre le temps qu'il s'approche, il ne doit alors PAS
@@ -1399,6 +1424,21 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
               <span className="text-xl drop-shadow" style={{ filter: 'drop-shadow(0 0 2px #000)' }}>{NPC_SKINS[encounterNpc.skin]}</span>
             </div>
           )}
+          {/* PNJ de rencontre PERSISTÉS (voir lib/roamingActors.ts::ExtraRoamingActor) — continuent
+              d'errer sur toute la mapmonde après la fermeture de leur pop-up de rencontre au lieu
+              de disparaître (voir demande utilisateur). Non-interactifs (pas d'identité catalogue,
+              voir doc du module), affichés en lecture seule exactement comme le PNJ "en approche"
+              ci-dessus. */}
+          {extrasInView.map(({ actor, col, row }) => (
+            <div
+              key={`extra-${actor.id}`}
+              className="absolute -translate-x-1/2 flex flex-col items-center pointer-events-none transition-all duration-[1500ms]"
+              style={{ left: projX(col, row), top: projY(col, row) - 22, zIndex: col + row + 2 }}
+              title={localizeName(t, actor.i18nKey, actor.name)}
+            >
+              <span className="text-lg drop-shadow" style={{ filter: 'drop-shadow(0 0 2px #000)' }}>{actor.icon}</span>
+            </div>
+          ))}
           {/* Synk (joueur) — direction/marche animées (voir facing/isWalking, SynkSkin.tsx et
               RepRules.synkLimbAnimationEnabled) */}
           <div className="absolute -translate-x-1/2 flex flex-col items-center transition-all duration-500 pointer-events-auto cursor-help"
@@ -1434,6 +1474,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
         marker={interactionMarker}
         address={address}
         playerXp={playerXp}
+        playerWallet={player?.wallet ?? 0}
         rules={rules}
         onClose={() => setInteractionMarker(null)}
         onRequestHutRest={() => setHutResting(true)}

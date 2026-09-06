@@ -28,6 +28,7 @@ import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
 import { useNpcApproach } from '@/lib/npcApproach';
+import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 
 const POS_KEY = 'zc.mapWidgetPos';
 const SIZE_KEY = 'zc.mapWidgetSize';
@@ -91,7 +92,17 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   const [season, setSeason] = useState<Season | null>(null);
   // Marqueurs PNJ/trésors/familiers/quêtes localisés (voir gameState.ts::getAllMapMarkers) — POI
   // terrain et mondes restent gérés séparément ci-dessus (logique de découverte/déverrouillage).
-  const [entityMarkers, setEntityMarkers] = useState<MapMarker[]>([]);
+  const [rawEntityMarkers, setRawEntityMarkers] = useState<MapMarker[]>([]);
+  // Masque les trésors déjà ramassés par CE joueur et pas encore réapparus (voir
+  // lib/treasureVisibility.ts et RepRules.treasureRespawnHours) — répond à la demande utilisateur
+  // « disparaitre de l'endroit précis où il a été récupéré [...] réapparaitre [...] seulement
+  // quelques temps plus tard ». `entityMarkers` (nom historique, inchangé) redevient ainsi dérivé
+  // au lieu d'être directement l'état brut, sans toucher aux dizaines de sites d'usage plus bas.
+  const hiddenTreasureIds = useHiddenTreasureIds(address, rules?.treasureRespawnHours ?? 48);
+  const entityMarkers = useMemo(
+    () => rawEntityMarkers.filter(m => m.kind !== 'treasure' || !hiddenTreasureIds.has(RKEY(m.id))),
+    [rawEntityMarkers, hiddenTreasureIds],
+  );
   // Marqueur unique de la Quête du Royaume en cours (👑, voir getKingdomQuestMarker) — fusionné
   // avec entityMarkers au rendu ci-dessous, sans modifier getAllMapMarkers() (zéro régression).
   const [kingdomMarker, setKingdomMarker] = useState<MapMarker | null>(null);
@@ -146,6 +157,18 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     return list;
   }, [roamingActors.npcMarkerId, roamingActors.dragonMarkerId, roamingActors.npc.x, roamingActors.npc.y, roamingActors.dragon.x, roamingActors.dragon.y, roamingNpcMarker, roamingDragonMarker, t]);
 
+  // ─── PNJ de rencontre PERSISTÉS (voir lib/roamingActors.ts::ExtraRoamingActor et demande
+  // utilisateur « les PNJ qui viennent à la rencontre de Synk ne doivent pas disparaitre [...] mais
+  // continuer à progresser [...] Il faut que les PNJ à proximité de 10 cases de Synk soit
+  // matérialisés par un anneau clignotant sur la mapmonde ») — même traitement que
+  // `roamingLiveMarkers` (position live, mêmes filtres PNJ/Familiers), fusionnés ci-dessous dans
+  // `liveActorMarkers`. Leur id (préfixe `encounter.extra.`) est déjà exempté du filtre "declutter"
+  // par `lib/mapFilters.ts::isLiveActorMarkerId`.
+  const extraLiveMarkers = useMemo<MapMarker[]>(
+    () => roamingActors.extras.map((e) => ({ id: e.id, kind: e.kind, name: e.name, i18nKey: e.i18nKey, icon: e.icon, x: e.x, y: e.y })),
+    [roamingActors.extras],
+  );
+
   // ─── PNJ "en approche" (rencontre sollicitée — quête/troc/combat, voir NpcEncounterPopup.tsx) ───
   // Position live partagée (voir lib/npcApproach.ts) : marche progressivement vers Synk au lieu
   // d'apparaître instantanément à sa position (voir demande utilisateur « je veux le voir
@@ -164,18 +187,31 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     };
   }, [encounterNpc, npcApproach.active, npcApproach.x, npcApproach.y, t]);
   const liveActorMarkers = useMemo<MapMarker[]>(
-    () => encounterLiveMarker ? [...roamingLiveMarkers, encounterLiveMarker] : roamingLiveMarkers,
-    [roamingLiveMarkers, encounterLiveMarker],
+    () => [...roamingLiveMarkers, ...extraLiveMarkers, ...(encounterLiveMarker ? [encounterLiveMarker] : [])],
+    [roamingLiveMarkers, extraLiveMarkers, encounterLiveMarker],
   );
   /** Libellé de catégorie affiché en suffixe du marqueur "en direct" (voir rendu plus bas) —
    * distingue "PNJ errant"/"Dragon errant" (errance ambiante) du PNJ "en approche" (dont le
    * libellé reprend le TYPE de sollicitation : quête/troc/combat/discussion, bien plus parlant
-   * qu'un simple "errant" pour un PNJ qui vient délibérément à la rencontre du joueur). */
+   * qu'un simple "errant" pour un PNJ qui vient délibérément à la rencontre du joueur) et des PNJ
+   * de rencontre persistés (`encounter.extra.*`, voir ExtraRoamingActor) qui ont désormais quitté
+   * l'état "en approche" pour errer librement — libellé dédié "Ancienne rencontre". */
   const liveActorKindLabel = useCallback((m: MapMarker): string => {
     if (m.id === 'roaming.dragon.live') return t('canvas2d.dragonLabel');
     if (m.id === 'encounter.npc.live' && encounterNpc) return localizeName(t, `npc.offer.${encounterNpc.offer}`, encounterNpc.offer);
+    if (m.id.startsWith('encounter.extra.')) return t('canvas2d.formerEncounterLabel');
     return t('canvas2d.npcLabel');
   }, [encounterNpc, t]);
+  // Rayon de proximité (en cases mapmonde, échelle 0-100 — voir RepRules.npcProximityRadiusTiles,
+  // défaut 10) en-deçà duquel un PNJ vivant (errant/persisté/en approche) est matérialisé par
+  // l'anneau clignotant — répond à la demande utilisateur « il faut que les PNJ à proximité de 10
+  // cases de Synk soit matérialisés par un anneau clignotant ». Le libellé, lui, reste TOUJOURS
+  // visible (garantie verrouillée depuis le commit c1941cc) quelle que soit la distance, pour que
+  // le joueur puisse toujours identifier un PNJ vivant même hors de portée immédiate.
+  const isNearSynk = useCallback((m: MapMarker): boolean => {
+    const radius = rules?.npcProximityRadiusTiles ?? 10;
+    return Math.hypot(m.x - mapPos.x, m.y - mapPos.y) <= radius;
+  }, [rules?.npcProximityRadiusTiles, mapPos.x, mapPos.y]);
 
   const [toast, setToast] = useState<string | null>(null);
   const [travelConfirm, setTravelConfirm] = useState<WorldDef | null>(null);
@@ -225,7 +261,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     getWorldDefs().then(setWorlds).catch(() => {});
     getRepRules().then(setRules).catch(() => {});
     getCurrentSeason().then(setSeason).catch(() => {});
-    getAllMapMarkers(DEFAULT_MAP_ID).then(list => setEntityMarkers(list.filter(m => m.kind === 'npc' || m.kind === 'treasure' || m.kind === 'familiar' || m.kind === 'quest'))).catch(() => {});
+    getAllMapMarkers(DEFAULT_MAP_ID).then(list => setRawEntityMarkers(list.filter(m => m.kind === 'npc' || m.kind === 'treasure' || m.kind === 'familiar' || m.kind === 'quest'))).catch(() => {});
   }, []);
 
   const refreshPlayerBits = useCallback(() => {
@@ -738,7 +774,9 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
               title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)} · ${liveActorKindLabel(m)}`}
               className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none transition-all duration-[1500ms]"
               style={{ left: `${m.x}%`, top: `${m.y}%` }}>
-              <span className="absolute rounded-full border-2 border-amber-400 animate-ping" style={{ width: 20 + zoom * 8, height: 20 + zoom * 8 }} />
+              {isNearSynk(m) && (
+                <span className="absolute rounded-full border-2 border-amber-400 animate-ping" style={{ width: 20 + zoom * 8, height: 20 + zoom * 8 }} />
+              )}
               <span style={{ fontSize: 15 + zoom * 6 }}>{m.icon}</span>
               <span className="text-[9px] text-amber-950 font-bold whitespace-nowrap bg-amber-100/80 px-1 rounded shadow-sm">
                 {localizeName(t, m.i18nKey, m.name)}

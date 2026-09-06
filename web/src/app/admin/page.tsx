@@ -147,6 +147,10 @@ export default function AdminPage() {
   const [trsName, setTrsName] = useState('');
   const [trsXpReq, setTrsXpReq] = useState('50');
   const [trsXp, setTrsXp] = useState('75');
+  // Condition alternative en pièces (Player.wallet, voir gameState.ts::TreasureDef.coinsRequired) —
+  // voir demande utilisateur « moyennant expériences ou suffisamment de coins nécessaire ». Vide/0
+  // = pas de voie alternative en pièces pour ce trésor (uniquement l'XP requise).
+  const [trsCoinsReq, setTrsCoinsReq] = useState('0');
   const [trsSaving, setTrsSaving] = useState(false);
   const [allTreasures, setAllTreasures] = useState<TreasureDef[] | null>(null);
   const refreshTreasures = () => { getTreasureDefs().then(setAllTreasures).catch(() => setAllTreasures([])); };
@@ -569,6 +573,7 @@ export default function AdminPage() {
               <input className="input" placeholder={t('admin.treasure.name')} value={trsName} onChange={e => setTrsName(e.target.value)} />
               <input className="input" placeholder={t('admin.treasure.xpRequired')} value={trsXpReq} onChange={e => setTrsXpReq(e.target.value)} />
               <input className="input" placeholder={t('admin.treasure.xp')}   value={trsXp}   onChange={e => setTrsXp(e.target.value)} />
+              <input className="input" placeholder={t('admin.treasure.coinsRequired')} value={trsCoinsReq} onChange={e => setTrsCoinsReq(e.target.value)} />
             </div>
             <button className="btn-primary" disabled={trsSaving || !trsKey || !trsName}
               onClick={async () => {
@@ -579,8 +584,9 @@ export default function AdminPage() {
                   await addTreasureDef({
                     id: trsKey.trim(), name: trsName.trim(), xpRequired: Number(trsXpReq) || 0,
                     xpReward: Number(trsXp) || 0, active: true, createdAt: Date.now(), order: nextOrder,
+                    ...(Number(trsCoinsReq) > 0 ? { coinsRequired: Number(trsCoinsReq) } : {}),
                   });
-                  setTrsKey(''); setTrsName(''); setTrsXpReq('50'); setTrsXp('75');
+                  setTrsKey(''); setTrsName(''); setTrsXpReq('50'); setTrsXp('75'); setTrsCoinsReq('0');
                   refreshTreasures();
                 } finally {
                   setTrsSaving(false);
@@ -1171,11 +1177,13 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
   const [xpReq, setXpReq] = useState(String(treasure.xpRequired));
   const [xpRew, setXpRew] = useState(String(treasure.xpReward));
   const [season, setSeason] = useState<Season | ''>(treasure.season ?? '');
+  // Condition alternative en pièces (Player.wallet) — voir TreasureDef.coinsRequired ci-dessus.
+  const [coinsReq, setCoinsReq] = useState(String(treasure.coinsRequired ?? 0));
   const [saving, setSaving] = useState(false);
 
   const startEdit = () => {
     setName(treasure.name); setXpReq(String(treasure.xpRequired)); setXpRew(String(treasure.xpReward));
-    setSeason(treasure.season ?? '');
+    setSeason(treasure.season ?? ''); setCoinsReq(String(treasure.coinsRequired ?? 0));
     setEditing(true);
   };
 
@@ -1189,6 +1197,7 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
         ...(treasure.i18nKey ? { i18nKey: treasure.i18nKey } : {}),
         ...(treasure.itemReward ? { itemReward: treasure.itemReward } : {}),
         ...(season ? { season } : {}),
+        ...(Number(coinsReq) > 0 ? { coinsRequired: Number(coinsReq) } : {}),
       });
       setEditing(false);
       onSaved();
@@ -1205,6 +1214,7 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
           <input className="input" placeholder={t('admin.treasure.xpRequired')} value={xpReq} onChange={e => setXpReq(e.target.value)} />
           <input className="input" placeholder={t('admin.treasure.xp')} value={xpRew} onChange={e => setXpRew(e.target.value)} />
         </div>
+        <input className="input w-full" placeholder={t('admin.treasure.coinsRequired')} value={coinsReq} onChange={e => setCoinsReq(e.target.value)} />
         <select className="input w-full" value={season} onChange={e => setSeason(e.target.value as Season | '')}>
           <option value="">{t('admin.season.allYear')}</option>
           {SEASONS.map(s => <option key={s} value={s}>{SEASON_ICONS[s]} {t(`season.${s}`)}</option>)}
@@ -1228,6 +1238,7 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
         {treasure.season && <span className="shrink-0" title={t(`season.${treasure.season}`)}>{SEASON_ICONS[treasure.season]}</span>}
         <span className="shrink-0 text-slate-500">
           {t('admin.treasure.xpRequired')} {treasure.xpRequired} · +{treasure.xpReward} XP
+          {!!treasure.coinsRequired && <> · 🪙 {treasure.coinsRequired}</>}
         </span>
         {!treasure.active && <span className="shrink-0 text-red-400">{t('admin.quest.list.inactive')}</span>}
         <button className="shrink-0 btn-secondary text-xs px-2 py-0.5" onClick={startEdit}>

@@ -163,6 +163,27 @@ Le cœur de jeu a considérablement grandi au-delà du MVP initial, entièrement
   et `npm run build` passent sans erreur ; aucune régression observée sur le rendu du décor/textures
   ni sur les déplacements de Synk (travail des sessions précédentes intact)
 
+### 🎥 Historique — PNJ de rencontre persistants + trésors avec disparition/réapparition (48h)
+
+- **PNJ « fantômes » persistants** : un PNJ qui vient solliciter Synk (quête/troc/combat/discussion)
+  ne disparaît plus une fois le popup fermé — il continue d'errer naturellement sur la Mapmonde, la
+  Plateforme 2D isométrique et la Plateforme 3D (`lib/roamingActors.ts::extras`, plafond FIFO
+  paramétrable `npcMaxPersistentExtras`, défaut 5). Tous les acteurs vivants (PNJ/Dragon errants
+  historiques + PNJ en approche + fantômes) n'affichent désormais leur anneau clignotant sur la
+  Mapmonde que dans un rayon paramétrable autour de Synk (`npcProximityRadiusTiles`, défaut 10
+  cases) — le libellé, lui, reste toujours visible comme avant.
+- **Trésors avec disparition/réapparition + déblocage par pièces** : un trésor ramassé disparaît
+  immédiatement de son emplacement précis sur les 3 widgets et ne réapparaît qu'après un délai
+  paramétrable (`treasureRespawnHours`, défaut 48h, 0 = ne réapparaît jamais). Un trésor peut
+  désormais être ouvert si le joueur a assez d'XP **OU** assez de pièces (`coinsRequired`,
+  paramétrable par trésor dans l'admin), les pièces n'étant déduites que si le palier XP n'est pas
+  déjà atteint.
+- **Nouvelle section admin « 🧙 PNJ vivants & Trésors »** (`RepRulesPanel.tsx`) regroupant les 5
+  nouveaux réglages ci-dessus.
+- **Vérifié** : `npx tsc --noEmit` et `npm run build` passent sans erreur ; script Playwright
+  jetable (connexion Démo, ouverture des 3 widgets concernés) sans erreur console ; aucune
+  régression sur le déplacement de Synk, le PNJ/Dragon errant historique ni le filtre « declutter »
+
 ## ⚠️ Dette technique connue — redéploiement du smart contract à prévoir
 
 - **Bug de cooldown des repas on-chain partagé entre les 4 types** (`feed()` dans

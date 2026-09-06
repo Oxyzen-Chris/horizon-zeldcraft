@@ -42,8 +42,43 @@ import type { MapMarker, SynkDirection } from './gameState';
  * sa démarche animée (bras/jambes articulés, voir Platform3DWidget.tsx::NpcVoxel/DragonMarker) au
  * lieu de l'ancienne rotation continue générique (« toupie ») appliquée à tous les marqueurs
  * flottants.
+ *
+ * 🆕 PNJ de rencontre PERSISTANTS (`extras`, voir spawnExtraRoamingActor ci-dessous) — corrige la
+ * demande utilisateur : « les PNJ qui viennent à la rencontre de Synk ne doivent pas disparaitre
+ * ensuite [...] mais continuer à progresser, se déplacer puis revenir si besoin vers Synk ».
+ * Auparavant, `lib/npcApproach.ts::endNpcApproach()` désactivait purement et simplement le PNJ de
+ * rencontre à la fermeture du pop-up (`NpcEncounterPopup.tsx`) : plus aucune trace dans aucun des 3
+ * widgets. Désormais, `app/game/page.tsx::handleEncounterChange` appelle `spawnExtraRoamingActor()`
+ * (si `RepRules.npcPersistAfterEncounter !== false`) juste avant `endNpcApproach()`, avec la
+ * DERNIÈRE position connue du PNJ (là où la rencontre s'est arrêtée) : celui-ci rejoint alors ce
+ * même pool d'errance ambiante (identique algorithme `advanceActor`/`stepActors` que le PNJ/Dragon
+ * errant historique) au lieu de disparaître, et peut donc — au gré du tirage aléatoire de
+ * direction — revenir naturellement croiser Synk plus tard. Purement ADDITIF : `npc`/`dragon`
+ * (les 2 acteurs historiques) et toute leur logique restent strictement inchangés, zéro régression.
+ * Un acteur `extra` n'a PAS d'identité catalogue (aucune fiche PNJ/quête associée, contrairement à
+ * `npc`/`dragon` dont l'identité est piochée dans `getAllMapMarkers()`) : il reste un PNJ visuel
+ * "fantôme" non interactif (voir GameCanvas2D.tsx/Platform3DWidget.tsx, rendu en lecture seule,
+ * exactement comme le marqueur `encounter.npc.live` pendant l'approche). Le nombre d'acteurs
+ * persistants simultanés est plafonné (`RepRules.npcMaxPersistentExtras`, défaut 5) : au-delà, le
+ * plus ANCIEN est retiré (file FIFO) pour éviter une croissance non bornée si de nombreuses
+ * rencontres se terminent coup sur coup.
  */
 export interface RoamingActorPos { x: number; y: number }
+/** Un PNJ de rencontre "persisté" après la fermeture du pop-up (voir commentaire ci-dessus) — même
+ * forme minimale qu'un `MapMarker` synthétique (voir lib/gameState.ts::MapMarker), mais géré ici
+ * pour bénéficier du même moteur d'errance (`advanceActor`/`stepActors`) que `npc`/`dragon`. */
+export interface ExtraRoamingActor {
+  /** Stable, unique par rencontre (voir spawnExtraRoamingActor) — sert de clé React ET exempte ce
+   * marqueur du "filtre intelligent" declutter (voir lib/mapFilters.ts::isLiveActorMarkerId). */
+  id: string;
+  kind: 'npc' | 'familiar';
+  name: string;
+  i18nKey?: string;
+  icon: string;
+  x: number; y: number;
+  facing: SynkDirection;
+  moving: boolean;
+}
 export interface RoamingActorsState {
   npc: RoamingActorPos;
   dragon: RoamingActorPos;
@@ -55,6 +90,8 @@ export interface RoamingActorsState {
    * catalogue reste chargé — garantit que 2D et 3D affichent le même PNJ/Dragon nommé. */
   npcMarkerId: string | null;
   dragonMarkerId: string | null;
+  /** PNJ de rencontre persistés (voir ExtraRoamingActor ci-dessus) — vide par défaut. */
+  extras: ExtraRoamingActor[];
 }
 
 interface ActorMotion { dx: number; dy: number; holdTicks: number }
@@ -85,10 +122,14 @@ let state: RoamingActorsState = {
   dragonMoving: false,
   npcMarkerId: null,
   dragonMarkerId: null,
+  extras: [],
 };
 
 let npcMotion: ActorMotion = { dx: 0, dy: 0, holdTicks: 0 };
 let dragonMotion: ActorMotion = { dx: 0, dy: 0, holdTicks: 0 };
+// Une entrée de "motion" par acteur persisté (voir ExtraRoamingActor), indexée par son `id` stable
+// — purgée dès qu'un acteur est retiré (plafond FIFO, voir spawnExtraRoamingActor).
+const extraMotions = new Map<string, ActorMotion>();
 const listeners = new Set<(s: RoamingActorsState) => void>();
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -146,6 +187,14 @@ function stepActors(): void {
   const dragonResult = advanceActor(state.dragon, dragonMotion);
   npcMotion = npcResult.motion;
   dragonMotion = dragonResult.motion;
+  // Fait avancer chaque PNJ de rencontre persisté (voir ExtraRoamingActor) exactement comme npc/
+  // dragon ci-dessus — même moteur d'errance, même cadence (STEP_MS), position/motion indépendantes.
+  const extras = state.extras.map((e) => {
+    const motion = extraMotions.get(e.id) ?? { dx: 0, dy: 0, holdTicks: 0 };
+    const result = advanceActor({ x: e.x, y: e.y }, motion);
+    extraMotions.set(e.id, result.motion);
+    return { ...e, x: result.pos.x, y: result.pos.y, facing: result.facing ?? e.facing, moving: result.moving };
+  });
   state = {
     ...state,
     npc: npcResult.pos,
@@ -154,6 +203,7 @@ function stepActors(): void {
     dragonFacing: dragonResult.facing ?? state.dragonFacing,
     npcMoving: npcResult.moving,
     dragonMoving: dragonResult.moving,
+    extras,
   };
   notify();
 }
@@ -185,6 +235,30 @@ export function ensureRoamingIdentities(markers: MapMarker[]): void {
     if (pool.length) { next.dragonMarkerId = pool[Math.floor(Math.random() * pool.length)].id; changed = true; }
   }
   if (changed) { state = next; notify(); }
+}
+
+/** Ajoute un PNJ de rencontre à la file d'errance persistante (voir ExtraRoamingActor et le
+ * commentaire d'en-tête de ce module) — appelé UNIQUEMENT depuis `app/game/page.tsx` (juste avant
+ * `endNpcApproach()`), avec la dernière position live connue du PNJ de rencontre. Idempotent (un
+ * `id` déjà présent n'est pas dupliqué). `maxCount` (voir RepRules.npcMaxPersistentExtras, défaut
+ * 5) plafonne la file : au-delà, le plus ANCIEN acteur persisté est retiré (FIFO) pour éviter une
+ * croissance non bornée si de nombreuses rencontres se terminent coup sur coup — sa `motion`
+ * associée est purgée de `extraMotions` au même moment. */
+export function spawnExtraRoamingActor(
+  actor: { id: string; kind: 'npc' | 'familiar'; name: string; i18nKey?: string; icon: string; x: number; y: number },
+  maxCount = 5,
+): void {
+  if (state.extras.some((e) => e.id === actor.id)) return;
+  let next: ExtraRoamingActor[] = [...state.extras, { ...actor, facing: 'down', moving: false }];
+  const cap = Math.max(1, maxCount);
+  while (next.length > cap) next = next.slice(1);
+  extraMotions.set(actor.id, { dx: 0, dy: 0, holdTicks: 0 });
+  for (const key of Array.from(extraMotions.keys())) {
+    if (!next.some((e) => e.id === key)) extraMotions.delete(key);
+  }
+  state = { ...state, extras: next };
+  notify();
+  ensureInterval();
 }
 
 export function getRoamingActorsState(): RoamingActorsState { return state; }

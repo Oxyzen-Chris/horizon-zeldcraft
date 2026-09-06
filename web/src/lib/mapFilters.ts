@@ -135,6 +135,15 @@ export const MAP_FILTER_CATEGORIES: { key: keyof MapFilterState; icon: string; i
  * MapFilterState.declutter), qu'ils soient ou non à portée de Synk. */
 const LIVE_ACTOR_MARKER_IDS = new Set(['roaming.npc.live', 'roaming.dragon.live', 'encounter.npc.live']);
 
+/** PNJ de rencontre PERSISTÉS après fermeture du pop-up (voir lib/roamingActors.ts::
+ * spawnExtraRoamingActor/ExtraRoamingActor) — identifiants dynamiques (un par rencontre, préfixe
+ * stable `encounter.extra.`), donc non énumérables dans LIVE_ACTOR_MARKER_IDS ci-dessus. Même
+ * exemption que les acteurs "en direct" historiques : ces PNJ restent visibles quelle que soit
+ * leur distance à Synk quand le "filtre intelligent" est actif. */
+function isLiveActorMarkerId(id: string): boolean {
+  return LIVE_ACTOR_MARKER_IDS.has(id) || id.startsWith('encounter.extra.');
+}
+
 /** Prédicat de filtrage d'un marqueur — utilisé IDENTIQUEMENT par WorldMapWidget.tsx (rendu de la
  * carte) et GameCanvas2D.tsx (rendu de la caméra isométrique), appliqué uniquement à la liste
  * RENDUE (jamais aux pools fonctionnels : biais de terrain, PNJ/dragon errant, tuiles-portail…).
@@ -165,7 +174,7 @@ export function markerMatchesFilters(m: MapMarker, f: MapFilterState, playerPos?
     default: matchesCategory = true;
   }
   if (!matchesCategory) return false;
-  if (f.declutter && playerPos && !m.isKingdom && m.kind !== 'zorghon' && m.kind !== 'captive' && !LIVE_ACTOR_MARKER_IDS.has(m.id)) {
+  if (f.declutter && playerPos && !m.isKingdom && m.kind !== 'zorghon' && m.kind !== 'captive' && !isLiveActorMarkerId(m.id)) {
     const dist = Math.hypot(m.x - playerPos.x, m.y - playerPos.y);
     if (dist > DECLUTTER_RADIUS_PCT) return false;
   }

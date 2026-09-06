@@ -8,11 +8,12 @@ import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
   subscribePlayer, subscribeInventory, getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment, applyEffect,
-  DEFAULT_PLATFORM3D_OBJECT_FLAGS,
+  DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
   type ZorghonEncounterState, type SynkDirection, type EquipSlot, type EquippedItem,
   type Platform3DObjectKind, type Platform3DObjectFlags,
 } from '@/lib/gameState';
+import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import {
   worldTileAt, clamp100, WORLD_SIZE, TERRAIN_COLOR, PROP_ICON, PROP_I18N_KEY, hashRand,
   isObstacleAt, type Tile,
@@ -1323,11 +1324,14 @@ function Scene({
       {sceneMarkers.map(m => {
         const markerScaleKind: Platform3DObjectKind | null = m.kind === 'npc' ? 'marker:npc' : m.kind === 'familiar' ? 'marker:familiar' : null;
         const markerScale = markerScaleKind ? ((objectFlags ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS)[markerScaleKind]?.scale ?? 1) : 1;
-        // Le PNJ "en approche" (voir lib/npcApproach.ts) est un marqueur SYNTHÉTIQUE, absent du
-        // catalogue (`getAllMapMarkers`) — un clic dessus ne doit donc jamais router vers
-        // onMarkerClick (qui suppose un vrai MapMarker catalogue), l'interaction se fait déjà dans
-        // le pop-up NpcEncounterPopup lui-même. Purement informatif, comme en 2D.
-        const isEncounterMarker = m.id === 'encounter.npc.live';
+        // Le PNJ "en approche" (voir lib/npcApproach.ts) OU un PNJ de rencontre PERSISTÉ (voir
+        // lib/roamingActors.ts::ExtraRoamingActor, id préfixé `encounter.extra.`) est un marqueur
+        // SYNTHÉTIQUE, absent du catalogue (`getAllMapMarkers`) — un clic dessus ne doit donc
+        // jamais router vers onMarkerClick (qui suppose un vrai MapMarker catalogue), l'interaction
+        // pour le premier se fait déjà dans le pop-up NpcEncounterPopup lui-même ; le second est
+        // volontairement non-interactif une fois "libéré" de la rencontre. Purement informatif,
+        // comme en 2D.
+        const isEncounterMarker = m.id === 'encounter.npc.live' || m.id.startsWith('encounter.extra.');
         return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={isEncounterMarker ? () => {} : () => onMarkerClick(m.marker)} />;
       })}
       <SynkVoxel
@@ -1505,8 +1509,18 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // lib/npcApproach.ts et son utilisation symétrique dans GameCanvas2D.tsx.
   const npcApproach = useNpcApproach();
 
-  const [markers, setMarkers] = useState<MapMarker[]>([]);
-  useEffect(() => { getAllMapMarkers(DEFAULT_MAP_ID).then(setMarkers).catch(() => {}); }, []);
+  const [rawMarkers, setRawMarkers] = useState<MapMarker[]>([]);
+  useEffect(() => { getAllMapMarkers(DEFAULT_MAP_ID).then(setRawMarkers).catch(() => {}); }, []);
+  // Masque les trésors déjà ramassés par CE joueur et pas encore réapparus (voir
+  // lib/treasureVisibility.ts, RepRules.treasureRespawnHours) — répond à la demande utilisateur
+  // « disparaitre de l'endroit précis où il a été récupéré [...] réapparaitre [...] seulement
+  // quelques temps plus tard (48 heures par exemple) ». `markers` (nom historique, inchangé) reste
+  // dérivé afin de ne pas avoir à retoucher ses dizaines de sites d'usage plus bas.
+  const hiddenTreasureIds = useHiddenTreasureIds(address, rules?.treasureRespawnHours ?? 48);
+  const markers = useMemo(
+    () => rawMarkers.filter(m => m.kind !== 'treasure' || !hiddenTreasureIds.has(RKEY(m.id))),
+    [rawMarkers, hiddenTreasureIds],
+  );
   // Attribue au PNJ errant/Dragon errant une entrée catalogue réelle — idempotent et PARTAGÉ avec
   // GameCanvas2D.tsx (voir lib/roamingActors.ts::ensureRoamingIdentities) : garantit que le PNJ/
   // Dragon visible ici est strictement le même que celui visible sur la Plateforme 2D isométrique.
@@ -1603,6 +1617,15 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       name: localizeName(t, `npc.archetype.${encounterNpc.baseKey}`, encounterNpc.baseKey),
       icon: '❗', x: npcApproach.x, y: npcApproach.y,
     }] : [];
+    // PNJ de rencontre PERSISTÉS (voir lib/roamingActors.ts::ExtraRoamingActor) — continuent
+    // d'errer sur toute la mapmonde après la fermeture de leur pop-up de rencontre au lieu de
+    // disparaître (voir demande utilisateur). Non-interactifs (pas d'identité catalogue), même
+    // principe visuel que roamingMarkers/encounterMarkers ci-dessus (facing/moving repris tels
+    // quels via `extraById`, voir plus bas).
+    const extraMarkers: MapMarker[] = roamingActors.extras.map((e) => ({
+      id: e.id, kind: e.kind, name: e.name, i18nKey: e.i18nKey, icon: e.icon, x: e.x, y: e.y,
+    }));
+    const extraById = new Map(roamingActors.extras.map((e) => [e.id, e]));
     // Exclut du catalogue statique les entrées dont l'identité vient d'être réutilisée ci-dessus
     // (roamingMarkers) : sans ce filtre, un PNJ/Dragon dont la fiche catalogue se trouve ELLE-MÊME
     // dans le rayon 3D affiché apparaîtrait EN DOUBLE (sa position catalogue fixe ET sa position
@@ -1613,23 +1636,27 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       ? markers.filter(mk => mk.id !== roamingActors.npcMarkerId && mk.id !== roamingActors.dragonMarkerId)
       : markers;
     const all = kingdomMarker
-      ? [...baseMarkers, kingdomMarker, ...zorghonMarkers, ...roamingMarkers, ...encounterMarkers]
-      : [...baseMarkers, ...zorghonMarkers, ...roamingMarkers, ...encounterMarkers];
+      ? [...baseMarkers, kingdomMarker, ...zorghonMarkers, ...roamingMarkers, ...encounterMarkers, ...extraMarkers]
+      : [...baseMarkers, ...zorghonMarkers, ...roamingMarkers, ...encounterMarkers, ...extraMarkers];
     const out: SceneMarker[] = [];
     for (const m of all) {
       const dx = Math.round(m.x) - centerCol, dz = Math.round(m.y) - centerRow;
       if (Math.abs(dx) > VIEW_RADIUS || Math.abs(dz) > VIEW_RADIUS) continue;
       // Facing/moving : PNJ/Dragon errant (voir lib/roamingActors.ts) OU PNJ "en approche" (voir
-      // lib/npcApproach.ts) — oriente le personnage 3D dans sa direction de marche courante et
-      // déclenche sa démarche animée (bras/jambes articulés, voir NpcVoxel/DragonMarker) au lieu de
-      // l'ancienne rotation continue générique ("toupie") appliquée par défaut à tout marqueur
-      // flottant. `undefined` pour tout marqueur catalogue statique — comportement idle inchangé.
+      // lib/npcApproach.ts) OU PNJ de rencontre persisté (voir extraById ci-dessus) — oriente le
+      // personnage 3D dans sa direction de marche courante et déclenche sa démarche animée (bras/
+      // jambes articulés, voir NpcVoxel/DragonMarker) au lieu de l'ancienne rotation continue
+      // générique ("toupie") appliquée par défaut à tout marqueur flottant. `undefined` pour tout
+      // marqueur catalogue statique — comportement idle inchangé.
+      const extra = extraById.get(m.id);
       const facing = m.id === roamingActors.npcMarkerId ? roamingActors.npcFacing
         : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonFacing
-        : m.id === 'encounter.npc.live' ? npcApproach.facing : undefined;
+        : m.id === 'encounter.npc.live' ? npcApproach.facing
+        : extra ? extra.facing : undefined;
       const moving = m.id === roamingActors.npcMarkerId ? roamingActors.npcMoving
         : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonMoving
-        : m.id === 'encounter.npc.live' ? npcApproach.moving : undefined;
+        : m.id === 'encounter.npc.live' ? npcApproach.moving
+        : extra ? extra.moving : undefined;
       out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m, facing, moving });
     }
     return out;
@@ -2279,6 +2306,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         marker={interactionMarker}
         address={address}
         playerXp={playerXp}
+        playerWallet={player?.wallet ?? 0}
         rules={rules}
         onClose={() => setInteractionMarker(null)}
         onRequestHutRest={() => setHutResting(true)}

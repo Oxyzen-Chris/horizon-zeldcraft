@@ -2093,6 +2093,15 @@ export interface TreasureDef {
   i18nKey?: string;      // clé i18n (ex. "treasure.master_sword")
   xpRequired: number;    // XP cumulé nécessaire pour pouvoir ouvrir le coffre
   xpReward: number;      // XP octroyé (une fois) à l'ouverture
+  // Condition ALTERNATIVE (OU, jamais cumulative avec xpRequired) : ouverture possible en payant
+  // ce montant en pièces de jeu (Player.wallet) même si l'XP requise n'est pas encore atteinte —
+  // voir demande utilisateur « il doit aller dans la besace [...] si toutes les conditions sont
+  // remplies (moyennant expériences ou suffisamment de coins nécessaire) ». undefined/0 = pas de
+  // voie alternative payante pour ce trésor (seule xpRequired compte, comportement historique
+  // inchangé). Contrôlé globalement par RepRules.treasureCoinsUnlockEnabled. Les pièces ne sont
+  // débitées QUE si ce chemin est effectivement emprunté (XP insuffisante) — voir
+  // openTreasureOffchain(). Réglable par trésor en Administration → rubrique "Trésors".
+  coinsRequired?: number;
   active: boolean;
   createdAt: number;
   order?: number;
@@ -2358,6 +2367,41 @@ export async function getFoundTreasureIds(address: string): Promise<Set<string>>
   return new Set(v ? Object.keys(v) : []);
 }
 
+/** Entrée « trésor trouvé » complète (avec horodatage) — voir isTreasureCurrentlyHidden ci-dessous
+ * pour le calcul de réapparition différée (RepRules.treasureRespawnHours). `subscribeFoundTreasureIds`
+ * ci-dessus (Set d'ids nus, sans horodatage) reste inchangée pour ne rien casser des appelants
+ * existants qui n'ont besoin que d'un simple « trouvé oui/non » sans notion de réapparition. */
+export interface TreasureFoundEntry { foundAt: number; itemGranted?: boolean }
+
+export async function getFoundTreasureEntries(address: string): Promise<Record<string, TreasureFoundEntry>> {
+  const db = getFirebaseDb();
+  if (!db) return {};
+  const snap = await get(ref(db, `players/${KEY(address)}/treasuresFound`));
+  return (snap.val() as Record<string, TreasureFoundEntry> | null) ?? {};
+}
+
+export function subscribeFoundTreasureEntries(address: string, cb: (entries: Record<string, TreasureFoundEntry>) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb({}); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/treasuresFound`);
+  const handler = (snap: DataSnapshot) => cb((snap.val() as Record<string, TreasureFoundEntry> | null) ?? {});
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/** true si ce trésor est actuellement INDISPONIBLE pour ce joueur — déjà ramassé ET le délai de
+ * réapparition (RepRules.treasureRespawnHours, en heures) n'est pas encore écoulé depuis `foundAt`.
+ * `respawnHours <= 0` = jamais de réapparition (comportement historique strict, un trésor trouvé
+ * reste caché indéfiniment) — voir demande utilisateur « réapparaître à cet endroit mais seulement
+ * quelques temps plus tard (48 heures par exemple) ». Utilisé à la fois pour masquer le marqueur
+ * dans les 3 widgets (GameCanvas2D.tsx/Platform3DWidget.tsx/WorldMapWidget.tsx) et pour autoriser
+ * une seconde ouverture dans openTreasureOffchain() une fois le délai écoulé. */
+export function isTreasureCurrentlyHidden(entry: TreasureFoundEntry | undefined | null, respawnHours: number): boolean {
+  if (!entry) return false;
+  if (!respawnHours || respawnHours <= 0) return true;
+  return Date.now() < entry.foundAt + respawnHours * 3_600_000;
+}
+
 /** Abonnement temps réel (même principe que subscribeUnlockedQuestIds) — un coffre ouvert depuis
  * PoiInteractionModal (plateforme isométrique) doit se refléter instantanément dans
  * TreasureList.tsx (besace/onglet Trésors) sans recharger la page. */
@@ -2406,17 +2450,26 @@ export async function claimMissingTreasureItem(address: string, treasure: Treasu
   return true;
 }
 
-export async function openTreasureOffchain(address: string, treasure: TreasureDef): Promise<'found' | 'already'> {
+/** `opts.respawnHours` (RepRules.treasureRespawnHours) autorise une seconde ouverture une fois le
+ * délai écoulé depuis `foundAt` — voir isTreasureCurrentlyHidden(). `opts.payWithCoins` (voir
+ * demande utilisateur « moyennant expériences ou suffisamment de coins nécessaire ») débite
+ * `treasure.coinsRequired` du portefeuille de jeu (Player.wallet) au lieu de la voie XP gratuite —
+ * à ne PASSER QUE lorsque l'XP requise n'est PAS atteinte mais que le joueur a assez de pièces
+ * (voir TreasureBody dans PoiInteractionModal.tsx, seul appelant qui calcule cette condition) ;
+ * l'XP de récompense (xpReward) reste toujours octroyée, quel que soit le chemin emprunté. */
+export async function openTreasureOffchain(address: string, treasure: TreasureDef, opts?: { respawnHours?: number; payWithCoins?: boolean }): Promise<'found' | 'already'> {
   const db = getFirebaseDb();
   if (!db) return 'already';
   const key = RKEY(treasure.id);
   const path = `players/${KEY(address)}/treasuresFound/${key}`;
-  const already = (await get(ref(db, path))).val();
-  if (already) {
+  const already = (await get(ref(db, path))).val() as TreasureFoundEntry | null;
+  if (already && isTreasureCurrentlyHidden(already, opts?.respawnHours ?? 0)) {
     await claimMissingTreasureItem(address, treasure);
     return 'already';
   }
-  await applyEffect(address, { xpBonus: treasure.xpReward });
+  const effect: { xpBonus: number; wallet?: number } = { xpBonus: treasure.xpReward };
+  if (opts?.payWithCoins && treasure.coinsRequired) effect.wallet = -treasure.coinsRequired;
+  await applyEffect(address, effect);
   if (treasure.itemReward) await addToInventory(address, treasureRewardItem(treasure));
   await ensureAnonSignIn();
   await set(ref(db, path), { foundAt: Date.now(), itemGranted: !!treasure.itemReward });
@@ -4078,6 +4131,31 @@ export interface RepRules {
   // serveur par RESEND_FROM_EMAIL, une adresse ne pouvant être choisie librement sans domaine
   // vérifié chez Resend).
   emailFromName: string;               // défaut 'Horizon ZeldCraft'
+
+  // ─── PNJ vivants : persistance après rencontre + rayon de proximité Mapmonde (voir
+  // lib/roamingActors.ts::spawnExtraRoamingActor/ExtraRoamingActor, lib/npcApproach.ts,
+  // app/game/page.tsx::handleEncounterChange, WorldMapWidget.tsx) — voir demande utilisateur « les
+  // PNJ qui viennent à la rencontre de Synk ne doivent pas disparaitre [...] mais continuer à
+  // progresser, se déplacer puis revenir si besoin vers Synk [...] les PNJ à proximité de 10 cases
+  // de Synk [doivent être] matérialisés par un anneau clignotant sur la mapmonde ».
+  npcPersistAfterEncounter: boolean;   // défaut true — le PNJ de rencontre continue à errer après
+                                        // la fermeture du pop-up au lieu de disparaître
+  npcMaxPersistentExtras: number;      // défaut 5 — nb max de PNJ de rencontre persistés en même
+                                        // temps (au-delà, le plus ancien est retiré, voir FIFO)
+  npcProximityRadiusTiles: number;     // défaut 10 — distance (en cases mapmonde, échelle 0-100)
+                                        // en-deçà de laquelle un PNJ vivant (errant ou persisté) est
+                                        // matérialisé par un anneau clignotant sur la Mapmonde
+  // ─── Objets 3D (trésors) : condition alternative en pièces + réapparition différée (voir
+  // TreasureDef.coinsRequired, openTreasureOffchain, PoiInteractionModal.tsx::TreasureBody) — voir
+  // demande utilisateur « il doit aller dans la besace [...] si toutes les conditions sont remplies
+  // (moyennant expériences ou suffisamment de coins nécessaire) [...] disparaitre de l'endroit [...]
+  // réapparaître [...] seulement quelques temps plus tard (48 heures par exemple) ».
+  treasureCoinsUnlockEnabled: boolean; // défaut true — autorise l'ouverture d'un trésor via un coût
+                                        // en pièces même si l'XP requise n'est pas atteinte
+  treasureRespawnHours: number;        // défaut 48 — délai (en heures) avant qu'un trésor déjà
+                                        // ramassé par un joueur redevienne disponible au même endroit
+                                        // pour CE joueur (0 = ne réapparaît jamais, comportement
+                                        // historique strict)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -4284,6 +4362,11 @@ export const DEFAULT_REP_RULES: RepRules = {
   welcomeEmailEnabled: true,
   emailBannerImageUrl: '',
   emailFromName: 'Horizon ZeldCraft',
+  npcPersistAfterEncounter: true,
+  npcMaxPersistentExtras: 5,
+  npcProximityRadiusTiles: 10,
+  treasureCoinsUnlockEnabled: true,
+  treasureRespawnHours: 48,
 }
 
 /** Merge une valeur brute Firebase (`catalog/repRules`, potentiellement partielle/absente) avec

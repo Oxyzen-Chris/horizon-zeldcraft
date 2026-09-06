@@ -267,6 +267,21 @@ export function RepRulesPanel() {
     { key: 'zorghonRescueXpReward',           labelKey: 'admin.repRules.zorghonRescueXpReward' },
   ];
 
+  /** PNJ vivants (persistance après rencontre + rayon de proximité Mapmonde) et Trésors (condition
+   * alternative en pièces + réapparition différée) — voir gameState.ts::RepRules pour la
+   * documentation complète de chaque champ, ajoutés en réponse à la demande utilisateur « les PNJ
+   * qui viennent à la rencontre de Synk ne doivent pas disparaitre [...] mais continuer à
+   * progresser [...] Il faut que les PNJ à proximité de 10 cases de Synk soit matérialisés par un
+   * anneau clignotant [...] Rend ces éléments paramétrables dans le menu Administration » et
+   * « [le trésor] doit aller dans la besace [...] si toutes les conditions sont remplies
+   * (moyennant expériences ou suffisamment de coins nécessaire) [...] réapparaître [...] seulement
+   * quelques temps plus tard (48 heures par exemple) que tu rendras paramétrable ». */
+  const npcTreasureFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'npcMaxPersistentExtras',  labelKey: 'admin.repRules.npcMaxPersistentExtras' },
+    { key: 'npcProximityRadiusTiles', labelKey: 'admin.repRules.npcProximityRadiusTiles' },
+    { key: 'treasureRespawnHours',    labelKey: 'admin.repRules.treasureRespawnHours' },
+  ];
+
   /** Champs du Dé d'Action D&D (Flight/Fight/Freeze/Fawn — voir resolveActionDiceRoll dans
    * gameState.ts), rendus en grille numérique classique. `actionDiceSides` a son propre <select>
    * (noms réels des dés polyédriques) et n'apparaît donc pas ici — voir plus bas. */
@@ -954,6 +969,29 @@ export function RepRulesPanel() {
           <span className="text-slate-300">{t('admin.repRules.fiatSimulationMode')}</span>
         </label>
         <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.fiatSimulationModeHint')}</p>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🧙 {t('admin.repRules.npcTreasureTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.npcTreasureDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.npcPersistAfterEncounter !== false}
+            onChange={e => setBool('npcPersistAfterEncounter', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.npcPersistAfterEncounter')}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.treasureCoinsUnlockEnabled !== false}
+            onChange={e => setBool('treasureCoinsUnlockEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.treasureCoinsUnlockEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3">
+          {npcTreasureFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">✉️ {t('admin.repRules.emailTitle')}</h3>
