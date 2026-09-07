@@ -301,6 +301,11 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         i18nKey: `npc.archetype.${encounterNpc.baseKey}`,
         icon: NPC_SKINS[encounterNpc.skin] ?? '🧙',
         x: approach.x, y: approach.y,
+        // Voir demande utilisateur : « cliquer une nouvelle fois sur le PNJ même en ayant accepté
+        // la quête [...] doit répondre à l'énigme [...] en lui reprécisant la question » — rend ce
+        // fantôme cliquable (GameCanvas2D.tsx/Platform3DWidget.tsx) uniquement si une quête a bien
+        // été accordée pendant cette rencontre (voir EncounterMarkerInfo.grantedQuestId).
+        questId: encounterNpc.grantedQuestId,
       }, repRules?.npcMaxPersistentExtras ?? 5);
     }
     setEncounterNpc(info);

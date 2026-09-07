@@ -761,6 +761,7 @@
   "npc.quest.granted.intro": "{name} te confía un nuevo acertijo...",
   "npc.quest.granted.hint": "🧩 Añadido a la sección « Misiones con acertijos » — ¡resuélvelo cuando quieras!",
   "npc.quest.granted.none": "{name} no tiene ningún acertijo nuevo que confiarte por ahora, pero saluda tu valentía.",
+  "npc.quest.reminder.tooltip": "clic para volver a ver el acertijo",
   "npc.trade.result.gainIntro": "¡{name} concluye el intercambio contigo!",
   "npc.trade.result.lostIntro": "¡{name} aprovecha para robarte!",
   "npc.trade.result.storedIn": "🎒 Guardado en la pestaña «{tab}» de tu bolsa.",

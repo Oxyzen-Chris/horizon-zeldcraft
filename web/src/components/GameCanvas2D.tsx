@@ -21,7 +21,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, type ExtraRoamingActor } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -971,6 +971,26 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     else moveTo(actorWorldX, actorWorldY);
   }, [moveTo]);
 
+  // ─── Clic sur un PNJ de rencontre PERSISTÉ ayant accordé une quête (voir
+  // lib/roamingActors.ts::ExtraRoamingActor.questId) ─── Corrige la demande utilisateur : « rends
+  // possible le fait de cliquer une nouvelle fois sur le PNJ même en ayant accepté la quête [...]
+  // tu répondras [...] qu'il doit répondre à l'énigme [...] en lui reprécisant la question ». On
+  // synthétise un marqueur `kind:'quest'` (id = questId) pour rouvrir EXACTEMENT le même pop-up que
+  // celui déjà utilisé partout ailleurs pour répondre à une énigme (PoiInteractionModal::QuestBody),
+  // sans dupliquer sa logique (solved/xpRequired/submitQuestAnswerOffchain...). Les fantômes SANS
+  // questId (troc/combat/discussion terminés) restent volontairement non interactifs (rien à
+  // rappeler) — voir extrasInView ci-dessous.
+  const onExtraQuestClick = useCallback((actor: ExtraRoamingActor) => {
+    if (!actor.questId) return;
+    const cur = worldPosRef.current;
+    const dist = Math.max(Math.abs(Math.round(actor.x) - Math.round(cur.x)), Math.abs(Math.round(actor.y) - Math.round(cur.y)));
+    const questMarker: MapMarker = {
+      id: actor.questId, kind: 'quest', name: actor.name, i18nKey: actor.i18nKey, icon: '📜', x: actor.x, y: actor.y,
+    };
+    if (dist <= 1) setInteractionMarker(questMarker);
+    else moveTo(actor.x, actor.y);
+  }, [moveTo]);
+
   // ─── Clic sur une tuile portant un portail décoratif (🌀 généré aléatoirement par worldTileAt) ───
   // Chaque portail décoratif est associé de façon déterministe (même case ⇒ toujours le même monde)
   // à l'un des vrais mondes du catalogue, afin d'ouvrir le même pop-up « Monde » que les portes de
@@ -1426,17 +1446,19 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           )}
           {/* PNJ de rencontre PERSISTÉS (voir lib/roamingActors.ts::ExtraRoamingActor) — continuent
               d'errer sur toute la mapmonde après la fermeture de leur pop-up de rencontre au lieu
-              de disparaître (voir demande utilisateur). Non-interactifs (pas d'identité catalogue,
-              voir doc du module), affichés en lecture seule exactement comme le PNJ "en approche"
-              ci-dessus. */}
+              de disparaître (voir demande utilisateur). Non-interactifs par défaut (pas d'identité
+              catalogue) SAUF si `questId` est renseigné (rencontre de type "quête" acceptée) : dans
+              ce cas cliquable pour rouvrir un rappel de l'énigme (voir onExtraQuestClick). */}
           {extrasInView.map(({ actor, col, row }) => (
             <div
               key={`extra-${actor.id}`}
-              className="absolute -translate-x-1/2 flex flex-col items-center pointer-events-none transition-all duration-[1500ms]"
+              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] ${actor.questId ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}`}
               style={{ left: projX(col, row), top: projY(col, row) - 22, zIndex: col + row + 2 }}
-              title={localizeName(t, actor.i18nKey, actor.name)}
+              title={actor.questId ? `${localizeName(t, actor.i18nKey, actor.name)} · ${t('npc.quest.reminder.tooltip')}` : localizeName(t, actor.i18nKey, actor.name)}
+              onClick={actor.questId ? () => onExtraQuestClick(actor) : undefined}
             >
               <span className="text-lg drop-shadow" style={{ filter: 'drop-shadow(0 0 2px #000)' }}>{actor.icon}</span>
+              {actor.questId && <span className="text-[10px] leading-none">📜</span>}
             </div>
           ))}
           {/* Synk (joueur) — direction/marche animées (voir facing/isWalking, SynkSkin.tsx et

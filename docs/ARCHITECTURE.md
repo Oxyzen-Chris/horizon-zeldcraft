@@ -509,6 +509,92 @@ Aucune régression : le système de déplacement de Synk (verrouillé), le PNJ/D
 et le filtre « declutter » (`ce78d9d`, section précédente) restent intacts et continuent de
 fonctionner exactement comme avant.
 
+## 🔒 Fantômes qui s'agglutinent/clignotent + rappel d'énigme après acceptation d'une quête
+
+**Demande utilisateur** : (1) quand un PNJ vient solliciter Synk, « une multitude de PNJ »
+semblaient apparaître en clignotant/se téléportant de façon erratique dans la Plateforme 3D au lieu
+de se disperser naturellement — seuls les PNJ à ≤ 10 cases de Synk doivent clignoter, et
+uniquement sur la Mapmonde (`ce78d9d`). (2) après avoir accepté une quête proposée par un PNJ de
+rencontre, recliquer sur ce PNJ (devenu fantôme persistant) ne rouvrait aucun pop-up — l'utilisateur
+veut un rappel de l'énigme/question (même type de pop-up), avec la possibilité d'y répondre à
+nouveau.
+
+**Cause racine du clustering/clignotement** :
+- `spawnExtraRoamingActor()` (`lib/roamingActors.ts`) plaçait toujours le nouveau fantôme à la
+  dernière position d'approche (donc **toujours adjacente à Synk**, par construction de
+  `npcApproach.ts`) avec un mouvement initial nul (`{dx:0, dy:0, holdTicks:0}`), suivi d'une marche
+  aléatoire à tenue **courte** (3-9 tics ≈ 12-36s, 20% de chance de pause). Au fil d'une session,
+  jusqu'à 5 fantômes (plafond FIFO `npcMaxPersistentExtras`) pouvaient donc s'accumuler presque au
+  même endroit, tout près de Synk.
+- `Platform3DWidget.tsx::MarkerBlock` liait la position 3D directement via la prop JSX
+  `<group position={[x, 0, z]}>`, réévaluée à chaque tic partagé (`STEP_MS = 4000ms`,
+  `lib/roamingActors.ts`) — un **saut instantané** sans interpolation, contrairement à la 2D
+  (`GameCanvas2D.tsx`, transition CSS `duration-[1500ms]`). Ce saut, déjà présent avant cette
+  itération pour tous les acteurs vivants (PNJ/Dragon errants historiques inclus), ne devenait
+  visuellement gênant (« clignotement ») que lorsque plusieurs fantômes se concentraient dans le
+  faible rayon de vue (`VIEW_RADIUS = 7`) autour de Synk.
+
+**Correctif — dispersion + lissage visuel** :
+- **`lib/roamingActors.ts`** : nouvelle fonction `escapeMotion()` (constantes
+  `ESCAPE_MIN_HOLD_TICKS=16`/`ESCAPE_MAX_HOLD_TICKS=28`, soit ~64-112s) qui choisit une direction
+  non nulle aléatoire et **ne fait jamais de pause** — remplace le mouvement initial nul du fantôme
+  fraîchement créé dans `spawnExtraRoamingActor()`. Chaque nouveau fantôme s'éloigne donc
+  immédiatement et durablement de Synk au lieu de tourner en rond sur place.
+- **`Platform3DWidget.tsx::MarkerBlock`** : les branches `isNpc`/`isFamiliar` (les seules à recevoir
+  `facing`/`moving`, donc les seules « entités vivantes » — trésor/quête/monde/poi restent
+  statiques et inchangés) utilisent désormais un `ref` (`posGroupRef`) mis à jour dans un
+  `useFrame` qui **lisse** (`lerp`, facteur `0.12`/frame) la position vers la nouvelle cible plutôt
+  que de la réaffecter directement en JSX. Un `posInitedRef` garantit un positionnement direct
+  (sans glissement depuis l'origine) à l'initialisation, puis un lissage exclusivement ensuite —
+  élimine le saut/clignotement pour **tous** les acteurs vivants (PNJ/Dragon errants historiques,
+  PNJ en approche, fantômes persistants), sans toucher aux marqueurs catalogue statiques.
+
+**Correctif — rappel d'énigme sur re-clic** :
+- **`lib/roamingActors.ts`** : `ExtraRoamingActor.questId?: string` (nouveau champ optionnel) rend
+  un fantôme cliquable **uniquement** si une quête a effectivement été accordée pendant sa
+  rencontre d'origine.
+- **`NpcEncounterPopup.tsx`** : `EncounterMarkerInfo.grantedQuestId?: string` propage l'id de la
+  quête accordée (`questGranted?.quest?.id`, renseigné par `accept()` pour l'offre `'quest'`) au
+  parent pendant toute la durée de la rencontre encore affichée.
+- **`game/page.tsx::handleEncounterChange`** : passe `questId: encounterNpc.grantedQuestId` à
+  `spawnExtraRoamingActor(...)` au moment de la persistance du fantôme.
+- **`GameCanvas2D.tsx`/`Platform3DWidget.tsx`** : un fantôme avec `questId` devient cliquable
+  (`onExtraQuestClick`/`onExtraQuestClick3D`, badge `📜` additionnel, tooltip dédié) et route son
+  clic vers un **marqueur synthétique** `{ id: questId, kind: 'quest', ... }` — réutilise à 100%
+  `PoiInteractionModal::QuestBody` (déjà utilisé partout ailleurs pour répondre à une énigme),
+  **sans dupliquer sa logique** (récompense, `solved`, `submitQuestAnswerOffchain`...). L'apparence
+  3D/2D du fantôme (voxel PNJ) reste totalement indépendante de ce marqueur de clic synthétique. Les
+  fantômes sans `questId` (troc/combat/discussion terminés) restent volontairement non interactifs.
+
+**🐛 Bug de boucle infinie de rendu détecté et corrigé pendant la vérification Playwright** (non
+demandé explicitement, mais directement couplé à l'effet modifié ci-dessus) : l'effet de
+`NpcEncounterPopup.tsx` qui répercute `current`/`questGranted` au parent (`onEncounterChange`)
+dépendait **aussi** de la référence `onEncounterChange` elle-même — or
+`game/page.tsx::handleEncounterChange` n'est **pas** stable en référence (il dépend de
+`encounterNpc`, l'état qu'il met justement à jour), donc chaque appel recrée une nouvelle fonction,
+qui redéclenche l'effet, qui rappelle la fonction, etc. : un cycle de rendu infini
+(« Maximum update depth exceeded », reproduit en test Playwright dès qu'une rencontre PNJ
+s'affichait). **Correctif** : la dernière version de `onEncounterChange` est désormais lue via un
+`ref` (`onEncounterChangeRef`, mis à jour dans un effet séparé et inoffensif) au lieu d'être mise en
+dépendance directe — l'effet principal ne se redéclenche plus que lorsque `current`/`questGranted`
+changent réellement. Même traitement pour le filet de sécurité au démontage. Ce bug préexistait
+probablement avant cette itération (le tableau de dépendances incluait déjà `onEncounterChange`
+dans le commit `cbac7b9`) mais n'avait jamais été rapporté par l'utilisateur — corrigé par
+prudence car strictement dans le périmètre du fichier modifié ici.
+
+**Vérification (Playwright)** : script jetable — connexion Démo anonyme, déclenchement forcé d'une
+rencontre PNJ de type « quête » (via manipulation ciblée de `localStorage['zc.popupNext.*']` +
+`reload()`, le planificateur capturant sa prochaine échéance dans une variable JS locale au montage
+plutôt que de la relire en continu), acceptation, fermeture du résultat. Confirmé : (a) **aucune**
+erreur console « Maximum update depth exceeded » sur l'ensemble du parcours (avant le correctif,
+l'erreur apparaissait de façon systématique et continue) ; (b) le fantôme persistant (badge `📜`)
+apparaît bien dans la Plateforme 2D isométrique et est cliquable ; (c) cliquer dessus ouvre bien le
+conteneur modal `PoiInteractionModal` (`.z-[90]`, vérifié absent avant clic puis présent après) avec
+le même titre PNJ, la même récompense, le même champ de réponse et le même bouton "Valider" que la
+quête d'origine ; (d) la Plateforme 3D (canvas WebGL) s'affiche sans erreur avec le lissage de
+position actif. `npx tsc --noEmit` et `npm run build` propres. Aucune régression détectée sur le
+système de déplacement de Synk, le PNJ/Dragon errant historique, ni le filtre « declutter ».
+
 ## Lisibilité des champs de formulaire du menu Administration (classe partagée `.input`)
 
 **Bug signalé** : dans le menu Administration, le texte des champs (valeurs numériques du Barème

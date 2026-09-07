@@ -761,6 +761,7 @@
   "npc.quest.granted.intro": "{name} confia-te um novo enigma...",
   "npc.quest.granted.hint": "🧩 Adicionado à secção « Missões com enigmas » — resolve quando quiseres!",
   "npc.quest.granted.none": "{name} não tem nenhum enigma novo para te confiar por agora, mas saúda a tua coragem.",
+  "npc.quest.reminder.tooltip": "clique para rever o enigma",
   "npc.trade.result.gainIntro": "{name} conclui a troca contigo!",
   "npc.trade.result.lostIntro": "{name} aproveita para te roubar!",
   "npc.trade.result.storedIn": "🎒 Guardado na aba «{tab}» da tua bolsa.",

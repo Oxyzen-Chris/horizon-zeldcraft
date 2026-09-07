@@ -63,6 +63,11 @@ export type EncounterMarkerInfo = {
   baseKey: string; skin: number;
   alignment: 'friendly' | 'neutral' | 'hostile' | 'unknown';
   offer: 'trade' | 'quest' | 'fight' | 'chat';
+  /** Renseigné UNIQUEMENT une fois une quête effectivement accordée (voir accept()::questGranted
+   * plus bas) — permet à game/page.tsx::handleEncounterChange d'attacher cette quête au fantôme
+   * persistant (voir lib/roamingActors.ts::ExtraRoamingActor.questId) pour le rendre cliquable en
+   * cas de second clic (rappel de l'énigme). */
+  grantedQuestId?: string;
 } | null;
 
 /** Onglet de la besace (InventoryPanel.tsx) correspondant à une catégorie d'objet — utilisé par
@@ -250,18 +255,42 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
   const currentRef = useRef<PopupNpc | null>(null);
   useEffect(() => { currentRef.current = current; }, [current]);
 
+  // `questGranted` doit être déclaré AVANT l'effet ci-dessous qui le lit dans son tableau de
+  // dépendances (sinon "Cannot access 'questGranted' before initialization" — TDZ). Le reste de
+  // l'état (busy/errorMsg/fightResult/...) reste déclaré plus bas, à sa place d'origine.
+  const [questGranted, setQuestGranted] = useState<{ quest: QuestDef | null; npcDisplayName: string } | null>(null);
+
+  // `onEncounterChange` (game/page.tsx::handleEncounterChange) n'est PAS référentiellement stable
+  // : il dépend lui-même de `encounterNpc`, l'état qu'il met à jour — chaque appel produit donc une
+  // NOUVELLE identité de fonction. L'inclure directement dans le tableau de dépendances de l'effet
+  // ci-dessous (comme c'était le cas avant ce correctif) provoque une boucle infinie de rendu
+  // (« Maximum update depth exceeded » observé en test Playwright) : l'effet appelle
+  // onEncounterChange(...) → le parent recrée son callback → l'effet se redéclenche → nouvel appel
+  // → ... sans jamais se stabiliser, MÊME quand `current`/`questGranted` n'ont pas changé. On lit
+  // donc la dernière version via un ref (mis à jour dans un effet séparé, lui-même inoffensif)
+  // plutôt que de la mettre en dépendance — l'effet principal ne se redéclenche alors QUE si
+  // `current` ou `questGranted` changent réellement, ce qui est le comportement voulu.
+  const onEncounterChangeRef = useRef(onEncounterChange);
+  useEffect(() => { onEncounterChangeRef.current = onEncounterChange; }, [onEncounterChange]);
+
   // Répercute l'ouverture/fermeture de la popup au parent (voir onEncounterChange) : c'est ce qui
   // permet à WorldMapWidget.tsx et GameCanvas2D.tsx de matérialiser le PNJ à côté de Synk pendant
   // toute la durée de la rencontre (jusqu'à acceptation/refus, ou fermeture du résultat).
   useEffect(() => {
-    if (!onEncounterChange) return;
-    onEncounterChange(current
-      ? { baseKey: current.baseKey, skin: current.skin, alignment: current.alignment, offer: current.offer }
+    const cb = onEncounterChangeRef.current;
+    if (!cb) return;
+    // Dépend aussi de `questGranted` (renseigné APRÈS `current`, sans que `current` change lui-même
+    // — voir accept()) afin de repropager `grantedQuestId` dès qu'une quête est accordée, pendant
+    // que la rencontre est toujours affichée (le fantôme n'est persisté qu'à la fermeture finale).
+    cb(current
+      ? { baseKey: current.baseKey, skin: current.skin, alignment: current.alignment, offer: current.offer, grantedQuestId: questGranted?.quest?.id }
       : null);
-  }, [current, onEncounterChange]);
+  }, [current, questGranted]);
   // Filet de sécurité : si le composant est démonté pendant qu'une rencontre est affichée
-  // (changement de page), efface le marqueur pour ne jamais le laisser figé côté parent.
-  useEffect(() => () => { if (currentRef.current && onEncounterChange) onEncounterChange(null); }, [onEncounterChange]);
+  // (changement de page), efface le marqueur pour ne jamais le laisser figé côté parent. Utilise
+  // le même ref (jamais `onEncounterChange` directement) pour ne pas redéclencher ce filet à
+  // chaque changement d'identité du callback.
+  useEffect(() => () => { if (currentRef.current) onEncounterChangeRef.current?.(null); }, []);
 
   // Saison effective (voir gameState.ts::getCurrentSeason) — lue dans un ref (pas de re-render
   // requis) pour filtrer les archétypes saisonniers tirés par rollNpc(). Rafraîchie de temps en
@@ -322,7 +351,6 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
   const [fightResult, setFightResult] = useState<FightResultData | null>(null);
   const [chatFlow, setChatFlow] = useState<ChatFlowState | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
-  const [questGranted, setQuestGranted] = useState<{ quest: QuestDef | null; npcDisplayName: string } | null>(null);
   const [tradeResult, setTradeResult] = useState<TradeResultData | null>(null);
   const [equipPromptNpc, setEquipPromptNpc] = useState<PopupNpc | null>(null);
   // Combat en attente du lancer de dés OBLIGATOIRE (bouton "Lancer..." du widget "Lancer de dès")

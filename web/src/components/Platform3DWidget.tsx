@@ -826,6 +826,31 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   const floating = !isCave && !isBuilding;
   const spinning = floating && !isNpc && !isFamiliar;
   const bobAmplitude = isQuest ? 0.25 : 0.15;
+  // Interpolation de position (PNJ/Dragon errant, PNJ "en approche", fantômes persistés — voir
+  // facing/moving ci-dessus, tous UNIQUEMENT renseignés pour ces entités "vivantes") : sans cela,
+  // une nouvelle position mapmonde reçue toutes les STEP_MS=4000ms (lib/roamingActors.ts) est
+  // appliquée INSTANTANÉMENT via le prop `position` du groupe racine — un « saut »/« téléportation »
+  // net, perceptible comme un clignotement erratique dès que plusieurs entités vivantes se trouvent
+  // simultanément dans le champ de vue (bug remonté par l'utilisateur : « une multitude de PNJ
+  // apparaissent en se déplaçant aléatoirement [...] en clignotant »). Un lissage `lerp` par frame
+  // remplace ce saut par un glissement fluide vers la nouvelle position cible, exactement comme la
+  // transition CSS `duration-[1500ms]` déjà utilisée pour les mêmes entités en 2D (GameCanvas2D.tsx).
+  // Ne s'applique JAMAIS aux marqueurs catalogue statiques (facing/moving toujours `undefined` pour
+  // eux) : ceux-ci gardent un positionnement direct inchangé, zéro régression sur leur affichage.
+  const posGroupRef = useRef<THREE.Group>(null);
+  const posInitedRef = useRef(false);
+  const isLiveActor = (isNpc || isFamiliar) && (facing !== undefined || moving !== undefined);
+  useFrame(() => {
+    const g = posGroupRef.current;
+    if (!g || !isLiveActor) return;
+    if (!posInitedRef.current) {
+      g.position.set(x, g.position.y, z);
+      posInitedRef.current = true;
+      return;
+    }
+    g.position.x += (x - g.position.x) * 0.12;
+    g.position.z += (z - g.position.z) * 0.12;
+  });
   useFrame((state) => {
     const obj = bobRef.current;
     if (!obj || !floating) return;
@@ -906,7 +931,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // déclenche l'articulation des pattes (voir DragonMarker) au lieu de rester figé.
     const dragonColor = familiarDragonColor(markerId ?? '', name ?? '');
     return (
-      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+      <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}><DragonMarker color={dragonColor} walking={!!moving} /></group>
       </group>
@@ -918,7 +943,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // 1.6) n'agrandit QUE le PNJ, jamais le socle. `rotation`/`walking` : voir isFamiliar ci-dessus.
     const appearance = npcAppearance(markerId ?? '', name ?? '');
     return (
-      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+      <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}><NpcVoxel appearance={appearance} walking={!!moving} /></group>
       </group>
@@ -1254,6 +1279,11 @@ interface SceneMarker {
    * pour tout marqueur catalogue statique (npc/familiar fixes, trésors, quêtes...), qui gardent leur
    * rendu idle inchangé — zéro régression sur l'affichage des entités non-errantes. */
   facing?: SynkDirection; moving?: boolean;
+  /** Renseigné UNIQUEMENT pour un PNJ de rencontre PERSISTÉ (voir
+   * lib/roamingActors.ts::ExtraRoamingActor.questId) — rend ce marqueur cliquable (voir
+   * onExtraQuestClick) pour rouvrir un rappel de l'énigme, sans changer son apparence (reste rendu
+   * en `kind:'npc'` via `marker`, jamais en `kind:'quest'`). */
+  questId?: string;
 }
 
 /** Contenu 3D de la scène (terrain + Synk + entités) — composant séparé pour pouvoir utiliser
@@ -1264,6 +1294,7 @@ interface SceneMarker {
 function Scene({
   centerCol, centerRow, poiPoints, sceneMarkers, stage, walking, running, swimming, jumpTrigger, facing,
   equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
+  onExtraQuestClick,
   eyeBlinkEnabled, eyeBlinkIntervalSec, objectFlags,
 }: {
   centerCol: number; centerRow: number;
@@ -1275,6 +1306,10 @@ function Scene({
   onPortalTileClick: (wc: number, wr: number) => void;
   onHutTileClick: (wc: number, wr: number) => void;
   onMarkerClick: (m: MapMarker) => void;
+  /** Voir SceneMarker.questId — rouvre un rappel de l'énigme pour un fantôme de rencontre "quête"
+   * (marqueur synthétique `kind:'quest'` construit ici à partir de `questId`, distinct de `marker`
+   * qui reste `kind:'npc'` pour l'apparence). */
+  onExtraQuestClick: (m: MapMarker, questId: string) => void;
   eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
   /** Registre admin-paramétrable des tailles de décor (Administration > 🧱 Objets & décor 3D) — voir
    * Platform3DObjectFlags.scale ; `undefined` retombe sur DEFAULT_PLATFORM3D_OBJECT_FLAGS (scale 1). */
@@ -1328,11 +1363,15 @@ function Scene({
         // lib/roamingActors.ts::ExtraRoamingActor, id préfixé `encounter.extra.`) est un marqueur
         // SYNTHÉTIQUE, absent du catalogue (`getAllMapMarkers`) — un clic dessus ne doit donc
         // jamais router vers onMarkerClick (qui suppose un vrai MapMarker catalogue), l'interaction
-        // pour le premier se fait déjà dans le pop-up NpcEncounterPopup lui-même ; le second est
-        // volontairement non-interactif une fois "libéré" de la rencontre. Purement informatif,
-        // comme en 2D.
+        // pour le premier se fait déjà dans le pop-up NpcEncounterPopup lui-même. Le second
+        // (fantôme persisté) reste non-interactif SAUF si `questId` est renseigné (rencontre de
+        // type "quête" acceptée) : dans ce cas, route vers onExtraQuestClick (rappel de l'énigme,
+        // voir demande utilisateur) au lieu de rester muet.
         const isEncounterMarker = m.id === 'encounter.npc.live' || m.id.startsWith('encounter.extra.');
-        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={isEncounterMarker ? () => {} : () => onMarkerClick(m.marker)} />;
+        const handleClick = m.questId
+          ? () => onExtraQuestClick(m.marker, m.questId!)
+          : isEncounterMarker ? () => {} : () => onMarkerClick(m.marker);
+        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={handleClick} />;
       })}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
@@ -1657,7 +1696,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonMoving
         : m.id === 'encounter.npc.live' ? npcApproach.moving
         : extra ? extra.moving : undefined;
-      out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m, facing, moving });
+      out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m, facing, moving, questId: extra?.questId });
     }
     return out;
   }, [markers, kingdomMarker, zorghonEncounter, centerCol, centerRow, roamingActors, encounterNpc, npcApproach, t]);
@@ -1961,6 +2000,22 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     else moveTo(m.x, m.y);
   }, [moveTo]);
 
+  // ─── Clic sur un PNJ de rencontre PERSISTÉ ayant accordé une quête (voir SceneMarker.questId /
+  // lib/roamingActors.ts::ExtraRoamingActor.questId) — même logique que
+  // GameCanvas2D.tsx::onExtraQuestClick : ouvre un marqueur `kind:'quest'` synthétique (id =
+  // questId) pour rouvrir EXACTEMENT le même pop-up de rappel d'énigme que partout ailleurs
+  // (PoiInteractionModal::QuestBody), sans dupliquer sa logique. Corrige la demande utilisateur :
+  // « rends possible le fait de cliquer une nouvelle fois sur le PNJ même en ayant accepté la
+  // quête [...] tu répondras [...] qu'il doit répondre à l'énigme ».
+  const onExtraQuestClick3D = useCallback((m: MapMarker, questId: string) => {
+    if (dragStateRef.current?.dragged) return;
+    const cur = worldPosRef.current;
+    const dist = Math.max(Math.abs(Math.round(m.x) - Math.round(cur.x)), Math.abs(Math.round(m.y) - Math.round(cur.y)));
+    const questMarker: MapMarker = { id: questId, kind: 'quest', name: m.name, i18nKey: m.i18nKey, icon: '📜', x: m.x, y: m.y };
+    if (dist <= 1) setInteractionMarker(questMarker);
+    else moveTo(m.x, m.y);
+  }, [moveTo]);
+
   // ─── Clic sur une tuile portant un portail décoratif (🌀) — même logique que
   // GameCanvas2D.tsx::onPortalTileClick (attribution déterministe à un monde du catalogue).
   const onPortalTileClick3D = useCallback((wc: number, wr: number) => {
@@ -2213,6 +2268,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               standY={standY}
               onTileClick={onTileClick} onPortalTileClick={onPortalTileClick3D} onHutTileClick={onHutTileClick3D}
               onMarkerClick={onMarkerClick3D}
+              onExtraQuestClick={onExtraQuestClick3D}
               eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
               eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
               objectFlags={rules?.platform3dObjectFlags}

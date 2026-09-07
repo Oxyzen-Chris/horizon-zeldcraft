@@ -78,6 +78,15 @@ export interface ExtraRoamingActor {
   x: number; y: number;
   facing: SynkDirection;
   moving: boolean;
+  /** Renseigné UNIQUEMENT si la rencontre d'origine a débouché sur une quête acceptée (offer
+   * 'quest', voir NpcEncounterPopup.tsx::accept() + EncounterMarkerInfo.grantedQuestId) — rend ce
+   * fantôme à nouveau CLIQUABLE (voir GameCanvas2D.tsx/Platform3DWidget.tsx) pour rouvrir un
+   * rappel de l'énigme (réutilise PoiInteractionModal::QuestBody via un marqueur `kind:'quest'`
+   * synthétique `{id: questId}`), plutôt que de rester muet en cas de second clic — corrige la
+   * demande utilisateur « cliquer une nouvelle fois sur le PNJ même en ayant accepté la quête [...]
+   * doit répondre à l'énigme [...] en lui reprécisant la question ». Les fantômes issus d'un
+   * troc/combat/discussion restent volontairement non interactifs (rien à rappeler). */
+  questId?: string;
 }
 export interface RoamingActorsState {
   npc: RoamingActorPos;
@@ -153,6 +162,28 @@ function pickDirection(): { dx: number; dy: number } {
 
 function randomHoldTicks(): number {
   return MIN_HOLD_TICKS + Math.floor(Math.random() * (MAX_HOLD_TICKS - MIN_HOLD_TICKS + 1));
+}
+
+// Nombre de ticks (à STEP_MS) pendant lesquels un PNJ de rencontre fraîchement persisté (voir
+// spawnExtraRoamingActor) est forcé de s'ÉLOIGNER dans une direction tirée au sort, AVANT de
+// rejoindre le comportement d'errance normal (pause possible incluse) ci-dessus. Corrige le bug
+// remonté par l'utilisateur : « une multitude de PNJ apparaissent [...] en se déplaçant
+// aléatoirement [...] dans la Plateforme 3D » — comme l'approche (lib/npcApproach.ts) se termine
+// TOUJOURS adjacente à Synk, plusieurs rencontres successives faisaient auparavant apparaître
+// jusqu'à `npcMaxPersistentExtras` fantômes quasiment superposés pile devant Synk (tous dans son
+// petit rayon de vue 3D, voir VIEW_RADIUS), qui pouvaient ensuite rester immobiles ou dériver à
+// peine (20% de chance de pause par maintien de seulement 3-9 ticks). Un maintien BEAUCOUP plus
+// long (16 à 28 ticks, soit 64 à 112 s) et SANS tirage de pause garantit qu'un fantôme fraîchement
+// créé quitte visiblement les abords de Synk avant de reprendre un comportement d'errance normal.
+const ESCAPE_MIN_HOLD_TICKS = 16, ESCAPE_MAX_HOLD_TICKS = 28;
+
+/** Direction de fuite tirée au sort (jamais {0,0}, contrairement à pickDirection() qui peut choisir
+ * de rester immobile) — voir commentaire ci-dessus. */
+function escapeMotion(): ActorMotion {
+  const moveOnly = DIRECTIONS; // DIRECTIONS ne contient déjà que des déplacements réels (jamais 0,0)
+  const dir = moveOnly[Math.floor(Math.random() * moveOnly.length)];
+  const holdTicks = ESCAPE_MIN_HOLD_TICKS + Math.floor(Math.random() * (ESCAPE_MAX_HOLD_TICKS - ESCAPE_MIN_HOLD_TICKS + 1));
+  return { dx: dir.dx, dy: dir.dy, holdTicks };
 }
 
 /** Fait avancer un acteur d'un tick : choisit une nouvelle direction si le maintien courant est
@@ -243,16 +274,21 @@ export function ensureRoamingIdentities(markers: MapMarker[]): void {
  * `id` déjà présent n'est pas dupliqué). `maxCount` (voir RepRules.npcMaxPersistentExtras, défaut
  * 5) plafonne la file : au-delà, le plus ANCIEN acteur persisté est retiré (FIFO) pour éviter une
  * croissance non bornée si de nombreuses rencontres se terminent coup sur coup — sa `motion`
- * associée est purgée de `extraMotions` au même moment. */
+ * associée est purgée de `extraMotions` au même moment.
+ * `questId` (optionnel) : voir ExtraRoamingActor.questId — propagé tel quel, rend ce fantôme
+ * cliquable pour rouvrir un rappel de l'énigme correspondante. */
 export function spawnExtraRoamingActor(
-  actor: { id: string; kind: 'npc' | 'familiar'; name: string; i18nKey?: string; icon: string; x: number; y: number },
+  actor: { id: string; kind: 'npc' | 'familiar'; name: string; i18nKey?: string; icon: string; x: number; y: number; questId?: string },
   maxCount = 5,
 ): void {
   if (state.extras.some((e) => e.id === actor.id)) return;
   let next: ExtraRoamingActor[] = [...state.extras, { ...actor, facing: 'down', moving: false }];
   const cap = Math.max(1, maxCount);
   while (next.length > cap) next = next.slice(1);
-  extraMotions.set(actor.id, { dx: 0, dy: 0, holdTicks: 0 });
+  // Fuite immédiate loin de Synk (voir escapeMotion ci-dessus) au lieu d'un maintien nul qui
+  // provoquait un tirage de direction quasi-immédiat (3-9 ticks, 20% de chance de pause) et donc un
+  // amas de fantômes quasi immobiles pile devant Synk après plusieurs rencontres rapprochées.
+  extraMotions.set(actor.id, escapeMotion());
   for (const key of Array.from(extraMotions.keys())) {
     if (!next.some((e) => e.id === key)) extraMotions.delete(key);
   }
