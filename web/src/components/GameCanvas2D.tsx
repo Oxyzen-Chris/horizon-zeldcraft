@@ -448,8 +448,13 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     // elle-même dans la fenêtre de caméra actuelle, on verrait le même PNJ/Dragon apparaître EN
     // DOUBLE (une fois figé à sa position catalogue, une fois errant) alors qu'un seul exemplaire
     // doit exister à la fois. Même filtre appliqué côté Platform3DWidget.tsx pour rester cohérent.
-    const baseMarkers = (roamingActors.npcMarkerId || roamingActors.dragonMarkerId)
-      ? markers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId)
+    // Exclut AUSSI tout familier généraliste désormais suivi dans `roamingActors.familiars` (voir
+    // commentaire d'en-tête de lib/roamingActors.ts « TOUS les familiers/dragons du catalogue
+    // errent désormais ») — même raison : ne jamais afficher deux fois le même familier (une fois
+    // figé à sa position catalogue, une fois errant via familiarsInView ci-dessous).
+    const hasFamiliars = Object.keys(roamingActors.familiars).length > 0;
+    const baseMarkers = (roamingActors.npcMarkerId || roamingActors.dragonMarkerId || hasFamiliars)
+      ? markers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId && !roamingActors.familiars[m.id])
       : markers;
     const all = kingdomMarker ? [...baseMarkers, kingdomMarker, ...zorghonMarkers] : [...baseMarkers, ...zorghonMarkers];
     for (const m of all) {
@@ -458,7 +463,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       if (col >= 0 && col < COLS && row >= 0 && row < ROWS) out.push({ ...m, col, row });
     }
     return out;
-  }, [markers, kingdomMarker, zorghonMarkers, origin, roamingActors.npcMarkerId, roamingActors.dragonMarkerId]);
+  }, [markers, kingdomMarker, zorghonMarkers, origin, roamingActors.npcMarkerId, roamingActors.dragonMarkerId, roamingActors.familiars]);
 
   // Filtres d'affichage par catégorie (boutons de WorldMapWidget.tsx, voir lib/mapFilters.ts) —
   // se synchronise EN TEMPS RÉEL avec la Mapmonde (même état partagé, portée module). Appliqué
@@ -507,6 +512,19 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     })
     .filter((e) => e.inView),
     [roamingActors.extras, origin.col, origin.row],
+  );
+  // TOUS les familiers/dragons généralistes du catalogue (voir lib/roamingActors.ts::familiars,
+  // « TOUS les familiers/dragons du catalogue errent désormais ») — même conversion mapmonde→local
+  // et même critère de visibilité qu'extrasInView ci-dessus, mais CLIQUABLES (contrairement aux
+  // fantômes de rencontre) puisqu'ils gardent leur véritable identité catalogue (`markers.find`).
+  const familiarsInView = useMemo(() => Object.entries(roamingActors.familiars)
+    .map(([id, f]) => {
+      const col = Math.round(f.x) - origin.col, row = Math.round(f.y) - origin.row;
+      const marker = markers.find(mk => mk.id === id) ?? null;
+      return { id, f, marker, col, row, inView: col >= 0 && col < COLS && row >= 0 && row < ROWS };
+    })
+    .filter((e) => e.inView),
+    [roamingActors.familiars, origin.col, origin.row, markers],
   );
   // Conversion mapmonde → viewport LOCAL du PNJ "en approche" (voir lib/npcApproach.ts) — même
   // principe que npcInView/npcLocal ci-dessus pour le PNJ/Dragon errant : sa position de départ
@@ -1434,6 +1452,22 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
               <span className="text-xl">🐉</span>
             </div>
           )}
+          {/* TOUS les familiers/dragons généralistes du catalogue (voir familiarsInView ci-dessus et
+              lib/roamingActors.ts::familiars) — cliquables comme le Dragon errant historique
+              (même onActorClick, ouvre le pop-up d'apprivoisement via leur véritable identité
+              catalogue). Corrige la demande utilisateur « fais en sorte que les Dragons et les
+              familiers se déplacent aussi et au même titre que les PNJ ». */}
+          {familiarsInView.map(({ id, f, marker, col, row }) => (
+            <div
+              key={`familiar-${id}`}
+              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${marker ? 'cursor-pointer' : 'cursor-help'}`}
+              style={{ left: projX(col, row), top: projY(col, row) - 22, zIndex: col + row + 2 }}
+              title={marker ? `🐉 ${localizeName(t, marker.i18nKey, marker.name)}` : t('canvas2d.dragonLabel')}
+              onClick={() => onActorClick(f.x, f.y, marker)}
+            >
+              <span className="text-xl">{marker?.icon ?? '🐉'}</span>
+            </div>
+          ))}
           {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) en le
               faisant marcher progressivement vers Synk (voir lib/npcApproach.ts, transition CSS
               duration-[1500ms] pour la même démarche visuelle que le PNJ/Dragon errant), plutôt que

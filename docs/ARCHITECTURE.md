@@ -995,6 +995,64 @@ déplacement/l'interaction). Les attributs de débogage `data-synk-pos`/`data-sy
 `data-widget-collapsed` (invisibles, posés sur le conteneur du widget) permettent de rejouer ce
 scénario par script sans dépendre du rendu visuel Three.js.
 
+## 🔒 Familiers/dragons du catalogue immobiles + PNJ surdimensionnés sans jambes visibles (widget 3D)
+
+**Symptôme signalé** : (1) les familiers/dragons du catalogue AUTRES que le Dragon errant historique
+(ex. « Dragon Vert ») restaient figés sur place et pivotaient sur eux-mêmes façon toupie au lieu de
+se déplacer, dans les 3 widgets (Plateforme 2D, Plateforme 3D, Mapmonde) ; (2) les PNJ affichés dans
+la Plateforme 3D étaient bien plus grands que Synk et leurs jambes étaient presque invisibles, sans
+variation d'expression faciale.
+
+**Cause racine (1) — un seul familier/dragon suivi.** `RoamingActorsState` (`lib/roamingActors.ts`)
+ne suivait historiquement qu'**un seul** PNJ (`npcMarkerId`) et **un seul** familier/dragon
+(`dragonMarkerId`) parmi tout le catalogue `entityMarkers` — tous les autres marqueurs
+`kind:'familiar'` restaient donc rendus avec leurs coordonnées catalogue statiques et l'animation
+idle (pivot sur place) faute de position « live » à interpoler.
+
+**Correctif (1)** — ajout **additif**, sans toucher au système `npc`/`dragon` existant ni aux
+`extras` (fantômes de rencontre) :
+- Nouveau type exporté `RoamingFamiliarState` (`RoamingActorPos & {facing, moving}`) et nouveau champ
+  `familiars: Record<string, RoamingFamiliarState>` sur `RoamingActorsState`.
+- Nouvelle map de module `familiarMotions` (jamais purgée, contrairement à `extraMotions` qui est
+  plafonnée FIFO) — un familier reste suivi tant que le catalogue le contient.
+- `ensureRoamingIdentities()` boucle désormais sur tous les marqueurs `kind==='familiar'` du
+  catalogue (hors celui déjà choisi comme `dragonMarkerId`) pour peupler `familiars`/
+  `familiarMotions` de façon idempotente (ignore les ids déjà suivis).
+- `stepActors()` fait avancer chaque entrée de `state.familiars` à chaque tick (même cadence
+  `STEP_MS` que `npc`/`dragon`/`extras`), avec la même logique de fuite anti-clustering au spawn et
+  de pause intermittente occasionnelle.
+- Câblage dans les 3 widgets : `GameCanvas2D.tsx` (nouveau `familiarsInView`, exclusion des ids
+  suivis dans `baseMarkers`), `Platform3DWidget.tsx` (`generalFamiliarMarkers`/
+  `generalFamiliarFacing` injectés dans `sceneMarkers`, réutilisant le rendu `MarkerBlock`/
+  `DragonMarker` générique — aucune duplication de code de rendu), `WorldMapWidget.tsx`
+  (`generalFamiliarLiveMarkers`, rendu en marqueur standard SANS anneau clignotant — traitement
+  anneau/label toujours réservé au PNJ/Dragon errant historique + `extras`, voir section
+  précédente ; à réévaluer si une demande future souhaite l'étendre).
+- Vérifié par script Playwright jetable (lecture d'un attribut `data-roaming-familiars` exposé sur
+  le widget 3D, comparé entre deux relevés espacés de 4 ticks) : 7 familiers suivis, 6-7/7 ayant
+  changé de position selon les runs (le reste respecte une pause intermittente volontaire, identique
+  au comportement historique `npc`/`dragon`).
+
+**Cause racine (2) — échelle par défaut trop grande + jambes qui clippent sous le sol.**
+`DEFAULT_PLATFORM3D_OBJECT_FLAGS['marker:npc'].scale` valait `1.6` (`lib/gameState.ts`) alors que
+Synk a une échelle de `1`. Les bottes du PNJ (bas non mis à l'échelle ≈ `-0.39`) se retrouvaient à
+`-0.39 × 1.6 ≈ -0.62`, sous le plateau du sol (`y = -0.42`) — d'où à la fois l'effet « trop grand »
+et « jambes invisibles » (clippées sous le sol), un seul et même bug.
+
+**Correctif (2)** :
+- `DEFAULT_PLATFORM3D_OBJECT_FLAGS['marker:npc'].scale` ramené à `1` (échelle des familiers/dragons,
+  `marker:familiar` = `2.4`, volontairement inchangée — ils sont censés être plus grands).
+- Nouveau helper déterministe `hashString()` (djb2) dans `Platform3DWidget.tsx` : un booléen
+  `smiling` est calculé une seule fois par id/nom de PNJ (`hashString(s) % 2 === 0`), stable pour un
+  PNJ donné (pas de scintillement au re-rendu) mais varié selon la population. `NpcVoxel()` rend
+  soit une bouche « sourire » (barre centrale + coins relevés), soit la bouche neutre plate
+  d'origine, selon `smiling`.
+- ⚠️ **Risque de migration Firestore non traité** : si un administrateur a déjà enregistré une
+  valeur via le panneau « 🧱 Objets & décor 3D » (`RepRulesPanel.tsx`), l'ancienne valeur
+  `scale: 1.6` pour `marker:npc` peut persister en base et prévaloir sur le nouveau défaut (le merge
+  `mergeRepRules()` fusionne les valeurs sauvegardées par-dessus les défauts). Si ce cas se présente,
+  l'administrateur peut simplement réajuster le curseur d'échelle existant dans ce panneau.
+
 ## Architecture DLC / Content Packs
 
 `ContentPackDef` (`id`, `nom`, `description`, `actif`, `order`) est stocké dans

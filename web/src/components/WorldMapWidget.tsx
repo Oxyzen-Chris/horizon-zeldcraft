@@ -133,6 +133,17 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     () => entityMarkers.find(m => m.kind === 'familiar' && m.id === roamingActors.dragonMarkerId) ?? null,
     [entityMarkers, roamingActors.dragonMarkerId],
   );
+  // TOUS les familiers/dragons généralistes du catalogue (voir lib/roamingActors.ts::familiars,
+  // « TOUS les familiers/dragons du catalogue errent désormais ») — reprennent leur position EN
+  // DIRECT (au lieu de leur position catalogue figée) exactement comme roamingDragonMarker
+  // ci-dessus, mais rendus comme un marqueur classique (pas d'anneau clignotant/libellé permanent,
+  // réservés au PNJ/Dragon errant "historique" et aux PNJ de rencontre — voir liveActorMarkers plus
+  // bas) : corrige uniquement le bug « ils restent fixes » sans étendre le périmètre visuel déjà
+  // livré précédemment pour ces deux acteurs distincts.
+  const generalFamiliarLiveMarkers = useMemo<MapMarker[]>(() => Object.entries(roamingActors.familiars).map(([id, f]) => {
+    const base = entityMarkers.find(m => m.kind === 'familiar' && m.id === id);
+    return { id, kind: 'familiar' as const, name: base?.name ?? t('canvas2d.dragonLabel'), i18nKey: base?.i18nKey, icon: base?.icon ?? '🐉', x: f.x, y: f.y };
+  }), [roamingActors.familiars, entityMarkers, t]);
   // Marqueurs synthétiques à la position EN DIRECT (mise à jour toutes les 4s, voir STEP_MS dans
   // roamingActors.ts) — `kind: 'npc'`/`'familiar'` afin de respecter EXACTEMENT les mêmes filtres
   // d'affichage (boutons "PNJ"/"Familiers") que leurs homologues catalogue statiques.
@@ -750,7 +761,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
               ci-dessous) est exclu ICI (`m.id !== roamingActors.npcMarkerId && ...`) pour ne jamais
               afficher deux fois le même personnage : une fois à sa position CATALOGUE figée, une
               fois à sa position EN DIRECT — seule cette dernière doit apparaître. */}
-          {[...entityMarkers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId), ...(kingdomMarker ? [kingdomMarker] : []), ...zorghonMarkers].filter(m => markerMatchesFilters(m, mapFilters, mapPos)).map(m => (
+          {[...entityMarkers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId && !roamingActors.familiars[m.id]), ...generalFamiliarLiveMarkers, ...(kingdomMarker ? [kingdomMarker] : []), ...zorghonMarkers].filter(m => markerMatchesFilters(m, mapFilters, mapPos)).map(m => (
             <div key={`${m.kind}-${m.id}`} title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
               className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none ${m.isKingdom ? 'animate-pulse' : ''}`}
               style={{ left: `${m.x}%`, top: `${m.y}%` }}>

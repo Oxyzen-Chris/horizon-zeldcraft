@@ -62,8 +62,31 @@ import type { MapMarker, SynkDirection } from './gameState';
  * persistants simultanés est plafonné (`RepRules.npcMaxPersistentExtras`, défaut 5) : au-delà, le
  * plus ANCIEN est retiré (file FIFO) pour éviter une croissance non bornée si de nombreuses
  * rencontres se terminent coup sur coup.
+ *
+ * 🆕 TOUS les familiers/dragons du catalogue errent désormais, pas seulement le "Dragon errant"
+ * historique (`dragon`/`dragonMarkerId`) — corrige le bug remonté par l'utilisateur : « les
+ * familiers et donc les dragons (par exemple le Dragon Vert) [...] ne se déplacent pas, restent
+ * fixes et rebondissent sur eux-mêmes [...] fais en sorte que les Dragons et les familiers se
+ * déplacent aussi et au même titre que les PNJ ». Avant ce correctif, seul UN familier (pioché une
+ * fois par `ensureRoamingIdentities` dans `dragonMarkerId`) bénéficiait du moteur d'errance
+ * `advanceActor`/`stepActors` ; tous les AUTRES marqueurs `kind:'familiar'` du catalogue restaient
+ * de purs marqueurs statiques, dépourvus de `facing`/`moving`, et retombaient donc dans
+ * `MarkerBlock` (Platform3DWidget.tsx) sur l'ancienne rotation continue idle générique (« toupie »)
+ * réservée aux objets en lévitation — exactement le symptôme observé (dragon figé qui tourne sur
+ * lui-même). Le nouveau champ `familiars` (voir `RoamingFamiliarState` ci-dessous), peuplé par
+ * `ensureRoamingIdentities` pour CHAQUE marqueur `kind:'familiar'` AUTRE que celui déjà assigné à
+ * `dragonMarkerId` (pour ne jamais faire avancer deux fois le même marqueur via deux mécanismes
+ * différents), et avancé à chaque tick de `stepActors()` exactement comme `extras` ci-dessus, est
+ * PUREMENT ADDITIF : `npc`/`dragon`/`npcMarkerId`/`dragonMarkerId` et tout ce qui en dépend ailleurs
+ * (ex. lib/mapFilters.ts::isLiveActorMarkerId) restent strictement inchangés, zéro régression.
  */
 export interface RoamingActorPos { x: number; y: number }
+/** Position/orientation EN DIRECT d'un familier (dragon ou autre) du catalogue qui erre désormais
+ * au même titre que le Dragon errant historique — voir commentaire d'en-tête ci-dessus. Indexé par
+ * l'id du marqueur catalogue (`MapMarker.id`, ex. "dragon.green") dans `RoamingActorsState.familiars`
+ * ci-dessous : les widgets retrouvent le nom/icône/kind via ce même id auprès de `getAllMapMarkers()`,
+ * seule la position/facing/moving diffère de sa fiche catalogue statique. */
+export interface RoamingFamiliarState extends RoamingActorPos { facing: SynkDirection; moving: boolean }
 /** Un PNJ de rencontre "persisté" après la fermeture du pop-up (voir commentaire ci-dessus) — même
  * forme minimale qu'un `MapMarker` synthétique (voir lib/gameState.ts::MapMarker), mais géré ici
  * pour bénéficier du même moteur d'errance (`advanceActor`/`stepActors`) que `npc`/`dragon`. */
@@ -111,6 +134,11 @@ export interface RoamingActorsState {
   dragonMarkerId: string | null;
   /** PNJ de rencontre persistés (voir ExtraRoamingActor ci-dessus) — vide par défaut. */
   extras: ExtraRoamingActor[];
+  /** TOUS les familiers/dragons du catalogue AUTRES que celui déjà piloté par `dragon`/
+   * `dragonMarkerId` ci-dessus (voir RoamingFamiliarState et le commentaire d'en-tête « TOUS les
+   * familiers/dragons du catalogue errent désormais ») — indexé par `MapMarker.id`, vide par défaut,
+   * peuplé par `ensureRoamingIdentities`. */
+  familiars: Record<string, RoamingFamiliarState>;
 }
 
 interface ActorMotion { dx: number; dy: number; holdTicks: number }
@@ -142,6 +170,7 @@ let state: RoamingActorsState = {
   npcMarkerId: null,
   dragonMarkerId: null,
   extras: [],
+  familiars: {},
 };
 
 let npcMotion: ActorMotion = { dx: 0, dy: 0, holdTicks: 0 };
@@ -149,6 +178,10 @@ let dragonMotion: ActorMotion = { dx: 0, dy: 0, holdTicks: 0 };
 // Une entrée de "motion" par acteur persisté (voir ExtraRoamingActor), indexée par son `id` stable
 // — purgée dès qu'un acteur est retiré (plafond FIFO, voir spawnExtraRoamingActor).
 const extraMotions = new Map<string, ActorMotion>();
+// Une entrée de "motion" par familier généraliste (voir RoamingFamiliarState), indexée par son id
+// catalogue — jamais purgée (contrairement à extraMotions) : un familier du catalogue reste
+// PERMANENT tant que le catalogue est chargé, aucun plafond FIFO ne s'applique ici.
+const familiarMotions = new Map<string, ActorMotion>();
 const listeners = new Set<(s: RoamingActorsState) => void>();
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -236,6 +269,21 @@ function stepActors(): void {
     extraMotions.set(e.id, result.motion);
     return { ...e, x: result.pos.x, y: result.pos.y, facing: result.facing ?? e.facing, moving: result.moving };
   });
+  // Fait avancer TOUS les familiers/dragons généralistes du catalogue (voir RoamingFamiliarState et
+  // le commentaire d'en-tête « TOUS les familiers/dragons du catalogue errent désormais ») — même
+  // moteur d'errance que ci-dessus, chacun avec sa propre motion indépendante.
+  const familiarIds = Object.keys(state.familiars);
+  let familiars = state.familiars;
+  if (familiarIds.length) {
+    familiars = { ...state.familiars };
+    for (const id of familiarIds) {
+      const cur = state.familiars[id];
+      const motion = familiarMotions.get(id) ?? { dx: 0, dy: 0, holdTicks: 0 };
+      const result = advanceActor({ x: cur.x, y: cur.y }, motion);
+      familiarMotions.set(id, result.motion);
+      familiars[id] = { x: result.pos.x, y: result.pos.y, facing: result.facing ?? cur.facing, moving: result.moving };
+    }
+  }
   state = {
     ...state,
     npc: npcResult.pos,
@@ -245,6 +293,7 @@ function stepActors(): void {
     npcMoving: npcResult.moving,
     dragonMoving: dragonResult.moving,
     extras,
+    familiars,
   };
   notify();
 }
@@ -260,9 +309,16 @@ function maybeStopInterval(): void {
 /** Attribue au PNJ/Dragon errant une véritable entrée du catalogue, dès que celui-ci est chargé —
  * idempotent (premier appelant gagne, quel que soit le widget) afin que 2D et 3D affichent
  * TOUJOURS la même identité. Reprend exactement l'ancienne logique locale de GameCanvas2D.tsx
- * (dragon errant préférant un familier "dragon.*", voir DragonSkin.tsx::dragonKindFromId). */
+ * (dragon errant préférant un familier "dragon.*", voir DragonSkin.tsx::dragonKindFromId).
+ *
+ * 🆕 Peuple AUSSI `familiars` (voir RoamingFamiliarState) pour CHAQUE marqueur `kind:'familiar'` du
+ * catalogue AUTRE que celui déjà assigné à `dragonMarkerId` — voir le commentaire d'en-tête du
+ * module. L'ancien early-return (`if (npcMarkerId && dragonMarkerId) return`) a été retiré pour que
+ * cette étape s'exécute même après que npc/dragon aient déjà été assignés lors d'un appel
+ * précédent ; la boucle reste idempotente (un id déjà présent dans `familiars` n'est jamais
+ * retraité), donc sûre à appeler plusieurs fois (une fois par widget monté, voir GameCanvas2D.tsx/
+ * Platform3DWidget.tsx) sans jamais réinitialiser une position déjà en mouvement. */
 export function ensureRoamingIdentities(markers: MapMarker[]): void {
-  if (state.npcMarkerId && state.dragonMarkerId) return;
   let changed = false;
   const next = { ...state };
   if (!next.npcMarkerId) {
@@ -275,7 +331,18 @@ export function ensureRoamingIdentities(markers: MapMarker[]): void {
     const pool = dragons.length ? dragons : familiars;
     if (pool.length) { next.dragonMarkerId = pool[Math.floor(Math.random() * pool.length)].id; changed = true; }
   }
-  if (changed) { state = next; notify(); }
+  let familiarsCopy: Record<string, RoamingFamiliarState> | null = null;
+  for (const m of markers) {
+    if (m.kind !== 'familiar') continue;
+    if (m.id === next.dragonMarkerId) continue; // déjà piloté par dragon/dragonMarkerId ci-dessus
+    if (next.familiars[m.id]) continue; // déjà tracké (idempotent)
+    if (!familiarsCopy) familiarsCopy = { ...next.familiars };
+    familiarsCopy[m.id] = { x: m.x, y: m.y, facing: 'down', moving: false };
+    familiarMotions.set(m.id, { dx: 0, dy: 0, holdTicks: 0 });
+    changed = true;
+  }
+  if (familiarsCopy) next.familiars = familiarsCopy;
+  if (changed) { state = next; notify(); ensureInterval(); }
 }
 
 /** Ajoute un PNJ de rencontre à la file d'errance persistante (voir ExtraRoamingActor et le

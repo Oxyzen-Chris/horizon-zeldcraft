@@ -3648,7 +3648,10 @@ export const DEFAULT_PLATFORM3D_OBJECT_FLAGS: Record<Platform3DObjectKind, Platf
   // PNJ voxel (style Minecraft, voir NpcVoxel) légèrement plus grand que Synk (~1.2 unité) pour
   // rester bien visible/lisible sur la carte. Le familier-dragon doit être NETTEMENT plus grand
   // que Synk (le joueur doit pouvoir imaginer le chevaucher) — voir DragonMarker.
-  'marker:npc':      { obstacle: false, climbable: false, water: false, scale: 1.6 },
+  // scale=1 (défaut) : le PNJ doit rester à la taille de Synk (voir SynkVoxel) — corrige la demande
+  // utilisateur « les PNJ sont trop grand, ils devraient être de la taille de Synk » (l'ancien défaut
+  // 1.6 les surdimensionnait ET faisait dépasser leurs bottes sous le socle -0.42, cachant les jambes).
+  'marker:npc':      { obstacle: false, climbable: false, water: false, scale: 1 },
   'marker:familiar': { obstacle: false, climbable: false, water: false, scale: 2.4 },
 };
 

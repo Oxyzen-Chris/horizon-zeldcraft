@@ -456,25 +456,41 @@ function DragonMarker({ color, walking = false }: { color: string; walking?: boo
   );
 }
 
+/** Hash de chaîne simple/déterministe (djb2) — utilisé UNIQUEMENT pour dériver, à partir de
+ * l'id/nom d'un PNJ, un attribut cosmétique stable (ex. expression du visage ci-dessous) qui ne
+ * varie jamais d'un rendu à l'autre pour le MÊME PNJ, mais diffère naturellement d'un PNJ à
+ * l'autre. Aucun rapport avec un hash cryptographique — collisions/faible distribution acceptables
+ * pour un usage purement visuel. */
+function hashString(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
 /** Devine l'apparence d'un PNJ à partir de son id/nom (ex. "npc.thrall" / "Thrall (Chef de la
  * Horde)") — reconnaissance par mots-clés (même principe que `familiarDragonColor` ci-dessus),
  * repli neutre (robe/capuche générique) pour tout futur PNJ ajouté par l'admin sans mot-clé connu.
  * Purement cosmétique (aucun impact stats/mécanique) — répond à la demande utilisateur « je veux
  * que les PNJ soit représentés avec le même système que Synk donc comme des personnages style
- * Minecraft » pour Thrall et tous les autres PNJ (Zelda, Steve, Marchand, Dragon Ancestral...). */
-function npcAppearance(id: string, name: string): { skin: string; outfit: string; hair: string; accent: string; hat: 'crown' | 'hood' | 'hair' } {
+ * Minecraft » pour Thrall et tous les autres PNJ (Zelda, Steve, Marchand, Dragon Ancestral...).
+ * `smiling` (déterministe via `hashString`, voir ci-dessus) fait qu'un PNJ donné affiche TOUJOURRS
+ * la même expression (pas de scintillement facial d'une frame à l'autre) mais que la population de
+ * PNJ du jeu alterne naturellement sourire/visage neutre — corrige la demande utilisateur « dessine
+ * tantôt un sourire tantôt un air normal sur le visage des PNJ pour les rendre plus naturels ». */
+function npcAppearance(id: string, name: string): { skin: string; outfit: string; hair: string; accent: string; hat: 'crown' | 'hood' | 'hair'; smiling: boolean } {
   const s = `${id} ${name}`.toLowerCase();
+  const smiling = hashString(s) % 2 === 0;
   if (s.includes('thrall') || s.includes('horde') || s.includes('orc') || s.includes('orque'))
-    return { skin: '#6a9a4a', outfit: '#3f3226', hair: '#151515', accent: '#8a6a45', hat: 'hair' };
+    return { skin: '#6a9a4a', outfit: '#3f3226', hair: '#151515', accent: '#8a6a45', hat: 'hair', smiling };
   if (s.includes('zelda') || s.includes('princesse') || s.includes('princess'))
-    return { skin: '#f2c99d', outfit: '#e6d5f0', hair: '#d4b83a', accent: '#d4af37', hat: 'crown' };
+    return { skin: '#f2c99d', outfit: '#e6d5f0', hair: '#d4b83a', accent: '#d4af37', hat: 'crown', smiling };
   if (s.includes('steve') || s.includes('mineur') || s.includes('miner'))
-    return { skin: '#f2c99d', outfit: '#3b6ea5', hair: '#3b2412', accent: '#5b3a1e', hat: 'hair' };
+    return { skin: '#f2c99d', outfit: '#3b6ea5', hair: '#3b2412', accent: '#5b3a1e', hat: 'hair', smiling };
   if (s.includes('marchand') || s.includes('merchant'))
-    return { skin: '#e0ab7a', outfit: '#6b4a2a', hair: '#4a3a2a', accent: '#8a6a45', hat: 'hood' };
+    return { skin: '#e0ab7a', outfit: '#6b4a2a', hair: '#4a3a2a', accent: '#8a6a45', hat: 'hood', smiling };
   if (s.includes('dragon'))
-    return { skin: '#8a5a3a', outfit: '#7f1d1d', hair: '#3a1a1a', accent: '#d4af37', hat: 'hood' };
-  return { skin: '#e8c39e', outfit: '#5b6a8a', hair: '#3b2412', accent: '#7dd3fc', hat: 'hood' };
+    return { skin: '#8a5a3a', outfit: '#7f1d1d', hair: '#3a1a1a', accent: '#d4af37', hat: 'hood', smiling };
+  return { skin: '#e8c39e', outfit: '#5b6a8a', hair: '#3b2412', accent: '#7dd3fc', hat: 'hood', smiling };
 }
 
 /** PNJ en voxels (façon Minecraft), même langage visuel que `SynkVoxel` (tête box + yeux/bouche,
@@ -515,7 +531,7 @@ function NpcVoxel({ appearance, walking = false }: { appearance: ReturnType<type
       if (bodyRef.current) bodyRef.current.position.y = 0;
     }
   });
-  const { skin, outfit, hair, accent, hat } = appearance;
+  const { skin, outfit, hair, accent, hat, smiling } = appearance;
   return (
     <group ref={bodyRef}>
       {/* Tête */}
@@ -523,7 +539,17 @@ function NpcVoxel({ appearance, walking = false }: { appearance: ReturnType<type
         <mesh castShadow><boxGeometry args={[0.38, 0.38, 0.38]} /><meshStandardMaterial color={skin} /></mesh>
         <mesh position={[-0.08, 0.03, 0.19]}><boxGeometry args={[0.06, 0.06, 0.03]} /><meshStandardMaterial color="#1e293b" /></mesh>
         <mesh position={[0.08, 0.03, 0.19]}><boxGeometry args={[0.06, 0.06, 0.03]} /><meshStandardMaterial color="#1e293b" /></mesh>
-        <mesh position={[0, -0.1, 0.19]}><boxGeometry args={[0.12, 0.03, 0.03]} /><meshStandardMaterial color="#7f2d3a" /></mesh>
+        {smiling ? (
+          // Sourire : barre centrale + deux coins relevés (silhouette voxel courbée vers le haut).
+          <group>
+            <mesh position={[0, -0.105, 0.19]}><boxGeometry args={[0.13, 0.025, 0.03]} /><meshStandardMaterial color="#7f2d3a" /></mesh>
+            <mesh position={[-0.075, -0.085, 0.185]}><boxGeometry args={[0.03, 0.025, 0.03]} /><meshStandardMaterial color="#7f2d3a" /></mesh>
+            <mesh position={[0.075, -0.085, 0.185]}><boxGeometry args={[0.03, 0.025, 0.03]} /><meshStandardMaterial color="#7f2d3a" /></mesh>
+          </group>
+        ) : (
+          // Air normal : simple barre horizontale plate (expression neutre, comportement d'origine).
+          <mesh position={[0, -0.1, 0.19]}><boxGeometry args={[0.12, 0.03, 0.03]} /><meshStandardMaterial color="#7f2d3a" /></mesh>
+        )}
         {hat === 'crown' ? (
           <mesh position={[0, 0.22, 0]} castShadow><cylinderGeometry args={[0.16, 0.19, 0.1, 8]} /><meshStandardMaterial color={accent} metalness={0.6} roughness={0.3} /></mesh>
         ) : hat === 'hood' ? (
@@ -940,7 +966,8 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   if (isNpc) {
     // PNJ en voxels façon Minecraft (voir NpcVoxel/npcAppearance ci-dessus) — remplace la précédente
     // silhouette encapuchonnée générique. `scale` (voir Platform3DObjectFlags['marker:npc'], défaut
-    // 1.6) n'agrandit QUE le PNJ, jamais le socle. `rotation`/`walking` : voir isFamiliar ci-dessus.
+    // 1 depuis la correction « PNJ de la taille de Synk ») n'agrandit QUE le PNJ, jamais le socle.
+    // `rotation`/`walking` : voir isFamiliar ci-dessus.
     const appearance = npcAppearance(markerId ?? '', name ?? '');
     return (
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
@@ -1655,6 +1682,20 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       const base = markers.find(mk => mk.kind === 'familiar' && mk.id === roamingActors.dragonMarkerId);
       if (base) roamingMarkers.push({ ...base, x: roamingActors.dragon.x, y: roamingActors.dragon.y });
     }
+    // TOUS les familiers/dragons généralistes du catalogue (voir lib/roamingActors.ts::familiars,
+    // « TOUS les familiers/dragons du catalogue errent désormais ») — même principe que
+    // roamingMarkers ci-dessus (position mapmonde COURANTE, identité reprise du catalogue via
+    // `markers.find`), mais pour un nombre variable d'entrées au lieu d'une seule. Corrige la
+    // demande utilisateur « fais en sorte que les Dragons et les familiers se déplacent aussi et au
+    // même titre que les PNJ ».
+    const generalFamiliarMarkers: MapMarker[] = [];
+    const generalFamiliarFacing = new Map<string, { facing: SynkDirection; moving: boolean }>();
+    for (const [id, f] of Object.entries(roamingActors.familiars)) {
+      const base = markers.find(mk => mk.kind === 'familiar' && mk.id === id);
+      if (!base) continue;
+      generalFamiliarMarkers.push({ ...base, x: f.x, y: f.y });
+      generalFamiliarFacing.set(id, { facing: f.facing, moving: f.moving });
+    }
     // PNJ "en approche" (rencontre sollicitée, voir lib/npcApproach.ts) — matérialisé ici comme un
     // marqueur synthétique `kind: 'npc'` (jamais issu du catalogue, `markerId` dédié
     // 'encounter.npc.live' pour une apparence déterministe stable via npcAppearance()) qui marche
@@ -1680,12 +1721,12 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     // errante courante) avec la MÊME clé React (`m.id`) — avertissement "duplicate key" et rendu
     // indéterminé. Toujours le même comportement pour 2D/3D (le widget 2D n'affiche déjà QUE la
     // position errante pour ces deux identités, jamais leur fiche catalogue statique séparément).
-    const baseMarkers = (roamingActors.npcMarkerId || roamingActors.dragonMarkerId)
-      ? markers.filter(mk => mk.id !== roamingActors.npcMarkerId && mk.id !== roamingActors.dragonMarkerId)
+    const baseMarkers = (roamingActors.npcMarkerId || roamingActors.dragonMarkerId || generalFamiliarMarkers.length)
+      ? markers.filter(mk => mk.id !== roamingActors.npcMarkerId && mk.id !== roamingActors.dragonMarkerId && !roamingActors.familiars[mk.id])
       : markers;
     const all = kingdomMarker
-      ? [...baseMarkers, kingdomMarker, ...zorghonMarkers, ...roamingMarkers, ...encounterMarkers, ...extraMarkers]
-      : [...baseMarkers, ...zorghonMarkers, ...roamingMarkers, ...encounterMarkers, ...extraMarkers];
+      ? [...baseMarkers, kingdomMarker, ...zorghonMarkers, ...roamingMarkers, ...generalFamiliarMarkers, ...encounterMarkers, ...extraMarkers]
+      : [...baseMarkers, ...zorghonMarkers, ...roamingMarkers, ...generalFamiliarMarkers, ...encounterMarkers, ...extraMarkers];
     const out: SceneMarker[] = [];
     for (const m of all) {
       const dx = Math.round(m.x) - centerCol, dz = Math.round(m.y) - centerRow;
@@ -1697,13 +1738,16 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       // générique ("toupie") appliquée par défaut à tout marqueur flottant. `undefined` pour tout
       // marqueur catalogue statique — comportement idle inchangé.
       const extra = extraById.get(m.id);
+      const generalFamiliar = generalFamiliarFacing.get(m.id);
       const facing = m.id === roamingActors.npcMarkerId ? roamingActors.npcFacing
         : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonFacing
         : m.id === 'encounter.npc.live' ? npcApproach.facing
+        : generalFamiliar ? generalFamiliar.facing
         : extra ? extra.facing : undefined;
       const moving = m.id === roamingActors.npcMarkerId ? roamingActors.npcMoving
         : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonMoving
         : m.id === 'encounter.npc.live' ? npcApproach.moving
+        : generalFamiliar ? generalFamiliar.moving
         : extra ? extra.moving : undefined;
       out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m, facing, moving, questId: extra?.questId, questLabel: extra?.questLabel, questI18nKey: extra?.questI18nKey });
     }
@@ -2190,6 +2234,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           data-widget-collapsed="1"
           data-roaming-npc={`${roamingActors.npcMarkerId ?? ''},${roamingActors.npc.x},${roamingActors.npc.y}`}
           data-roaming-dragon={`${roamingActors.dragonMarkerId ?? ''},${roamingActors.dragon.x},${roamingActors.dragon.y}`}
+          data-roaming-familiars={JSON.stringify(roamingActors.familiars)}
         >🧊</button>
         <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       </>
@@ -2230,6 +2275,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       data-synk-running={isRunning ? '1' : '0'}
       data-roaming-npc={`${roamingActors.npcMarkerId ?? ''},${roamingActors.npc.x},${roamingActors.npc.y}`}
       data-roaming-dragon={`${roamingActors.dragonMarkerId ?? ''},${roamingActors.dragon.x},${roamingActors.dragon.y}`}
+      data-roaming-familiars={JSON.stringify(roamingActors.familiars)}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-lime-900/30 rounded-t-xl cursor-move"
