@@ -1248,6 +1248,63 @@ anormal), le drapeau `moving` bascule correctement `false`→`true` lors de la r
 observée, **0 erreur console**. Confirme l'absence de régression sur l'orientation/la démarche des
 PNJ et dragons déjà corrigées lors des sessions précédentes.
 
+## 🔒 Pop-up « Altitude », « Manque d'oxygène » et « Récupération d'oxygène » masqués derrière un widget
+
+**Symptôme signalé** : ces trois indicateurs ambiants (ainsi que « Profondeur », qui partage le
+même composant/toggle que « Altitude ») devaient s'afficher **au-dessus de TOUS les widgets
+flottants**, exactement comme le fait déjà le compteur « Fin de l'accès Démo dans : »
+(`DemoSessionTimerWidget.tsx`), avec un interrupteur Administration pour activer/désactiver ce
+comportement.
+
+**Cause racine (contexte d'empilement CSS piégé)** : chaque widget flottant
+(`GameCanvas2D.tsx`, `WorldMapWidget.tsx`, `Platform3DWidget.tsx`, etc.) est un conteneur
+`position:fixed` doté d'un `zIndex` explicite compris entre 40 et 89 (voir `lib/windowZOrder.ts`,
+`BASE_Z`/`MAX_Z`, système de mise au premier plan `bringToFront`). En CSS, `position:fixed` +
+`z-index` établit TOUJOURS un nouveau contexte d'empilement pour ses descendants : un pop-up interne
+avec `z-[90]` n'est comparé qu'aux AUTRES enfants du MÊME widget, jamais directement aux widgets
+frères — c'est tout le sous-arbre du widget qui est comparé aux autres widgets, au niveau du
+`zIndex` du widget lui-même (40-89). Résultat : si un autre widget est amené au premier plan (son
+`z` grimpe jusqu'à 89), il peut visuellement recouvrir l'INTÉGRALITÉ du sous-arbre d'un widget moins
+récemment focalisé — y compris ses pop-up internes en `z-[90]` — même si 90 > 89 en valeur brute,
+car ces valeurs ne sont jamais comparées directement (contextes d'empilement différents). C'est
+exactement le même problème qu'avait déjà résolu par le passé `NpcEncounterPopup.tsx` (placé en
+`z-[95]`/`z-[96]`, au-dessus de `MAX_Z=89`, mais SANS portail — donc lui aussi théoriquement
+vulnérable si un jour nourri dans un widget plus profondément imbriqué).
+
+**Correctif** : nouveau composant partagé `web/src/components/EnvStatusPopupLayer.tsx` — enveloppe
+ses enfants dans `createPortal(<>{children}</>, document.body)` quand la prop `onTop` est vraie
+(sinon rendu inline inchangé, comportement historique). Ce pattern de portail est celui déjà établi
+dans ce projet pour ce type de problème (`ConfirmDialog.tsx`, `FightResultModal.tsx`,
+`PoiInteractionModal.tsx`, `WalletPanel.tsx`) : monter le DOM réel sous `document.body` fait
+échapper le nœud à TOUS les contextes d'empilement ancêtres, si bien que son `z-[90]` déjà présent
+dans le JSX (aucune valeur de z-index modifiée) se compare enfin directement à la racine, battant
+naturellement tout widget (max z=89) tout en restant sous les bannières globales `z-[9997]`+
+(`DemoSessionTimerWidget.tsx`, `AnnouncementBanner.tsx`, `ActiveElixirsBanner.tsx`), qui ne se
+superposent de toute façon jamais spatialement.
+- `GameCanvas2D.tsx` : l'ancien bloc unique `oxygenUi` est scindé en `oxygenAmbientUi` (avertissement
+  ⏳ + récupération 🌿, éligibles au portail) et `oxygenModalUi` (évanouissement/résultat plein
+  écran, `z-[100]`, **volontairement laissés inchangés/locaux** — hors périmètre car non nommés par
+  la demande). `depthAltitudeUi` (Altitude/Profondeur) est également porté.
+- `WorldMapWidget.tsx` : sa propre copie « miroir » de `depthAltitudeUi` est portée de la même façon.
+- Portée strictement limitée aux 3 pop-up nommés — les modales d'évanouissement, la fatigue, les
+  fantômes (`zorghonUi`) et `islandBlockedUi` restent inchangés (mêmes bug potentiel, mais non
+  demandés, pour un changement chirurgical à faible risque de régression).
+
+**Nouveau réglage Administration** (`RepRules`, section « 🚨 Pop-up d'état environnemental ») :
+`envStatusPopupsOnTop` (booléen, défaut **true**) — un seul interrupteur partagé pour les 3 pop-up ;
+si désactivé, restitue exactement le rendu local historique (peut être recouvert par un autre
+widget mis au premier plan).
+
+**Vérifié** : `tsc --noEmit` et `npm run build` propres (0 erreur). Script Playwright jetable
+reproduisant isolément le scénario du bug (un widget « A » bas z-index contenant le pop-up, un
+widget « B » plus haut z-index simulant un widget mis au premier plan) : avec `onTop=true`, le
+pop-up est bien un enfant direct de `<body>` et reste visuellement AU-DESSUS du widget B ; avec
+`onTop=false`, le pop-up reste imbriqué dans le widget A et se retrouve bien MASQUÉ derrière le
+widget B (reproduction fidèle du bug historique en mode opt-out, comme attendu) — **0 erreur
+console** dans les deux cas. Test de non-régression complémentaire (connexion Démo anonyme,
+ouverture des widgets Plateforme 2D isométrique et Mapmonde) : rendu normal, sablier « Fin de
+l'accès Démo » toujours visible, **0 erreur console**.
+
 ## Architecture DLC / Content Packs
 
 `ContentPackDef` (`id`, `nom`, `description`, `actif`, `order`) est stocké dans

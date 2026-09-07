@@ -4196,6 +4196,18 @@ export interface RepRules {
                                         // s'éloigne
   roamProximityFreezeTiles: number;    // défaut 2 — distance (mêmes unités que WORLD_SIZE=100) en
                                         // deçà de laquelle le gel de proximité ci-dessus s'applique
+
+  // ─── Pop-up d'état environnemental toujours visibles (voir EnvStatusPopupLayer.tsx) — répond à
+  // la demande utilisateur « les pop-up Altitude, Manque d'oxygène et Récupération d'oxygène
+  // doivent être au-dessus de tous les widgets [...] tout comme le pop-up "Fin de l'accès démo" ».
+  // Ces pop-up (GameCanvas2D.tsx/WorldMapWidget.tsx) sont normalement piégés dans la pile
+  // d'empilement LOCALE de leur widget (voir lib/windowZOrder.ts, plage 40-89) : un widget mis au
+  // premier plan peut donc les cacher entièrement malgré leur propre `z-[90]`.
+  envStatusPopupsOnTop: boolean;       // défaut true — si true, ces pop-up sont montés via portail
+                                        // React directement sous `document.body` (comme
+                                        // DemoSessionTimerWidget), donc TOUJOURS visibles au-dessus
+                                        // de tous les widgets flottants ; si false, restitue le
+                                        // comportement historique (rendu local, peut être recouvert)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -4414,6 +4426,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   roamPauseMaxSec: 8,
   roamProximityFreezeEnabled: true,
   roamProximityFreezeTiles: 2,
+  envStatusPopupsOnTop: true,
 }
 
 /** Merge une valeur brute Firebase (`catalog/repRules`, potentiellement partielle/absente) avec

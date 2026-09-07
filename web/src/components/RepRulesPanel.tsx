@@ -1041,6 +1041,15 @@ export function RepRulesPanel() {
         </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🚨 {t('admin.repRules.envStatusPopupsOnTopTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.envStatusPopupsOnTopDescription')}</p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={rules.envStatusPopupsOnTop !== false}
+            onChange={e => setBool('envStatusPopupsOnTop', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.envStatusPopupsOnTopEnabled')}</span>
+        </label>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">✉️ {t('admin.repRules.emailTitle')}</h3>
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.emailDescription')}</p>
         <label className="flex items-center gap-2 text-sm mb-3">

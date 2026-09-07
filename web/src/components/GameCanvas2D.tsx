@@ -25,6 +25,7 @@ import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynk
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
+import { EnvStatusPopupLayer } from './EnvStatusPopupLayer';
 import { SynkSkin } from './SynkSkin';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
@@ -1161,7 +1162,13 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   ) : null;
   const faintDurationSec = Math.max(1, Math.round(rules?.oxygenFaintDurationSec ?? 30));
   const oxygenPct = Math.max(0, Math.min(100, ((player?.oxygen ?? 100) / (player?.oxygenMax ?? 100)) * 100));
-  const oxygenUi = (
+  // Indicateurs AMBIANTS non bloquants (avertissement/récupération) — voir EnvStatusPopupLayer :
+  // portés au-dessus de TOUS les widgets par défaut (RepRules.envStatusPopupsOnTop) pour ne jamais
+  // rester cachés derrière un autre widget mis au premier plan. Séparés des pop-up MODALES
+  // ci-dessous (évanouissement/résultat) qui, elles, restent rendues localement (inchangé — hors
+  // périmètre de cette demande, qui ne concerne que les indicateurs Altitude/Manque d'oxygène/
+  // Récupération d'oxygène).
+  const oxygenAmbientUi = (
     <>
       {oxygenTimer !== null && !fainting && (
         <div className="fixed bottom-24 right-4 z-[90] bg-slate-900/95 border-2 border-sky-500 rounded-xl px-4 py-3 shadow-xl text-center w-40 pointer-events-none">
@@ -1184,6 +1191,10 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           <p className="text-[10px] text-slate-500 mt-1">🫧 {Math.round(player?.oxygen ?? 100)}/{player?.oxygenMax ?? 100}</p>
         </div>
       )}
+    </>
+  );
+  const oxygenModalUi = (
+    <>
       {fainting && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-4">
           <div className="bg-slate-900 border-2 border-sky-500 rounded-xl p-8 max-w-md w-full text-center">
@@ -1324,6 +1335,11 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     );
   })();
 
+  // `RepRules.envStatusPopupsOnTop` (défaut true) — voir EnvStatusPopupLayer.tsx pour le détail du
+  // bug corrigé (pop-up piégé dans la pile d'empilement LOCALE du widget, masqué par un autre
+  // widget mis au premier plan malgré son propre z-[90]).
+  const envPopupsOnTop = rules?.envStatusPopupsOnTop !== false;
+
   if (!pos) return null;
 
   if (collapsed) {
@@ -1342,11 +1358,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           data-roaming-dragon={`${roamingActors.dragonMarkerId ?? ''},${roamingActors.dragon.x},${roamingActors.dragon.y}`}
         >🧩</button>
         <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
-        {oxygenUi}
+        {oxygenModalUi}
+        <EnvStatusPopupLayer onTop={envPopupsOnTop}>
+          {oxygenAmbientUi}
+          {depthAltitudeUi}
+        </EnvStatusPopupLayer>
         {fatigueUi}
         {islandBlockedUi}
         {zorghonUi}
-        {depthAltitudeUi}
       </>
     );
   }
@@ -1575,11 +1594,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           </span>
         </div>
       )}
-      {oxygenUi}
+      {oxygenModalUi}
+      <EnvStatusPopupLayer onTop={envPopupsOnTop}>
+        {oxygenAmbientUi}
+        {depthAltitudeUi}
+      </EnvStatusPopupLayer>
       {fatigueUi}
       {islandBlockedUi}
       {zorghonUi}
-      {depthAltitudeUi}
     </div>
   );
 }

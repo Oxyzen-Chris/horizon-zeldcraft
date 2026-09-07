@@ -16,6 +16,7 @@ import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
+import { EnvStatusPopupLayer } from './EnvStatusPopupLayer';
 import {
   useMapFilters, markerMatchesFilters, resetMapFilters, applyAdminMapFilterDefaults,
   MAP_FILTER_CATEGORIES,
@@ -588,6 +589,10 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     );
   })();
 
+  // Voir EnvStatusPopupLayer.tsx / RepRules.envStatusPopupsOnTop (défaut true) — même correctif
+  // que GameCanvas2D.tsx pour le pop-up Altitude/Profondeur.
+  const envPopupsOnTop = rules?.envStatusPopupsOnTop !== false;
+
   if (!enabled || !address || !pos) return null;
 
   if (collapsed) {
@@ -604,7 +609,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
           title={t('map.title')}
         >🗺️</button>
         <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
-        {depthAltitudeUi}
+        <EnvStatusPopupLayer onTop={envPopupsOnTop}>{depthAltitudeUi}</EnvStatusPopupLayer>
       </>
     );
   }
@@ -870,7 +875,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
         onConfirm={onConfirmWalk}
         onCancel={() => setTravelConfirm(null)}
       />
-      {depthAltitudeUi}
+      <EnvStatusPopupLayer onTop={envPopupsOnTop}>{depthAltitudeUi}</EnvStatusPopupLayer>
     </div>
   );
 }
