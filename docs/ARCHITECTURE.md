@@ -1166,6 +1166,88 @@ Plateforme 3D, lecture `data-roaming-familiars` avant/après 4 ticks) : 7 famili
 mouvement (comportement de pause intermittente inchangé), **0 erreur console** — confirme l'absence
 de régression sur le mouvement des familiers/dragons et des PNJ.
 
+## 🔒 « Piétinement » des jambes + cadence trop lente + pauses de 2s + gel de proximité de Synk
+
+**Symptômes signalés** : (1) les jambes des PNJ/dragons/familiers continuaient à s'agiter en
+continu alors que le personnage était visuellement immobile pendant plusieurs secondes
+(« piétinent ou moulinent sur place puis avance un peu ») ; (2) la vitesse de déplacement globale
+était jugée trop lente ; (3) une pause d'environ 2 secondes s'intercalait entre chaque case
+franchie, cassant la continuité de la marche ; (4) demande d'une **pause volontaire distincte** de
+4 à 8 secondes (pour laisser le joueur approcher/interagir) ; (5) demande que les PNJ/dragons/
+familiers **s'arrêtent** quand Synk est adjacent, et **reprennent** leur marche dès qu'il s'éloigne
+(sans jamais se rapprocher ou s'orienter vers lui, pour ne pas réintroduire l'ancien bug
+« aimanté »/« magnétisé » à Synk déjà corrigé lors d'une session précédente).
+
+**Cause racine** : les 3 widgets (`GameCanvas2D.tsx`, `Platform3DWidget.tsx`, `WorldMapWidget.tsx`)
+partagent tous la même source de vérité (`lib/roamingActors.ts`, un `setInterval` unique qui fixait
+une NOUVELLE case-cible toutes les `STEP_MS=4000ms`), mais chaque widget lissait visuellement la
+position vers cette cible avec une durée bien PLUS COURTE que 4000ms : `transition-all
+duration-[1500ms]` (CSS, 2D et Mapmonde) ou une interpolation exponentielle `useFrame` convergeant
+en ~1s (3D). Résultat : sur chaque intervalle de 4s, l'acteur atteignait visuellement sa case-cible
+en ~1 à 1,5s puis restait **visuellement figé pendant ~2,5 à 3s** avant le prochain tick — alors que
+le drapeau `moving`/`walking` (qui pilote le balancement sinusoïdal des jambes dans
+`NpcVoxel`/`DragonMarker`) restait `true` pendant TOUTE la durée du « maintien » de plusieurs ticks
+(12 à 36s de marche réelle), faisant ainsi animer les jambes en continu pendant que le corps ne
+bougeait pas — exactement le bug de « piétinement » remonté. La même incohérence de cadence
+expliquait aussi la lenteur perçue (`WORLD_SIZE=100`, delta de ±1 unité par tick à 4000ms = 0,25
+unité/s) et le fait que l'ancienne pause volontaire (`PAUSE_PROBABILITY`) réutilisait par erreur la
+MÊME plage que la marche normale (jusqu'à 36s), bien plus longue que les 4-8s demandés.
+
+**Correctif (`lib/roamingActors.ts`)** :
+- `STEP_MS` fixe devient `stepMs` **mutable et paramétrable** (défaut **1500ms**, choisi car il
+  correspond exactement à l'ancienne durée CSS déjà codée en dur `duration-[1500ms]` dans 2D et
+  Mapmonde — ces deux widgets deviennent donc immédiatement cohérents sans aucune modification CSS,
+  puisque la nouvelle case-cible arrive pile quand l'ancienne transition se termine).
+- Les durées de maintien (marche 12-36s, fuite post-rencontre 64-112s) sont désormais exprimées en
+  **secondes réelles** (`WALK_HOLD_MIN_SEC`/`MAX_SEC`, `ESCAPE_MIN_HOLD_SEC`/`MAX_SEC`) converties en
+  nombre de ticks via un nouvel helper `secToTicks(sec) = round(sec*1000/stepMs)` — garantit que ces
+  durées réelles restent **strictement identiques** malgré l'accélération de la cadence (zéro
+  régression sur le rythme de jeu déjà calibré).
+- Nouvelle plage de **pause volontaire** distincte (`pauseMinSec=4`/`pauseMaxSec=8`, paramétrable),
+  utilisée UNIQUEMENT quand `pickDirection()` tire une pause (`dx=dy=0`) — `randomHoldTicks(isPause)`
+  distingue désormais explicitement les deux plages.
+- Nouveau **gel de proximité** : `reportSynkPositionForFreeze(x, y)` (appelée par les 3 widgets à
+  chaque mise à jour de la position de Synk) alimente `synkPos` ; `advanceActor()` court-circuite en
+  tête de fonction si `distanceToSynk(pos) <= proximityFreezeTiles` (défaut 2 unités monde, échelle
+  0-100, ≈ adjacence cardinale/diagonale) : l'acteur reste **totalement immobile** ce tick, SANS
+  consommer son `holdTicks` ni tirer une nouvelle direction — il reprend donc exactement là où il
+  s'était arrêté (même direction, même maintien restant) dès que Synk s'éloigne. ⚠️ Ce mécanisme est
+  **strictement unidirectionnel** (il ne fait qu'arrêter un acteur déjà proche) — **ne jamais** y
+  ajouter d'attraction/orientation vers Synk, sous peine de réintroduire le bug « aimanté » déjà
+  corrigé par le passé.
+- Nouveaux exports : `getRoamStepMs()` (cadence courante, lue par les 3 widgets pour synchroniser
+  leur durée de transition CSS/interpolation 3D), `configureRoaming(cfg)` (applique les valeurs
+  `RepRules` ci-dessous ; redémarre l'intervalle `setInterval` si `stepMs` change réellement, car un
+  intervalle déjà créé ne peut pas changer de délai de lui-même).
+
+**Correctif (`Platform3DWidget.tsx`)** : le lissage exponentiel `g.position.x += (x -
+g.position.x) * 0.12` de `MarkerBlock` est remplacé par une **interpolation linéaire temporelle**
+(`fromRef`/`targetRef`/`tickStartRef`, `performance.now()`) qui parcourt exactement `getRoamStepMs()`
+millisecondes entre l'ancienne et la nouvelle position — élimine le même temps mort visuel que le
+correctif CSS pour 2D/Mapmonde, cette fois côté 3D.
+
+**Correctif (les 3 widgets)** : chacun appelle désormais `configureRoaming({...})` dès que ses
+`RepRules` sont chargées et `reportSynkPositionForFreeze(x, y)` à chaque changement de la position
+de Synk. Les 5 usages de `duration-[1500ms]` liés aux acteurs errants dans `GameCanvas2D.tsx` (PNJ,
+Dragon errant, familiers généralistes, PNJ de rencontre persistés) et le seul usage dans
+`WorldMapWidget.tsx` (marqueurs live Mapmonde) sont convertis en `style={{ transitionDuration:
+\`${getRoamStepMs()}ms\` }}` dynamique, pour rester synchronisés même si `roamStepMs` est modifié en
+Administration. Le marqueur du PNJ **en approche** (`lib/npcApproach.ts`, système séparé avec sa
+propre cadence `STEP_MS=1100ms` indépendante) n'est volontairement **pas touché** — hors périmètre
+de cette demande, qui concerne uniquement l'errance ambiante.
+
+**Nouveaux réglages Administration** (`RepRules`, section « 🚶 Déplacement des PNJ/Familiers
+errants ») : `roamStepMs` (défaut 1500), `roamPauseMinSec`/`roamPauseMaxSec` (défaut 4/8),
+`roamProximityFreezeEnabled` (défaut true), `roamProximityFreezeTiles` (défaut 2).
+
+**Vérifié** : `tsc --noEmit` et `npm run build` propres (0 erreur). Script Playwright jetable
+(connexion démo anonyme, ouverture Plateforme 3D, échantillonnage de `data-roaming-familiars` toutes
+les 250ms pendant 15s) : changements de position détectés toutes les ~1500ms pendant les phases de
+marche (gaps mesurés : 1584/1307/1584/1582/1563/1309ms, cohérent avec `stepMs=1500`, aucun trou
+anormal), le drapeau `moving` bascule correctement `false`→`true` lors de la reprise après une pause
+observée, **0 erreur console**. Confirme l'absence de régression sur l'orientation/la démarche des
+PNJ et dragons déjà corrigées lors des sessions précédentes.
+
 ## Architecture DLC / Content Packs
 
 `ContentPackDef` (`id`, `nom`, `description`, `actif`, `order`) est stocké dans

@@ -24,7 +24,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
@@ -953,28 +953,54 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   const bobAmplitude = isQuest ? 0.25 : 0.15;
   // Interpolation de position (PNJ/Dragon errant, PNJ "en approche", fantômes persistés — voir
   // facing/moving ci-dessus, tous UNIQUEMENT renseignés pour ces entités "vivantes") : sans cela,
-  // une nouvelle position mapmonde reçue toutes les STEP_MS=4000ms (lib/roamingActors.ts) est
-  // appliquée INSTANTANÉMENT via le prop `position` du groupe racine — un « saut »/« téléportation »
-  // net, perceptible comme un clignotement erratique dès que plusieurs entités vivantes se trouvent
-  // simultanément dans le champ de vue (bug remonté par l'utilisateur : « une multitude de PNJ
-  // apparaissent en se déplaçant aléatoirement [...] en clignotant »). Un lissage `lerp` par frame
-  // remplace ce saut par un glissement fluide vers la nouvelle position cible, exactement comme la
-  // transition CSS `duration-[1500ms]` déjà utilisée pour les mêmes entités en 2D (GameCanvas2D.tsx).
+  // une nouvelle position mapmonde reçue à chaque tick (lib/roamingActors.ts, cadence `getRoamStepMs()`)
+  // est appliquée INSTANTANÉMENT via le prop `position` du groupe racine — un « saut »/
+  // « téléportation » net, perceptible comme un clignotement erratique dès que plusieurs entités
+  // vivantes se trouvent simultanément dans le champ de vue (bug remonté par l'utilisateur : « une
+  // multitude de PNJ apparaissent en se déplaçant aléatoirement [...] en clignotant »).
   // Ne s'applique JAMAIS aux marqueurs catalogue statiques (facing/moving toujours `undefined` pour
   // eux) : ceux-ci gardent un positionnement direct inchangé, zéro régression sur leur affichage.
   const posGroupRef = useRef<THREE.Group>(null);
   const posInitedRef = useRef(false);
+  // 🔧 Interpolation LINÉAIRE bornée dans le temps (remplace l'ancien lissage exponentiel à facteur
+  // fixe 0.12/frame) : dès qu'une NOUVELLE position cible (x,z) est reçue, la position affichée
+  // glisse depuis son point de départ jusqu'à cette cible sur EXACTEMENT `getRoamStepMs()`
+  // millisecondes — la cadence réelle des ticks (voir configureRoaming). L'ancien lissage
+  // exponentiel convergeait en ~1s, bien AVANT l'arrivée de la cible suivante (4s à l'époque),
+  // laissant l'acteur visuellement immobile pendant le reste du tick alors que ses jambes
+  // continuaient d'être animées (prop `moving`, vrai pendant tout un maintien de marche) — exactement
+  // le bug remonté par l'utilisateur : « ils bougent frénétiquement leurs jambes en avançant puis
+  // avancent un peu [...] ça donne l'impression qu'ils piétinent ». En faisant durer l'interpolation
+  // EXACTEMENT aussi longtemps que l'intervalle entre deux ticks, le glissement reste continu d'un
+  // tick à l'autre tant que l'acteur marche réellement, sans le moindre temps mort.
+  const fromRef = useRef({ x, z });
+  const targetRef = useRef({ x, z });
+  const tickStartRef = useRef(0);
   const isLiveActor = (isNpc || isFamiliar) && (facing !== undefined || moving !== undefined);
   useFrame(() => {
     const g = posGroupRef.current;
     if (!g || !isLiveActor) return;
     if (!posInitedRef.current) {
       g.position.set(x, g.position.y, z);
+      fromRef.current = { x, z };
+      targetRef.current = { x, z };
+      tickStartRef.current = performance.now();
       posInitedRef.current = true;
       return;
     }
-    g.position.x += (x - g.position.x) * 0.12;
-    g.position.z += (z - g.position.z) * 0.12;
+    if (x !== targetRef.current.x || z !== targetRef.current.z) {
+      // Nouvelle cible reçue (tick lib/roamingActors.ts) : mémorise le point de départ (position
+      // ACTUELLEMENT affichée — utile si l'acteur vient d'être gelé par proximité, voir
+      // RepRules.roamProximityFreezeEnabled, auquel cas la cible n'a pas bougé et rien ne change) et
+      // redémarre le chronomètre local de cette interpolation.
+      fromRef.current = { x: g.position.x, z: g.position.z };
+      targetRef.current = { x, z };
+      tickStartRef.current = performance.now();
+    }
+    const stepMs = getRoamStepMs();
+    const progress = stepMs > 0 ? Math.min(1, (performance.now() - tickStartRef.current) / stepMs) : 1;
+    g.position.x = fromRef.current.x + (x - fromRef.current.x) * progress;
+    g.position.z = fromRef.current.z + (z - fromRef.current.z) * progress;
   });
   // Relevage anti-enterrement (PNJ/familier UNIQUEMENT) : le pied le plus bas de `NpcVoxel`/
   // `DragonMarker` (en unités NON mises à l'échelle) s'enfonce proportionnellement à `scale` — à
@@ -1675,6 +1701,19 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
 
   const [rules, setRules] = useState<RepRules | null>(null);
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
+  // Pousse la config Administration (vitesse/pauses/gel de proximité des PNJ/familiers errants,
+  // voir RepRules.roamStepMs et suivants, RepRulesPanel.tsx section « 🚶 Déplacement des PNJ/
+  // Familiers errants ») vers le registre partagé lib/roamingActors.ts — sans effet tant que
+  // `rules` n'est pas encore chargé (conserve alors les valeurs par défaut). GameCanvas2D.tsx et
+  // WorldMapWidget.tsx font le même appel : idempotent (dernier appelant gagne, valeurs identiques
+  // puisque toutes issues du même RepRules), aucun conflit possible entre widgets.
+  useEffect(() => {
+    if (!rules) return;
+    configureRoaming({
+      stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
+      proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
+    });
+  }, [rules]);
 
   // Signale au registre partagé (voir lib/platform3dActive.ts) que la Plateforme 3D est la source
   // ACTIVE de déplacement clavier tant qu'elle reste dépliée/activée — corrige le bug rapporté
@@ -1706,6 +1745,12 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // les deux rapportent la même valeur pour garantir que l'approche reste alimentée quel que soit
   // celui effectivement monté.
   useEffect(() => { reportSynkApproachTarget(worldPos.x, worldPos.y); }, [worldPos]);
+  // Alimente lib/roamingActors.ts avec la position COURANTE de Synk (voir configureRoaming
+  // ci-dessus) — sert UNIQUEMENT à geler les PNJ/dragons/familiers déjà à proximité (jamais à les
+  // faire suivre Synk, voir avertissement dans roamingActors.ts) ; répond à la demande utilisateur
+  // « quand Synk est juste à côté [...] arrête leur déplacement [...] quand Synk s'en va, remets les
+  // en marche ». Même rationale multi-widgets que reportSynkApproachTarget ci-dessus.
+  useEffect(() => { reportSynkPositionForFreeze(worldPos.x, worldPos.y); }, [worldPos]);
 
   const roamingActors = useRoamingActors();
   // Position live du PNJ actuellement "en approche" (rencontre sollicitée) — voir

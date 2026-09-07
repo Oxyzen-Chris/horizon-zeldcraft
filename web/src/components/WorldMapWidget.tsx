@@ -26,7 +26,7 @@ import { NPC_SKINS } from '@/lib/contract';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
-import { useRoamingActors, ensureRoamingIdentities } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs } from '@/lib/roamingActors';
 import { useNpcApproach } from '@/lib/npcApproach';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 
@@ -274,6 +274,20 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     getCurrentSeason().then(setSeason).catch(() => {});
     getAllMapMarkers(DEFAULT_MAP_ID).then(list => setRawEntityMarkers(list.filter(m => m.kind === 'npc' || m.kind === 'treasure' || m.kind === 'familiar' || m.kind === 'quest'))).catch(() => {});
   }, []);
+  // Pousse la config Administration (vitesse/pauses/gel de proximité des PNJ/familiers errants,
+  // voir RepRules.roamStepMs et suivants) vers lib/roamingActors.ts — même appel que dans
+  // GameCanvas2D.tsx/Platform3DWidget.tsx (registre partagé, un seul `configureRoaming` suffit en
+  // pratique, mais chaque widget le pousse dès que SES propres `rules` sont chargées).
+  useEffect(() => {
+    if (!rules) return;
+    configureRoaming({
+      stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
+      proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
+    });
+  }, [rules]);
+  // Alimente lib/roamingActors.ts avec la position COURANTE de Synk sur la mapmonde — gèle
+  // UNIQUEMENT les PNJ/dragons/familiers déjà à proximité, ne les fait JAMAIS suivre Synk.
+  useEffect(() => { reportSynkPositionForFreeze(mapPos.x, mapPos.y); }, [mapPos]);
 
   const refreshPlayerBits = useCallback(() => {
     if (!address) return;
@@ -783,8 +797,8 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
           {liveActorMarkers.filter(m => markerMatchesFilters(m, mapFilters, mapPos)).map(m => (
             <div key={`live-${m.kind}-${m.id}`}
               title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)} · ${liveActorKindLabel(m)}`}
-              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none transition-all duration-[1500ms]"
-              style={{ left: `${m.x}%`, top: `${m.y}%` }}>
+              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none transition-all"
+              style={{ left: `${m.x}%`, top: `${m.y}%`, transitionDuration: `${getRoamStepMs()}ms` }}>
               {isNearSynk(m) && (
                 <span className="absolute rounded-full border-2 border-amber-400 animate-ping" style={{ width: 20 + zoom * 8, height: 20 + zoom * 8 }} />
               )}

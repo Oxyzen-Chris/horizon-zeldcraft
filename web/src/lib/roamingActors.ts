@@ -35,7 +35,12 @@ import type { MapMarker, SynkDirection } from './gameState';
  * démarche de PNJ qui marche un moment dans une direction, s'arrête parfois, puis repart ailleurs,
  * plutôt qu'un « saut » aléatoire indépendant sur chaque axe à chaque tick. Un bord de mapmonde
  * force immédiatement le choix d'une nouvelle direction (évite de rester bloqué contre le bord).
- * Cadence historique inchangée (`STEP_MS = 4000`) — zéro régression sur le rythme déjà en place.
+ * 🔧 Cadence accélérée et configurable (`stepMs`, défaut 1500 au lieu de 4000 historique — voir
+ * `configureRoaming`/`getRoamStepMs` plus bas) : corrige la demande utilisateur « fais en sorte
+ * qu'ils avancent un peu plus vite [...] qu'ils marchent sans faire une pause de 2 secondes entre
+ * chaque déplacement ». Les DURÉES DE MAINTIEN (marche/pause/fuite) restent exprimées en secondes
+ * réelles (voir `secToTicks`) et non plus en nombre de ticks fixe, pour ne PAS raccourcir le rythme
+ * de marche déjà en place malgré l'accélération de la cadence — zéro régression sur ce point.
  *
  * `npcFacing`/`dragonFacing` (direction 8 valeurs) et `npcMoving`/`dragonMoving` (booléen) sont
  * dérivés de la direction courante et exposés pour piloter, côté 3D, l'orientation du personnage et
@@ -143,14 +148,54 @@ export interface RoamingActorsState {
 
 interface ActorMotion { dx: number; dy: number; holdTicks: number }
 
-const STEP_MS = 4000; // cadence historique (voir ancien setInterval de GameCanvas2D.tsx)
+// 🔧 Cadence/pauses/gel de proximité DÉSORMAIS CONFIGURABLES (voir configureRoaming ci-dessous,
+// appelé par les 3 widgets dès que RepRules est chargé) — corrige la demande utilisateur :
+// « fais en sorte qu'ils avancent un peu plus vite [...] qu'ils marchent sans faire une pause de
+// 2 secondes entre chaque déplacement [...] mais laisse-les de temps en temps se poser
+// aléatoirement 4-8 secondes [...] arrête leur déplacement [quand Synk est à côté] ». `stepMs`
+// (défaut 1500, au lieu de 4000 historique) est intentionnellement identique à la durée de
+// transition CSS `duration-[1500ms]` déjà câblée dans GameCanvas2D.tsx/WorldMapWidget.tsx : une
+// nouvelle position cible arrive donc pile au moment où la transition précédente se termine, ce
+// qui produit un glissement continu SANS le moindre temps mort (l'ancien écart 1500ms-transition vs
+// 4000ms-tick laissait ~2,5s d'immobilité visuelle à chaque tick — exactement le symptôme
+// « piétinent puis avancent un peu » remonté par l'utilisateur). Platform3DWidget.tsx applique la
+// même durée `getRoamStepMs()` à son interpolation linéaire (voir MarkerBlock) pour rester
+// cohérent en 3D. Les durées de maintien de direction (walk/escape) restent exprimées en SECONDES
+// RÉELLES (`WALK_HOLD_MIN_SEC` etc. ci-dessous) et non plus en nombre de ticks fixe, afin que leur
+// durée perçue reste IDENTIQUE quel que soit `stepMs` configuré (zéro régression sur le rythme de
+// marche déjà en place, même après avoir accéléré la cadence des ticks).
+let stepMs = 1500;
 // Marge de bordure : l'acteur erre dans [ROAM_MARGIN, WORLD_SIZE-ROAM_MARGIN], jamais collé pile
 // au bord 0/100 du mapmonde (où le décor/la caméra 3D deviennent moins lisibles).
 const ROAM_MARGIN = 3;
-// Nombre de ticks (à STEP_MS) pendant lesquels une direction tirée au sort est conservée avant
-// d'en choisir une nouvelle — démarche crédible (marche un moment, s'arrête parfois, repart).
-const MIN_HOLD_TICKS = 3, MAX_HOLD_TICKS = 9; // 12s à 36s de marche continue dans le même axe
+// Durée (secondes réelles) pendant laquelle une direction de MARCHE tirée au sort est conservée
+// avant d'en choisir une nouvelle — démarche crédible (marche un moment, s'arrête parfois, repart).
+// Valeurs historiques (12-36s) préservées telles quelles malgré l'accélération de `stepMs` (voir
+// commentaire ci-dessus) — converties en nombre de ticks via `secToTicks()` au moment de l'usage.
+const WALK_HOLD_MIN_SEC = 12, WALK_HOLD_MAX_SEC = 36;
+// Durée (secondes réelles) d'une pause volontaire (acteur immobile un moment avant de repartir) —
+// DISTINCTE de la durée de marche ci-dessus, configurable (défaut 4-8s, voir RepRules.roamPauseMin/
+// MaxSec) — corrige la demande utilisateur « laisse-les de temps en temps se poser aléatoirement
+// 4-8 secondes [...] pour permettre au joueur [...] d'échanger avec eux ». Remplace l'ancien
+// comportement où une pause réutilisait par erreur le même tirage que la marche (jusqu'à 36s de
+// pause, bien plus long que souhaité pour permettre une interaction rapide).
+let pauseMinSec = 4, pauseMaxSec = 8;
 const PAUSE_PROBABILITY = 0.2; // probabilité de rester immobile un moment plutôt que de repartir
+// Gel de proximité (Synk adjacent) — voir reportSynkPositionForFreeze/advanceActor ci-dessous.
+// Corrige la demande utilisateur : « quand Synk est juste à côté de PNJ, de Dragons ou de
+// familiers, fais en sorte d'arrêter leur déplacement puis, quand Synk s'en va, remets les [...] en
+// marche [...] ça permet d'éviter de courir derrière eux et aux joueurs d'échanger avec eux ».
+let proximityFreezeEnabled = true;
+let proximityFreezeTiles = 2; // ≈ adjacence (1 case cardinale = 1 unité, 1 case diagonale ≈ 1,41)
+/** Dernière position CONNUE de Synk (coordonnées mapmonde 0-100, voir reportSynkPositionForFreeze)
+ * — `null` tant qu'aucun widget n'a encore rapporté de position (aucun gel possible dans ce cas).
+ * ⚠️ Sert UNIQUEMENT à geler un acteur déjà à proximité — ne le fait JAMAIS se rapprocher ni
+ * s'orienter vers Synk (ce serait réintroduire l'ancien mécanisme d'« attache » déjà supprimé, voir
+ * commentaire d'en-tête du module : « il ne fait pas réaliste [...] aimantés à Synk »). */
+let synkPos: RoamingActorPos | null = null;
+/** Convertit une durée en secondes réelles en nombre de ticks (à `stepMs` courant), jamais moins
+ * de 1 — voir commentaire de `WALK_HOLD_MIN_SEC` ci-dessus sur l'intérêt de cette indirection. */
+function secToTicks(sec: number): number { return Math.max(1, Math.round((sec * 1000) / stepMs)); }
 
 const DIRECTIONS: { dx: number; dy: number }[] = [
   { dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
@@ -203,43 +248,68 @@ function pickDirection(): { dx: number; dy: number } {
   return DIRECTIONS[Math.floor(Math.random() * DIRECTIONS.length)];
 }
 
-function randomHoldTicks(): number {
-  return MIN_HOLD_TICKS + Math.floor(Math.random() * (MAX_HOLD_TICKS - MIN_HOLD_TICKS + 1));
+/** Nombre de ticks pour un maintien : MARCHE (12-36s réelles, historique) si `dx`/`dy` indique un
+ * vrai déplacement, sinon PAUSE volontaire (4-8s réelles par défaut, `pauseMinSec`/`pauseMaxSec`,
+ * voir configureRoaming) — remplace l'ancien `randomHoldTicks()` unique qui appliquait par erreur
+ * la même plage (jusqu'à 36s) aux deux cas, rendant les pauses bien trop longues pour permettre une
+ * interaction rapide avec le joueur. */
+function randomHoldTicks(isPause: boolean): number {
+  const minSec = isPause ? pauseMinSec : WALK_HOLD_MIN_SEC;
+  const maxSec = isPause ? pauseMaxSec : WALK_HOLD_MAX_SEC;
+  const minTicks = secToTicks(minSec), maxTicks = Math.max(minTicks, secToTicks(maxSec));
+  return minTicks + Math.floor(Math.random() * (maxTicks - minTicks + 1));
 }
 
-// Nombre de ticks (à STEP_MS) pendant lesquels un PNJ de rencontre fraîchement persisté (voir
-// spawnExtraRoamingActor) est forcé de s'ÉLOIGNER dans une direction tirée au sort, AVANT de
-// rejoindre le comportement d'errance normal (pause possible incluse) ci-dessus. Corrige le bug
-// remonté par l'utilisateur : « une multitude de PNJ apparaissent [...] en se déplaçant
+// Durée (secondes réelles, voir secToTicks) pendant laquelle un PNJ de rencontre fraîchement
+// persisté (voir spawnExtraRoamingActor) est forcé de s'ÉLOIGNER dans une direction tirée au sort,
+// AVANT de rejoindre le comportement d'errance normal (pause possible incluse) ci-dessus. Corrige
+// le bug remonté par l'utilisateur : « une multitude de PNJ apparaissent [...] en se déplaçant
 // aléatoirement [...] dans la Plateforme 3D » — comme l'approche (lib/npcApproach.ts) se termine
 // TOUJOURS adjacente à Synk, plusieurs rencontres successives faisaient auparavant apparaître
 // jusqu'à `npcMaxPersistentExtras` fantômes quasiment superposés pile devant Synk (tous dans son
 // petit rayon de vue 3D, voir VIEW_RADIUS), qui pouvaient ensuite rester immobiles ou dériver à
-// peine (20% de chance de pause par maintien de seulement 3-9 ticks). Un maintien BEAUCOUP plus
-// long (16 à 28 ticks, soit 64 à 112 s) et SANS tirage de pause garantit qu'un fantôme fraîchement
-// créé quitte visiblement les abords de Synk avant de reprendre un comportement d'errance normal.
-const ESCAPE_MIN_HOLD_TICKS = 16, ESCAPE_MAX_HOLD_TICKS = 28;
+// peine. Un maintien BEAUCOUP plus long (64 à 112 s réelles) et SANS tirage de pause garantit qu'un
+// fantôme fraîchement créé quitte visiblement les abords de Synk avant de reprendre un
+// comportement d'errance normal. Exprimé en secondes (et non plus en ticks fixes) pour rester
+// EXACTEMENT la même durée réelle malgré l'accélération de `stepMs` (voir commentaire plus haut).
+const ESCAPE_MIN_HOLD_SEC = 64, ESCAPE_MAX_HOLD_SEC = 112;
 
 /** Direction de fuite tirée au sort (jamais {0,0}, contrairement à pickDirection() qui peut choisir
  * de rester immobile) — voir commentaire ci-dessus. */
 function escapeMotion(): ActorMotion {
   const moveOnly = DIRECTIONS; // DIRECTIONS ne contient déjà que des déplacements réels (jamais 0,0)
   const dir = moveOnly[Math.floor(Math.random() * moveOnly.length)];
-  const holdTicks = ESCAPE_MIN_HOLD_TICKS + Math.floor(Math.random() * (ESCAPE_MAX_HOLD_TICKS - ESCAPE_MIN_HOLD_TICKS + 1));
+  const minTicks = secToTicks(ESCAPE_MIN_HOLD_SEC), maxTicks = Math.max(minTicks, secToTicks(ESCAPE_MAX_HOLD_SEC));
+  const holdTicks = minTicks + Math.floor(Math.random() * (maxTicks - minTicks + 1));
   return { dx: dir.dx, dy: dir.dy, holdTicks };
+}
+
+/** Distance (mapmonde, échelle 0-100) entre `pos` et la dernière position connue de Synk, ou
+ * `Infinity` si celle-ci n'a jamais été rapportée (aucun gel possible). */
+function distanceToSynk(pos: RoamingActorPos): number {
+  if (!synkPos) return Infinity;
+  return Math.hypot(pos.x - synkPos.x, pos.y - synkPos.y);
 }
 
 /** Fait avancer un acteur d'un tick : choisit une nouvelle direction si le maintien courant est
  * épuisé (ou si un bord de mapmonde vient d'être atteint), applique le déplacement borné à
- * `[ROAM_MARGIN, WORLD_SIZE-ROAM_MARGIN]`, et renvoie la nouvelle position/motion/facing/moving. */
+ * `[ROAM_MARGIN, WORLD_SIZE-ROAM_MARGIN]`, et renvoie la nouvelle position/motion/facing/moving.
+ * 🔒 Gel de proximité (voir commentaire de `proximityFreezeEnabled` ci-dessus) : si Synk se trouve
+ * à `proximityFreezeTiles` cases ou moins, l'acteur reste IMMOBILE ce tick — `motion` (direction ET
+ * `holdTicks` restants) n'est PAS consommé, afin que l'acteur reprenne EXACTEMENT là où il en était
+ * (même direction, même maintien restant) dès que Synk s'éloigne, plutôt que de perdre sa
+ * progression ou de retirer immédiatement une nouvelle direction aléatoire. */
 function advanceActor(pos: RoamingActorPos, motion: ActorMotion): {
   pos: RoamingActorPos; motion: ActorMotion; moving: boolean; facing: SynkDirection | null;
 } {
+  if (proximityFreezeEnabled && distanceToSynk(pos) <= proximityFreezeTiles) {
+    return { pos, motion, moving: false, facing: null };
+  }
   let { dx, dy, holdTicks } = motion;
   if (holdTicks <= 0) {
     const dir = pickDirection();
     dx = dir.dx; dy = dir.dy;
-    holdTicks = randomHoldTicks();
+    holdTicks = randomHoldTicks(dx === 0 && dy === 0);
   }
   let nx = pos.x, ny = pos.y, blockedByEdge = false;
   if (dx !== 0 || dy !== 0) {
@@ -300,10 +370,49 @@ function stepActors(): void {
 
 function ensureInterval(): void {
   if (intervalId || listeners.size === 0) return;
-  intervalId = setInterval(stepActors, STEP_MS);
+  intervalId = setInterval(stepActors, stepMs);
 }
 function maybeStopInterval(): void {
   if (listeners.size === 0 && intervalId) { clearInterval(intervalId); intervalId = null; }
+}
+
+/** Cadence courante (ms) entre deux positions cible des acteurs errants — voir `stepMs` ci-dessus.
+ * Lu par GameCanvas2D.tsx/WorldMapWidget.tsx (durée de transition CSS) et Platform3DWidget.tsx
+ * (durée de l'interpolation linéaire 3D) pour rester PARFAITEMENT synchronisés avec la cadence
+ * réelle des ticks, quelle que soit la valeur configurée en Administration. */
+export function getRoamStepMs(): number { return stepMs; }
+
+/** Reçoit la config Administration (voir RepRules.roamStepMs/roamPauseMinSec/roamPauseMaxSec/
+ * roamProximityFreezeEnabled/roamProximityFreezeTiles, RepRulesPanel.tsx section « 🚶 Déplacement
+ * des PNJ/Familiers errants ») — appelé par les 3 widgets dès que les règles sont chargées, aucun
+ * effet si `undefined`/absent (conserve alors les valeurs par défaut ci-dessus). Redémarre
+ * l'intervalle de mouvement en cours SI `stepMs` change réellement (un `setInterval` déjà créé ne
+ * reprend jamais tout seul un nouveau délai) — idempotent et sans effet si la valeur ne change pas
+ * (évite de réinitialiser inutilement l'intervalle à chaque re-render des widgets appelants). */
+export function configureRoaming(cfg: {
+  stepMs?: number; pauseMinSec?: number; pauseMaxSec?: number;
+  proximityFreezeEnabled?: boolean; proximityFreezeTiles?: number;
+}): void {
+  if (typeof cfg.stepMs === 'number' && cfg.stepMs > 0 && cfg.stepMs !== stepMs) {
+    stepMs = cfg.stepMs;
+    if (intervalId) { clearInterval(intervalId); intervalId = null; ensureInterval(); }
+  }
+  if (typeof cfg.pauseMinSec === 'number' && cfg.pauseMinSec > 0) pauseMinSec = cfg.pauseMinSec;
+  if (typeof cfg.pauseMaxSec === 'number' && cfg.pauseMaxSec > 0) pauseMaxSec = cfg.pauseMaxSec;
+  if (typeof cfg.proximityFreezeEnabled === 'boolean') proximityFreezeEnabled = cfg.proximityFreezeEnabled;
+  if (typeof cfg.proximityFreezeTiles === 'number' && cfg.proximityFreezeTiles >= 0) proximityFreezeTiles = cfg.proximityFreezeTiles;
+}
+
+/** Rapporte la position COURANTE de Synk (coordonnées mapmonde 0-100, même échelle que
+ * `players/{addr}/mapPos`) — utilisée UNIQUEMENT pour geler un acteur déjà à proximité (voir
+ * `advanceActor`/`proximityFreezeTiles` ci-dessus), JAMAIS pour le faire suivre/s'orienter vers
+ * Synk (voir avertissement sur `synkPos` ci-dessus). Appelée par les 3 widgets (GameCanvas2D.tsx/
+ * Platform3DWidget.tsx/WorldMapWidget.tsx) à chaque mise à jour de `players/{addr}/mapPos`, exactement
+ * comme `reportSynkApproachTarget` (lib/npcApproach.ts) — plusieurs widgets peuvent chacun être
+ * démonté/masqué indépendamment, donc tous rapportent la même valeur pour garantir qu'elle reste
+ * alimentée quel que soit celui effectivement monté. */
+export function reportSynkPositionForFreeze(x: number, y: number): void {
+  synkPos = { x, y };
 }
 
 /** Attribue au PNJ/Dragon errant une véritable entrée du catalogue, dès que celui-ci est chargé —

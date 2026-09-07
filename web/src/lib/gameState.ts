@@ -4168,6 +4168,34 @@ export interface RepRules {
   dragonFireBreathIntervalSec: number; // défaut 60 — intervalle (en secondes) entre deux souffles
                                         // de feu d'un même dragon-familier (léger déphasage aléatoire
                                         // par dragon pour éviter que tous crachent en même temps)
+
+  // ─── Cadence/pauses/gel de proximité des PNJ/dragons/familiers errants (voir
+  // lib/roamingActors.ts::configureRoaming) — répond à la demande utilisateur « coordonne les
+  // mouvements des jambes [...] à leur déplacement [...] qu'ils avancent un peu plus vite [...]
+  // sans faire une pause de 2 secondes entre chaque déplacement [...] mais [...] laisse les de temps
+  // en temps se poser aléatoirement 4-8 secondes [...] quand Synk est juste à côté [...] arrêter
+  // leur déplacement puis, quand Synk s'en va, remet les [...] en marche ». Les durées de marche
+  // (12-36s) et de fuite post-rencontre (64-112s) restent, elles, FIXES en secondes réelles (non
+  // paramétrables ici) afin de ne jamais régresser sur le rythme de jeu déjà calibré.
+  roamStepMs: number;                  // défaut 1500 — intervalle (en ms) entre deux cases pour un
+                                        // PNJ/dragon/familier errant ; DOIT rester synchronisé avec
+                                        // la durée de transition CSS/3D des widgets (voir
+                                        // getRoamStepMs() dans lib/roamingActors.ts) pour qu'un
+                                        // acteur soit TOUJOURS en train de glisser d'une case à
+                                        // l'autre, sans aucun temps mort visuel entre deux cases
+  roamPauseMinSec: number;             // défaut 4 — durée minimale (en secondes réelles) d'une pause
+                                        // volontaire sur place (voir pickDirection), permettant au
+                                        // joueur d'aborder l'acteur sans avoir à le pourchasser
+  roamPauseMaxSec: number;             // défaut 8 — durée maximale (en secondes réelles) de cette
+                                        // même pause volontaire
+  roamProximityFreezeEnabled: boolean; // défaut true — un PNJ/dragon/familier errant DÉJÀ à
+                                        // proximité de Synk (voir roamProximityFreezeTiles) s'arrête
+                                        // intégralement (sans jamais se rapprocher/s'orienter vers
+                                        // Synk : voir avertissement dans advanceActor()) et reprend
+                                        // sa marche exactement là où il l'avait laissée dès que Synk
+                                        // s'éloigne
+  roamProximityFreezeTiles: number;    // défaut 2 — distance (mêmes unités que WORLD_SIZE=100) en
+                                        // deçà de laquelle le gel de proximité ci-dessus s'applique
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -4381,6 +4409,11 @@ export const DEFAULT_REP_RULES: RepRules = {
   treasureRespawnHours: 48,
   dragonFireBreathEnabled: true,
   dragonFireBreathIntervalSec: 60,
+  roamStepMs: 1500,
+  roamPauseMinSec: 4,
+  roamPauseMaxSec: 8,
+  roamProximityFreezeEnabled: true,
+  roamProximityFreezeTiles: 2,
 }
 
 /** Merge une valeur brute Firebase (`catalog/repRules`, potentiellement partielle/absente) avec

@@ -1009,6 +1009,38 @@ export function RepRulesPanel() {
         </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🚶 {t('admin.repRules.roamTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.roamDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3 mb-3">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.roamStepMs')}</span>
+            <input type="number" className="input mt-1 w-full" min={300} step={100}
+              value={rules.roamStepMs} onChange={e => set('roamStepMs', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.roamPauseMinSec')}</span>
+            <input type="number" className="input mt-1 w-full" min={1}
+              value={rules.roamPauseMinSec} onChange={e => set('roamPauseMinSec', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.roamPauseMaxSec')}</span>
+            <input type="number" className="input mt-1 w-full" min={1}
+              value={rules.roamPauseMaxSec} onChange={e => set('roamPauseMaxSec', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.roamProximityFreezeTiles')}</span>
+            <input type="number" className="input mt-1 w-full" min={1}
+              disabled={rules.roamProximityFreezeEnabled === false}
+              value={rules.roamProximityFreezeTiles} onChange={e => set('roamProximityFreezeTiles', e.target.value)} />
+          </label>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={rules.roamProximityFreezeEnabled !== false}
+            onChange={e => setBool('roamProximityFreezeEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.roamProximityFreezeEnabled')}</span>
+        </label>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">✉️ {t('admin.repRules.emailTitle')}</h3>
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.emailDescription')}</p>
         <label className="flex items-center gap-2 text-sm mb-3">

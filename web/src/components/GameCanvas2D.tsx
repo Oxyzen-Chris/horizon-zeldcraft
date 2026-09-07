@@ -21,7 +21,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, type ExtraRoamingActor } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs, type ExtraRoamingActor } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -185,6 +185,16 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // (repos en hutte notamment : hutRestHp/hutRestCooldownHours/hutRestDurationSec).
   const [rules, setRules] = useState<RepRules | null>(null);
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
+  // Pousse la config Administration (vitesse/pauses/gel de proximité des PNJ/familiers errants,
+  // voir RepRules.roamStepMs et suivants) vers lib/roamingActors.ts — voir le même appel, avec les
+  // mêmes commentaires détaillés, dans Platform3DWidget.tsx.
+  useEffect(() => {
+    if (!rules) return;
+    configureRoaming({
+      stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
+      proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
+    });
+  }, [rules]);
 
   // Marqueur cliqué (PNJ/familier/trésor/quête/monde/hutte) alors que Synk est sur sa case ou une
   // case adjacente — voir handleMarkerClick() plus bas. `hutResting` bascule sur la fenêtre plein
@@ -391,6 +401,11 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // déplace pendant la rencontre. Sans effet tant qu'aucune rencontre n'est active (voir
   // beginNpcApproach()/état `active`) — appel bon marché, purement écriture d'une variable module.
   useEffect(() => { reportSynkApproachTarget(worldPos.x, worldPos.y); }, [worldPos]);
+  // Alimente lib/roamingActors.ts avec la position COURANTE de Synk — gèle UNIQUEMENT les PNJ/
+  // dragons/familiers déjà à proximité (voir RepRules.roamProximityFreezeEnabled/Tiles), ne les fait
+  // JAMAIS suivre Synk. Voir le même appel, avec les mêmes commentaires détaillés, dans
+  // Platform3DWidget.tsx.
+  useEffect(() => { reportSynkPositionForFreeze(worldPos.x, worldPos.y); }, [worldPos]);
 
   // Raccord avec la mapmonde : détermine le POI-décor le plus proche de la position réelle de Synk
   // (juste pour l'indication textuelle affichée sous le titre — le terrain lui-même est désormais
@@ -1432,8 +1447,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
               invisible ici (tout comme il l'est déjà dans Platform3DWidget.tsx via VIEW_RADIUS). */}
           {npcInView && (
             <div
-              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingNpcMarker ? 'cursor-pointer' : 'cursor-help'}`}
-              style={{ left: projX(npcLocal.col, npcLocal.row), top: projY(npcLocal.col, npcLocal.row) - 22, zIndex: npcLocal.col + npcLocal.row + 2 }}
+              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all pointer-events-auto ${roamingNpcMarker ? 'cursor-pointer' : 'cursor-help'}`}
+              style={{ left: projX(npcLocal.col, npcLocal.row), top: projY(npcLocal.col, npcLocal.row) - 22, zIndex: npcLocal.col + npcLocal.row + 2, transitionDuration: `${getRoamStepMs()}ms` }}
               title={roamingNpcMarker ? `🧙 ${localizeName(t, roamingNpcMarker.i18nKey, roamingNpcMarker.name)}` : t('canvas2d.npcLabel')}
               onClick={() => onActorClick(roamingActors.npc.x, roamingActors.npc.y, roamingNpcMarker)}
             >
@@ -1444,8 +1459,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
               Même critère de visibilité que le PNJ ci-dessus (dragonInView). */}
           {dragonInView && (
             <div
-              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${roamingDragonMarker ? 'cursor-pointer' : 'cursor-help'}`}
-              style={{ left: projX(dragonLocal.col, dragonLocal.row), top: projY(dragonLocal.col, dragonLocal.row) - 22, zIndex: dragonLocal.col + dragonLocal.row + 2 }}
+              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all pointer-events-auto ${roamingDragonMarker ? 'cursor-pointer' : 'cursor-help'}`}
+              style={{ left: projX(dragonLocal.col, dragonLocal.row), top: projY(dragonLocal.col, dragonLocal.row) - 22, zIndex: dragonLocal.col + dragonLocal.row + 2, transitionDuration: `${getRoamStepMs()}ms` }}
               title={roamingDragonMarker ? `🐉 ${localizeName(t, roamingDragonMarker.i18nKey, roamingDragonMarker.name)}` : t('canvas2d.dragonLabel')}
               onClick={() => onActorClick(roamingActors.dragon.x, roamingActors.dragon.y, roamingDragonMarker)}
             >
@@ -1460,8 +1475,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           {familiarsInView.map(({ id, f, marker, col, row }) => (
             <div
               key={`familiar-${id}`}
-              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] pointer-events-auto ${marker ? 'cursor-pointer' : 'cursor-help'}`}
-              style={{ left: projX(col, row), top: projY(col, row) - 22, zIndex: col + row + 2 }}
+              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all pointer-events-auto ${marker ? 'cursor-pointer' : 'cursor-help'}`}
+              style={{ left: projX(col, row), top: projY(col, row) - 22, zIndex: col + row + 2, transitionDuration: `${getRoamStepMs()}ms` }}
               title={marker ? `🐉 ${localizeName(t, marker.i18nKey, marker.name)}` : t('canvas2d.dragonLabel')}
               onClick={() => onActorClick(f.x, f.y, marker)}
             >
@@ -1493,8 +1508,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           {extrasInView.map(({ actor, col, row }) => (
             <div
               key={`extra-${actor.id}`}
-              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all duration-[1500ms] ${actor.questId ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}`}
-              style={{ left: projX(col, row), top: projY(col, row) - 22, zIndex: col + row + 2 }}
+              className={`absolute -translate-x-1/2 flex flex-col items-center transition-all ${actor.questId ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}`}
+              style={{ left: projX(col, row), top: projY(col, row) - 22, zIndex: col + row + 2, transitionDuration: `${getRoamStepMs()}ms` }}
               title={actor.questId ? `${localizeName(t, actor.i18nKey, actor.name)} · ${t('npc.quest.reminder.tooltip')}` : localizeName(t, actor.i18nKey, actor.name)}
               onClick={actor.questId ? () => onExtraQuestClick(actor) : undefined}
             >
