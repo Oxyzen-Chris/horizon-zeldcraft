@@ -425,10 +425,18 @@ function DragonMarker({ color, walking = false, seed = '', fireBreathEnabled = t
     const swing = walking ? Math.sin(t * 8) * 0.5 : 0;
     // Démarche quadrupède : pattes diagonalement opposées (avant-gauche/arrière-droite et
     // avant-droite/arrière-gauche) se déplacent en phase, chaque paire en opposition de l'autre.
-    if (legFrontLeftRef.current) legFrontLeftRef.current.rotation.x = swing;
-    if (legBackRightRef.current) legBackRightRef.current.rotation.x = swing;
-    if (legFrontRightRef.current) legFrontRightRef.current.rotation.x = -swing;
-    if (legBackLeftRef.current) legBackLeftRef.current.rotation.x = -swing;
+    // ⚠️ Balancement sur `rotation.z` (PAS `rotation.x` comme pour NpcVoxel/SynkVoxel) : le corps
+    // du dragon a pour axe "avant/arrière" local +X/-X (tête vers +X, queue vers -X — voir
+    // commentaire de `isFamiliar` dans `MarkerBlock` sur la convention de rotation dédiée), alors
+    // que NpcVoxel/SynkVoxel ont pour axe avant/arrière +Z/-Z. Une rotation autour de X déplace un
+    // point dans le plan Y-Z (donc perpendiculairement à l'avancée réelle du dragon, un pas "de
+    // travers" façon crabe) ; une rotation autour de Z déplace un point dans le plan X-Y, ce qui
+    // fait bien avancer/reculer le pied le long de l'axe X — corrige la demande utilisateur « leurs
+    // jambes doivent aller dans le sens de la direction qu'ils prennent ».
+    if (legFrontLeftRef.current) legFrontLeftRef.current.rotation.z = swing;
+    if (legBackRightRef.current) legBackRightRef.current.rotation.z = swing;
+    if (legFrontRightRef.current) legFrontRightRef.current.rotation.z = -swing;
+    if (legBackLeftRef.current) legBackLeftRef.current.rotation.z = -swing;
     // Balancement de queue gauche/droite en vague (3 segments déphasés), amplifié en marche.
     const tailFreq = 1.6;
     const tailAmp = walking ? 0.55 : 0.32;
@@ -475,18 +483,28 @@ function DragonMarker({ color, walking = false, seed = '', fireBreathEnabled = t
             <mesh position={[0.018, 0, ez > 0 ? 0.012 : -0.012]}><sphereGeometry args={[0.013, 6, 6]} /><meshStandardMaterial color="#1c1917" /></mesh>
           </group>
         ))}
-        {/* Souffle de feu (voir useFrame ci-dessus) — jet de flammes émis depuis le museau, en
-            direction +X (vers l'avant de la tête). Caché (visible=false) hors des courtes fenêtres
-            de souffle périodiques ; ne bloque jamais le clic (aucun onClick dessus). */}
+        {/* Souffle de feu (voir useFrame ci-dessus) — LONGUE gerbe de flammes (4 segments
+            dégradés orange→jaune pâle, ~0,66 de portée) émise depuis le museau, en direction +X
+            (vers l'avant de la tête, jamais vers le corps grâce à l'offset de rotation dédié du
+            dragon — voir `isFamiliar` dans MarkerBlock). Caché (visible=false) hors des courtes
+            fenêtres de souffle périodiques ; la croissance/décroissance (voir useFrame,
+            `flameRef.scale`) fait "jaillir" progressivement toute la gerbe d'un coup (la mise à
+            l'échelle du groupe parent allonge proportionnellement tous les segments enfants) au
+            lieu d'un simple apparaître/disparaître brutal. Ne bloque jamais le clic (aucun
+            onClick dessus). Répond à la demande utilisateur « il faut que les dragons crachent une
+            longue gerbe de feu ». */}
         <group ref={flameRef} position={[0.05, 0.26, 0]} visible={false}>
-          <mesh position={[0.09, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
-            <coneGeometry args={[0.045, 0.22, 8]} />
-            <meshStandardMaterial color="#fb923c" emissive="#f97316" emissiveIntensity={1.1} roughness={0.4} transparent opacity={0.9} />
-          </mesh>
-          <mesh position={[0.19, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
-            <coneGeometry args={[0.028, 0.16, 8]} />
-            <meshStandardMaterial color="#fde047" emissive="#facc15" emissiveIntensity={1.3} roughness={0.4} transparent opacity={0.85} />
-          </mesh>
+          {[
+            { x: 0.09, r: 0.055, len: 0.24, color: '#f97316', emissive: '#ea580c', ei: 1.0 },
+            { x: 0.25, r: 0.042, len: 0.24, color: '#fb923c', emissive: '#f97316', ei: 1.15 },
+            { x: 0.41, r: 0.03, len: 0.2, color: '#fde047', emissive: '#facc15', ei: 1.3 },
+            { x: 0.55, r: 0.017, len: 0.16, color: '#fef9c3', emissive: '#fde047', ei: 1.4 },
+          ].map((seg, i) => (
+            <mesh key={i} position={[seg.x, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
+              <coneGeometry args={[seg.r, seg.len, 8]} />
+              <meshStandardMaterial color={seg.color} emissive={seg.emissive} emissiveIntensity={seg.ei} roughness={0.4} transparent opacity={0.88} />
+            </mesh>
+          ))}
         </group>
       </group>
       {/* Longue queue effilée (3 segments : base épaisse → milieu → pointe fine), pivot à l'arrière
@@ -1046,14 +1064,27 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // variées) — voir `DragonMarker`/`familiarDragonColor` ci-dessus. Corrige la demande utilisateur
     // « le Dragon Vert ressemble à un anneau alors qu'il devrait ressembler à un Dragon ». `scale`
     // (voir Platform3DObjectFlags['marker:familiar'], défaut 2.4) n'agrandit QUE le dragon, jamais
-    // le socle — un familier doit rester nettement plus grand que Synk (chevauchable). `rotation`
-    // suit sa direction de marche courante (`facingAngle`, PNJ/Dragon errant uniquement) ; `walking`
+    // le socle — un familier doit rester nettement plus grand que Synk (chevauchable). `walking`
     // déclenche l'articulation des pattes (voir DragonMarker) au lieu de rester figé.
+    // ⚠️ Offset de rotation DÉDIÉ (`facingAngle - Math.PI/2`, au lieu de `facingAngle` seul comme
+    // pour Synk/NpcVoxel juste en dessous) : `FACING_ANGLE` suppose un modèle dont le "visage" (0°)
+    // regarde +Z au repos (convention Synk/PNJ, voir yeux z>0 dans NpcVoxel/SynkVoxel), alors que
+    // `DragonMarker` est construit tête vers +X (voir son groupe cou/tête `position={[0.22,...]}`)
+    // et queue vers -X. Sans cet offset de -90°, le corps du dragon restait tourné à 90° de sa
+    // direction de marche réelle — il semblait "glisser" de côté (crabe) au lieu d'avancer tête la
+    // première, et les pattes (qui articulent l'axe local X = avant/arrière du modèle) donnaient
+    // l'impression de piétiner dans la mauvaise direction pour la même raison (demande utilisateur
+    // « leur corps [doit] se déplacer dans le sens de la direction qu'ils prennent et non pas
+    // glisser [...] leurs jambes doivent aller dans le sens de la direction »). Dérivation complète
+    // en commentaire de code (voir historique) : si le monde attend un vecteur "face" égal à
+    // (sin θ, 0, cos θ) pour θ=FACING_ANGLE[direction] (convention +Z), et que le modèle a pour
+    // "face" locale +X, appliquer une rotation Y de φ=θ-π/2 au lieu de θ aligne exactement les deux.
     const dragonColor = familiarDragonColor(markerId ?? '', name ?? '');
+    const dragonRotationY = facingAngle - Math.PI / 2;
     return (
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-        <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}><DragonMarker color={dragonColor} walking={!!moving} seed={markerId ?? name ?? ''} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec} /></group>
+        <group ref={bobRef} scale={scale} rotation={[0, dragonRotationY, 0]}><DragonMarker color={dragonColor} walking={!!moving} seed={markerId ?? name ?? ''} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec} /></group>
       </group>
     );
   }

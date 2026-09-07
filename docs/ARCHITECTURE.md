@@ -1118,6 +1118,54 @@ démo, ouverture Plateforme 3D, lecture `data-roaming-familiars` avant/après 4 
 suivis, 6/7 en mouvement (comportement de pause intermittente inchangé), **0 erreur console** —
 confirme l'absence de régression sur le correctif précédent (mouvement des familiers/dragons).
 
+## 🔒 Dragons : correction de l'orientation (« glissement en crabe ») + démarche des pattes + gerbe de feu allongée
+
+**Symptôme signalé** : après les correctifs précédents, les dragons/familiers se déplaçaient bien
+sur les 3 widgets, mais dans « Plateforme 3D » leur corps et leurs pattes ne s'orientaient jamais
+dans le sens réel du déplacement — ils semblaient « glisser » de côté (démarche en crabe) au lieu
+d'avancer face à leur direction. L'utilisateur a aussi demandé une **plus longue gerbe de feu**.
+
+**Cause racine (rotation du corps)** : la convention `FACING_ANGLE` (voir plus haut) suppose qu'un
+modèle est construit avec son « avant » vers l'axe local **+Z** au repos — c'est le cas de
+`SynkVoxel`/`NpcVoxel` (yeux/visage placés à `z > 0`). Or `DragonMarker` a été construit à l'inverse
+: son cou/sa tête sont en position locale **+X** (`[0.22, 0.13, 0]`) et sa queue s'étend vers **-X**.
+Appliquer `rotation.y = facingAngle` directement (comme pour les PNJ) provoquait donc un décalage
+systématique de 90° — d'où l'impression de glissement latéral au lieu d'une marche orientée.
+
+**Correctif (rotation)** : dans `MarkerBlock`, branche `isFamiliar`, le groupe du dragon utilise
+désormais `dragonRotationY = facingAngle - Math.PI / 2` au lieu de `facingAngle` brut. Dérivation :
+pour un modèle « avant = +Z », `rotation.y = θ` produit un vecteur avant-monde `(sin θ, 0, cos θ)`.
+Pour un modèle « avant = +X », `rotation.y = φ` produit `(cos φ, 0, -sin φ)`. En égalant les deux et
+en résolvant, `φ = θ - π/2`. Vérifié numériquement pour les 4 directions cardinales (ex. `right` :
+`θ=π/2 → φ=0 →` avant-monde `(1,0,0)` = +X ✓). **Portée du correctif strictement limitée** à la
+branche `isFamiliar` — la branche `isNpc` continue d'utiliser `facingAngle` sans changement, donc
+l'orientation des PNJ (déjà corrigée lors d'un précédent bug « tête tournée à l'envers ») est
+intacte.
+
+**Cause racine (pattes) et correctif** : les 4 pattes de `DragonMarker` balançaient via
+`rotation.x` (copié du motif PNJ/Synk), ce qui déplace le pied dans le plan Y-Z — correct
+uniquement pour un modèle « avant = +Z ». Comme l'avant du dragon est +X, ce même balancement
+déplaçait en réalité le pied selon Z (perpendiculaire au vrai sens de marche), ce qui donnait un pas
+« en crabe » même une fois le corps correctement orienté. Les 4 pattes balancent désormais via
+`rotation.z` (même schéma de phase en diagonale qu'avant), ce qui déplace bien le pied selon X,
+l'axe avant/arrière réel du modèle. Changement strictement localisé à `DragonMarker` (jamais utilisé
+par les PNJ) — aucun impact sur leur démarche.
+
+**Gerbe de feu allongée (`DragonMarker`)** : les 2 cônes de flammes (portée ~0,27) sont remplacés
+par **4 segments** dégradés (orange → jaune pâle), atteignant ~0,66 de portée depuis le museau, pour
+un jet visuellement bien plus long et spectaculaire (« longue gerbe de feu »). Le mécanisme
+d'animation existant (`flameRef.current.scale.setScalar(flicker * grow)` dans le `useFrame`) met à
+l'échelle le groupe entier — les segments ajoutés grandissent/rétrécissent donc automatiquement avec
+le reste, sans logique supplémentaire. Les champs `RepRules.dragonFireBreathEnabled` /
+`dragonFireBreathIntervalSec` (Administration, section « 🐉 Souffle de feu des dragons ») restent
+inchangés et continuent de piloter la fréquence/activation du souffle.
+
+**Vérifié** : `tsc --noEmit` propre, `npm run build` OK (0 erreur, warnings pré-existants sans
+rapport type MetaMask SDK/`ox` tempo). Script Playwright jetable rejoué (connexion démo, ouverture
+Plateforme 3D, lecture `data-roaming-familiars` avant/après 4 ticks) : 7 familiers suivis, 5/7 en
+mouvement (comportement de pause intermittente inchangé), **0 erreur console** — confirme l'absence
+de régression sur le mouvement des familiers/dragons et des PNJ.
+
 ## Architecture DLC / Content Packs
 
 `ContentPackDef` (`id`, `nom`, `description`, `actif`, `order`) est stocké dans
