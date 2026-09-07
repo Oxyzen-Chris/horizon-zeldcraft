@@ -1284,6 +1284,13 @@ interface SceneMarker {
    * onExtraQuestClick) pour rouvrir un rappel de l'énigme, sans changer son apparence (reste rendu
    * en `kind:'npc'` via `marker`, jamais en `kind:'quest'`). */
   questId?: string;
+  /** Texte de la quête elle-même (QuestDef.label/i18nKey — voir
+   * lib/roamingActors.ts::ExtraRoamingActor.questLabel/questI18nKey), à ne PAS confondre avec
+   * `marker.name`/`marker.i18nKey` qui restent le nom de l'ARCHÉTYPE PNJ (ex. "Faucheur
+   * d'Automne") — corrige le bug remonté par l'utilisateur : le pop-up de rappel affichait le nom
+   * du PNJ au lieu de la question posée. */
+  questLabel?: string;
+  questI18nKey?: string;
 }
 
 /** Contenu 3D de la scène (terrain + Synk + entités) — composant séparé pour pouvoir utiliser
@@ -1308,8 +1315,10 @@ function Scene({
   onMarkerClick: (m: MapMarker) => void;
   /** Voir SceneMarker.questId — rouvre un rappel de l'énigme pour un fantôme de rencontre "quête"
    * (marqueur synthétique `kind:'quest'` construit ici à partir de `questId`, distinct de `marker`
-   * qui reste `kind:'npc'` pour l'apparence). */
-  onExtraQuestClick: (m: MapMarker, questId: string) => void;
+   * qui reste `kind:'npc'` pour l'apparence). `questLabel`/`questI18nKey` (voir
+   * SceneMarker.questLabel/questI18nKey) portent le texte de la quête elle-même — utilisés en
+   * priorité sur `m.name`/`m.i18nKey` (nom de l'archétype PNJ) pour le titre du pop-up rouvert. */
+  onExtraQuestClick: (m: MapMarker, questId: string, questLabel?: string, questI18nKey?: string) => void;
   eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
   /** Registre admin-paramétrable des tailles de décor (Administration > 🧱 Objets & décor 3D) — voir
    * Platform3DObjectFlags.scale ; `undefined` retombe sur DEFAULT_PLATFORM3D_OBJECT_FLAGS (scale 1). */
@@ -1369,7 +1378,7 @@ function Scene({
         // voir demande utilisateur) au lieu de rester muet.
         const isEncounterMarker = m.id === 'encounter.npc.live' || m.id.startsWith('encounter.extra.');
         const handleClick = m.questId
-          ? () => onExtraQuestClick(m.marker, m.questId!)
+          ? () => onExtraQuestClick(m.marker, m.questId!, m.questLabel, m.questI18nKey)
           : isEncounterMarker ? () => {} : () => onMarkerClick(m.marker);
         return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={handleClick} />;
       })}
@@ -1696,7 +1705,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonMoving
         : m.id === 'encounter.npc.live' ? npcApproach.moving
         : extra ? extra.moving : undefined;
-      out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m, facing, moving, questId: extra?.questId });
+      out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m, facing, moving, questId: extra?.questId, questLabel: extra?.questLabel, questI18nKey: extra?.questI18nKey });
     }
     return out;
   }, [markers, kingdomMarker, zorghonEncounter, centerCol, centerRow, roamingActors, encounterNpc, npcApproach, t]);
@@ -2007,11 +2016,17 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // (PoiInteractionModal::QuestBody), sans dupliquer sa logique. Corrige la demande utilisateur :
   // « rends possible le fait de cliquer une nouvelle fois sur le PNJ même en ayant accepté la
   // quête [...] tu répondras [...] qu'il doit répondre à l'énigme ».
-  const onExtraQuestClick3D = useCallback((m: MapMarker, questId: string) => {
+  const onExtraQuestClick3D = useCallback((m: MapMarker, questId: string, questLabel?: string, questI18nKey?: string) => {
     if (dragStateRef.current?.dragged) return;
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(Math.round(m.x) - Math.round(cur.x)), Math.abs(Math.round(m.y) - Math.round(cur.y)));
-    const questMarker: MapMarker = { id: questId, kind: 'quest', name: m.name, i18nKey: m.i18nKey, icon: '📜', x: m.x, y: m.y };
+    // Titre du pop-up = texte de la quête elle-même (questLabel/questI18nKey), pas le nom de
+    // l'archétype PNJ (m.name/m.i18nKey) — corrige le bug remonté par l'utilisateur (le rappel
+    // affichait "Faucheur d'Automne" au lieu de la question posée). Repli sur m.name/m.i18nKey
+    // uniquement si l'un ou l'autre manque (ancien fantôme persisté avant ce correctif).
+    const questMarker: MapMarker = {
+      id: questId, kind: 'quest', name: questLabel ?? m.name, i18nKey: questI18nKey ?? m.i18nKey, icon: '📜', x: m.x, y: m.y,
+    };
     if (dist <= 1) setInteractionMarker(questMarker);
     else moveTo(m.x, m.y);
   }, [moveTo]);

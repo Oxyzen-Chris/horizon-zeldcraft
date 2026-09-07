@@ -68,6 +68,12 @@ export type EncounterMarkerInfo = {
    * persistant (voir lib/roamingActors.ts::ExtraRoamingActor.questId) pour le rendre cliquable en
    * cas de second clic (rappel de l'énigme). */
   grantedQuestId?: string;
+  /** Texte de l'énigme elle-même (QuestDef.label/i18nKey, voir questGranted.quest ci-dessous) —
+   * propagé jusqu'au fantôme persistant (ExtraRoamingActor.questLabel/questI18nKey) pour que le
+   * pop-up de rappel affiche la vraie question au lieu du nom de l'archétype PNJ (bug remonté par
+   * l'utilisateur : "Faucheur d'Automne" affiché à la place de la question). */
+  grantedQuestLabel?: string;
+  grantedQuestI18nKey?: string;
 } | null;
 
 /** Onglet de la besace (InventoryPanel.tsx) correspondant à une catégorie d'objet — utilisé par
@@ -283,7 +289,12 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
     // — voir accept()) afin de repropager `grantedQuestId` dès qu'une quête est accordée, pendant
     // que la rencontre est toujours affichée (le fantôme n'est persisté qu'à la fermeture finale).
     cb(current
-      ? { baseKey: current.baseKey, skin: current.skin, alignment: current.alignment, offer: current.offer, grantedQuestId: questGranted?.quest?.id }
+      ? {
+          baseKey: current.baseKey, skin: current.skin, alignment: current.alignment, offer: current.offer,
+          grantedQuestId: questGranted?.quest?.id,
+          grantedQuestLabel: questGranted?.quest?.label,
+          grantedQuestI18nKey: questGranted?.quest?.i18nKey,
+        }
       : null);
   }, [current, questGranted]);
   // Filet de sécurité : si le composant est démonté pendant qu'une rencontre est affichée

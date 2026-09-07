@@ -590,10 +590,74 @@ erreur console « Maximum update depth exceeded » sur l'ensemble du parcours (a
 l'erreur apparaissait de façon systématique et continue) ; (b) le fantôme persistant (badge `📜`)
 apparaît bien dans la Plateforme 2D isométrique et est cliquable ; (c) cliquer dessus ouvre bien le
 conteneur modal `PoiInteractionModal` (`.z-[90]`, vérifié absent avant clic puis présent après) avec
-le même titre PNJ, la même récompense, le même champ de réponse et le même bouton "Valider" que la
-quête d'origine ; (d) la Plateforme 3D (canvas WebGL) s'affiche sans erreur avec le lissage de
-position actif. `npx tsc --noEmit` et `npm run build` propres. Aucune régression détectée sur le
-système de déplacement de Synk, le PNJ/Dragon errant historique, ni le filtre « declutter ».
+le même titre, la même récompense, le même champ de réponse et le même bouton "Valider" que la
+quête d'origine (⚠️ le titre affiché à l'origine était le nom de l'archétype PNJ, corrigé dans la
+section suivante — voir « Fantômes qui affichaient le nom du PNJ au lieu de la question ») ; (d) la
+Plateforme 3D (canvas WebGL) s'affiche sans erreur avec le lissage de position actif. `npx tsc
+--noEmit` et `npm run build` propres. Aucune régression détectée sur le système de déplacement de
+Synk, le PNJ/Dragon errant historique, ni le filtre « declutter ».
+
+## 🔒 Fantômes affichant le nom du PNJ au lieu de la question de la quête (rappel d'énigme)
+
+**Demande utilisateur** : après re-clic sur un fantôme de rencontre ayant accordé une quête (voir
+section précédente), le pop-up de rappel affichait le nom de l'archétype PNJ (ex. « Faucheur
+d'Automne ») comme titre au lieu du texte complet de la question posée — l'utilisateur ne
+retrouvait donc ni le nom complet ni l'énoncé de l'énigme, et ne trouvait logiquement aucune trace
+de « Faucheur d'Automne » dans le menu Administration (les quêtes PNJ ne sont jamais rattachées à
+un archétype précis, voir plus bas).
+
+**Cause racine** : `QuestDef.label`/`i18nKey` (`lib/gameState.ts`) contient en réalité le texte
+INTÉGRAL de l'énigme (ex. `quest.riddle_first` = « 🪨 Énigme 1 : Je suis dur comme la pierre mais je
+flotte sur l'eau. Que suis-je ? », voir aussi les 20 quêtes PNJ de
+`scripts/seedNpcRiddleQuests.mjs` et les quêtes d'îles de `scripts/seedIslandQuests.mjs`) — il n'y a
+pas de champ « nom » distinct de la « question » dans ce système, les deux ne font qu'un (confirmé
+par `getKingdomQuestMarker()` qui construit son marqueur `kind:'quest'` avec `name: q.label,
+i18nKey: q.i18nKey`, jamais avec un nom de PNJ). Or le marqueur synthétique construit lors du
+re-clic sur un fantôme (`GameCanvas2D.tsx::onExtraQuestClick` / `Platform3DWidget.tsx
+::onExtraQuestClick3D`) utilisait par erreur `actor.name`/`actor.i18nKey` (le nom de l'ARCHÉTYPE
+PNJ, ex. « Faucheur d'Automne », `NpcEncounterPopup.tsx::ARCHETYPES`) au lieu de
+`QuestDef.label`/`i18nKey` — car ces deux informations n'étaient jusqu'ici pas propagées
+distinctement le long de la chaîne fantôme persistant. Les quêtes PNJ ne sont d'ailleurs PAS
+propres à un archétype donné : n'importe quel PNJ avec `offer: 'quest'` peut se voir attribuer
+n'importe quelle quête `npcGiver` disponible via `pickNpcQuestForPlayer()` — d'où l'absence
+normale de toute trace de « Faucheur d'Automne » dans le menu Administration (qui liste les quêtes
+par leur propre texte/label, jamais par PNJ donneur).
+
+**Correctif — propagation du texte de la quête distinct du nom du PNJ** :
+- **`NpcEncounterPopup.tsx`** : `EncounterMarkerInfo` gagne `grantedQuestLabel?: string` et
+  `grantedQuestI18nKey?: string` (renseignés depuis `questGranted.quest.label`/`.i18nKey`, à côté
+  de `grantedQuestId` déjà existant), propagés dans le même effet que `grantedQuestId`.
+- **`game/page.tsx::handleEncounterChange`** : passe `questLabel`/`questI18nKey` (repris de
+  `encounterNpc.grantedQuestLabel`/`.grantedQuestI18nKey`) à `spawnExtraRoamingActor(...)`, en plus
+  de `questId`.
+- **`lib/roamingActors.ts`** : `ExtraRoamingActor` (et le paramètre `actor` de
+  `spawnExtraRoamingActor`) gagnent `questLabel?: string`/`questI18nKey?: string` — distincts de
+  `name`/`i18nKey` qui restent le nom de l'archétype PNJ (utilisé pour l'apparence/l'infobulle du
+  fantôme, inchangé).
+- **`GameCanvas2D.tsx::onExtraQuestClick`** : construit désormais le marqueur `kind:'quest'` avec
+  `name: actor.questLabel ?? actor.name, i18nKey: actor.questI18nKey ?? actor.i18nKey` (repli sur
+  le nom du PNJ uniquement pour un fantôme déjà persisté AVANT ce correctif, sans ces nouveaux
+  champs — évite un titre vide en cas de redéploiement à chaud).
+- **`Platform3DWidget.tsx`** : `SceneMarker` gagne les mêmes `questLabel?`/`questI18nKey?`
+  (renseignés depuis `extraById.get(m.id)?.questLabel`/`.questI18nKey` dans `sceneMarkers`),
+  propagés à `onExtraQuestClick(m.marker, m.questId!, m.questLabel, m.questI18nKey)` ; la signature
+  de la prop `onExtraQuestClick` et `onExtraQuestClick3D` acceptent ces deux paramètres
+  supplémentaires optionnels et les utilisent en priorité sur `m.name`/`m.i18nKey` pour construire
+  le marqueur synthétique.
+
+**Vérification (Playwright)** : script jetable — connexion Démo anonyme (« 🎟️ Accès Démo » →
+« 👤 Jouer en anonyme »), déclenchement forcé d'une rencontre PNJ de type « quête » (réinitialise
+`zc.popupNext.*` ET `zc.popupCount.*` en localStorage avant chaque `reload()`, ce dernier point
+nécessaire car `RepRules.npcMaxPerDay` — défaut 4 — bloque tout nouveau tirage au-delà du quota
+journalier, y compris entre plusieurs tentatives de test), acceptation de la quête offerte,
+fermeture du résultat, clic sur le fantôme persistant (badge `📜`). Confirmé par capture d'écran et
+lecture du DOM : le pop-up de rappel affiche désormais « 📜 🧑‍🤝‍🧑 Énigme des îles 22 : Doyenne
+respectée de la plus petite île de l'archipel, gardienne de ses secrets malgré sa taille modeste.
+Qui est-elle ? » (texte intégral de la question) au lieu du nom du PNJ donneur (« Marchand ambulant
+l'Errant » dans cette tentative), avec la récompense (+134 XP, +201 score), le champ de réponse et
+les boutons "Valider"/"Fermer" inchangés. Zéro erreur console. `npx tsc --noEmit` propre. Aucune
+régression sur le reste du parcours (dispersion des fantômes, lissage 3D, boucle infinie déjà
+corrigés dans la section précédente).
 
 ## Lisibilité des champs de formulaire du menu Administration (classe partagée `.input`)
 

@@ -87,6 +87,16 @@ export interface ExtraRoamingActor {
    * doit répondre à l'énigme [...] en lui reprécisant la question ». Les fantômes issus d'un
    * troc/combat/discussion restent volontairement non interactifs (rien à rappeler). */
   questId?: string;
+  /** Libellé/clé i18n de la QUÊTE elle-même (QuestDef.label/i18nKey — QUI EST littéralement le
+   * texte de l'énigme, ex. "🪨 Énigme 1 : ... Que suis-je ?", voir i18n/messages/*.json), à ne
+   * SURTOUT PAS confondre avec `name`/`i18nKey` ci-dessus qui restent le nom de l'ARCHÉTYPE PNJ
+   * (ex. "Faucheur d'Automne") — uniquement renseignés si `questId` l'est. Corrige le bug remonté
+   * par l'utilisateur : le pop-up de rappel affichait le nom du PNJ au lieu de la question, faute
+   * de cette donnée distincte propagée jusqu'ici (voir GameCanvas2D.tsx::onExtraQuestClick /
+   * Platform3DWidget.tsx::onExtraQuestClick3D, qui construisent le marqueur `kind:'quest'` à partir
+   * de ces deux champs plutôt que de `name`/`i18nKey`). */
+  questLabel?: string;
+  questI18nKey?: string;
 }
 export interface RoamingActorsState {
   npc: RoamingActorPos;
@@ -276,9 +286,14 @@ export function ensureRoamingIdentities(markers: MapMarker[]): void {
  * croissance non bornée si de nombreuses rencontres se terminent coup sur coup — sa `motion`
  * associée est purgée de `extraMotions` au même moment.
  * `questId` (optionnel) : voir ExtraRoamingActor.questId — propagé tel quel, rend ce fantôme
- * cliquable pour rouvrir un rappel de l'énigme correspondante. */
+ * cliquable pour rouvrir un rappel de l'énigme correspondante. `questLabel`/`questI18nKey`
+ * (optionnels) : voir ExtraRoamingActor.questLabel/questI18nKey — texte de l'énigme elle-même,
+ * distinct de `name`/`i18nKey` (nom de l'archétype PNJ). */
 export function spawnExtraRoamingActor(
-  actor: { id: string; kind: 'npc' | 'familiar'; name: string; i18nKey?: string; icon: string; x: number; y: number; questId?: string },
+  actor: {
+    id: string; kind: 'npc' | 'familiar'; name: string; i18nKey?: string; icon: string; x: number; y: number;
+    questId?: string; questLabel?: string; questI18nKey?: string;
+  },
   maxCount = 5,
 ): void {
   if (state.extras.some((e) => e.id === actor.id)) return;

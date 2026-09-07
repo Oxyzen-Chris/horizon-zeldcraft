@@ -984,8 +984,15 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     if (!actor.questId) return;
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(Math.round(actor.x) - Math.round(cur.x)), Math.abs(Math.round(actor.y) - Math.round(cur.y)));
+    // Titre du pop-up = texte de l'énigme elle-même (QuestDef.label/i18nKey via
+    // questLabel/questI18nKey), PAS le nom de l'archétype PNJ (actor.name/i18nKey) — corrige le
+    // bug remonté par l'utilisateur (le rappel affichait "Faucheur d'Automne" au lieu de la
+    // question posée). Repli sur actor.name/i18nKey uniquement si l'un ou l'autre venait à
+    // manquer (ancien fantôme persisté avant ce correctif, sans ces deux nouveaux champs).
     const questMarker: MapMarker = {
-      id: actor.questId, kind: 'quest', name: actor.name, i18nKey: actor.i18nKey, icon: '📜', x: actor.x, y: actor.y,
+      id: actor.questId, kind: 'quest',
+      name: actor.questLabel ?? actor.name, i18nKey: actor.questI18nKey ?? actor.i18nKey,
+      icon: '📜', x: actor.x, y: actor.y,
     };
     if (dist <= 1) setInteractionMarker(questMarker);
     else moveTo(actor.x, actor.y);

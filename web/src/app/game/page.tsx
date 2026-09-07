@@ -306,6 +306,12 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
         // fantôme cliquable (GameCanvas2D.tsx/Platform3DWidget.tsx) uniquement si une quête a bien
         // été accordée pendant cette rencontre (voir EncounterMarkerInfo.grantedQuestId).
         questId: encounterNpc.grantedQuestId,
+        // Texte de l'énigme (QuestDef.label/i18nKey) — distinct du nom d'archétype PNJ ci-dessus
+        // (`name`/`i18nKey`) — voir ExtraRoamingActor.questLabel/questI18nKey. Corrige le bug
+        // remonté par l'utilisateur : le rappel affichait "Faucheur d'Automne" au lieu de la
+        // question posée.
+        questLabel: encounterNpc.grantedQuestLabel,
+        questI18nKey: encounterNpc.grantedQuestI18nKey,
       }, repRules?.npcMaxPersistentExtras ?? 5);
     }
     setEncounterNpc(info);
