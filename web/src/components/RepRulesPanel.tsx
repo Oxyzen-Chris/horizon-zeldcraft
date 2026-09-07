@@ -994,6 +994,21 @@ export function RepRulesPanel() {
         </div>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🐉 {t('admin.repRules.dragonFireBreathTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.dragonFireBreathDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.dragonFireBreathEnabled !== false}
+            onChange={e => setBool('dragonFireBreathEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.dragonFireBreathEnabled')}</span>
+        </label>
+        <label className="text-sm block max-w-xs">
+          <span className="text-slate-300">{t('admin.repRules.dragonFireBreathIntervalSec')}</span>
+          <input type="number" className="input mt-1 w-full" min={5}
+            disabled={rules.dragonFireBreathEnabled === false}
+            value={rules.dragonFireBreathIntervalSec} onChange={e => set('dragonFireBreathIntervalSec', e.target.value)} />
+        </label>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">✉️ {t('admin.repRules.emailTitle')}</h3>
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.emailDescription')}</p>
         <label className="flex items-center gap-2 text-sm mb-3">

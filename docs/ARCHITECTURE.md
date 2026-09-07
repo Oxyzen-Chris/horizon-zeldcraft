@@ -1053,6 +1053,71 @@ et « jambes invisibles » (clippées sous le sol), un seul et même bug.
   `mergeRepRules()` fusionne les valeurs sauvegardées par-dessus les défauts). Si ce cas se présente,
   l'administrateur peut simplement réajuster le curseur d'échelle existant dans ce panneau.
 
+## 🔒 Pattes de dragon/familier enterrées dans le sol + longue queue articulée + souffle de feu
+
+**Symptôme signalé** : malgré le correctif précédent (« PNJ 3D taille correcte »), les pattes des
+**familiers/dragons** (ex. « Dragon Vert ») restaient invisibles, comme enterrées sous le sol du
+widget « Plateforme 3D ». L'utilisateur a également demandé une **longue queue** se balançant
+naturellement de gauche à droite, et un **souffle de feu** périodique (paramétrable en
+Administration) pour un rendu plus crédible.
+
+**Cause racine (enfoncement)** : le correctif précédent avait résolu le cas des PNJ (`scale`
+ramené de `1.6` à `1`), mais les familiers/dragons utilisent volontairement une échelle bien plus
+grande (`Platform3DObjectFlags['marker:familiar'].scale`, défaut `2.4`, car « un familier doit
+rester nettement plus grand que Synk »). Le bas des pattes de `DragonMarker` (en unités NON mises à
+l'échelle) se situe à `y≈-0.27` — à l'échelle `2.4`, cela devient `y≈-0.65`, largement sous le
+plateau du socle (`y=-0.42`, sommet à `y=-0.34`), donc invisible. Le petit flottement (« bob »)
+vertical partagé par tous les marqueurs « en lévitation » (`bobAmplitude≈0.15`) ne suffisait pas à
+compenser cet enfoncement amplifié par l'échelle.
+
+**Correctif (`Platform3DWidget.tsx::MarkerBlock`)** : un **relevage compensatoire** proportionnel à
+`(scale - 1)` est désormais ajouté à la position Y du groupe animé (`bobRef`), calculé à partir de
+la magnitude du point le plus bas non mis à l'échelle de chaque type de personnage
+(`groundAnchorUnscaled` = `0.27` pour un familier, `0.39` pour un PNJ) :
+
+```
+groundLift = groundAnchorUnscaled * (scale - 1)
+```
+
+- Pour un PNJ à `scale=1` (défaut), `groundLift = 0` → **strictement aucun changement** de rendu
+  par rapport au correctif précédent (zéro régression garantie par construction, pas seulement par
+  test).
+- Pour un familier/dragon à `scale=2.4`, `groundLift ≈ 0.378` — cela ramène le bas des pattes à
+  `y≈-0.06` à `-0.18` (bien au-dessus du sommet du socle à `-0.34`), les rendant clairement
+  visibles, avec une marge similaire à celle des PNJ (par construction, la formule replace toujours
+  le bas des pattes à la même hauteur relative qu'à l'échelle `1×`).
+- Si un administrateur augmente un jour l'échelle des PNJ au-delà de `1` via le panneau
+  « 🧱 Objets & décor 3D », ce même mécanisme les protège aussi contre un enfoncement futur — un
+  effet bénéfique, pas une régression.
+
+**Longue queue articulée (`DragonMarker`)** : l'ancien cône unique (0,42 de long) est remplacé par
+une chaîne de **3 segments** (base épaisse → milieu → pointe fine, ~0,8 de long au total), chaque
+segment étant un enfant du précédent. Un balancement `rotation.y` (l'axe vertical local, qui déplace
+la queue gauche/droite puisque le corps est orienté le long de l'axe X) anime les 3 segments avec un
+**déphasage croissant** (`-0.7`, puis `-1.4` rad) pour un effet de vague façon fouet plutôt qu'une
+planche rigide — actif en permanence (amplitude réduite à l'arrêt, amplifiée en marche), jamais de
+rotation continue façon toupie.
+
+**Souffle de feu périodique (`DragonMarker` + `RepRules`)** : un jet de flammes (2 cônes émissifs
+orange/jaune) émis depuis le museau, caché (`visible=false`) hors des courtes fenêtres de souffle.
+Nouveaux champs `RepRules.dragonFireBreathEnabled` (défaut `true`) et
+`RepRules.dragonFireBreathIntervalSec` (défaut `60`), réglables dans le panneau Administration
+(section « 🐉 Souffle de feu des dragons », `RepRulesPanel.tsx`) et traduits dans les 4 langues.
+Chaque dragon déphase son cycle via un `seedOffset` déterministe (`hashString` de son id/nom, déjà
+utilisé pour l'expression faciale des PNJ) afin que plusieurs dragons visibles simultanément ne
+crachent pas tous en même temps. Purement cosmétique — aucun impact stats/mécanique.
+
+**Câblage des props** : `RepRules.dragonFireBreathEnabled/dragonFireBreathIntervalSec` → composant
+`Scene` (nouveaux props `fireBreathEnabled`/`fireBreathIntervalSec`) → `MarkerBlock` → `DragonMarker`
+(avec `seed={markerId ?? name}`), suivant exactement le même chemin de câblage que
+`eyeBlinkEnabled`/`eyeBlinkIntervalSec` déjà en place pour Synk — aucune nouvelle abstraction
+introduite.
+
+**Vérifié** : `tsc --noEmit` propre, `npm run build` OK, script Playwright jetable rejoué (connexion
+démo, ouverture Plateforme 3D, lecture `data-roaming-familiars` avant/après 4 ticks) : 7 familiers
+suivis, 6/7 en mouvement (comportement de pause intermittente inchangé), **0 erreur console** —
+confirme l'absence de régression sur le correctif précédent (mouvement des familiers/dragons).
+
 ## Architecture DLC / Content Packs
 
 `ContentPackDef` (`id`, `nom`, `description`, `actif`, `order`) est stocké dans

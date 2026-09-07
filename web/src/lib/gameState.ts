@@ -4159,6 +4159,15 @@ export interface RepRules {
                                         // ramassé par un joueur redevienne disponible au même endroit
                                         // pour CE joueur (0 = ne réapparaît jamais, comportement
                                         // historique strict)
+
+  // ─── Souffle de feu des dragons-familiers (Plateforme 3D, voir DragonMarker dans
+  // Platform3DWidget.tsx) — purement cosmétique (aucun impact stats/mécanique), répond à la demande
+  // utilisateur « pour donner un air plus crédible et naturel au Dragon, fait en sorte qu'il crache
+  // du feu toutes les minutes (tu rendras cela paramétrable dans le menu Administration) ».
+  dragonFireBreathEnabled: boolean;    // défaut true — active le souffle de feu périodique
+  dragonFireBreathIntervalSec: number; // défaut 60 — intervalle (en secondes) entre deux souffles
+                                        // de feu d'un même dragon-familier (léger déphasage aléatoire
+                                        // par dragon pour éviter que tous crachent en même temps)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -4370,6 +4379,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   npcProximityRadiusTiles: 10,
   treasureCoinsUnlockEnabled: true,
   treasureRespawnHours: 48,
+  dragonFireBreathEnabled: true,
+  dragonFireBreathIntervalSec: 60,
 }
 
 /** Merge une valeur brute Firebase (`catalog/repRules`, potentiellement partielle/absente) avec

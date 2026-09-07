@@ -383,21 +383,43 @@ function familiarDragonColor(id: string, name: string): string {
   return MARKER_COLOR.familiar;
 }
 
-/** Dragon-familier stylisé (corps, cou+tête cornue avec des yeux, quatre pattes articulées, queue
- * effilée, deux ailes membraneuses) — bien plus reconnaissable que le gemme octaédrique générique
- * pour représenter, par exemple, le "Dragon Vert" du catalogue (voir demande utilisateur : « le
- * Dragon Vert ressemble à un anneau alors qu'il devrait ressembler à un Dragon »). Couleur pilotée
- * par `familiarDragonColor` ci-dessus. Pattes + yeux ajoutés suite à la demande utilisateur « tu
- * ajouteras des jambes de dragons et des yeux aux dragons et à tous les dragons qui pourraient
- * apparaître ou exister dans le jeu » — s'applique donc à TOUT familier-dragon affiché (roulement
- * de scène 3D, boutique, inventaire), pas seulement au Dragon errant. `walking` (PNJ/Dragon errant
- * uniquement, voir lib/roamingActors.ts) anime les 4 pattes en démarche quadrupède (paires
- * diagonales en phase) au lieu de rester figées — sinon (survol/statique), pattes immobiles. */
-function DragonMarker({ color, walking = false }: { color: string; walking?: boolean }) {
+/** Dragon-familier stylisé (corps, cou+tête cornue avec des yeux, quatre pattes articulées, longue
+ * queue effilée à 3 segments articulés qui se balance naturellement de gauche à droite, deux ailes
+ * membraneuses, souffle de feu périodique) — bien plus reconnaissable que le gemme octaédrique
+ * générique pour représenter, par exemple, le "Dragon Vert" du catalogue (voir demande utilisateur :
+ * « le Dragon Vert ressemble à un anneau alors qu'il devrait ressembler à un Dragon »). Couleur
+ * pilotée par `familiarDragonColor` ci-dessus. Pattes + yeux ajoutés suite à la demande utilisateur
+ * « tu ajouteras des jambes de dragons et des yeux aux dragons [...] à tous les dragons » — s'applique
+ * donc à TOUT familier-dragon affiché (roulement de scène 3D, boutique, inventaire), pas seulement au
+ * Dragon errant. `walking` (PNJ/Dragon errant uniquement, voir lib/roamingActors.ts) anime les 4
+ * pattes en démarche quadrupède (paires diagonales en phase) au lieu de rester figées — sinon
+ * (survol/statique), pattes immobiles. `seed` (id/nom du dragon) déphase le cycle du souffle de feu
+ * pour que plusieurs dragons visibles simultanément ne crachent pas tous en même temps.
+ * `fireBreathEnabled`/`fireBreathIntervalSec` (voir RepRules.dragonFireBreathEnabled/
+ * dragonFireBreathIntervalSec, paramétrables en Administration) répondent à la demande utilisateur
+ * « fait en sorte qu'il crache du feu toutes les minutes ». La longue queue à 3 segments (remplace
+ * l'ancien cône unique court) répond à « ajoute une longue queue de dragons qui bougent de gauche à
+ * droite et de droite à gauche naturellement ». */
+function DragonMarker({ color, walking = false, seed = '', fireBreathEnabled = true, fireBreathIntervalSec = 60 }: {
+  color: string; walking?: boolean; seed?: string; fireBreathEnabled?: boolean; fireBreathIntervalSec?: number;
+}) {
   const legFrontLeftRef = useRef<THREE.Group>(null);
   const legFrontRightRef = useRef<THREE.Group>(null);
   const legBackLeftRef = useRef<THREE.Group>(null);
   const legBackRightRef = useRef<THREE.Group>(null);
+  // Queue à 3 segments articulés (base/milieu/pointe) — chaque segment est un enfant du précédent
+  // (chaîne), avec un déphasage de rotation.y croissant pour un effet de vague façon fouet plutôt
+  // qu'une planche rigide. Toujours actif même à l'arrêt (mouvement de vie discret), amplifié
+  // pendant la marche — jamais de rotation continue (pas de "toupie"), juste un balancement borné
+  // gauche/droite (rotation.y, l'axe X local pointant vers l'arrière du corps).
+  const tailBaseRef = useRef<THREE.Group>(null);
+  const tailMidRef = useRef<THREE.Group>(null);
+  const tailTipRef = useRef<THREE.Group>(null);
+  // Souffle de feu périodique — purement cosmétique (aucun impact stats/mécanique). `seedOffset`
+  // (dérivé de manière déterministe de `seed` via hashString) déphase le cycle de CE dragon dans
+  // [0, intervalle) pour éviter que tous les dragons visibles crachent en même temps.
+  const flameRef = useRef<THREE.Group>(null);
+  const seedOffset = useMemo(() => (hashString(seed || 'dragon') % 1000) / 1000, [seed]);
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     const swing = walking ? Math.sin(t * 8) * 0.5 : 0;
@@ -407,6 +429,31 @@ function DragonMarker({ color, walking = false }: { color: string; walking?: boo
     if (legBackRightRef.current) legBackRightRef.current.rotation.x = swing;
     if (legFrontRightRef.current) legFrontRightRef.current.rotation.x = -swing;
     if (legBackLeftRef.current) legBackLeftRef.current.rotation.x = -swing;
+    // Balancement de queue gauche/droite en vague (3 segments déphasés), amplifié en marche.
+    const tailFreq = 1.6;
+    const tailAmp = walking ? 0.55 : 0.32;
+    if (tailBaseRef.current) tailBaseRef.current.rotation.y = Math.sin(t * tailFreq) * tailAmp;
+    if (tailMidRef.current) tailMidRef.current.rotation.y = Math.sin(t * tailFreq - 0.7) * tailAmp * 0.85;
+    if (tailTipRef.current) tailTipRef.current.rotation.y = Math.sin(t * tailFreq - 1.4) * tailAmp * 0.7;
+    // Souffle de feu : cycle de `fireBreathIntervalSec` secondes (défaut 60, voir RepRules),
+    // déphasé par dragon (`seedOffset`), visible ~1,1s en début de cycle avec un effet
+    // croissance/scintillement/décroissance plutôt qu'un simple apparaître/disparaître brutal.
+    if (flameRef.current) {
+      if (!fireBreathEnabled) {
+        flameRef.current.visible = false;
+      } else {
+        const interval = Math.max(5, fireBreathIntervalSec);
+        const cyclePos = (t + seedOffset * interval) % interval;
+        const breathing = cyclePos < 1.1;
+        flameRef.current.visible = breathing;
+        if (breathing) {
+          const flicker = 0.85 + Math.sin(t * 40) * 0.15;
+          const fadeOut = cyclePos > 0.75 ? Math.max(0, (1.1 - cyclePos) / 0.35) : 1;
+          const grow = Math.min(1, cyclePos / 0.3) * fadeOut;
+          flameRef.current.scale.setScalar(flicker * grow);
+        }
+      }
+    }
   });
   const legColor = color;
   return (
@@ -428,11 +475,42 @@ function DragonMarker({ color, walking = false }: { color: string; walking?: boo
             <mesh position={[0.018, 0, ez > 0 ? 0.012 : -0.012]}><sphereGeometry args={[0.013, 6, 6]} /><meshStandardMaterial color="#1c1917" /></mesh>
           </group>
         ))}
+        {/* Souffle de feu (voir useFrame ci-dessus) — jet de flammes émis depuis le museau, en
+            direction +X (vers l'avant de la tête). Caché (visible=false) hors des courtes fenêtres
+            de souffle périodiques ; ne bloque jamais le clic (aucun onClick dessus). */}
+        <group ref={flameRef} position={[0.05, 0.26, 0]} visible={false}>
+          <mesh position={[0.09, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
+            <coneGeometry args={[0.045, 0.22, 8]} />
+            <meshStandardMaterial color="#fb923c" emissive="#f97316" emissiveIntensity={1.1} roughness={0.4} transparent opacity={0.9} />
+          </mesh>
+          <mesh position={[0.19, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
+            <coneGeometry args={[0.028, 0.16, 8]} />
+            <meshStandardMaterial color="#fde047" emissive="#facc15" emissiveIntensity={1.3} roughness={0.4} transparent opacity={0.85} />
+          </mesh>
+        </group>
       </group>
-      <mesh position={[-0.3, 0.02, 0]} rotation={[0, 0, 0.3]} castShadow>
-        <coneGeometry args={[0.075, 0.42, 6]} />
-        <meshStandardMaterial color={color} roughness={0.55} />
-      </mesh>
+      {/* Longue queue effilée (3 segments : base épaisse → milieu → pointe fine), pivot à l'arrière
+          du corps — voir balancement gauche/droite dans le useFrame ci-dessus. Remplace l'ancien
+          cône unique court (0,42 de long) par une chaîne totalisant ~0,8 de long pour un rendu bien
+          plus "dragon" (demande utilisateur : « ajoute une longue queue de dragons »). */}
+      <group ref={tailBaseRef} position={[-0.22, 0.03, 0]}>
+        <mesh position={[-0.15, 0, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+          <cylinderGeometry args={[0.075, 0.055, 0.3, 6]} />
+          <meshStandardMaterial color={color} roughness={0.55} />
+        </mesh>
+        <group ref={tailMidRef} position={[-0.3, -0.01, 0]}>
+          <mesh position={[-0.13, 0, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+            <cylinderGeometry args={[0.055, 0.035, 0.26, 6]} />
+            <meshStandardMaterial color={color} roughness={0.55} />
+          </mesh>
+          <group ref={tailTipRef} position={[-0.26, -0.01, 0]}>
+            <mesh position={[-0.1, 0, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+              <coneGeometry args={[0.035, 0.2, 6]} />
+              <meshStandardMaterial color={color} roughness={0.55} />
+            </mesh>
+          </group>
+        </group>
+      </group>
       {[1, -1].map((side) => (
         <mesh key={side} position={[0, 0.2, side * 0.16]} rotation={[side * 0.55, 0, 0.1]} castShadow>
           <coneGeometry args={[0.3, 0.045, 3]} />
@@ -824,13 +902,16 @@ function TreasureIcon({ category }: { category: TreasureCategory }) {
  * `kind==='zorghon'` → silhouette sombre cornue menaçante ; `kind==='captive'` → silhouette liée.
  * Tout kind non couvert ci-dessus conserve EXACTEMENT le rendu octaédrique précédent — zéro
  * régression. */
-function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, moving, onClick }: {
+function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, moving, onClick, fireBreathEnabled, fireBreathIntervalSec }: {
   kind: string; poiType?: MapPoiType; name?: string; markerId?: string; x: number; z: number; scale?: number;
   /** Renseignés UNIQUEMENT pour le PNJ/Dragon errant (voir lib/roamingActors.ts) — orientent le
    * personnage dans sa direction de marche et déclenchent sa démarche animée (voir NpcVoxel/
    * DragonMarker) ; `undefined` pour tout autre marqueur (comportement idle inchangé). */
   facing?: SynkDirection; moving?: boolean;
   onClick: () => void;
+  /** Souffle de feu périodique (familiers-dragons uniquement, voir DragonMarker) — voir
+   * RepRules.dragonFireBreathEnabled/dragonFireBreathIntervalSec. */
+  fireBreathEnabled?: boolean; fireBreathIntervalSec?: number;
 }) {
   // Ref générique : anime (flottaison + légère rotation) le contenu de TOUTES les branches "en
   // lévitation" (quête, trésor, monde, zorghon, captif, gemme par défaut) — les branches "fixes au
@@ -877,10 +958,23 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     g.position.x += (x - g.position.x) * 0.12;
     g.position.z += (z - g.position.z) * 0.12;
   });
+  // Relevage anti-enterrement (PNJ/familier UNIQUEMENT) : le pied le plus bas de `NpcVoxel`/
+  // `DragonMarker` (en unités NON mises à l'échelle) s'enfonce proportionnellement à `scale` — à
+  // scale=1 (PNJ) le résultat est déjà correct (jambes visibles juste au-dessus du socle), mais à
+  // scale=2.4 (familier/dragon, `marker:familiar`) l'amplification pousse les pattes largement sous
+  // le socle (`y=-0.42`), les rendant invisibles (« les jambes des familiers/dragons sont enterrées
+  // dans le sol »). Comme `scale` n'agit QUE sur les enfants du groupe (`<DragonMarker>`/
+  // `<NpcVoxel>`) et jamais sur la position du groupe lui-même, on compense ici en ajoutant un
+  // relevage égal à l'enfoncement SUPPLÉMENTAIRE induit par `scale` au-delà de 1× — nul par
+  // construction quand `scale===1` (donc AUCUNE régression sur le rendu PNJ existant, déjà validé),
+  // et proportionnel sinon pour que le bas des pattes reste au même niveau visuel qu'à l'échelle 1×
+  // quel que soit le réglage admin (« 🧱 Objets & décor 3D »).
+  const groundAnchorUnscaled = isFamiliar ? 0.27 : isNpc ? 0.39 : 0;
   useFrame((state) => {
     const obj = bobRef.current;
     if (!obj || !floating) return;
-    obj.position.y = bobAmplitude + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06;
+    const groundLift = groundAnchorUnscaled * (scale - 1);
+    obj.position.y = bobAmplitude + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06 + groundLift;
     if (spinning) obj.rotation.y += isQuest ? 0.006 : 0.01;
   });
   // Orientation du PNJ/Dragon errant selon sa direction de marche courante (voir FACING_ANGLE,
@@ -959,7 +1053,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     return (
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
-        <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}><DragonMarker color={dragonColor} walking={!!moving} /></group>
+        <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}><DragonMarker color={dragonColor} walking={!!moving} seed={markerId ?? name ?? ''} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec} /></group>
       </group>
     );
   }
@@ -1329,7 +1423,7 @@ function Scene({
   centerCol, centerRow, poiPoints, sceneMarkers, stage, walking, running, swimming, jumpTrigger, facing,
   equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
   onExtraQuestClick,
-  eyeBlinkEnabled, eyeBlinkIntervalSec, objectFlags,
+  eyeBlinkEnabled, eyeBlinkIntervalSec, objectFlags, fireBreathEnabled, fireBreathIntervalSec,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
@@ -1350,6 +1444,9 @@ function Scene({
   /** Registre admin-paramétrable des tailles de décor (Administration > 🧱 Objets & décor 3D) — voir
    * Platform3DObjectFlags.scale ; `undefined` retombe sur DEFAULT_PLATFORM3D_OBJECT_FLAGS (scale 1). */
   objectFlags?: Record<Platform3DObjectKind, Platform3DObjectFlags>;
+  /** Souffle de feu périodique des dragons-familiers (voir RepRules.dragonFireBreathEnabled/
+   * dragonFireBreathIntervalSec, DragonMarker plus bas) — purement cosmétique. */
+  fireBreathEnabled?: boolean; fireBreathIntervalSec?: number;
 }) {
   const tiles = useMemo(() => {
     const out: { tile: Tile; wc: number; wr: number; x: number; z: number }[] = [];
@@ -1407,7 +1504,7 @@ function Scene({
         const handleClick = m.questId
           ? () => onExtraQuestClick(m.marker, m.questId!, m.questLabel, m.questI18nKey)
           : isEncounterMarker ? () => {} : () => onMarkerClick(m.marker);
-        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={handleClick} />;
+        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={handleClick} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec} />;
       })}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
@@ -2333,6 +2430,8 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
               eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
               objectFlags={rules?.platform3dObjectFlags}
+              fireBreathEnabled={rules?.dragonFireBreathEnabled ?? true}
+              fireBreathIntervalSec={rules?.dragonFireBreathIntervalSec ?? 60}
             />
           )}
         </Canvas>
