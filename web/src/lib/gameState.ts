@@ -6154,13 +6154,16 @@ export async function releaseDemoSession(kind: 'demo' | 'anon', uid: string): Pr
 /** Démarre (une seule fois) ou lit le chrono Démo d'un compte IDENTIFIÉ (Google) — voir
  * commentaire ci-dessus. Ne réinitialise JAMAIS un chrono déjà démarré (seul
  * `resetDemoAccountTimer()` le peut). Retourne si la limite est dépassée + l'horodatage de départ
- * (pour calculer l'échéance côté widget : `startedAt + maxDurationMin * 60000`).
+ * (pour calculer l'échéance côté widget : `startedAt + maxDurationMin * 60000`) + la durée max
+ * EFFECTIVEMENT appliquée (`effectiveMaxMin`) — nécessaire pour afficher un message d'expiration
+ * cohérent avec la surcharge personnelle éventuelle de CE joueur (voir bug corrigé : le message
+ * affichait auparavant "(2h)" en dur même quand l'admin avait défini 36h pour ce joueur précis).
  * `maxDurationMin` est la valeur GLOBALE (RepRules.demoSessionMaxDurationMin) — si ce joueur a une
  * surcharge personnelle (`maxDurationMinOverride`, voir Administration > Statistiques par joueur),
  * elle prévaut systématiquement sur la valeur globale transmise par l'appelant. */
-export async function ensureDemoAccountTimer(uid: string, maxDurationMin: number): Promise<{ expired: boolean; startedAt: number }> {
+export async function ensureDemoAccountTimer(uid: string, maxDurationMin: number): Promise<{ expired: boolean; startedAt: number; effectiveMaxMin: number }> {
   const db = getFirebaseDb();
-  if (!db) return { expired: false, startedAt: Date.now() };
+  if (!db) return { expired: false, startedAt: Date.now(), effectiveMaxMin: maxDurationMin };
   const r = ref(db, `demoAccessRequests/${RKEY(uid)}`);
   const existing = (await get(r)).val() as DemoAccessRequest | null;
   let startedAt = existing?.demoSessionStartedAt ?? existing?.requestedAt;
@@ -6169,14 +6172,17 @@ export async function ensureDemoAccountTimer(uid: string, maxDurationMin: number
     await update(r, { demoSessionStartedAt: startedAt });
   }
   const effectiveMax = existing?.maxDurationMinOverride ?? maxDurationMin;
-  return { expired: Date.now() - startedAt >= effectiveMax * 60_000, startedAt };
+  return { expired: Date.now() - startedAt >= effectiveMax * 60_000, startedAt, effectiveMaxMin: effectiveMax };
 }
 
 /** Équivalent de `ensureDemoAccountTimer` pour l'Accès Démo ANONYME (voir commentaire ci-dessus) —
- * clé RTDB `demoSessions/anonTimer/{uid}`, sans aucune donnée nominative. */
-export async function ensureDemoAnonTimer(uid: string, maxDurationMin: number): Promise<{ expired: boolean; startedAt: number }> {
+ * clé RTDB `demoSessions/anonTimer/{uid}`, sans aucune donnée nominative. Pas de surcharge par
+ * joueur possible en mode anonyme (non nominatif) : `effectiveMaxMin` vaut donc toujours
+ * `maxDurationMin` (la valeur GLOBALE), renvoyée pour rester symétrique avec
+ * `ensureDemoAccountTimer` côté appelant. */
+export async function ensureDemoAnonTimer(uid: string, maxDurationMin: number): Promise<{ expired: boolean; startedAt: number; effectiveMaxMin: number }> {
   const db = getFirebaseDb();
-  if (!db) return { expired: false, startedAt: Date.now() };
+  if (!db) return { expired: false, startedAt: Date.now(), effectiveMaxMin: maxDurationMin };
   const r = ref(db, `demoSessions/anonTimer/${RKEY(uid)}`);
   const existing = (await get(r)).val() as { startedAt?: number } | null;
   let startedAt = existing?.startedAt;
@@ -6184,7 +6190,21 @@ export async function ensureDemoAnonTimer(uid: string, maxDurationMin: number): 
     startedAt = Date.now();
     await set(r, { startedAt });
   }
-  return { expired: Date.now() - startedAt >= maxDurationMin * 60_000, startedAt };
+  return { expired: Date.now() - startedAt >= maxDurationMin * 60_000, startedAt, effectiveMaxMin: maxDurationMin };
+}
+
+/** Formate une durée en minutes (`RepRules.demoSessionMaxDurationMin` ou une surcharge
+ * `maxDurationMinOverride` par joueur) en un libellé lisible pour l'utilisateur final, ex.
+ * `120` → `"2h"`, `2160` → `"36h"`, `90` → `"1.5h"`, `45` → `"45 min"` (sous l'heure, afficher en
+ * minutes reste plus clair qu'une fraction d'heure). Utilisé par `home.demo.sessionExpired` (voir
+ * NoWalletAccessPanel.tsx / DemoSessionTimerWidget.tsx / page.tsx) pour que le message affiché au
+ * joueur reflète TOUJOURS la durée réellement configurée pour lui — bug corrigé : le message
+ * affichait auparavant "(2h)" en dur, incohérent avec une surcharge personnelle (ex. 36h) définie
+ * par l'admin pour ce joueur précis. */
+export function formatDemoDurationLabel(minutes: number): string {
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  const hours = Math.round((minutes / 60) * 100) / 100;
+  return `${hours}h`;
 }
 
 /** Lecture ponctuelle de l'horodatage de départ du chrono Démo en cours (pour le widget

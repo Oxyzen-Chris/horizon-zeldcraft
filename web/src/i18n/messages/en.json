@@ -1665,7 +1665,7 @@
   "home.demo.pendingApproval": "Your Demo access request has been sent! It will be reviewed by the game admin soon.",
   "home.demo.rejected": "Your Demo access request was declined.",
   "home.demo.pausedByAdmin": "Your access has been paused by the game administrator. Please contact them for more information.",
-  "home.demo.sessionExpired": "Your Demo session (2h) has ended. Contact the game administrator to reactivate it, or connect a crypto wallet.",
+  "home.demo.sessionExpired": "Your Demo session ({duration}) has ended. Contact the game administrator to reactivate it, or connect a crypto wallet.",
   "home.demo.title": "Demo Access",
   "home.fiat.button": "Play without a wallet",
   "home.fiat.description": "Play Horizon ZeldCraft without a crypto wallet: sign in with Google or e-mail, then top up your coins by credit card, PayPal, Apple Pay or Google Pay.",

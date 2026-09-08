@@ -1305,6 +1305,52 @@ console** dans les deux cas. Test de non-régression complémentaire (connexion 
 ouverture des widgets Plateforme 2D isométrique et Mapmonde) : rendu normal, sablier « Fin de
 l'accès Démo » toujours visible, **0 erreur console**.
 
+## 🔒 Message d'expiration de session Démo affichant une durée fixe "(2h)" incohérente avec une surcharge personnelle
+
+**Symptôme signalé** : le message affiché sur l'écran d'accueil après expiration d'une session
+Démo (« Ta session Démo (2h) est arrivée à son terme... ») indiquait toujours "2h" en dur, même
+pour un joueur (`christophe.sintes.oxyzen@gmail.com`) pour lequel l'admin avait défini une
+**surcharge personnelle de 36h** (Administration > Statistiques par joueur > "Compte Démo / sans
+portefeuille" > `maxDurationMinOverride`) — le message induisait donc le joueur en erreur sur la
+durée réellement accordée.
+
+**Cause racine** : la clé i18n `home.demo.sessionExpired` contenait la chaîne "(2h)" codée en dur
+dans les 4 langues (fr/en/es/pt), sans aucun paramètre. Le message est affiché à 2 endroits
+distincts, tous deux ignorant la surcharge par joueur :
+1. `NoWalletAccessPanel.tsx` (tentative de RECONNEXION alors que le chrono est déjà expiré) : les
+   fonctions `ensureDemoAccountTimer()`/`ensureDemoAnonTimer()` (`gameState.ts`) calculaient déjà en
+   interne la durée EFFECTIVE (surcharge par joueur si présente, sinon la valeur globale
+   `RepRules.demoSessionMaxDurationMin`) pour déterminer si `expired` est vrai, mais ne la
+   renvoyaient PAS à l'appelant — impossible d'afficher la bonne durée sans la recalculer.
+2. `DemoSessionTimerWidget.tsx` (expiration EN COURS DE PARTIE, décompte du sablier arrivé à zéro) :
+   calculait bien `maxMin` (avec surcharge) pour piloter le sablier, mais ne le transmettait pas au
+   flag `sessionStorage` lu ensuite par `page.tsx` lors du retour forcé à l'accueil.
+
+**Correctif** :
+- `gameState.ts` : `ensureDemoAccountTimer()`/`ensureDemoAnonTimer()` renvoient désormais aussi
+  `effectiveMaxMin` (la durée EFFECTIVEMENT appliquée, surcharge par joueur incluse pour le mode
+  identifié Google). Nouvel helper exporté `formatDemoDurationLabel(minutes)` : `120` → `"2h"`,
+  `2160` → `"36h"`, `90` → `"1.5h"`, `45` → `"45 min"` (sous l'heure, plus lisible en minutes).
+- `NoWalletAccessPanel.tsx` : les deux appels (`startAnonymousDemo`/`completeApprovedDemo`) passent
+  désormais `formatDemoDurationLabel(effectiveMaxMin)` en paramètre `{duration}` du message.
+- `DemoSessionTimerWidget.tsx` : le `maxMin` déjà calculé pour le sablier est mémorisé dans un
+  nouveau flag `sessionStorage` (`zc.demoSessionExpiredDurationMin`) juste avant la déconnexion
+  forcée + redirection vers l'accueil, aux côtés du flag existant `zc.demoSessionExpired`.
+  `consumeDemoExpiredFlag()` renvoie désormais `{ expired, durationMin }` (au lieu d'un simple
+  booléen) pour transmettre cette durée à `page.tsx`.
+- `page.tsx` : affiche `t('home.demo.sessionExpired', { duration: formatDemoDurationLabel(...) })`
+  avec la durée reçue (par défaut 120 min si absente, pour rester rétro-compatible avec un flag
+  posé par une version antérieure du code sans la nouvelle clé).
+- i18n (fr/en/es/pt) : `home.demo.sessionExpired` remplace "(2h)" par `({duration})`.
+
+**Vérifié** : `tsc --noEmit` et `npm run build` propres (0 erreur). Script Playwright jetable
+injectant directement les flags `sessionStorage` (`zc.demoSessionExpired`/
+`zc.demoSessionExpiredDurationMin`) avant chargement de la page d'accueil : avec `120` → message
+affiche bien "(2h)" (comportement historique préservé) ; avec `2160` → message affiche bien "(36h)"
+(cas du joueur signalé) — **0 erreur console** dans les deux cas. Test de non-régression
+complémentaire (connexion Démo anonyme complète jusqu'en jeu) : sablier "Fin de l'accès Démo dans :"
+toujours affiché normalement, **0 erreur console**.
+
 ## Architecture DLC / Content Packs
 
 `ContentPackDef` (`id`, `nom`, `description`, `actif`, `order`) est stocké dans

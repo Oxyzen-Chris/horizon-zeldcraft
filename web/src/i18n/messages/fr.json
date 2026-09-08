@@ -1665,7 +1665,7 @@
   "home.demo.pendingApproval": "Ta demande d'accès Démo a bien été envoyée ! Elle sera validée prochainement par l'administrateur du jeu.",
   "home.demo.rejected": "Ta demande d'accès Démo a été refusée.",
   "home.demo.pausedByAdmin": "Ton accès a été mis en pause par l'administrateur du jeu. Contacte-le pour plus d'informations.",
-  "home.demo.sessionExpired": "Ta session Démo (2h) est arrivée à son terme. Contacte l'administrateur du jeu pour la réactiver, ou connecte un portefeuille crypto.",
+  "home.demo.sessionExpired": "Ta session Démo ({duration}) est arrivée à son terme. Contacte l'administrateur du jeu pour la réactiver, ou connecte un portefeuille crypto.",
   "home.demo.title": "Accès Démo",
   "home.fiat.button": "Jouer sans portefeuille",
   "home.fiat.description": "Joue à Horizon ZeldCraft sans portefeuille crypto : connecte-toi avec Google ou ton e-mail, puis recharge tes coins par carte bancaire, PayPal, Apple Pay ou Google Pay.",

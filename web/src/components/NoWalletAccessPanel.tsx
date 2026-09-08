@@ -27,7 +27,7 @@ import { useEffectiveSessionControls } from '@/lib/effectiveAccount';
 import {
   getRepRules, deriveVirtualAddress, logAccountAccess,
   countActiveDemoSessions, registerDemoSession, ensureDemoAccountTimer, ensureDemoAnonTimer,
-  setPlayerWelcomeEmailStatus, type RepRules,
+  setPlayerWelcomeEmailStatus, formatDemoDurationLabel, type RepRules,
 } from '@/lib/gameState';
 import {
   getFirebaseAuth, ensureAnonSignIn, signInWithGoogle,
@@ -77,8 +77,8 @@ export function NoWalletAccessPanel() {
       if (!user) { setMessage(t('home.demo.authError')); setBusy(false); return; }
       // Chrono de session Démo (2h par défaut, voir RepRules.demoSessionMaxDurationMin) : bloque
       // la reconnexion si la limite est déjà dépassée (ne redémarre jamais le chrono tout seul).
-      const { expired } = await ensureDemoAnonTimer(user.uid, rules?.demoSessionMaxDurationMin ?? 120);
-      if (expired) { setMessage(t('home.demo.sessionExpired')); setBusy(false); return; }
+      const { expired, effectiveMaxMin } = await ensureDemoAnonTimer(user.uid, rules?.demoSessionMaxDurationMin ?? 120);
+      if (expired) { setMessage(t('home.demo.sessionExpired', { duration: formatDemoDurationLabel(effectiveMaxMin) })); setBusy(false); return; }
       const count = await countActiveDemoSessions('anon');
       const cap = rules?.demoAnonymousMaxConcurrentSessions ?? 40;
       if (count >= cap) { setMessage(t('home.demo.fullAnonymous')); setBusy(false); return; }
@@ -109,8 +109,8 @@ export function NoWalletAccessPanel() {
       if (paused) { setMessage(t('home.demo.pausedByAdmin')); setBusy(false); return; }
       // Chrono de session Démo (2h par défaut) : bloque la reconnexion si déjà expiré, sauf
       // réactivation explicite par l'admin ("🔄 Réactiver le chrono Démo").
-      const { expired } = await ensureDemoAccountTimer(user.uid, rules?.demoSessionMaxDurationMin ?? 120);
-      if (expired) { setMessage(t('home.demo.sessionExpired')); setBusy(false); return; }
+      const { expired, effectiveMaxMin } = await ensureDemoAccountTimer(user.uid, rules?.demoSessionMaxDurationMin ?? 120);
+      if (expired) { setMessage(t('home.demo.sessionExpired', { duration: formatDemoDurationLabel(effectiveMaxMin) })); setBusy(false); return; }
       const count = await countActiveDemoSessions('demo');
       const cap = rules?.demoMaxConcurrentSessions ?? 90;
       if (count >= cap) { setMessage(t('home.demo.fullApproved')); setBusy(false); return; }

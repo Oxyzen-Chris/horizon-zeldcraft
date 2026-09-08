@@ -11,7 +11,7 @@ import { NoWalletAccessPanel } from '@/components/NoWalletAccessPanel';
 import { EffectiveAccountBadge } from '@/components/EffectiveAccountBadge';
 import { useI18n } from '@/lib/i18n';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
-import { getRepRules } from '@/lib/gameState';
+import { getRepRules, formatDemoDurationLabel } from '@/lib/gameState';
 import { consumeDemoExpiredFlag } from '@/components/DemoSessionTimerWidget';
 import { consumePausedByAdminFlag } from '@/lib/effectiveAccount';
 
@@ -23,6 +23,7 @@ export default function Home() {
   const { t } = useI18n();
   const [walletConnectEnabled, setWalletConnectEnabled] = useState(true);
   const [demoExpiredMessage, setDemoExpiredMessage] = useState(false);
+  const [demoExpiredDurationMin, setDemoExpiredDurationMin] = useState(120);
   const [pausedMessage, setPausedMessage] = useState(false);
 
   useEffect(() => { getRepRules().then((r) => setWalletConnectEnabled(r.walletConnectEnabled !== false)).catch(() => {}); }, []);
@@ -31,7 +32,8 @@ export default function Home() {
     // deux fois au montage — `consumeDemoExpiredFlag()` retire le flag dès la 1ère lecture, donc
     // la 2e lecture renverrait toujours `false` et effacerait silencieusement le message (bug
     // constaté via Playwright). On ne met à jour l'état QUE si le flag était bien présent.
-    if (consumeDemoExpiredFlag()) setDemoExpiredMessage(true);
+    const { expired, durationMin } = consumeDemoExpiredFlag();
+    if (expired) { setDemoExpiredMessage(true); setDemoExpiredDurationMin(durationMin); }
     if (consumePausedByAdminFlag()) setPausedMessage(true);
   }, []);
 
@@ -70,7 +72,7 @@ export default function Home() {
             {showConnectButton && <div className="flex justify-center"><ConnectButton /></div>}
             {demoExpiredMessage && (
               <p className="text-sm text-amber-300 bg-amber-950/40 border border-amber-700/50 rounded p-2 mt-4 max-w-xl mx-auto">
-                ⏳ {t('home.demo.sessionExpired')}
+                ⏳ {t('home.demo.sessionExpired', { duration: formatDemoDurationLabel(demoExpiredDurationMin) })}
               </p>
             )}
             {pausedMessage && (
