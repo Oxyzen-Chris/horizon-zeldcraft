@@ -5,10 +5,12 @@ import Link from 'next/link';
 import { useChainId, useReadContracts } from 'wagmi';
 import { CONTRACT_ADDRESSES } from '@/lib/wagmi';
 import { HORIZON_ABI, STAGE_NAMES } from '@/lib/contract';
-import { listPlayers, getPlayer, getPlayerActivityStats, type PlayerState, type PlayerActivityStats } from '@/lib/gameState';
+import {
+  listPlayers, getPlayer, getPlayerActivityStats, getUnlockedWorldIds, getWorldDefs,
+  computeOffchainStageLevel, type PlayerState, type PlayerActivityStats,
+} from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { useIdsList } from '@/components/useIdsList';
 
 type Row = {
   address: string;
@@ -36,6 +38,13 @@ export default function ScoreboardPage() {
   const [addresses, setAddresses] = useState<string[]>([]);
   const [dbData, setDbData] = useState<Record<string, PlayerState>>({});
   const [activityData, setActivityData] = useState<Record<string, PlayerActivityStats>>({});
+  // Mondes découverts par joueur : lus hors-chaîne (`players/{addr}/worldsUnlocked`, écrit par
+  // `discoverWorldOffchain` quel que soit le type de compte — voir PoiInteractionModal.tsx). Ne
+  // dépend donc PAS d'un tokenId on-chain, contrairement à l'ancien mapping `worldUnlocked` du
+  // smart contract : c'est ce qui permet aux comptes Démo/Fiat (sans Voxlyn miné) d'afficher un
+  // décompte de mondes cohérent au même titre qu'un joueur avec portefeuille.
+  const [worldsUnlockedData, setWorldsUnlockedData] = useState<Record<string, number>>({});
+  const [worldCatalogSize, setWorldCatalogSize] = useState(0);
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -54,6 +63,12 @@ export default function ScoreboardPage() {
       const activityMap: Record<string, PlayerActivityStats> = {};
       activityEntries.forEach(([a, s]) => { activityMap[a] = s; });
       setActivityData(activityMap);
+      const worldsEntries = await Promise.all(addrs.map(async a => [a, await getUnlockedWorldIds(a)] as const));
+      const worldsMap: Record<string, number> = {};
+      worldsEntries.forEach(([a, ids]) => { worldsMap[a] = ids.size; });
+      setWorldsUnlockedData(worldsMap);
+      const worldDefs = await getWorldDefs();
+      setWorldCatalogSize(worldDefs.length);
     }).catch((e) => {
       setLoadError('Firebase read error: ' + (e?.message ?? String(e)));
     });
@@ -66,6 +81,8 @@ export default function ScoreboardPage() {
     query: { enabled: !!contract && addresses.length > 0 },
   });
 
+  // Adresses ayant un vrai Voxlyn miné on-chain (portefeuille connecté ET mint effectué) — pour
+  // celles-ci seulement on lit les données de progression on-chain (`voxlyns`/`playerScore`).
   const validTokenIds = useMemo(() => {
     if (!tokenIds) return [] as { addr: string; id: bigint }[];
     return tokenIds
@@ -81,48 +98,64 @@ export default function ScoreboardPage() {
     query: { enabled: validTokenIds.length > 0 },
   });
 
-  // Mondes découverts : le catalogue de mondes (4 fixes) est identique pour tous les joueurs, on
-  // batch un `worldUnlocked(tokenId, worldId)` par (joueur × monde) puis on compte les `true` par joueur.
-  const worldIds = useIdsList(contract, 'worldsLength', 'worldIds', 20);
-  const { data: worldsData } = useReadContracts({
-    contracts: validTokenIds.flatMap(x => worldIds.map(id => ({
-      address: contract, abi: HORIZON_ABI, functionName: 'worldUnlocked' as const, args: [x.id, id] as const,
-    }))) as any,
-    query: { enabled: validTokenIds.length > 0 && worldIds.length > 0 },
-  });
+  // Index adresse -> position dans `validTokenIds`/`voxlynsData`, pour retrouver rapidement les
+  // données on-chain d'un joueur donné lors de la construction des lignes ci-dessous.
+  const onChainIndexByAddr = useMemo(() => {
+    const m = new Map<string, number>();
+    validTokenIds.forEach((x, i) => m.set(x.addr, i));
+    return m;
+  }, [validTokenIds]);
 
+  // ⚠️ Correctif régression « seul Pouic apparaît dans le classement » : le classement doit lister
+  // TOUS les joueurs (portefeuille connecté ET mint effectué, portefeuille sans mint, Démo, Fiat),
+  // pas seulement ceux ayant un Voxlyn miné on-chain — voir demande utilisateur. On construit donc
+  // désormais une ligne pour CHAQUE adresse de `playerIndex` (`addresses`), en ne lisant les champs
+  // on-chain (xp/niveau/stade/score/nom) que pour celles qui ont réellement un tokenId, et en
+  // synthétisant les mêmes champs hors-chaîne pour les autres via `computeOffchainStageLevel`
+  // (même formule que `synthesizeOffchainVoxlyn` dans game/page.tsx, qui alimente déjà le dashboard
+  // d'un compte Démo/Fiat à l'identique d'un vrai Voxlyn miné).
   const rows: Row[] = useMemo(() => {
-    if (!voxlynsData) return [];
-    return validTokenIds.map((x, i) => {
-      const vox = voxlynsData[i * 2]?.result as any;
-      const sc  = voxlynsData[i * 2 + 1]?.result as bigint | undefined;
-      const onChainXp = vox ? Number(vox[3]) : 0;
-      const level     = vox ? Number(vox[7]) : 0;
-      const stage     = vox ? Number(vox[8]) : 0;
-      const displayName = vox ? String(vox[0]) : undefined;
-      const db = dbData[x.addr];
-      const activity = activityData[x.addr] ?? emptyActivity;
+    return addresses.map((addr) => {
+      const db = dbData[addr];
+      const activity = activityData[addr] ?? emptyActivity;
       const xpBonus = db?.xpBonus ?? 0;
-      const worldsDiscovered = worldsData && worldIds.length > 0
-        ? worldIds.reduce((acc, _, wi) => acc + (worldsData[i * worldIds.length + wi]?.result === true ? 1 : 0), 0)
-        : 0;
+      const onChainIdx = onChainIndexByAddr.get(addr);
+      let onChainXp = 0, level = 0, stage = 0, onChainScore = 0;
+      let displayName: string | undefined = db?.displayName;
+      if (onChainIdx !== undefined && voxlynsData) {
+        const vox = voxlynsData[onChainIdx * 2]?.result as any;
+        const sc  = voxlynsData[onChainIdx * 2 + 1]?.result as bigint | undefined;
+        if (vox) {
+          onChainXp = Number(vox[3]);
+          level     = Number(vox[7]);
+          stage     = Number(vox[8]);
+          displayName = String(vox[0]) || displayName;
+        }
+        onChainScore = Number(sc ?? 0);
+      } else {
+        // Aucun Voxlyn on-chain (Démo/Fiat, ou portefeuille pas encore minté) : toute la
+        // progression est portée par `xpBonus` hors-chaîne, exactement comme dans le jeu lui-même.
+        const synth = computeOffchainStageLevel(xpBonus);
+        level = synth.level;
+        stage = synth.stageIndex;
+      }
       return {
-        address: x.addr,
+        address: addr,
         displayName,
         onChainXp, xpBonus,
         totalXp: Math.max(0, onChainXp + xpBonus),
         level,
-        score: Number(sc ?? 0) + (db?.score ?? 0),
+        score: onChainScore + (db?.score ?? 0),
         reputation: db?.reputation ?? 0,
         stage,
-        worldsDiscovered,
+        worldsDiscovered: worldsUnlockedData[addr] ?? 0,
         questsSolved: activity.questsSolved,
         encounters: activity.encounters,
         fightsWon: activity.fightsWon,
         familiarsOwned: activity.familiarsOwned,
       };
     }).sort((a, b) => b.totalXp - a.totalXp);
-  }, [voxlynsData, validTokenIds, dbData, activityData, worldsData, worldIds]);
+  }, [addresses, dbData, activityData, onChainIndexByAddr, voxlynsData, worldsUnlockedData]);
 
   return (
     <main className="container mx-auto p-6 max-w-4xl">
@@ -185,7 +218,7 @@ export default function ScoreboardPage() {
                     {r.reputation}
                   </td>
                   <td className="p-2 text-right text-cyan-300">{t(`stage.${STAGE_NAMES[r.stage] ?? STAGE_NAMES[0]}`)}</td>
-                  <td className="p-2 text-right text-cyan-400">{r.worldsDiscovered}/{worldIds.length}</td>
+                  <td className="p-2 text-right text-cyan-400">{r.worldsDiscovered}/{worldCatalogSize}</td>
                   <td className="p-2 text-right text-amber-300">{r.questsSolved}</td>
                   <td className="p-2 text-right text-slate-300">{r.encounters}</td>
                   <td className="p-2 text-right text-rose-300">{r.fightsWon}</td>

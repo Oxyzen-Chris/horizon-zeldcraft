@@ -479,14 +479,17 @@ Dans le message ("Ta session Démo (2h) est arrivée à son terme. Contacte l'ad
 -----------------------------------------------------------------------------------------------------------------
 Par rapport à une demande précédente (commit cbac7b9), voici les éléments que je te demande de mettre en place :
 - Donnes la possibilité au joueur/à Synk de déposer via un drag and drop à la souris (même système de drag and drop que pour équiper Synk dans le widget "Equipement de Synk") d'un objet de sa besace, un objet à l'endroit exact où il le demande dans la vue 2D isométrique ou la vue 3D du widget de la plateforme 3D en relachant ce dernier objet à l'endroit où le joueur souhaite le déposer, conserve les coordonnées exact de cet endroit et l'objet ou les objets qui sont déposés pour lui permettre éventuellement plus tard de revenir les rechercher. Tu matérialiseras l'objet déposé dans le widget de la plateforme 3D par le type d'objet et sa forme 3D ainsi que dans le widget de la plateforme 2D isométrique et le widget de la mapmonde avec l'icône du type d'objet ainsi que son nom dans une info bulle et tu positionneras un filtre spécifique dans les filtre du widget "Mapmonde" pour retrouver les objets déposés par Synk. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+-----------------------------------------------------------------------------------------------------------------
+- Le classement des joueurs devrait me permettre de voir le classement de tous les joueurs, peu importe si je suis un joueur démo, sans portefeuille, avec un abonnement. Le principe de cette page est de permettre de connaitre son niveau mais aussi celui de tous les joueurs qui ont un compte ou joue au jeu donc fait en sorte que cela soit le cas car pour le moment, je ne vois que les scores de Pouic : [📷 copilot-image-1f59d9.png]. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+-----------------------------------------------------------------------------------------------------------------
+
+
 
 
 
 
 
 - Ajoutes une gestion du temps dans le jeu, c'est à dire, fait en sorte que le jeu se cale sur une journée de 24 heures pour avoir des jours et des nuits et dans les cas des nuits, transforme le décor en paysage de nuit avec une lune, des étoiles, un hibou qui hulule parfois dans la nuit ou un loup garou qui crie, mets une ambiance de nuit crépusculaire. La journée tu ajouteras un soleil, des nuages, parfois mais rarement de la pluie; Tu rendras les conditions météo aléatoires mais proche de la réalité et tu rendras paramétrables tous ces éléments dans le menu Administration. Tu afficheras l'horloge du temps dans un widget dédié que tu appeleras "Weather", en anglais et que tu traduiras en fonction des langues. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
-
-
 
 
 

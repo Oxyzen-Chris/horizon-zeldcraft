@@ -1482,3 +1482,57 @@ premier clic ne fait que déplacer Synk sans ouvrir la popup.
 `dataTransfer` au même format (`itemId` brut, ou `familiar:{id}` pour les familiers via
 `FAMILIAR_DRAG_PREFIX`) et de fonctionner indépendamment des nouveaux handlers de dépôt au sol —
 aucune modification de leur logique. `tsc --noEmit` et `npm run build` propres.
+
+## 🔒 Classement mondial (`/scoreboard`) : seuls les joueurs avec un Voxlyn on-chain apparaissaient
+
+**Bug signalé** : la page **Classement mondial des joueurs** (`/scoreboard`) n'affichait qu'un
+unique joueur (« Pouic ») alors qu'elle doit lister **tous** les joueurs ayant un compte ou jouant
+au jeu, quel que soit leur mode d'accès (portefeuille crypto, Démo sans portefeuille, paiement
+Fiat/abonnement).
+
+**Cause racine** (`app/scoreboard/page.tsx`) : la page listait bien toutes les adresses connues
+(`listPlayers()` → `playerIndex`, alimenté pour **tous** les types de comptes), mais construisait
+ensuite les lignes du tableau à partir de `validTokenIds` — la liste des adresses ayant un
+**Voxlyn réellement miné on-chain** (`voxlynOf(addr) > 0`) — et ignorait silencieusement toutes
+les autres. Or les comptes **Démo**/**Fiat** (sans portefeuille crypto, voir
+`docs/DEMO_FIAT.md`/§ « Comptes sans portefeuille crypto » ci-dessus) n'ont **jamais** de Voxlyn
+on-chain par construction (toute leur progression est portée par `PlayerState.xpBonus` en
+Firebase, voir `synthesizeOffchainVoxlyn` dans `game/page.tsx`), et un portefeuille connecté mais
+n'ayant pas encore minté son Voxlyn se trouvait dans le même cas — d'où la disparition de tous ces
+joueurs du classement. Le calcul des « Mondes découverts » aggravait le problème : il lisait le
+mapping on-chain `worldUnlocked(tokenId, worldId)`, lui aussi indisponible sans tokenId.
+
+**Correctif** : le classement construit désormais **une ligne par adresse de `playerIndex`**, sans
+exception :
+- Pour les adresses ayant un tokenId on-chain valide (`voxlynOf > 0`) : XP/niveau/stade/nom lus
+  depuis `voxlyns(tokenId)` + `playerScore(tokenId)`, comme avant (`onChainIndexByAddr` fait
+  correspondre chaque adresse à son index dans les lectures batchées `useReadContracts`).
+- Pour toutes les autres (Démo, Fiat, portefeuille pas encore minté) : niveau/stade synthétisés
+  hors-chaîne via `computeOffchainStageLevel(xpBonus)` (`lib/gameState.ts`) — **exactement la même
+  formule** que celle qui alimente déjà le dashboard de jeu de ces comptes
+  (`synthesizeOffchainVoxlyn`), donc aucune incohérence entre le classement et l'expérience de jeu.
+- **« Mondes découverts »** : remplacé par une lecture **hors-chaîne uniforme**,
+  `getUnlockedWorldIds(address)` (`players/{addr}/worldsUnlocked`, écrit par
+  `discoverWorldOffchain` quel que soit le type de compte — voir `PoiInteractionModal.tsx`),
+  comptée face au catalogue total (`getWorldDefs().length`). Fonctionne donc identiquement pour un
+  joueur avec ou sans Voxlyn miné ; supprime au passage la dépendance à l'ancien hook
+  `useIdsList`/au mapping on-chain `worldUnlocked` sur cette page (toujours utilisé ailleurs, ex.
+  `PlayerStats.tsx`, aucun changement là-bas).
+- Les autres colonnes (score, réputation, quêtes résolues, rencontres, combats gagnés, familiers)
+  étaient **déjà** lues hors-chaîne pour tous les comptes (`getPlayerActivityStats`,
+  `PlayerState.score`/`reputation`) — aucun changement nécessaire, elles s'affichaient simplement
+  jamais faute de ligne créée pour ces joueurs.
+
+**Vérifié (Playwright + inspection RTDB)** : `playerIndex` de production contenait 22 adresses
+(2 avec un vrai Voxlyn miné, 20 comptes Démo/Fiat/test sans tokenId). Avant correctif : 1 seule
+ligne affichée (« Pouic »). Après correctif : **22 lignes affichées**, triées par XP total
+décroissant, avec les 2 joueurs on-chain en tête (XP on-chain + bonus hors-chaîne combinés comme
+avant) et les comptes sans Voxlyn correctement synthétisés (niveau/stade cohérents avec leur
+`xpBonus`, y compris un `xpBonus` négatif clampé à 0 pour l'XP totale affichée) — **0 erreur
+console**, mise en page inchangée avec un plus grand nombre de lignes. `tsc --noEmit` et
+`npm run build` propres (mêmes avertissements préexistants MetaMask SDK/`ox` tempo, sans rapport).
+
+**Zéro régression confirmée** : le sous-ensemble de joueurs affiché précédemment (ceux avec un
+Voxlyn on-chain) obtient des valeurs strictement identiques à avant (même source on-chain, même
+formule XP on-chain + bonus) ; seul un nouvel ensemble de lignes est désormais ajouté pour les
+comptes qui n'apparaissaient jamais.
