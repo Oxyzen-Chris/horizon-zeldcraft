@@ -6,11 +6,12 @@ import {
   getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem, subscribeInventory,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, relocateZorghonCaptives, rescuePocaPoka,
-  CORNER_POSITION_CLASSES, trackFaintEvent, RKEY,
+  CORNER_POSITION_CLASSES, trackFaintEvent, RKEY, dropInventoryItemAt,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem, type ZorghonEncounterState,
   type SynkDirection,
 } from '@/lib/gameState';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
+import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
 import {
   TERRAIN_COLOR, PROP_ICON, TERRAIN_I18N_KEY, PROP_I18N_KEY, worldTileAt, clamp100, WORLD_SIZE, hashRand,
   isObstacleAt,
@@ -203,6 +204,10 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const [interactionMarker, setInteractionMarker] = useState<MapMarker | null>(null);
   const [hutResting, setHutResting] = useState(false);
   const [hutFeedback, setHutFeedback] = useState<string | null>(null);
+  // Message de confirmation après un dépôt réussi (glisser-déposer depuis la besace) — voir
+  // handleWorldItemDrop plus bas et demande utilisateur « déposer [...] un objet [...] à l'endroit
+  // exact où il le demande ». Même rendu que hutFeedback ci-dessus (pastille flottante en bas).
+  const [dropFeedback, setDropFeedback] = useState<string | null>(null);
 
   // Fiche joueur (HP/oxygène/…) — abonnement dédié à ce widget (comme WorldMapWidget/DiceRollWidget
   // le font déjà chacun de leur côté) pour ne pas coupler GameCanvas2D à game/page.tsx via des props.
@@ -289,9 +294,17 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // quelques temps plus tard (48 heures par exemple) ». `markers` (nom historique, inchangé) reste
   // dérivé afin de ne pas avoir à retoucher ses dizaines de sites d'usage plus bas.
   const hiddenTreasureIds = useHiddenTreasureIds(address, rules?.treasureRespawnHours ?? 48);
+  // Objets déposés par les joueurs (glisser-déposer depuis la besace — voir lib/worldDrops.ts et
+  // demande utilisateur « déposer [...] un objet [...] à l'endroit exact où il le demande [...]
+  // conserve les coordonnées exact »). Abonnement temps réel PARTAGÉ avec Platform3DWidget.tsx/
+  // WorldMapWidget.tsx (mêmes marqueurs `kind:'drop'` aux mêmes 3 endroits). Fusionné à `markers`
+  // ci-dessous pour hériter gratuitement de tout le pipeline existant (fenêtre de caméra, clic
+  // adjacent → PoiInteractionModal, filtres Mapmonde).
+  const worldDrops = useWorldDrops();
+  const dropMarkers = useMemo(() => worldDrops.map(worldDropToMarker), [worldDrops]);
   const markers = useMemo(
-    () => rawMarkers.filter(m => m.kind !== 'treasure' || !hiddenTreasureIds.has(RKEY(m.id))),
-    [rawMarkers, hiddenTreasureIds],
+    () => [...rawMarkers.filter(m => m.kind !== 'treasure' || !hiddenTreasureIds.has(RKEY(m.id))), ...dropMarkers],
+    [rawMarkers, hiddenTreasureIds, dropMarkers],
   );
   const poiPoints = useMemo(
     () => markers.filter(m => m.kind === 'poi').map(m => ({ x: m.x, y: m.y, poiType: m.poiType, radius: m.radius })),
@@ -982,7 +995,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // Les POI purement décoratifs (montagne, lac, sentier...) ne déclenchent aucun pop-up : leur
   // découverte fortuite (petit bonus d'XP) est déjà gérée par WorldMapWidget.tsx::runDiscoveryScan.
   const onMarkerClick = useCallback((m: MapMarker) => {
-    const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure'
+    const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure' || m.kind === 'drop'
       || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && m.poiType === 'hut');
     if (!interactable) return;
     const cur = worldPosRef.current;
@@ -1031,6 +1044,28 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     if (dist <= 1) setInteractionMarker(questMarker);
     else moveTo(actor.x, actor.y);
   }, [moveTo]);
+
+  // ─── Dépose d'un objet de la besace à un endroit exact de la grille (glisser-déposer natif HTML5,
+  // même mécanisme que EquipmentWidget.tsx — voir demande utilisateur « donne la possibilité au
+  // joueur/à Synk de déposer via un drag and drop [...] un objet de sa besace, un objet à l'endroit
+  // exact où il le demande [...] dans la vue 2D isométrique »). `wc`/`wr` = coordonnées MAPMONDE
+  // exactes de la tuile relâchée (voir onDrop de chaque tuile plus bas) — conservées telles quelles
+  // dans `catalog/worldDrops` (voir gameState.ts::dropInventoryItemAt) pour permettre de revenir
+  // les rechercher plus tard. Payload = simple `itemId` (résolu ici via l'inventaire courant, pas
+  // de nouveau préfixe nécessaire) ; un drag de familier (préfixé FAMILIAR_DRAG_PREFIX) ne
+  // correspond à aucun itemId d'inventaire et est donc silencieusement ignoré ici.
+  const handleWorldItemDrop = useCallback((e: React.DragEvent, wc: number, wr: number) => {
+    e.preventDefault();
+    const itemId = e.dataTransfer.getData('text/plain');
+    if (!itemId || !address) return;
+    const item = inventory.find((i) => i.itemId === itemId);
+    if (!item) return;
+    dropInventoryItemAt(address, item, wc, wr, 1).then((id) => {
+      if (!id) return;
+      setDropFeedback(t('game.inventory.worldDropSuccess', { name: itemLabel(t, item.itemId, item.name) }));
+      setTimeout(() => setDropFeedback(null), 3000);
+    }).catch(() => {});
+  }, [address, inventory, t]);
 
   // ─── Clic sur une tuile portant un portail décoratif (🌀 généré aléatoirement par worldTileAt) ───
   // Chaque portail décoratif est associé de façon déterministe (même case ⇒ toujours le même monde)
@@ -1422,6 +1457,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
                     else if (tile.prop === 'hut') onHutTileClick(origin.col + c, origin.row + r);
                     else moveTo(origin.col + c, origin.row + r);
                   }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => handleWorldItemDrop(e, origin.col + c, origin.row + r)}
                   title={tileTitle}
                 />
                 {tile.prop && (
@@ -1444,7 +1481,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           {renderedMarkers.map(m => {
             const x = projX(m.col, m.row), y = projY(m.col, m.row);
             const zIdx = m.col + m.row + 1;
-            const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure'
+            const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure' || m.kind === 'drop'
               || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && m.poiType === 'hut');
             return (
               <div
@@ -1591,6 +1628,13 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
         <div className="fixed inset-x-0 bottom-6 flex justify-center z-[101] pointer-events-none">
           <span className="bg-slate-900 border border-amber-500 text-amber-200 text-sm rounded-full px-4 py-2 shadow-xl">
             {hutFeedback}
+          </span>
+        </div>
+      )}
+      {dropFeedback && (
+        <div className="fixed inset-x-0 bottom-6 flex justify-center z-[101] pointer-events-none">
+          <span className="bg-slate-900 border border-amber-500 text-amber-200 text-sm rounded-full px-4 py-2 shadow-xl">
+            {dropFeedback}
           </span>
         </div>
       )}

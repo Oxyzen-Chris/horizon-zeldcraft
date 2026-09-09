@@ -2580,8 +2580,14 @@ export async function getMapPoiDefs(mapId?: string): Promise<MapPoiDef[]> {
 /** Catégorie d'un marqueur localisé sur la mapmonde/plateforme isométrique — voir MapMarker.
  * 'zorghon'/'captive' : marqueurs narratifs uniques (voir ZorghonEncounterState ci-dessous),
  * purement visuels (non "interactable" dans le sens PoiInteractionModal — voir onMarkerClick de
- * GameCanvas2D.tsx), fusionnés au rendu comme kingdomMarker (aucun ajout à getAllMapMarkers()). */
-export type MapMarkerKind = 'poi' | 'world' | 'npc' | 'treasure' | 'familiar' | 'quest' | 'zorghon' | 'captive';
+ * GameCanvas2D.tsx), fusionnés au rendu comme kingdomMarker (aucun ajout à getAllMapMarkers()).
+ * 'drop' : objet déposé par un joueur depuis sa besace (glisser-déposer vers la Plateforme 2D
+ * isométrique/3D — voir demande utilisateur « déposer [...] un objet [...] à l'endroit exact où il
+ * le demande [...] conserve les coordonnées exact [...] pour lui permettre [...] de revenir les
+ * rechercher »). Source de vérité : `catalog/worldDrops/{dropId}` (voir WorldDroppedItem/
+ * lib/worldDrops.ts ci-dessous) — jamais ajouté à getAllMapMarkers() (catalogue statique), fusionné
+ * en direct par chaque widget via `useWorldDrops()`, exactement comme les PNJ/dragons errants. */
+export type MapMarkerKind = 'poi' | 'world' | 'npc' | 'treasure' | 'familiar' | 'quest' | 'zorghon' | 'captive' | 'drop';
 
 /**
  * Marqueur unifié positionné sur la carte : regroupe les décors/terrain (MapPoiDef), les portes de
@@ -2685,6 +2691,116 @@ export async function getAllMapMarkers(
   return markers;
 }
 
+// ─── Objets déposés par les joueurs (glisser-déposer besace → Plateforme 2D isométrique/3D, voir
+// demande utilisateur) ────────────────────────────────────────────────────────────────────────
+/**
+ * Un objet retiré de la besace d'un joueur et déposé à des coordonnées EXACTES de la mapmonde,
+ * matérialisé dans les 3 widgets (Plateforme 2D isométrique, Plateforme 3D, Mapmonde) tant que
+ * personne ne l'a repris (voir `pickupWorldDrop`). Stocké sous `catalog/worldDrops/{id}` — nœud
+ * PARTAGÉ par tout le monde (pas `players/{addr}/...`) car il doit rester visible sur la mapmonde
+ * pour QUICONQUE s'approche, exactement comme un trésor du catalogue ; `droppedBy` ne sert qu'à
+ * l'affichage ("déposé par Synk"), jamais à restreindre qui peut le reprendre. Nid volontairement
+ * sous `catalog/` (règles RTDB déjà publiées : `.read: true`, `.write: auth != null`, voir
+ * `docs/FIREBASE_CHAT.md` § 4) plutôt qu'un nouveau nœud racine, qui resterait bloqué
+ * (PERMISSION_DENIED) tant que les règles ne sont pas republiées manuellement en Console Firebase —
+ * même contournement déjà utilisé ailleurs dans ce fichier (ex. `demoSessions`). Reprend les mêmes
+ * champs d'équipement que `InventoryItem` (hors `addedAt`) afin qu'un objet repris à l'identique
+ * (usure, rareté, dégâts/défense...) retrouve exactement son état d'avant dépôt.
+ */
+export interface WorldDroppedItem {
+  id: string;
+  itemId: string;
+  name: string;
+  category: InventoryItem['category'];
+  qty: number;
+  x: number; y: number;
+  droppedBy: string;
+  droppedAt: number;
+  effect?: InventoryItem['effect'];
+  slot?: EquipSlot;
+  rarity?: ItemRarity;
+  damage?: number;
+  defense?: number;
+  durabilityMax?: number;
+  durability?: number;
+  requiresArrow?: boolean;
+  requiresFamiliarId?: string;
+}
+
+const WORLD_DROPS_PATH = 'catalog/worldDrops';
+
+/** Retire `qty` exemplaires (défaut 1, jamais plus que le tas possédé) de `item` de la besace du
+ * joueur et les matérialise aux coordonnées mapmonde `(x, y)` — voir WorldDroppedItem ci-dessus.
+ * Retourne la clé Firebase du dépôt créé (nécessaire pour le reprendre ensuite via
+ * `pickupWorldDrop`), ou `null` en cas d'échec (retrait de l'inventaire refusé, ex. quantité
+ * insuffisante entre-temps sur un autre onglet). */
+export async function dropInventoryItemAt(address: string, item: InventoryItem, x: number, y: number, qty = 1): Promise<string | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+  await ensureAnonSignIn();
+  const q = Math.max(1, Math.min(Math.round(qty), item.qty));
+  const removed = await removeFromInventory(address, item.itemId, q);
+  if (!removed) return null;
+  const node: Record<string, unknown> = {
+    itemId: item.itemId, name: item.name, category: item.category, qty: q,
+    x, y, droppedBy: address, droppedAt: Date.now(),
+  };
+  const equipFields: (keyof InventoryItem)[] = [
+    'effect', 'slot', 'rarity', 'damage', 'defense', 'durabilityMax', 'durability', 'requiresArrow', 'requiresFamiliarId',
+  ];
+  for (const k of equipFields) if (item[k] !== undefined) node[k] = item[k];
+  const newRef = push(ref(db, WORLD_DROPS_PATH));
+  await set(newRef, node);
+  return newRef.key;
+}
+
+/** Abonnement temps réel à TOUS les objets actuellement déposés dans le monde (voir
+ * WorldDroppedItem) — reflète immédiatement tout dépôt/reprise dans les 3 widgets sans recharger
+ * la page, exactement comme `subscribeInventory`. Voir aussi `lib/worldDrops.ts::useWorldDrops`. */
+export function subscribeWorldDrops(cb: (drops: WorldDroppedItem[]) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb([]); return () => {}; }
+  const r = ref(db, WORLD_DROPS_PATH);
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, Omit<WorldDroppedItem, 'id'>> | null;
+    cb(v ? Object.entries(v).map(([id, d]) => ({ id, ...d })) : []);
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/** Lecture ponctuelle d'un dépôt précis (voir PoiInteractionModal.tsx::DropBody, qui a seulement
+ * besoin de l'id du marqueur cliqué pour afficher son détail complet). */
+export async function getWorldDrop(dropId: string): Promise<WorldDroppedItem | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+  const snap = await get(ref(db, `${WORLD_DROPS_PATH}/${dropId}`));
+  const v = snap.val() as Omit<WorldDroppedItem, 'id'> | null;
+  return v ? { id: dropId, ...v } : null;
+}
+
+/** Reprend un objet déposé (n'importe quel joueur peut le faire, pas seulement celui qui l'a
+ * déposé — voir commentaire de WorldDroppedItem) : le rajoute dans la besace du joueur puis
+ * supprime définitivement le dépôt. Retourne le dépôt repris (pour un message de confirmation
+ * avec son nom) ou `null` s'il a déjà été repris entre-temps par quelqu'un d'autre. */
+export async function pickupWorldDrop(address: string, dropId: string): Promise<WorldDroppedItem | null> {
+  const db = getFirebaseDb();
+  if (!db) return null;
+  await ensureAnonSignIn();
+  const path = `${WORLD_DROPS_PATH}/${dropId}`;
+  const snap = await get(ref(db, path));
+  const v = snap.val() as Omit<WorldDroppedItem, 'id'> | null;
+  if (!v) return null;
+  await addToInventory(address, {
+    itemId: v.itemId, name: v.name, category: v.category, qty: v.qty,
+    effect: v.effect, slot: v.slot, rarity: v.rarity, damage: v.damage, defense: v.defense,
+    durabilityMax: v.durabilityMax, durability: v.durability,
+    requiresArrow: v.requiresArrow, requiresFamiliarId: v.requiresFamiliarId,
+  });
+  await set(ref(db, path), null);
+  return { id: dropId, ...v };
+}
+
 // ─── Filtres d'affichage Mapmonde/Plateforme 2D isométrique (boutons "afficher/masquer" par
 // catégorie — voir demande utilisateur) — l'ÉTAT courant (quel joueur a coché quoi) reste une
 // préférence 100% côté client (localStorage, voir lib/mapFilters.ts) puisqu'il n'affecte que
@@ -2699,12 +2815,15 @@ export interface MapFilterDefaults {
   /** "Filtre intelligent" par défaut (voir lib/mapFilters.ts::MapFilterState.declutter) — `false`
    * par défaut (comportement historique inchangé). */
   declutter: boolean;
+  /** Filtre "Objets déposés" (voir MapMarkerKind==='drop'/WorldDroppedItem ci-dessus) — `true` par
+   * défaut (visible d'emblée, comme tous les autres filtres historiques). */
+  showDrops: boolean;
   updatedAt: number;
 }
 export const DEFAULT_MAP_FILTER_DEFAULTS: MapFilterDefaults = {
   showPois: true, showWorlds: true, showNpcs: true, showTreasures: true, showFamiliars: true,
   showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true, kingdomFullMoonMode: 'all',
-  declutter: false, updatedAt: 0,
+  declutter: false, showDrops: true, updatedAt: 0,
 };
 export async function getMapFilterDefaults(): Promise<MapFilterDefaults> {
   const db = getFirebaseDb();

@@ -236,14 +236,16 @@ export function InventoryWidget({ enabled = true }: { enabled?: boolean } = {}) 
           ) : (
             <div className="grid grid-cols-2 gap-2">
               {visibleItems.map((it) => {
-                const draggableItem = !!it.slot || it.category === 'arrow' || MOUTH_CATEGORIES.has(it.category);
+                // Voir InventoryPanel.tsx pour le détail de ce choix (drag natif TOUJOURS actif,
+                // `equippableDrag` sert uniquement à choisir l'indice affiché).
+                const equippableDrag = !!it.slot || it.category === 'arrow' || MOUTH_CATEGORIES.has(it.category);
                 return (
                   <div
                     key={it.itemId}
-                    className={`bg-slate-800/60 rounded p-2 text-center ${draggableItem ? 'cursor-grab' : ''}`}
-                    draggable={draggableItem}
+                    className="bg-slate-800/60 rounded p-2 text-center cursor-grab"
+                    draggable
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', it.itemId)}
-                    title={draggableItem ? t('game.inventory.dragHint') : undefined}
+                    title={equippableDrag ? t('game.inventory.dragHint') : t('game.inventory.worldDropHint')}
                   >
                     <p className="text-[11px] font-semibold truncate">{itemLabel(t, it.itemId, it.name)}</p>
                     <p className="text-[10px] text-slate-400 mb-1">×{it.qty}</p>

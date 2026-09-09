@@ -1,19 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
   subscribePlayer, subscribeInventory, getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment, applyEffect,
-  DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY,
+  DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY, dropInventoryItemAt,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
   type ZorghonEncounterState, type SynkDirection, type EquipSlot, type EquippedItem,
   type Platform3DObjectKind, type Platform3DObjectFlags,
 } from '@/lib/gameState';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
+import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
 import {
   worldTileAt, clamp100, WORLD_SIZE, TERRAIN_COLOR, PROP_ICON, PROP_I18N_KEY, hashRand,
   isObstacleAt, type Tile,
@@ -49,6 +50,21 @@ const CANVAS_W = 460, CANVAS_H = 360;
 const MIN_W = 380, MIN_H = 300, MAX_W = 1400, MAX_H = 920;
 const SIZE_KEY = 'zc.platform3dWidgetSize';
 const WALK_STOP_DELAY_MS = 220; // identique à GameCanvas2D.tsx (voir sa constante du même nom)
+
+/** Pont caméra ↔ conteneur DOM externe : `<Canvas>` de React Three Fiber ne propage PAS les
+ * événements HTML5 natifs `dragover`/`drop` jusqu'aux meshes (seuls les vrais éléments DOM les
+ * reçoivent), donc le glisser-déposer d'un objet de la besace (voir demande utilisateur "besace
+ * → widget Plateforme 3D") est géré sur le `<div>` enveloppant `<Canvas>` (voir `fullscreenRef`
+ * plus bas) avec un raycast manuel. Ce petit composant, monté SOUS `<Canvas>`, expose la caméra
+ * R3F courante (mise à jour en continu par OrbitControls) via une ref lue par le gestionnaire
+ * `onDrop` externe — sans lui, le raycast utiliserait la position de caméra INITIALE figée et
+ * calculerait une position erronée dès que le joueur a orbité/zoomé à la souris. */
+function CameraBridge({ cameraRef }: { cameraRef: React.MutableRefObject<THREE.Camera | null> }) {
+  const { camera } = useThree();
+  useEffect(() => { cameraRef.current = camera; }, [camera, cameraRef]);
+  return null;
+}
+
 
 interface Pos { x: number; y: number }
 interface Size { w: number; h: number }
@@ -945,6 +961,12 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   const isFamiliar = kind === 'familiar';
   const isNpc = kind === 'npc';
   const isTreasure = kind === 'treasure';
+  // Objet déposé par un joueur (glisser-déposer depuis la besace — voir MapMarkerKind==='drop'/
+  // lib/worldDrops.ts) : réutilise EXACTEMENT le même rendu que `isTreasure` ci-dessous (même
+  // registre `treasureCategory`/`TreasureIcon` déduit du nom/id, voir demande utilisateur
+  // « matérialiseras l'objet déposé [...] par le type d'objet et sa forme 3D ») — aucune nouvelle
+  // géométrie à maintenir, un objet déposé ressemble donc à un trésor de la même catégorie.
+  const isDrop = kind === 'drop';
   const isWorld = kind === 'world';
   const isZorghon = kind === 'zorghon';
   const isCaptive = kind === 'captive';
@@ -1127,10 +1149,11 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
       </group>
     );
   }
-  if (isTreasure) {
-    // Trésor : forme réaliste dédiée à sa catégorie (épée/bouclier/armure/potion/grimoire/bottes/
-    // champignon/pomme/œuf de dragon/etc., voir `treasureCategory`/`TreasureIcon` ci-dessus) au lieu
-    // du coffre générique unique pour absolument tout le catalogue.
+  if (isTreasure || isDrop) {
+    // Trésor OU objet déposé par un joueur (voir isDrop ci-dessus) : forme réaliste dédiée à sa
+    // catégorie (épée/bouclier/armure/potion/grimoire/bottes/champignon/pomme/œuf de dragon/etc.,
+    // voir `treasureCategory`/`TreasureIcon` ci-dessus) au lieu du coffre générique unique pour
+    // absolument tout le catalogue.
     const category = treasureCategory(markerId ?? '', name ?? '');
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
@@ -1765,9 +1788,13 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // quelques temps plus tard (48 heures par exemple) ». `markers` (nom historique, inchangé) reste
   // dérivé afin de ne pas avoir à retoucher ses dizaines de sites d'usage plus bas.
   const hiddenTreasureIds = useHiddenTreasureIds(address, rules?.treasureRespawnHours ?? 48);
+  // Objets déposés par les joueurs (glisser-déposer besace → Plateforme 3D/2D — voir
+  // lib/worldDrops.ts). Même abonnement temps réel PARTAGÉ que GameCanvas2D.tsx/WorldMapWidget.tsx.
+  const worldDrops = useWorldDrops();
+  const dropMarkers = useMemo(() => worldDrops.map(worldDropToMarker), [worldDrops]);
   const markers = useMemo(
-    () => rawMarkers.filter(m => m.kind !== 'treasure' || !hiddenTreasureIds.has(RKEY(m.id))),
-    [rawMarkers, hiddenTreasureIds],
+    () => [...rawMarkers.filter(m => m.kind !== 'treasure' || !hiddenTreasureIds.has(RKEY(m.id))), ...dropMarkers],
+    [rawMarkers, hiddenTreasureIds, dropMarkers],
   );
   // Attribue au PNJ errant/Dragon errant une entrée catalogue réelle — idempotent et PARTAGÉ avec
   // GameCanvas2D.tsx (voir lib/roamingActors.ts::ensureRoamingIdentities) : garantit que le PNJ/
@@ -2217,7 +2244,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // 3 vues (2D isométrique/3D/mapmonde) et éviter toute duplication/divergence de mécanique.
   const onMarkerClick3D = useCallback((m: MapMarker) => {
     if (dragStateRef.current?.dragged) return; // voir « Distinction glissé-souris / clic » ci-dessus
-    const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure'
+    const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure' || m.kind === 'drop'
       || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && m.poiType === 'hut');
     if (!interactable) return;
     const cur = worldPosRef.current;
@@ -2387,6 +2414,45 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     else fullscreenRef.current.requestFullscreen?.().catch(() => {});
   }, []);
 
+  // ─── Glisser-déposer d'un objet de la besace vers le sol 3D (voir demande utilisateur "déposer
+  // via un drag and drop [...] dans la vue [...] 3D du widget de la plateforme 3D") : la caméra
+  // R3F courante est lue via `cameraRef` (voir CameraBridge ci-dessus, monté dans <Canvas>) pour
+  // convertir la position souris en rayon 3D, intersecté avec le plan du sol (y=0, sommet des
+  // dalles — voir TerrainBlock : boxGeometry hauteur 1 centrée en y=-0.5). Le point d'intersection
+  // est exprimé DIRECTEMENT dans le repère de la Scene, où Synk est toujours à l'origine (0,0,0)
+  // et chaque dalle affiche un décalage `dx=wc-centerCol`/`dz=wr-centerRow` (voir `Scene`'s `tiles`
+  // useMemo) — donc arrondir (point.x, point.z) donne (dx, dz) sans transformation supplémentaire.
+  const cameraRef = useRef<THREE.Camera | null>(null);
+  const groundPlaneRef = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const [dropFeedback3D, setDropFeedback3D] = useState<string | null>(null);
+  const onPlatform3DDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const itemId = e.dataTransfer.getData('text/plain');
+    if (!itemId || !address) return;
+    const item = inventory.find(i => i.itemId === itemId);
+    if (!item) return;
+    const camera = cameraRef.current;
+    const container = fullscreenRef.current;
+    if (!camera || !container) return;
+    const rect = container.getBoundingClientRect();
+    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycasterRef.current.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+    const hit = new THREE.Vector3();
+    if (!raycasterRef.current.ray.intersectPlane(groundPlaneRef.current, hit)) return;
+    const dx = Math.round(hit.x), dz = Math.round(hit.z);
+    if (Math.abs(dx) > VIEW_RADIUS || Math.abs(dz) > VIEW_RADIUS) return; // hors du terrain rendu
+    const rawWc = centerCol + dx, rawWr = centerRow + dz;
+    if (rawWc < 0 || rawWc > WORLD_SIZE || rawWr < 0 || rawWr > WORLD_SIZE) return;
+    dropInventoryItemAt(address, item, clamp100(rawWc), clamp100(rawWr), 1).then((ok) => {
+      if (ok) {
+        setDropFeedback3D(t('game.inventory.worldDropSuccess', { name: localizeName(t, `item.${item.itemId}`, item.name) }));
+        setTimeout(() => setDropFeedback3D(null), 3000);
+      }
+    }).catch(() => {});
+  }, [address, inventory, centerCol, centerRow, t]);
+
 
 
   if (!enabled || !address || !pos) return null;
@@ -2471,6 +2537,8 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         ref={fullscreenRef} className="relative bg-slate-950"
         style={{ width: isFullscreen ? '100vw' : size.w, height: isFullscreen ? '100vh' : size.h }}
         onPointerDown={onCanvasPointerDownForDrag} onPointerMove={onCanvasPointerMoveForDrag}
+        onDragOver={(e) => { if (!underwaterMode) e.preventDefault(); }}
+        onDrop={(e) => { if (!underwaterMode) onPlatform3DDrop(e); }}
         onContextMenu={(e) => {
           // Menu "nager/plonger" (voir RepRules.platform3dUnderwaterWorldEnabled) proposé
           // UNIQUEMENT quand Synk est déjà sur une dalle d'eau et pas encore en pleine plongée ;
@@ -2495,22 +2563,32 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
             />
           ) : (
-            <Scene
-              centerCol={centerCol} centerRow={centerRow} poiPoints={poiPoints} sceneMarkers={sceneMarkers}
-              stage={stage} walking={isWalking} running={isRunning} swimming={swimming} jumpTrigger={jumpTrigger}
-              facing={facing} equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
-              standY={standY}
-              onTileClick={onTileClick} onPortalTileClick={onPortalTileClick3D} onHutTileClick={onHutTileClick3D}
-              onMarkerClick={onMarkerClick3D}
-              onExtraQuestClick={onExtraQuestClick3D}
-              eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
-              eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
-              objectFlags={rules?.platform3dObjectFlags}
-              fireBreathEnabled={rules?.dragonFireBreathEnabled ?? true}
-              fireBreathIntervalSec={rules?.dragonFireBreathIntervalSec ?? 60}
-            />
+            <>
+              <CameraBridge cameraRef={cameraRef} />
+              <Scene
+                centerCol={centerCol} centerRow={centerRow} poiPoints={poiPoints} sceneMarkers={sceneMarkers}
+                stage={stage} walking={isWalking} running={isRunning} swimming={swimming} jumpTrigger={jumpTrigger}
+                facing={facing} equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
+                standY={standY}
+                onTileClick={onTileClick} onPortalTileClick={onPortalTileClick3D} onHutTileClick={onHutTileClick3D}
+                onMarkerClick={onMarkerClick3D}
+                onExtraQuestClick={onExtraQuestClick3D}
+                eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
+                eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
+                objectFlags={rules?.platform3dObjectFlags}
+                fireBreathEnabled={rules?.dragonFireBreathEnabled ?? true}
+                fireBreathIntervalSec={rules?.dragonFireBreathIntervalSec ?? 60}
+              />
+            </>
           )}
         </Canvas>
+        {dropFeedback3D && (
+          <div className="absolute inset-x-0 bottom-2 flex justify-center pointer-events-none z-20">
+            <span className="bg-slate-900/90 border border-amber-500 text-amber-200 text-[11px] rounded-full px-3 py-1 shadow-xl">
+              {dropFeedback3D}
+            </span>
+          </div>
+        )}
         {underwaterMode && (
           <>
             <div className="absolute top-1.5 left-1.5 right-1.5 bg-sky-950/80 rounded px-2 py-1 text-[10px] text-sky-200 pointer-events-none">

@@ -162,14 +162,23 @@ export function InventoryPanel() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           {visibleItems.map((it) => {
-            const draggableItem = !!it.slot || it.category === 'arrow' || MOUTH_CATEGORIES.has(it.category);
+            // Glissable vers EquipmentWidget.tsx UNIQUEMENT si équipable/consommable (comportement
+            // historique inchangé, voir MOUTH_CATEGORIES ci-dessus) — sert seulement à choisir le
+            // bon indice ci-dessous. Le drag-and-drop natif (`draggable`), lui, est désormais
+            // TOUJOURS actif quelle que soit la catégorie : voir demande utilisateur « donne la
+            // possibilité au joueur [...] de déposer via un drag and drop [...] un objet de sa
+            // besace [...] dans la vue 2D isométrique ou la vue 3D » — tout objet doit pouvoir être
+            // déposé dans le monde, pas seulement ceux équipables. La charge utile reste le simple
+            // `itemId` (comportement historique) : GameCanvas2D.tsx/Platform3DWidget.tsx le
+            // résolvent eux-mêmes via l'inventaire courant du joueur (voir onDropOnTile/onDrop3D).
+            const equippableDrag = !!it.slot || it.category === 'arrow' || MOUTH_CATEGORIES.has(it.category);
             return (
             <div
               key={it.itemId}
-              className={`bg-slate-800/60 rounded p-2 text-center ${draggableItem ? 'cursor-grab' : ''}`}
-              draggable={draggableItem}
+              className="bg-slate-800/60 rounded p-2 text-center cursor-grab"
+              draggable
               onDragStart={(e) => e.dataTransfer.setData('text/plain', it.itemId)}
-              title={draggableItem ? t('game.inventory.dragHint') : undefined}
+              title={equippableDrag ? t('game.inventory.dragHint') : t('game.inventory.worldDropHint')}
             >
               <p className="text-sm font-semibold truncate">{itemLabel(t, it.itemId, it.name)}</p>
               <p className="text-xs text-slate-400 mb-1">×{it.qty}</p>
@@ -185,9 +194,10 @@ export function InventoryPanel() {
                   🧝 {t('game.inventory.equip')}
                 </button>
               )}
-              {draggableItem && (
+              {equippableDrag && (
                 <p className="text-[9px] text-indigo-300 mt-1">🧝 {t('game.inventory.equipHint')}</p>
               )}
+              <p className="text-[9px] text-amber-300 mt-1">📦 {t('game.inventory.worldDropHint')}</p>
             </div>
             );
           })}

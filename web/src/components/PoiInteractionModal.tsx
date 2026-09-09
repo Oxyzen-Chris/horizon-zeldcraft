@@ -8,9 +8,9 @@ import {
   getTreasureDefs, openTreasureOffchain, getFoundTreasureEntries, isTreasureCurrentlyHidden,
   getQuestDefs, submitQuestAnswerOffchain, getUnlockedQuestIds, unlockQuestForPlayer, getSolvedQuest,
   getWorldDefs, discoverWorldOffchain, subscribeUnlockedWorldIds,
-  getHutRestRemainingMs, RKEY,
+  getHutRestRemainingMs, RKEY, getWorldDrop, pickupWorldDrop,
   type MapMarker, type RepRules, type NpcDef, type FamiliarDef, type TreasureDef, type QuestDef, type WorldDef,
-  type TreasureFoundEntry,
+  type TreasureFoundEntry, type WorldDroppedItem,
 } from '@/lib/gameState';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -56,6 +56,7 @@ export function PoiInteractionModal({
   else if (marker.kind === 'treasure') body = <TreasureBody marker={marker} address={address} playerXp={playerXp} playerWallet={playerWallet ?? 0} rules={rules} />;
   else if (marker.kind === 'quest') body = <QuestBody marker={marker} address={address} playerXp={playerXp} rules={rules} />;
   else if (marker.kind === 'world') body = <WorldBody marker={marker} address={address} playerXp={playerXp} />;
+  else if (marker.kind === 'drop') body = <DropBody marker={marker} address={address} />;
   else body = <HutBody address={address} rules={rules} onRequestHutRest={() => { onClose(); onRequestHutRest(); }} />;
 
   return createPortal(
@@ -216,6 +217,57 @@ function FamiliarBody({ marker, address, playerXp }: { marker: Marker; address?:
  * temps réel dans les 3 widgets par `lib/treasureVisibility.ts` dès l'ouverture (voir
  * `openTreasureOffchain` qui écrit `foundAt`) — ce composant se contente d'un `getFoundTreasureEntries`
  * ponctuel (le pop-up est démonté à la fermeture, un abonnement temps réel serait inutile ici). */
+/**
+ * Objet déposé au sol par un joueur (glisser-déposer besace → widget 2D/3D — voir
+ * lib/worldDrops.ts, lib/gameState.ts::dropInventoryItemAt/pickupWorldDrop). Marqueur GLOBAL
+ * partagé (aucune restriction "propriétaire", voir demande utilisateur : visible/récupérable par
+ * n'importe quel joueur puisqu'il apparaît pour tous sur la Mapmonde) — modelé sur TreasureBody
+ * ci-dessous mais sans condition XP/pièces : un objet déposé se ramasse simplement d'un clic.
+ */
+function DropBody({ marker, address }: { marker: Marker; address?: string }) {
+  const { t } = useI18n();
+  const [drop, setDrop] = useState<WorldDroppedItem | null | undefined>(undefined); // undefined = chargement en cours
+  const [busy, setBusy] = useState(false);
+  const [pickedUp, setPickedUp] = useState(false);
+
+  useEffect(() => {
+    getWorldDrop(marker.id).then(setDrop).catch(() => setDrop(null));
+  }, [marker.id]);
+
+  if (drop === undefined) return <p className="text-sm text-slate-400">⏳</p>;
+  if (pickedUp) return <p className="text-sm text-emerald-400">{t('game.worldDrop.pickedUp')}</p>;
+  // Déjà ramassé entre-temps par un autre joueur (marqueur PARTAGÉ, voir doc ci-dessus) — le nœud
+  // RTDB `catalog/worldDrops/{id}` a été supprimé par `pickupWorldDrop` ailleurs.
+  if (!drop) return <p className="text-sm text-slate-400">{t('game.worldDrop.gone')}</p>;
+
+  // `itemLabel` renvoie déjà l'icône intégrée pour les objets (ex: "⚔️ Épée épique", voir
+  // i18n/messages/*.json clés `item.*`) — ne PAS reconcaténer `worldDropIcon()` par-dessus sous
+  // peine de dupliquer l'icône (cf. correctif identique appliqué à `worldDropToMarker()`).
+  const name = itemLabel(t, drop.itemId, drop.name);
+
+  const pickup = async () => {
+    if (!address || busy) return;
+    setBusy(true);
+    try {
+      const res = await pickupWorldDrop(address, marker.id);
+      if (res) setPickedUp(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="text-sm">
+      <p className="text-xs text-slate-300 mb-2">
+        {name}{drop.qty > 1 ? ` ×${drop.qty}` : ''}
+      </p>
+      <button className="btn-primary text-xs w-full" disabled={busy || !address} onClick={pickup}>
+        🖐️ {t('game.worldDrop.pickup')}
+      </button>
+    </div>
+  );
+}
+
 function TreasureBody({ marker, address, playerXp, playerWallet, rules }: { marker: Marker; address?: string; playerXp: number; playerWallet: number; rules: RepRules | null }) {
   const { t } = useI18n();
   const [def, setDef] = useState<TreasureDef | null>(null);

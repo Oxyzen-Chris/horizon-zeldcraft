@@ -45,12 +45,17 @@ export interface MapFilterState {
    * le joueur ou l'admin ne l'active pas explicitement).
    */
   declutter: boolean;
+  /** Filtre "Objets déposés" (voir MapMarkerKind==='drop'/lib/worldDrops.ts) — objets retirés de la
+   * besace d'un joueur et déposés à des coordonnées exactes de la mapmonde (voir demande
+   * utilisateur « positionneras un filtre spécifique [...] pour retrouver les objets déposés par
+   * Synk »). Actif par défaut, comme tous les autres filtres historiques. */
+  showDrops: boolean;
 }
 
 export const DEFAULT_MAP_FILTERS: MapFilterState = {
   showPois: true, showWorlds: true, showNpcs: true, showTreasures: true, showFamiliars: true,
   showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true,
-  kingdomChapters: null, kingdomFullMoonMode: 'all', declutter: false,
+  kingdomChapters: null, kingdomFullMoonMode: 'all', declutter: false, showDrops: true,
 };
 
 // Rayon (en % de l'échelle mapmonde 0-100, même échelle que MapMarker.x/y) au-delà duquel un
@@ -96,7 +101,7 @@ export function hasUserMapFilterChoice(): boolean { return hasUserChoice; }
 export function applyAdminMapFilterDefaults(defaults: {
   showPois: boolean; showWorlds: boolean; showNpcs: boolean; showTreasures: boolean; showFamiliars: boolean;
   showQuestsClassic: boolean; showQuestsNpc: boolean; showQuestsKingdom: boolean;
-  kingdomFullMoonMode: 'all' | 'onlyFullMoon' | 'onlyNormal'; declutter?: boolean;
+  kingdomFullMoonMode: 'all' | 'onlyFullMoon' | 'onlyNormal'; declutter?: boolean; showDrops?: boolean;
 }) {
   if (hasUserChoice) return;
   current = { ...current, ...defaults };
@@ -127,6 +132,7 @@ export const MAP_FILTER_CATEGORIES: { key: keyof MapFilterState; icon: string; i
   { key: 'showQuestsClassic', icon: '📜', i18nKey: 'map.filters.questsClassic' },
   { key: 'showQuestsNpc', icon: '❓', i18nKey: 'map.filters.questsNpc' },
   { key: 'showQuestsKingdom', icon: '👑', i18nKey: 'map.filters.questsKingdom' },
+  { key: 'showDrops', icon: '📦', i18nKey: 'map.filters.drops' },
   { key: 'declutter', icon: '🧹', i18nKey: 'map.filters.declutter' },
 ];
 
@@ -160,6 +166,7 @@ export function markerMatchesFilters(m: MapMarker, f: MapFilterState, playerPos?
     case 'npc': matchesCategory = f.showNpcs; break;
     case 'treasure': matchesCategory = f.showTreasures; break;
     case 'familiar': matchesCategory = f.showFamiliars; break;
+    case 'drop': matchesCategory = f.showDrops; break;
     case 'quest': {
       if (m.questCategory === 'kingdom') {
         if (!f.showQuestsKingdom) { matchesCategory = false; break; }

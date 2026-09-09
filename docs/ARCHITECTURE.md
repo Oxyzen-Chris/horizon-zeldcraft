@@ -1390,3 +1390,95 @@ redéploiement ni gas. Le smart contract ne reste responsable que des opération
 Voir § Architecture DLC / Content Packs ci-dessus : chaque nouvelle saison narrative (après la
 défaite de Zorghon) est livrée comme un pack de contenu isolé, activable indépendamment, sans
 toucher au contenu déjà publié.
+
+## 🔒 Dépôt d'objets au sol par glisser-déposer (Plateforme 2D/3D/Mapmonde) + doublons d'icône
+
+**Demande utilisateur** : permettre à Synk de déposer, par glisser-déposer à la souris (même
+mécanisme que pour équiper Synk dans `EquipmentWidget.tsx`), un objet de sa besace à un endroit
+précis de la vue 2D isométrique ou de la vue 3D ; conserver les coordonnées monde exactes et
+l'objet déposé pour permettre de venir le rechercher plus tard ; matérialiser l'objet déposé dans
+la Plateforme 3D par sa forme 3D selon son type, et dans la Plateforme 2D isométrique / la
+Mapmonde par une icône + une info-bulle avec son nom ; ajouter un filtre dédié « Objets déposés »
+dans les filtres du widget Mapmonde.
+
+**Modèle de données (`lib/gameState.ts`)** : nouvelle interface `WorldDroppedItem` (`itemId`,
+`name`, `category`, `slot`, `rarity`, `qty`, `x`/`y` en coordonnées monde absolues — même repère que
+`worldPosRef.current`, aucune transformation nécessaire —, `droppedBy`, `droppedAt`, plus les
+champs d'équipement pertinents type `damage`/`effect`/`durabilityMax` recopiés depuis l'objet de
+besace au moment du dépôt). Persisté dans Firebase RTDB sous `catalog/worldDrops/{id}`, **partagé
+entre tous les joueurs** (tout joueur peut voir et ramasser un objet déposé par un autre — cohérent
+avec l'esprit « écosystème vivant partagé » du jeu). API : `dropInventoryItemAt(address, item, qty,
+x, y)` (retire l'objet de la besace, écrit l'entrée RTDB), `subscribeWorldDrops(cb)` (écoute temps
+réel pour les 3 widgets), `getWorldDrop(id)`, `pickupWorldDrop(address, id)` (ajoute l'objet à la
+besace du joueur qui ramasse, supprime l'entrée RTDB — premier arrivé, premier servi, la lecture
+Firebase gérant nativement la concurrence entre joueurs).
+
+**Glisser-déposer (source)** : dans `InventoryPanel.tsx`/`InventoryWidget.tsx`, l'attribut
+`draggable` sur chaque carte d'objet est désormais **toujours actif** (auparavant restreint aux
+objets équipables/consommables — `equippableDrag` ne sert plus qu'à choisir l'indice affiché, plus
+à activer/désactiver le drag natif) : tout objet de la besace, pas seulement les objets équipables,
+doit pouvoir être déposé dans le monde. La charge utile transportée par `dataTransfer` reste le
+simple `itemId` (comportement historique inchangé) — `GameCanvas2D.tsx`/`Platform3DWidget.tsx`
+résolvent eux-mêmes l'objet complet via l'inventaire courant du joueur, exactement comme le fait
+déjà `EquipmentWidget.onDrop`. Comme un seul widget reçoit l'évènement `drop` natif du navigateur
+(celui sous le curseur au relâchement), aucun conflit entre les handlers `onDrop` d'`EquipmentWidget`
+(équiper), de `GameCanvas2D`/`Platform3DWidget` (déposer au sol) bien qu'ils lisent tous le même
+format `dataTransfer`.
+
+**Rendu (cible)** : `GameCanvas2D.tsx` et `WorldMapWidget.tsx` affichent chaque drop comme un
+marqueur cliquable (icône du type d'objet + info-bulle `${icône} ${nom}`), `Platform3DWidget.tsx`
+matérialise l'objet par sa forme 3D selon la catégorie (`MarkerBlock`, branche objet-au-sol). Les 3
+widgets s'abonnent tous à `subscribeWorldDrops()` — un dépôt apparaît donc simultanément et en
+temps réel dans les 3 vues, comme les PNJ/familiers/trésors. Nouveau filtre **« 📦 Objets
+déposés »** dans les filtres du widget Mapmonde (même mécanisme que les filtres « PNJ »/
+« Familiers » déjà existants), permettant de les afficher/masquer indépendamment pour éviter de
+surcharger la carte.
+
+**Ramassage (cible)** : clic sur le marqueur → `PoiInteractionModal.tsx` (composant `DropBody`)
+affiche le nom/icône de l'objet et un bouton « Ramasser » → `pickupWorldDrop()`. Comme pour tous
+les autres types de marqueurs interactifs (PNJ/familier/trésor/quête), `onMarkerClick`
+(`GameCanvas2D.tsx`) n'ouvre la popup que si Synk est à ≤1 case du marqueur (distance de Chebyshev)
+— sinon le clic fait simplement marcher Synk vers le marqueur (`moveTo`). **Ce comportement est
+partagé par tous les types de marqueurs et n'est pas spécifique aux objets déposés.**
+
+**🐛 Bug corrigé — doublon d'icône dans l'info-bulle carte (`worldDropToMarker`, `lib/worldDrops.ts`)** :
+le nom traduit d'un objet inclut déjà son icône (ex. `"item.sword_ep": "⚔️ Épée épique"` dans
+`i18n/messages/*.json`), mais le code du marqueur préfixait une seconde fois l'icône
+(`${worldDropIcon(...)} ${localizeName(...)}`), produisant `"⚔️ ⚔️ Épée épique"`. Correctif : nouvel
+helper `stripLeadingEmoji()` retire l'éventuel emoji déjà présent dans le nom traduit avant de
+composer le titre du marqueur, garantissant une seule icône.
+
+**🐛 Bug corrigé — même doublon d'icône dans la popup de ramassage (`DropBody`,
+`PoiInteractionModal.tsx`)** : exactement la même confusion, réapparue indépendamment dans la popup
+de ramassage : `localizeName(t, 'item.${itemId}', drop.name)` (déjà icônée) était combiné avec un
+second `worldDropIcon(drop.category)` préfixé séparément. Correctif : remplacement par
+`itemLabel(t, drop.itemId, drop.name)` — l'helper déjà utilisé de façon cohérente par la besace et
+la boutique, qui retourne directement la chaîne icônée sans préfixe supplémentaire. **Règle à
+retenir pour tout nouveau code affichant un nom d'objet : utiliser `itemLabel()` seul, jamais
+combiné à une icône préfixée séparément.**
+
+**🐛 Bug corrigé — doublon similaire dans le message de confirmation de ramassage** : le message
+`"game.worldDrop.pickedUp"` (`"✅ Objet ramassé !"`) inclut déjà sa coche verte dans la traduction,
+mais `DropBody` préfixait une seconde coche (`✅ {t('game.worldDrop.pickedUp')}`), affichant
+`"✅ ✅ Objet ramassé !"`. Correctif : suppression du préfixe littéral, la traduction porte seule
+l'icône (comme `"game.worldDrop.gone"`, qui elle n'a jamais eu d'icône embarquée et n'est donc pas
+concernée).
+
+**Vérifié (Playwright)** : script jetable simulant le flux complet — achat d'une Épée épique,
+glisser-déposer sur une case sûre proche de Synk dans la Plateforme 2D isométrique, confirmation du
+toast « déposé au sol », vérification RTDB (nouvelle entrée `catalog/worldDrops` créée avec les
+coordonnées exactes), clic sur le nouveau marqueur (sélectionné par proximité à Synk plutôt que par
+ordre DOM, car le même marqueur s'affiche simultanément dans les 3 widgets), ouverture de la popup
+« Ramasser », clic, confirmation finale **« ✅ Objet ramassé ! »** (icône affichée une seule fois) et
+disparition du marqueur — **flux dépôt → persistance → rendu → clic → ramassage vérifié de bout en
+bout, 0 erreur console**. Points d'attention découverts pendant le test, utiles pour tout futur
+script similaire : (1) `page.dragTo(target, { force: true })` ne rejoue pas fidèlement le protocole
+HTML5 natif (`dragstart`/`dragover`/`drop` + `dataTransfer`) et échoue silencieusement (aucune
+entrée créée, aucune erreur) — utiliser `dragTo()` **sans** `force` pour un vrai glisser-déposer ;
+(2) le clic sur un marqueur nécessite que Synk soit déjà à ≤1 case (voir ci-dessus), sinon le
+premier clic ne fait que déplacer Synk sans ouvrir la popup.
+
+**Zéro régression confirmée** : `EquipmentWidget.onDrop`/`onMouthDrop` continuent de lire
+`dataTransfer` au même format (`itemId` brut, ou `familiar:{id}` pour les familiers via
+`FAMILIAR_DRAG_PREFIX`) et de fonctionner indépendamment des nouveaux handlers de dépôt au sol —
+aucune modification de leur logique. `tsc --noEmit` et `npm run build` propres.

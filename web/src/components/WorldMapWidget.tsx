@@ -30,6 +30,7 @@ import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs } from '@/lib/roamingActors';
 import { useNpcApproach } from '@/lib/npcApproach';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
+import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
 
 const POS_KEY = 'zc.mapWidgetPos';
 const SIZE_KEY = 'zc.mapWidgetSize';
@@ -100,9 +101,15 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   // quelques temps plus tard ». `entityMarkers` (nom historique, inchangé) redevient ainsi dérivé
   // au lieu d'être directement l'état brut, sans toucher aux dizaines de sites d'usage plus bas.
   const hiddenTreasureIds = useHiddenTreasureIds(address, rules?.treasureRespawnHours ?? 48);
+  // Objets déposés par les joueurs (glisser-déposer besace → widget 3D/2D — voir lib/worldDrops.ts) :
+  // même abonnement temps réel PARTAGÉ que Platform3DWidget.tsx/GameCanvas2D.tsx, fusionné ici en
+  // marqueurs `kind:'drop'` — purement informatif (survol = nom), comme tous les autres marqueurs
+  // de ce widget (aucune interaction de clic, voir commentaire plus bas).
+  const worldDrops = useWorldDrops();
+  const dropMarkers = useMemo(() => worldDrops.map(worldDropToMarker), [worldDrops]);
   const entityMarkers = useMemo(
-    () => rawEntityMarkers.filter(m => m.kind !== 'treasure' || !hiddenTreasureIds.has(RKEY(m.id))),
-    [rawEntityMarkers, hiddenTreasureIds],
+    () => [...rawEntityMarkers.filter(m => m.kind !== 'treasure' || !hiddenTreasureIds.has(RKEY(m.id))), ...dropMarkers],
+    [rawEntityMarkers, hiddenTreasureIds, dropMarkers],
   );
   // Marqueur unique de la Quête du Royaume en cours (👑, voir getKingdomQuestMarker) — fusionné
   // avec entityMarkers au rendu ci-dessous, sans modifier getAllMapMarkers() (zéro régression).
