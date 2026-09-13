@@ -8,10 +8,10 @@ import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
   subscribePlayer, subscribeInventory, getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment, applyEffect,
-  DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY, dropInventoryItemAt,
+  DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY, dropInventoryItemAt, DEFAULT_AUDIO_SETTINGS,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
   type ZorghonEncounterState, type SynkDirection, type EquipSlot, type EquippedItem,
-  type Platform3DObjectKind, type Platform3DObjectFlags,
+  type Platform3DObjectKind, type Platform3DObjectFlags, type AudioSourceKey, type AudioSourceSetting,
 } from '@/lib/gameState';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
@@ -25,14 +25,15 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs, ensureWildlifeSpawns } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
-import { Platform3DAmbientScene } from './Platform3DAmbientScene';
+import { Platform3DAmbientScene, Owl3D, Werewolf3D } from './Platform3DAmbientScene';
+import { useAdminAudioSettings } from '@/lib/audio';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 
 const POS_KEY = 'zc.platform3dWidgetPos';
@@ -938,7 +939,7 @@ function TreasureIcon({ category }: { category: TreasureCategory }) {
  * `kind==='zorghon'` → silhouette sombre cornue menaçante ; `kind==='captive'` → silhouette liée.
  * Tout kind non couvert ci-dessus conserve EXACTEMENT le rendu octaédrique précédent — zéro
  * régression. */
-function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, moving, onClick, fireBreathEnabled, fireBreathIntervalSec }: {
+function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, moving, onClick, fireBreathEnabled, fireBreathIntervalSec, wildlifeAudio, owlHootEnabled, werewolfHowlEnabled }: {
   kind: string; poiType?: MapPoiType; name?: string; markerId?: string; x: number; z: number; scale?: number;
   /** Renseignés UNIQUEMENT pour le PNJ/Dragon errant (voir lib/roamingActors.ts) — orientent le
    * personnage dans sa direction de marche et déclenchent sa démarche animée (voir NpcVoxel/
@@ -948,6 +949,10 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   /** Souffle de feu périodique (familiers-dragons uniquement, voir DragonMarker) — voir
    * RepRules.dragonFireBreathEnabled/dragonFireBreathIntervalSec. */
   fireBreathEnabled?: boolean; fireBreathIntervalSec?: number;
+  /** Faune sauvage errante (hibou/loup-garou, voir isWildlife ci-dessous) — voir le commentaire de
+   * ces mêmes props sur Scene() ci-dessus. */
+  wildlifeAudio?: Record<AudioSourceKey, AudioSourceSetting>;
+  owlHootEnabled?: boolean; werewolfHowlEnabled?: boolean;
 }) {
   // Ref générique : anime (flottaison + légère rotation) le contenu de TOUTES les branches "en
   // lévitation" (quête, trésor, monde, zorghon, captif, gemme par défaut) — les branches "fixes au
@@ -962,6 +967,12 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   const isQuest = kind === 'quest';
   const isFamiliar = kind === 'familiar';
   const isNpc = kind === 'npc';
+  /** Faune sauvage errante (hibou/loup-garou, voir lib/roamingActors.ts::WildlifeActorState) —
+   * corrige le bug remonté par l'utilisateur : « le loup garou et le hibou me suivent quand je me
+   * déplace [...] fait en sorte qu'ils soient positionnés aléatoirement sur le widget de la
+   * mapmonde ». Rendue exactement comme un PNJ/familier "vivant" (même interpolation de position/
+   * démarche animée), sans anneau de sélection ni pédagogie de catalogue. */
+  const isWildlife = kind === 'wildlife';
   const isTreasure = kind === 'treasure';
   // Objet déposé par un joueur (glisser-déposer depuis la besace — voir MapMarkerKind==='drop'/
   // lib/worldDrops.ts) : réutilise EXACTEMENT le même rendu que `isTreasure` ci-dessous (même
@@ -973,7 +984,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   const isZorghon = kind === 'zorghon';
   const isCaptive = kind === 'captive';
   const floating = !isCave && !isBuilding;
-  const spinning = floating && !isNpc && !isFamiliar;
+  const spinning = floating && !isNpc && !isFamiliar && !isWildlife;
   const bobAmplitude = isQuest ? 0.25 : 0.15;
   // Interpolation de position (PNJ/Dragon errant, PNJ "en approche", fantômes persistés — voir
   // facing/moving ci-dessus, tous UNIQUEMENT renseignés pour ces entités "vivantes") : sans cela,
@@ -1000,7 +1011,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   const fromRef = useRef({ x, z });
   const targetRef = useRef({ x, z });
   const tickStartRef = useRef(0);
-  const isLiveActor = (isNpc || isFamiliar) && (facing !== undefined || moving !== undefined);
+  const isLiveActor = (isNpc || isFamiliar || isWildlife) && (facing !== undefined || moving !== undefined);
   useFrame(() => {
     const g = posGroupRef.current;
     if (!g || !isLiveActor) return;
@@ -1037,7 +1048,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   // construction quand `scale===1` (donc AUCUNE régression sur le rendu PNJ existant, déjà validé),
   // et proportionnel sinon pour que le bas des pattes reste au même niveau visuel qu'à l'échelle 1×
   // quel que soit le réglage admin (« 🧱 Objets & décor 3D »).
-  const groundAnchorUnscaled = isFamiliar ? 0.27 : isNpc ? 0.39 : 0;
+  const groundAnchorUnscaled = isFamiliar ? 0.27 : (isNpc || isWildlife) ? 0.39 : 0;
   useFrame((state) => {
     const obj = bobRef.current;
     if (!obj || !floating) return;
@@ -1148,6 +1159,25 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}><NpcVoxel appearance={appearance} walking={!!moving} /></group>
+      </group>
+    );
+  }
+  if (isWildlife) {
+    // Hibou/loup-garou errant — voir isWildlife plus haut. `markerId` est directement l'id
+    // d'errance (voir lib/roamingActors.ts::ensureWildlifeSpawns, préfixe stable `owl-`/
+    // `werewolf-`), pas besoin d'une identité catalogue distincte pour choisir le bon modèle 3D.
+    // `Owl3D`/`Werewolf3D` (voir Platform3DAmbientScene.tsx) n'ont plus de position interne fixe
+    // depuis leur conversion en entités mapmonde : ce groupe (position/orientation gérées comme
+    // tout PNJ/familier errant ci-dessus) est désormais leur SEULE source de placement.
+    const isOwl = (markerId ?? '').startsWith('owl-');
+    return (
+      <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
+        <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}>
+          {isOwl
+            ? <Owl3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} soundEnabled={owlHootEnabled !== false} seedKey={markerId} moving={!!moving} />
+            : <Werewolf3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} soundEnabled={werewolfHowlEnabled !== false} seedKey={markerId} moving={!!moving} />}
+        </group>
       </group>
     );
   }
@@ -1506,6 +1536,7 @@ function Scene({
   equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
   onExtraQuestClick,
   eyeBlinkEnabled, eyeBlinkIntervalSec, objectFlags, fireBreathEnabled, fireBreathIntervalSec,
+  wildlifeAudio, owlHootEnabled, werewolfHowlEnabled,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
@@ -1529,6 +1560,15 @@ function Scene({
   /** Souffle de feu périodique des dragons-familiers (voir RepRules.dragonFireBreathEnabled/
    * dragonFireBreathIntervalSec, DragonMarker plus bas) — purement cosmétique. */
   fireBreathEnabled?: boolean; fireBreathIntervalSec?: number;
+  /** Faune sauvage errante (hibou/loup-garou, voir MarkerBlock::isWildlife plus bas) — réglages
+   * audio admin (voir lib/audio.ts::useAdminAudioSettings, appelé UNE FOIS dans le composant parent
+   * non-R3F Platform3DWidget plutôt que dans chaque instance de MarkerBlock, pour éviter autant
+   * d'abonnements redondants qu'il y a de marqueurs affichés) et flags de thème jour/nuit (voir
+   * WorldThemeDef.elements.owlHootEnabled/werewolfHowlEnabled) qui gate UNIQUEMENT le cycle sonore
+   * périodique (hululement/hurlement) — n'affecte JAMAIS la présence/le déplacement de la créature
+   * elle-même (celle-ci est désormais une vraie entité mapmonde, visible quel que soit le thème). */
+  wildlifeAudio?: Record<AudioSourceKey, AudioSourceSetting>;
+  owlHootEnabled?: boolean; werewolfHowlEnabled?: boolean;
 }) {
   const tiles = useMemo(() => {
     const out: { tile: Tile; wc: number; wr: number; x: number; z: number }[] = [];
@@ -1586,7 +1626,7 @@ function Scene({
         const handleClick = m.questId
           ? () => onExtraQuestClick(m.marker, m.questId!, m.questLabel, m.questI18nKey)
           : isEncounterMarker ? () => {} : () => onMarkerClick(m.marker);
-        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={handleClick} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec} />;
+        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={handleClick} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec} wildlifeAudio={wildlifeAudio} owlHootEnabled={owlHootEnabled} werewolfHowlEnabled={werewolfHowlEnabled} />;
       })}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
@@ -1743,6 +1783,17 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
     });
   }, [rules]);
+  // Idem pour la faune errante (hiboux/loups-garous) — voir le même appel, avec les mêmes
+  // commentaires détaillés, dans GameCanvas2D.tsx/WorldMapWidget.tsx.
+  useEffect(() => {
+    if (!rules) return;
+    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0);
+  }, [rules]);
+  // Réglages audio admin (voir lib/audio.ts) — appelés UNE SEULE FOIS ici (composant NON-R3F) et
+  // transmis en prop à `<Scene>` → `<MarkerBlock>` pour le hibou/loup-garou errant, plutôt que de
+  // ré-abonner ce hook dans chaque instance de MarkerBlock (potentiellement des dizaines de
+  // marqueurs affichés simultanément).
+  const wildlifeAudio = useAdminAudioSettings();
 
   // Signale au registre partagé (voir lib/platform3dActive.ts) que la Plateforme 3D est la source
   // ACTIVE de déplacement clavier tant qu'elle reste dépliée/activée — corrige le bug rapporté
@@ -1921,6 +1972,18 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       id: e.id, kind: e.kind, name: e.name, i18nKey: e.i18nKey, icon: e.icon, x: e.x, y: e.y,
     }));
     const extraById = new Map(roamingActors.extras.map((e) => [e.id, e]));
+    // Faune sauvage errante (hiboux/loups-garous, voir lib/roamingActors.ts::WildlifeActorState/
+    // ensureWildlifeSpawns) — synthétiques (aucune identité catalogue), même principe visuel que
+    // generalFamiliarMarkers ci-dessus (position mapmonde COURANTE + facing/moving repris tels
+    // quels). Corrige le bug remonté par l'utilisateur : « le loup garou et le hibou me suivent
+    // quand je me déplace [...] fait en sorte qu'ils soient positionnés aléatoirement [...] et se
+    // déplacent aussi dans la Plateforme 3D ».
+    const wildlifeMarkers: MapMarker[] = Object.entries(roamingActors.wildlife).map(([id, w]) => ({
+      id, kind: 'wildlife', name: w.kind === 'owl' ? t('canvas2d.owlLabel') : t('canvas2d.werewolfLabel'),
+      icon: w.kind === 'owl' ? '🦉' : '🐺', x: w.x, y: w.y,
+    }));
+    const wildlifeFacing = new Map<string, { facing: SynkDirection; moving: boolean }>();
+    for (const [id, w] of Object.entries(roamingActors.wildlife)) wildlifeFacing.set(id, { facing: w.facing, moving: w.moving });
     // Exclut du catalogue statique les entrées dont l'identité vient d'être réutilisée ci-dessus
     // (roamingMarkers) : sans ce filtre, un PNJ/Dragon dont la fiche catalogue se trouve ELLE-MÊME
     // dans le rayon 3D affiché apparaîtrait EN DOUBLE (sa position catalogue fixe ET sa position
@@ -1931,8 +1994,8 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       ? markers.filter(mk => mk.id !== roamingActors.npcMarkerId && mk.id !== roamingActors.dragonMarkerId && !roamingActors.familiars[mk.id])
       : markers;
     const all = kingdomMarker
-      ? [...baseMarkers, kingdomMarker, ...zorghonMarkers, ...roamingMarkers, ...generalFamiliarMarkers, ...encounterMarkers, ...extraMarkers]
-      : [...baseMarkers, ...zorghonMarkers, ...roamingMarkers, ...generalFamiliarMarkers, ...encounterMarkers, ...extraMarkers];
+      ? [...baseMarkers, kingdomMarker, ...zorghonMarkers, ...roamingMarkers, ...generalFamiliarMarkers, ...encounterMarkers, ...extraMarkers, ...wildlifeMarkers]
+      : [...baseMarkers, ...zorghonMarkers, ...roamingMarkers, ...generalFamiliarMarkers, ...encounterMarkers, ...extraMarkers, ...wildlifeMarkers];
     const out: SceneMarker[] = [];
     for (const m of all) {
       const dx = Math.round(m.x) - centerCol, dz = Math.round(m.y) - centerRow;
@@ -1945,15 +2008,18 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       // marqueur catalogue statique — comportement idle inchangé.
       const extra = extraById.get(m.id);
       const generalFamiliar = generalFamiliarFacing.get(m.id);
+      const wildlife = wildlifeFacing.get(m.id);
       const facing = m.id === roamingActors.npcMarkerId ? roamingActors.npcFacing
         : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonFacing
         : m.id === 'encounter.npc.live' ? npcApproach.facing
         : generalFamiliar ? generalFamiliar.facing
+        : wildlife ? wildlife.facing
         : extra ? extra.facing : undefined;
       const moving = m.id === roamingActors.npcMarkerId ? roamingActors.npcMoving
         : m.id === roamingActors.dragonMarkerId ? roamingActors.dragonMoving
         : m.id === 'encounter.npc.live' ? npcApproach.moving
         : generalFamiliar ? generalFamiliar.moving
+        : wildlife ? wildlife.moving
         : extra ? extra.moving : undefined;
       out.push({ id: m.id, kind: m.kind, x: dx, z: dz, marker: m, facing, moving, questId: extra?.questId, questLabel: extra?.questLabel, questI18nKey: extra?.questI18nKey });
     }
@@ -2585,6 +2651,9 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
                 objectFlags={rules?.platform3dObjectFlags}
                 fireBreathEnabled={rules?.dragonFireBreathEnabled ?? true}
                 fireBreathIntervalSec={rules?.dragonFireBreathIntervalSec ?? 60}
+                wildlifeAudio={wildlifeAudio}
+                owlHootEnabled={worldAmbience.theme?.elements?.owlHootEnabled}
+                werewolfHowlEnabled={worldAmbience.theme?.elements?.werewolfHowlEnabled}
               />
             </>
           )}

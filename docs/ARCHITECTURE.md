@@ -1692,3 +1692,105 @@ comportement préexistant du système de widgets, non spécifique à cette fonct
 (touches fléchées), marqueurs PNJ/dragon existants (ex. dragon doré) toujours rendus et animés
 correctement aux côtés de la nouvelle couche d'ambiance ; `WorldMapAmbientOverlay.tsx` (Mapmonde)
 non modifié.
+
+## 🔒 Ciel qui se vide au dézoom/à la rotation + hibou/loup-garou « collés » à Synk
+
+Deux bugs remontés par l'utilisateur sur les objets d'ambiance 3D décrits ci-dessus :
+
+1. **Le ciel se vide au dézoom ou en pivotant la caméra** — `Moon3D`/`Sun3D`/`Starfield3D`/
+   `ShootingStar3D`/`Cloud3D`/`Rain3D` utilisaient une `position=[...]` LOCALE fixe, calibrée
+   empiriquement pour la seule vue caméra par défaut (voir section précédente). `Moon3D`/`Sun3D`
+   ne recopiaient que le `quaternion` caméra (billboard), jamais leur position : dès que la caméra
+   pivotait de plus de quelques degrés ou dézoomait, ces objets sortaient du frustum et le ciel
+   apparaissait vide.
+2. **Le hibou et le loup-garou suivent Synk comme s'ils y étaient collés** — `Scene()` dans
+   `Platform3DWidget.tsx` rend tous les marqueurs à une position **relative à Synk**
+   (`dx = worldX - centerCol`, `dz = worldY - centerRow` — Synk est toujours à l'origine locale).
+   `Owl3D`/`Werewolf3D` étaient montés à une position LOCALE fixe (`[2.4,0,-3.4]`/`[-2.6,0,-4]`),
+   donc mathématiquement toujours au même offset de Synk, où qu'il se déplace : impossible de les
+   approcher ou de les toucher.
+
+### Correctif 1 — ciel « à parallaxe nulle » + ancrage caméra pour les astres
+
+`Platform3DAmbientScene.tsx` :
+- **`SkyFollowGroup`** (nouveau composant) : enveloppe `Starfield3D`/`ShootingStar3D`/`Clouds3D`/
+  `Rain3D` — un seul `useFrame` translate (PAS de rotation) le groupe sur `camera.position.x/z`
+  chaque frame. Combiné à une **redistribution sur 360° d'azimut** (au lieu de l'ancienne boîte
+  orientée uniquement face à la caméra par défaut) pour `Starfield3D` (320 étoiles, rayon 6-16),
+  `Clouds3D` (8 nuages répartis sur le cercle, `Cloud3D` a désormais un prop `x0`/`z0` d'ancrage
+  d'azimut en plus de sa dérive locale existante) et `Rain3D` (zone circulaire pleine), ceci
+  garantit qu'il y a TOUJOURS quelque chose de visible dans le ciel quel que soit l'angle/zoom —
+  technique de « skybox à parallaxe quasi nulle » classique en jeu vidéo.
+- **`Moon3D`/`Sun3D`** : ancrage sur le **vecteur de vue de la caméra** plutôt qu'une position
+  locale fixe — chaque frame, `camera.getWorldDirection(dir)` + un vecteur `right`
+  (`dir × camera.up`) + un vecteur `up` (`right × dir`) permettent de positionner le groupe à
+  `camera.position + dir·14 + right·(±4) + up·(2.5-3)`. Décision assumée : priorise la demande
+  explicite de l'utilisateur (« dans tout le ciel [...] quand je tourne l'angle de vue [...] il
+  n'y a plus rien ») sur un rendu astronomiquement réaliste où lune/soleil pourraient sortir du
+  champ — ils sont donc désormais des décors de ciel « toujours en vue », pas des objets à
+  position monde fixe.
+- `ShootingStar3D` choisissait déjà un angle 0-2π en interne : seul l'ajout du `SkyFollowGroup`
+  était nécessaire, aucune redistribution de sa logique propre.
+
+### Correctif 2 — hibou/loup-garou convertis en vraie faune errante du monde
+
+Plutôt que des décors à position fixe, le hibou et le loup-garou sont désormais de **véritables
+entités errantes de la mapmonde**, gérées par le même moteur que les PNJ/dragons/familiers
+(`lib/roamingActors.ts`) et rendues de façon synchronisée dans les 3 widgets (Plateforme 2D
+isométrique, Plateforme 3D, Mapmonde) :
+
+- **`lib/roamingActors.ts`** : `WildlifeKind = 'owl' | 'werewolf'`, `WildlifeActorState` (position
+  mapmonde, `facing`, `moving`, `kind`), champ `wildlife: Record<string, WildlifeActorState>` sur
+  `RoamingActorsState`, avancé chaque tick par `stepActors()` via le même `advanceActor()` que les
+  familiers (gel de proximité, direction persistante, pauses aléatoires 4-8 s — comportement
+  identique, aucune logique dupliquée). `ensureWildlifeSpawns(enabled, owlCount, werewolfCount,
+  seedVersion)` (idempotente) génère les positions : `owl-0`/`werewolf-0` sont **garantis** à
+  proximité (rayon 12-25 cases) du point de départ par défaut du joueur pour assurer au moins une
+  rencontre par partie ; les instances suivantes sont réparties uniformément sur la mapmonde
+  (0-100). `enabled=false` vide `wildlife` (aucune entité générée).
+- **`gameState.ts`** : `MapMarkerKind` gagne `'wildlife'` ; `RepRules.wildlifeEnabled` (défaut
+  `true`), `wildlifeOwlCount` (13), `wildlifeWerewolfCount` (12), `wildlifeSpawnSeed` (0, incrémenté
+  pour forcer une régénération) ; `MapFilterDefaults.showWildlife`.
+- **`mapFilters.ts`** : filtre `showWildlife` (icône 🦉, catégorie « Faune ») ; les ids `owl-*`/
+  `werewolf-*` sont exemptés du filtre « intelligent » de réduction d'affichage (`declutter`), au
+  même titre que le PNJ/Dragon errant.
+- **`WorldMapWidget.tsx`/`GameCanvas2D.tsx`** : mêmes patterns déjà établis pour les familiers
+  (`familiarsInView`/`generalFamiliarMarkers`) — dupliqués pour la faune (`wildlifeLiveMarkers`/
+  `wildlifeInView`), avec anneau clignotant + libellé toujours visible dans le rayon de proximité
+  (Mapmonde) et rendu non-interactif dans la grille visible (2D isométrique). Un `useEffect` par
+  widget appelle `ensureWildlifeSpawns(...)` avec les valeurs `RepRules` courantes (idempotent,
+  dernier appelant gagne — même widgets déjà cohérents pour PNJ/familiers).
+- **`Platform3DWidget.tsx`** : `MarkerBlock` gagne une branche `isWildlife` (même traitement que
+  `isNpc`/`isFamiliar` : pas de rotation continue « toupie », taille/ancrage au sol identiques à un
+  PNJ) qui rend `<Owl3D>`/`<Werewolf3D>` dans le groupe de positionnement/orientation déjà utilisé
+  par tout PNJ/familier errant — leur position 3D est donc désormais **exactement** celle de
+  l'entité `roamingActors.wildlife` correspondante, relative à Synk comme tout le reste du décor
+  (plus aucune position locale fixe). Les entrées `roamingActors.wildlife` sont fusionnées dans le
+  `sceneMarkers` memo au même titre que `generalFamiliarMarkers`/`extraMarkers`.
+- **`Platform3DAmbientScene.tsx`** : `Owl3D`/`Werewolf3D` exportés (`export function`), leur
+  `<group position=[...]>` racine fixe est supprimé (ils héritent désormais entièrement du
+  placement fourni par `MarkerBlock`), nouveaux props `soundEnabled` (gate le cycle sonore
+  `useAmbientSoundCycle` — remplace l'ancien gate `elements.owlHootEnabled`/`werewolfHowlEnabled`
+  au niveau de `Platform3DAmbientScene`, qui ne les rend plus du tout directement) et `seedKey`
+  (déphase le hululement/hurlement de chaque instance via `hashSeed(seedKey)` — sans cela, les 13
+  hiboux/12 loups-garous hurleraient tous en parfaite synchronie).
+- **Panneau Administration** (`RepRulesPanel.tsx`, section « 🦉🐺 Faune sauvage errante ») :
+  interrupteur d'activation, nombre de hiboux/loups-garous, bouton « 🎲 Régénérer les positions de
+  la faune » (incrémente `wildlifeSpawnSeed`, sauvegarde instantanée comme les autres actions
+  admin à effet immédiat).
+- **i18n** : `map.filters.wildlife`, `canvas2d.owlLabel`/`werewolfLabel`,
+  `admin.repRules.wildlife*` (fr/en/es/pt).
+
+**Vérifié (Playwright)** : `tsc --noEmit` propre. Widget Plateforme 3D — capture par défaut, puis
+après dézoom (molette) et après ~180° de rotation caméra cumulée (glisser-déposer) : lune et étoiles
+toujours visibles dans les 3 captures (avant le correctif, elles disparaissaient dès rotation).
+Widget Mapmonde — 13 « Hibou » et 12 « Loup-garou » comptés simultanément avec les marqueurs PNJ/
+Dragon errants existants (aucune régression de comptage) ; positions de plusieurs hiboux comparées
+à 6 s d'intervalle : coordonnées pixel différentes à chaque capture, confirmant un déplacement
+autonome (et non plus un calage sur la position de Synk, qui n'apparaît même pas sur ce widget).
+**0 erreur console/page** sur les 3 widgets (Plateforme 2D, Plateforme 3D, Mapmonde) après ouverture
+séquentielle.
+
+**Zéro régression confirmée** : `tsc --noEmit` propre ; PNJ errant, dragon errant et le reste du
+décor d'ambiance (soleil/nuages/troupeau de sangliers en thème Jour) toujours rendus et comptés
+correctement aux côtés de la nouvelle faune ; `WorldMapAmbientOverlay.tsx` non modifié.

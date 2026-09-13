@@ -22,7 +22,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs, type ExtraRoamingActor } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs, type ExtraRoamingActor } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -196,6 +196,12 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
     });
+  }, [rules]);
+  // Idem pour la faune errante (hiboux/loups-garous) — voir le même appel, avec les mêmes
+  // commentaires détaillés, dans WorldMapWidget.tsx/Platform3DWidget.tsx.
+  useEffect(() => {
+    if (!rules) return;
+    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0);
   }, [rules]);
 
   // Marqueur cliqué (PNJ/familier/trésor/quête/monde/hutte) alors que Synk est sur sa case ou une
@@ -554,6 +560,20 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     })
     .filter((e) => e.inView),
     [roamingActors.familiars, origin.col, origin.row, markers],
+  );
+  // Faune sauvage errante (hiboux/loups-garous, voir lib/roamingActors.ts::WildlifeActorState) —
+  // même conversion mapmonde→local et même critère de visibilité que familiarsInView ci-dessus.
+  // Corrige le bug remonté par l'utilisateur : « le loup garou et le hibou me suivent [...] fait en
+  // sorte qu'ils soient positionnés aléatoirement [...] et se déplacent aussi dans la Plateforme 2D
+  // isométrique ». Non-interactifs (aucune identité catalogue), rendus en lecture seule comme
+  // extrasInView ci-dessus.
+  const wildlifeInView = useMemo(() => Object.entries(roamingActors.wildlife)
+    .map(([id, w]) => {
+      const col = Math.round(w.x) - origin.col, row = Math.round(w.y) - origin.row;
+      return { id, w, col, row, inView: col >= 0 && col < COLS && row >= 0 && row < ROWS };
+    })
+    .filter((e) => e.inView),
+    [roamingActors.wildlife, origin.col, origin.row],
   );
   // Conversion mapmonde → viewport LOCAL du PNJ "en approche" (voir lib/npcApproach.ts) — même
   // principe que npcInView/npcLocal ci-dessus pour le PNJ/Dragon errant : sa position de départ
@@ -1537,6 +1557,22 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
               onClick={() => onActorClick(f.x, f.y, marker)}
             >
               <span className="text-xl">{marker?.icon ?? '🐉'}</span>
+            </div>
+          ))}
+          {/* Faune sauvage errante (hiboux/loups-garous, voir wildlifeInView ci-dessus et
+              lib/roamingActors.ts::WildlifeActorState) — non-cliquable (aucune identité catalogue),
+              rendue en lecture seule comme les PNJ de rencontre persistés ci-dessous. Corrige le bug
+              remonté par l'utilisateur : « le loup garou et le hibou me suivent [...] fait en sorte
+              qu'ils soient positionnés aléatoirement [...] et se déplacent aussi [...] dans la
+              Plateforme 2D isométrique ». */}
+          {wildlifeInView.map(({ id, w, col, row }) => (
+            <div
+              key={`wildlife-${id}`}
+              className="absolute -translate-x-1/2 flex flex-col items-center pointer-events-none transition-all"
+              style={{ left: projX(col, row), top: projY(col, row) - 22, zIndex: col + row + 2, transitionDuration: `${getRoamStepMs()}ms` }}
+              title={t(w.kind === 'owl' ? 'canvas2d.owlLabel' : 'canvas2d.werewolfLabel')}
+            >
+              <span className="text-xl">{w.kind === 'owl' ? '🦉' : '🐺'}</span>
             </div>
           ))}
           {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) en le

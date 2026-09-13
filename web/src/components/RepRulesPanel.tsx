@@ -1041,6 +1041,39 @@ export function RepRulesPanel() {
         </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🦉 {t('admin.repRules.wildlifeTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.wildlifeDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-3">
+          <input type="checkbox" checked={rules.wildlifeEnabled !== false}
+            onChange={e => setBool('wildlifeEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.wildlifeEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3 mb-3">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.wildlifeOwlCount')}</span>
+            <input type="number" className="input mt-1 w-full" min={0} max={50}
+              disabled={rules.wildlifeEnabled === false}
+              value={rules.wildlifeOwlCount} onChange={e => set('wildlifeOwlCount', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.wildlifeWerewolfCount')}</span>
+            <input type="number" className="input mt-1 w-full" min={0} max={50}
+              disabled={rules.wildlifeEnabled === false}
+              value={rules.wildlifeWerewolfCount} onChange={e => set('wildlifeWerewolfCount', e.target.value)} />
+          </label>
+        </div>
+        <button type="button" className="btn-secondary text-xs" disabled={rules.wildlifeEnabled === false}
+          onClick={() => {
+            const next = (rules.wildlifeSpawnSeed ?? 0) + 1;
+            setRules(prev => ({ ...prev, wildlifeSpawnSeed: next }));
+            updateRepRulesFields({ wildlifeSpawnSeed: next }).catch(() => {});
+            setInstantFeedback(t('admin.repRules.wildlifeRegenerated'));
+            setTimeout(() => setInstantFeedback(null), 2500);
+          }}>
+          🎲 {t('admin.repRules.wildlifeRegenerateBtn')}
+        </button>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">🚨 {t('admin.repRules.envStatusPopupsOnTopTitle')}</h3>
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.envStatusPopupsOnTopDescription')}</p>
         <label className="flex items-center gap-2 text-sm">

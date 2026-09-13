@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef } from 'react';
+import type { ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { MoonPhaseInfo, MoonPhaseKey, WorldThemeDef, AudioSourceSetting, AudioSourceKey } from '@/lib/gameState';
@@ -31,6 +32,21 @@ function hashSeed(s: string): number {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return Math.abs(h);
+}
+
+/**
+ * Enveloppe les éléments de "remplissage" du ciel (étoiles, étoile filante, nuages, pluie) pour
+ * qu'ils suivent la TRANSLATION de la caméra (mais pas sa rotation) chaque frame — technique de
+ * "skybox à parallaxe quasi nulle". Corrige le bug remonté par l'utilisateur : « quand je tourne
+ * l'angle de vue de Synk ou que je dézoome, il n'y a plus rien dans le ciel ». Combiné à une
+ * distribution sur 360° autour de l'origine (voir Starfield3D/Clouds3D/Rain3D ci-dessous, au lieu
+ * de l'ancienne boîte orientée uniquement face à la caméra par défaut), ce groupe garantit qu'il y
+ * a toujours quelque chose de visible dans le ciel, quels que soient l'angle de vue et le zoom.
+ */
+function SkyFollowGroup({ children }: { children: ReactNode }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame(({ camera }) => { ref.current?.position.set(camera.position.x, 0, camera.position.z); });
+  return <group ref={ref}>{children}</group>;
 }
 
 // ─────────────────────────────── Texture lune (canvas → phases réelles) ───────────────────────
@@ -96,9 +112,27 @@ function getMoonTexture(phase: MoonPhaseKey, luneRousse: boolean): THREE.CanvasT
 function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   const groupRef = useRef<THREE.Group>(null);
   const texture = useMemo(() => getMoonTexture(phase.key, phase.isLuneRousse), [phase.key, phase.isLuneRousse]);
-  useFrame(({ camera }) => { groupRef.current?.quaternion.copy(camera.quaternion); });
+  // Ancrage sur le vecteur de vue de la caméra (et non plus une position locale fixe) : la lune
+  // reste ainsi TOUJOURS visible quels que soient l'angle de rotation et le niveau de zoom (voir
+  // demande utilisateur « dans tout le ciel [...] quand je tourne l'angle de vue [...] il n'y a
+  // plus rien dans le ciel »). Décision assumée de prioriser cette demande explicite sur un rendu
+  // "astronomiquement réaliste" où la lune pourrait sortir du champ de vision.
+  const dir = useMemo(() => new THREE.Vector3(), []);
+  const right = useMemo(() => new THREE.Vector3(), []);
+  const up = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera }) => {
+    if (!groupRef.current) return;
+    camera.getWorldDirection(dir);
+    right.crossVectors(dir, camera.up).normalize();
+    up.crossVectors(right, dir).normalize();
+    groupRef.current.position.copy(camera.position)
+      .addScaledVector(dir, 14)
+      .addScaledVector(right, 4.4)
+      .addScaledVector(up, 2.5);
+    groupRef.current.quaternion.copy(camera.quaternion);
+  });
   return (
-    <group ref={groupRef} position={[0, 2.6, -7.5]}>
+    <group ref={groupRef}>
       <mesh position={[0, 0, -0.02]}>
         <circleGeometry args={[1.55, 28]} />
         <meshBasicMaterial color={phase.isLuneRousse ? '#f2c9a0' : '#bfdbfe'} transparent opacity={0.14} depthWrite={false} toneMapped={false} />
@@ -130,9 +164,24 @@ function getSunGlowTexture(): THREE.CanvasTexture {
 function Sun3D() {
   const groupRef = useRef<THREE.Group>(null);
   const tex = useMemo(getSunGlowTexture, []);
-  useFrame(({ camera }) => { groupRef.current?.quaternion.copy(camera.quaternion); });
+  // Même ancrage sur le vecteur de vue de la caméra que Moon3D ci-dessus (voir commentaire détaillé
+  // sur Moon3D) — le soleil reste également visible « dans tout le ciel » quel que soit l'angle.
+  const dir = useMemo(() => new THREE.Vector3(), []);
+  const right = useMemo(() => new THREE.Vector3(), []);
+  const up = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera }) => {
+    if (!groupRef.current) return;
+    camera.getWorldDirection(dir);
+    right.crossVectors(dir, camera.up).normalize();
+    up.crossVectors(right, dir).normalize();
+    groupRef.current.position.copy(camera.position)
+      .addScaledVector(dir, 13)
+      .addScaledVector(right, -4)
+      .addScaledVector(up, 3);
+    groupRef.current.quaternion.copy(camera.quaternion);
+  });
   return (
-    <group ref={groupRef} position={[0, 2.5, -7]}>
+    <group ref={groupRef}>
       <mesh>
         <circleGeometry args={[2.4, 28]} />
         <meshBasicMaterial map={tex} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
@@ -149,18 +198,18 @@ function Sun3D() {
 function Starfield3D() {
   const pointsRef = useRef<THREE.Points>(null);
   const positions = useMemo(() => {
-    // Champ d'étoiles recentré sur la zone effectivement visible de la caméra par défaut du
-    // widget Plateforme 3D (caméra en surplomb, forte inclinaison vers le bas — voir la scène
-    // Scene() : position [0,3.2,5.6] visant [0,0.3,0]) : une distribution en dôme "plein ciel"
-    // classique placerait l'essentiel des étoiles hors du frustum. On utilise donc une boîte
-    // ciblée (x/y/z) calibrée empiriquement pour rester visible sans réduire drastiquement le
-    // champ d'action de l'utilisateur qui peut par ailleurs orbiter la caméra (OrbitControls).
-    const count = 220;
+    // Distribution sur 360° d'azimut autour de l'origine (au lieu d'une boîte orientée uniquement
+    // face à la caméra par défaut) — combinée au SkyFollowGroup (translation-only) englobant, ceci
+    // garantit qu'il y a toujours des étoiles visibles quel que soit l'angle/zoom de la caméra
+    // (corrige le bug « quand je tourne l'angle de vue [...] il n'y a plus rien dans le ciel »).
+    const count = 320;
     const pos = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
-      pos[i * 3 + 0] = (Math.random() - 0.5) * 14;
-      pos[i * 3 + 1] = 1.2 + Math.random() * 3.6;
-      pos[i * 3 + 2] = -5 - Math.random() * 11;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 6 + Math.random() * 10;
+      pos[i * 3 + 0] = Math.cos(angle) * radius;
+      pos[i * 3 + 1] = 1.2 + Math.random() * 6.8;
+      pos[i * 3 + 2] = Math.sin(angle) * radius;
     }
     return pos;
   }, []);
@@ -216,13 +265,14 @@ function ShootingStar3D() {
 }
 
 // ─────────────────────────────── Nuages ───────────────────────────────
-function Cloud3D({ seed, z, y }: { seed: number; z: number; y: number }) {
+function Cloud3D({ seed, x0, z0, y }: { seed: number; x0: number; z0: number; y: number }) {
   const ref = useRef<THREE.Group>(null);
   const speed = 0.12 + (seed % 5) * 0.025;
   useFrame((state) => {
     if (!ref.current) return;
     const span = 20;
-    ref.current.position.x = ((state.clock.elapsedTime * speed + seed * 3.3) % span) - span / 2;
+    const drift = ((state.clock.elapsedTime * speed + seed * 3.3) % span) - span / 2;
+    ref.current.position.x = x0 + drift;
   });
   const puffs = useMemo(() => {
     const n = 4 + (seed % 3);
@@ -232,7 +282,7 @@ function Cloud3D({ seed, z, y }: { seed: number; z: number; y: number }) {
     }));
   }, [seed]);
   return (
-    <group ref={ref} position={[0, y, z]}>
+    <group ref={ref} position={[x0, y, z0]}>
       {puffs.map((p, i) => (
         <mesh key={i} position={[p.x, 0, 0]} scale={[p.s, p.s * 0.62, p.s]}>
           <sphereGeometry args={[0.62, 8, 6]} />
@@ -243,20 +293,32 @@ function Cloud3D({ seed, z, y }: { seed: number; z: number; y: number }) {
   );
 }
 function Clouds3D() {
-  return <>{[0, 1, 2, 3].map((i) => <Cloud3D key={i} seed={i * 37 + 11} z={-6 - i * 1.6} y={2.6 + (i % 2) * 0.8} />)}</>;
+  // 8 nuages répartis sur 360° d'azimut (au lieu de 4 uniquement face à la caméra par défaut) —
+  // corrige le même bug que Starfield3D/Rain3D ci-dessus/dessous : le ciel se vidait au dézoom/à la
+  // rotation. `x0`/`z0` fixent l'azimut de dérive de chaque nuage (voir Cloud3D).
+  return <>{[0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
+    const angle = (i / 8) * Math.PI * 2;
+    const radius = 7 + (i % 3) * 2;
+    return <Cloud3D key={i} seed={i * 37 + 11} x0={Math.cos(angle) * radius} z0={Math.sin(angle) * radius} y={2.6 + (i % 2) * 0.8} />;
+  })}</>;
 }
 
 // ─────────────────────────────── Pluie ───────────────────────────────
 function Rain3D() {
   const ref = useRef<THREE.Points>(null);
-  const count = 140;
+  const count = 180;
   const { positions, speeds } = useMemo(() => {
+    // Distribution sur une zone circulaire pleine (360°) autour de l'origine — voir Starfield3D/
+    // Clouds3D ci-dessus pour le même correctif (ancienne boîte orientée uniquement face à la
+    // caméra par défaut, invisible dès rotation/dézoom).
     const pos = new Float32Array(count * 3);
     const spd = new Float32Array(count);
     for (let i = 0; i < count; i++) {
-      pos[i * 3 + 0] = (Math.random() - 0.5) * 10;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.random() * 9;
+      pos[i * 3 + 0] = Math.cos(angle) * radius;
       pos[i * 3 + 1] = Math.random() * 4;
-      pos[i * 3 + 2] = -3 - Math.random() * 9;
+      pos[i * 3 + 2] = Math.sin(angle) * radius;
       spd[i] = 4.5 + Math.random() * 3;
     }
     return { positions: pos, speeds: spd };
@@ -283,9 +345,10 @@ function Rain3D() {
 }
 
 // ─────────────────────────────── Aide : joue un son d'ambiance périodique déphasé ───────────────────────────────
-function useAmbientSoundCycle(key: AudioSourceKey, intervalSec: number, seedOffset: number, onTrigger: () => void, adminSettings: Record<AudioSourceKey, AudioSourceSetting>) {
+function useAmbientSoundCycle(key: AudioSourceKey, intervalSec: number, seedOffset: number, onTrigger: () => void, adminSettings: Record<AudioSourceKey, AudioSourceSetting>, enabled: boolean = true) {
   const lastCycleRef = useRef(-1);
   useFrame((state) => {
+    if (!enabled) return;
     const t = state.clock.elapsedTime + seedOffset;
     const cycle = Math.floor(t / intervalSec);
     if (cycle !== lastCycleRef.current) {
@@ -297,25 +360,39 @@ function useAmbientSoundCycle(key: AudioSourceKey, intervalSec: number, seedOffs
 }
 
 // ─────────────────────────────── Hibou (posé, hulule parfois) ───────────────────────────────
-function Owl3D({ adminAudio }: { adminAudio: Record<AudioSourceKey, AudioSourceSetting> }) {
+/**
+ * Depuis la conversion du hibou/loup-garou en faune errante réelle (voir lib/roamingActors.ts::
+ * WildlifeActorState/ensureWildlifeSpawns, et Platform3DWidget.tsx::MarkerBlock::isWildlife), ce
+ * composant N'A PLUS de position locale fixe : il est désormais positionné/orienté par le groupe
+ * parent (MarkerBlock), au même titre qu'un PNJ/familier errant. `seedKey` (id d'errance unique,
+ * ex. "owl-3") permet de déphaser le cycle de hululement de chaque instance (au lieu qu'elles
+ * hululent toutes en même temps), et `soundEnabled` reprend le réglage Administration du thème
+ * (WorldThemeDef.elements.owlHootEnabled) qui gate UNIQUEMENT le cycle sonore — jamais la présence
+ * ou le déplacement de la créature (voir demande utilisateur : « seulement les PNJ à proximité [...]
+ * doivent clignoter [...] » appliquée par analogie : la faune doit exister/se déplacer en continu).
+ */
+export function Owl3D({ adminAudio, soundEnabled = true, seedKey, moving }: {
+  adminAudio: Record<AudioSourceKey, AudioSourceSetting>; soundEnabled?: boolean; seedKey?: string; moving?: boolean;
+}) {
   const headRef = useRef<THREE.Group>(null);
   const wingLRef = useRef<THREE.Mesh>(null);
   const wingRRef = useRef<THREE.Mesh>(null);
   const hootRef = useRef(0); // timestamp (elapsedTime) du dernier hululement, pour l'animation de tête
-  const seedOffset = useMemo(() => (hashSeed('owl') % 1000) / 100, []);
-  useAmbientSoundCycle('owl', 22, seedOffset, () => { hootRef.current = performance.now() / 1000; }, adminAudio);
+  const seedOffset = useMemo(() => (hashSeed(seedKey || 'owl') % 1000) / 100, [seedKey]);
+  useAmbientSoundCycle('owl', 22, seedOffset, () => { hootRef.current = performance.now() / 1000; }, adminAudio, soundEnabled);
   useFrame((state) => {
     const t = state.clock.elapsedTime;
-    // Ruffle d'ailes discret en continu (vie), plus prononcé juste après un hululement.
+    // Ruffle d'ailes discret en continu (vie), plus prononcé juste après un hululement, et pendant
+    // le déplacement (voir prop `moving`, cohérent avec la marche des PNJ/familiers).
     const sinceHoot = t - hootRef.current;
     const hooting = sinceHoot < 1.2;
-    const flap = Math.sin(t * 2.4) * 0.05 + (hooting ? Math.sin(t * 14) * 0.18 : 0);
+    const flap = Math.sin(t * (moving ? 6 : 2.4)) * (moving ? 0.14 : 0.05) + (hooting ? Math.sin(t * 14) * 0.18 : 0);
     if (wingLRef.current) wingLRef.current.rotation.z = 0.25 + flap;
     if (wingRRef.current) wingRRef.current.rotation.z = -0.25 - flap;
     if (headRef.current) headRef.current.rotation.x = hooting ? Math.sin(sinceHoot * 6) * 0.18 : Math.sin(t * 0.8) * 0.05;
   });
   return (
-    <group position={[2.4, 0, -3.4]}>
+    <group>
       {/* Perchoir (petit poteau de bois) */}
       <mesh position={[0, 0.32, 0]} castShadow><cylinderGeometry args={[0.05, 0.06, 0.64, 6]} /><meshStandardMaterial color="#5b4636" roughness={0.9} /></mesh>
       <group position={[0, 0.7, 0]}>
@@ -348,20 +425,23 @@ function Owl3D({ adminAudio }: { adminAudio: Record<AudioSourceKey, AudioSourceS
 }
 
 // ─────────────────────────────── Loup-garou (assis, crie parfois) ───────────────────────────────
-function Werewolf3D({ adminAudio }: { adminAudio: Record<AudioSourceKey, AudioSourceSetting> }) {
+/** Voir le commentaire détaillé sur Owl3D ci-dessus (même conversion en faune errante réelle). */
+export function Werewolf3D({ adminAudio, soundEnabled = true, seedKey, moving }: {
+  adminAudio: Record<AudioSourceKey, AudioSourceSetting>; soundEnabled?: boolean; seedKey?: string; moving?: boolean;
+}) {
   const headRef = useRef<THREE.Group>(null);
   const howlRef = useRef(0);
-  const seedOffset = useMemo(() => (hashSeed('werewolf') % 1000) / 90, []);
-  useAmbientSoundCycle('werewolf', 38, seedOffset, () => { howlRef.current = performance.now() / 1000; }, adminAudio);
+  const seedOffset = useMemo(() => (hashSeed(seedKey || 'werewolf') % 1000) / 90, [seedKey]);
+  useAmbientSoundCycle('werewolf', 38, seedOffset, () => { howlRef.current = performance.now() / 1000; }, adminAudio, soundEnabled);
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     const sinceHowl = t - howlRef.current;
     const howling = sinceHowl < 1.8;
-    if (headRef.current) headRef.current.rotation.x = howling ? -0.55 + Math.sin(sinceHowl * 10) * 0.04 : Math.sin(t * 0.5) * 0.06;
+    if (headRef.current) headRef.current.rotation.x = howling ? -0.55 + Math.sin(sinceHowl * 10) * 0.04 : Math.sin(t * (moving ? 3 : 0.5)) * 0.06;
   });
   const fur = '#3f3a36';
   return (
-    <group position={[-2.6, 0, -4]} rotation={[0, 2.3, 0]}>
+    <group>
       {/* Position assise : bassin bas, torse redressé */}
       <mesh position={[0, 0.22, -0.05]} castShadow><cylinderGeometry args={[0.16, 0.2, 0.28, 8]} /><meshStandardMaterial color={fur} roughness={0.9} /></mesh>
       <mesh position={[0, 0.5, 0]} castShadow scale={[0.9, 1.1, 0.85]}><sphereGeometry args={[0.19, 10, 8]} /><meshStandardMaterial color={fur} roughness={0.9} /></mesh>
@@ -597,14 +677,22 @@ export function Platform3DAmbientScene({ theme, moonPhase }: { isNight: boolean;
   if (!elements) return null;
   return (
     <group>
-      {elements.stars && <Starfield3D />}
-      {elements.shootingStarsEnabled && <ShootingStar3D />}
+      {/* Éléments de "remplissage" du ciel — regroupés dans SkyFollowGroup (translation-only, voir
+          plus haut) pour rester visibles quels que soient l'angle de vue et le zoom de la caméra. */}
+      <SkyFollowGroup>
+        {elements.stars && <Starfield3D />}
+        {elements.shootingStarsEnabled && <ShootingStar3D />}
+        {elements.clouds && <Clouds3D />}
+        {elements.rainChancePct > 0 && Math.random() * 100 < elements.rainChancePct && <Rain3D />}
+      </SkyFollowGroup>
       {elements.moon && moonPhase && <Moon3D phase={moonPhase} />}
       {elements.sun && <Sun3D />}
-      {elements.clouds && <Clouds3D />}
-      {elements.rainChancePct > 0 && Math.random() * 100 < elements.rainChancePct && <Rain3D />}
-      {elements.owlHootEnabled && <Owl3D adminAudio={adminAudio} />}
-      {elements.werewolfHowlEnabled && <Werewolf3D adminAudio={adminAudio} />}
+      {/* Le hibou/loup-garou ne sont plus rendus ici : ce sont désormais de VRAIES entités errantes
+          du monde (voir lib/roamingActors.ts::ensureWildlifeSpawns), rendues par Platform3DWidget.
+          tsx::MarkerBlock au même titre qu'un PNJ/familier — corrige le bug « le loup garou et le
+          hibou me suivent quand je me déplace [...] je ne peux jamais les toucher ». Le réglage
+          Administration owlHootEnabled/werewolfHowlEnabled continue de gater UNIQUEMENT leur cycle
+          sonore (voir Owl3D/Werewolf3D::soundEnabled), jamais leur présence/déplacement. */}
       {elements.batsEnabled && <BatsSwarm3D adminAudio={adminAudio} />}
       {elements.raptorsEnabled && <RaptorsFlock3D adminAudio={adminAudio} />}
       {(elements.birds || elements.swallows) && <BirdsFlock3D adminAudio={adminAudio} />}

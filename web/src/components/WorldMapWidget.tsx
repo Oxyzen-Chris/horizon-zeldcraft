@@ -29,7 +29,7 @@ import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
 import { WorldMapAmbientOverlay } from './WorldMapAmbientOverlay';
-import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs } from '@/lib/roamingActors';
 import { useNpcApproach } from '@/lib/npcApproach';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
@@ -193,6 +193,21 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     [roamingActors.extras],
   );
 
+  // ─── Faune sauvage errante (hiboux/loups-garous, voir lib/roamingActors.ts::WildlifeActorState/
+  // ensureWildlifeSpawns) — corrige le bug remonté par l'utilisateur : « le loup garou et le hibou
+  // me suivent quand je me déplace [...] fait en sorte qu'ils soient positionnés aléatoirement sur
+  // le widget de la mapmonde en les localisant également sur la carte [...] il peut y avoir 12
+  // loup-garou et 13 hibou [...] positionnés aléatoirement [...] mais de telle sorte à ce que Synk
+  // en rencontre au moins 1 dans une partie ». Même traitement EN DIRECT que roamingLiveMarkers/
+  // extraLiveMarkers ci-dessus (anneau clignotant dans le rayon de proximité + libellé toujours
+  // visible), fusionné dans `liveActorMarkers`, avec son propre filtre "Faune" dédié (voir
+  // lib/mapFilters.ts::MapFilterState.showWildlife) distinct de "Familiers".
+  const wildlifeLiveMarkers = useMemo<MapMarker[]>(() => Object.entries(roamingActors.wildlife).map(([id, w]) => ({
+    id, kind: 'wildlife' as const,
+    name: t(w.kind === 'owl' ? 'canvas2d.owlLabel' : 'canvas2d.werewolfLabel'),
+    icon: w.kind === 'owl' ? '🦉' : '🐺', x: w.x, y: w.y,
+  })), [roamingActors.wildlife, t]);
+
   // ─── PNJ "en approche" (rencontre sollicitée — quête/troc/combat, voir NpcEncounterPopup.tsx) ───
   // Position live partagée (voir lib/npcApproach.ts) : marche progressivement vers Synk au lieu
   // d'apparaître instantanément à sa position (voir demande utilisateur « je veux le voir
@@ -211,19 +226,22 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     };
   }, [encounterNpc, npcApproach.active, npcApproach.x, npcApproach.y, t]);
   const liveActorMarkers = useMemo<MapMarker[]>(
-    () => [...roamingLiveMarkers, ...extraLiveMarkers, ...(encounterLiveMarker ? [encounterLiveMarker] : [])],
-    [roamingLiveMarkers, extraLiveMarkers, encounterLiveMarker],
+    () => [...roamingLiveMarkers, ...extraLiveMarkers, ...wildlifeLiveMarkers, ...(encounterLiveMarker ? [encounterLiveMarker] : [])],
+    [roamingLiveMarkers, extraLiveMarkers, wildlifeLiveMarkers, encounterLiveMarker],
   );
   /** Libellé de catégorie affiché en suffixe du marqueur "en direct" (voir rendu plus bas) —
    * distingue "PNJ errant"/"Dragon errant" (errance ambiante) du PNJ "en approche" (dont le
    * libellé reprend le TYPE de sollicitation : quête/troc/combat/discussion, bien plus parlant
-   * qu'un simple "errant" pour un PNJ qui vient délibérément à la rencontre du joueur) et des PNJ
+   * qu'un simple "errant" pour un PNJ qui vient délibérément à la rencontre du joueur), des PNJ
    * de rencontre persistés (`encounter.extra.*`, voir ExtraRoamingActor) qui ont désormais quitté
-   * l'état "en approche" pour errer librement — libellé dédié "Ancienne rencontre". */
+   * l'état "en approche" pour errer librement — libellé dédié "Ancienne rencontre" — et de la faune
+   * errante (`owl-*`/`werewolf-*`, voir WildlifeActorState) — libellé "Hibou"/"Loup-garou". */
   const liveActorKindLabel = useCallback((m: MapMarker): string => {
     if (m.id === 'roaming.dragon.live') return t('canvas2d.dragonLabel');
     if (m.id === 'encounter.npc.live' && encounterNpc) return localizeName(t, `npc.offer.${encounterNpc.offer}`, encounterNpc.offer);
     if (m.id.startsWith('encounter.extra.')) return t('canvas2d.formerEncounterLabel');
+    if (m.id.startsWith('owl-')) return t('canvas2d.owlLabel');
+    if (m.id.startsWith('werewolf-')) return t('canvas2d.werewolfLabel');
     return t('canvas2d.npcLabel');
   }, [encounterNpc, t]);
   // Rayon de proximité (en cases mapmonde, échelle 0-100 — voir RepRules.npcProximityRadiusTiles,
@@ -297,6 +315,13 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
       stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
     });
+  }, [rules]);
+  // Idem pour la faune errante (hiboux/loups-garous, voir RepRules.wildlife*/lib/roamingActors.ts::
+  // ensureWildlifeSpawns) — appelé depuis les 3 widgets, idempotent tant que ni les comptages ni le
+  // "seed" de régénération n'ont changé (voir commentaire de la fonction).
+  useEffect(() => {
+    if (!rules) return;
+    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0);
   }, [rules]);
   // Alimente lib/roamingActors.ts avec la position COURANTE de Synk sur la mapmonde — gèle
   // UNIQUEMENT les PNJ/dragons/familiers déjà à proximité, ne les fait JAMAIS suivre Synk.

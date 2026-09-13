@@ -126,6 +126,23 @@ export interface ExtraRoamingActor {
   questLabel?: string;
   questI18nKey?: string;
 }
+/** Faune sauvage (hibou/loup-garou) — voir WildlifeActorState/ensureWildlifeSpawns ci-dessous.
+ * Corrige le bug remonté par l'utilisateur : « le loup garou et le hibou me suivent quand je me
+ * déplace, comme s'ils étaient accroché à Synk ». Avant ce correctif, `Owl3D`/`Werewolf3D`
+ * (Platform3DAmbientScene.tsx) étaient positionnés à un offset LOCAL fixe (ex. `[2.4,0,-3.4]`) dans
+ * le repère de la scène 3D — or ce repère est recentré sur Synk à CHAQUE rendu (voir
+ * `Scene()::tiles`, coordonnées `dx=centerCol+dx`/`dz=centerRow+dz` : Synk reste TOUJOURS à
+ * l'origine locale, c'est le DÉCOR qui défile autour de lui). Un offset local fixe restait donc
+ * TOUJOURS exactement au même endroit relatif à Synk, quel que soit l'endroit du monde où celui-ci
+ * se trouvait réellement — recréant, sans le vouloir, l'ancien mécanisme d'« attache » déjà retiré
+ * pour le PNJ/Dragon errant historique (voir commentaire d'en-tête du module). Ces deux créatures
+ * deviennent donc de VRAIES entités mapmonde (coordonnées 0-100, comme `npc`/`dragon`/`familiars`
+ * ci-dessus), qui errent avec le même moteur `advanceActor`/`stepActors`, sont localisées sur le
+ * widget "Mapmonde" (voir WorldMapWidget.tsx) et dont le nombre est paramétrable en Administration
+ * (voir RepRules.wildlifeOwlCount/wildlifeWerewolfCount, RepRulesPanel.tsx). */
+export type WildlifeKind = 'owl' | 'werewolf';
+export interface WildlifeActorState extends RoamingActorPos { facing: SynkDirection; moving: boolean; kind: WildlifeKind }
+
 export interface RoamingActorsState {
   npc: RoamingActorPos;
   dragon: RoamingActorPos;
@@ -144,6 +161,9 @@ export interface RoamingActorsState {
    * familiers/dragons du catalogue errent désormais ») — indexé par `MapMarker.id`, vide par défaut,
    * peuplé par `ensureRoamingIdentities`. */
   familiars: Record<string, RoamingFamiliarState>;
+  /** Hibou(x)/loup-garou(s) errants (voir WildlifeActorState ci-dessus) — indexé par un id stable
+   * `owl-N`/`werewolf-N`, vide par défaut, peuplé par `ensureWildlifeSpawns`. */
+  wildlife: Record<string, WildlifeActorState>;
 }
 
 interface ActorMotion { dx: number; dy: number; holdTicks: number }
@@ -216,6 +236,7 @@ let state: RoamingActorsState = {
   dragonMarkerId: null,
   extras: [],
   familiars: {},
+  wildlife: {},
 };
 
 let npcMotion: ActorMotion = { dx: 0, dy: 0, holdTicks: 0 };
@@ -227,6 +248,11 @@ const extraMotions = new Map<string, ActorMotion>();
 // catalogue — jamais purgée (contrairement à extraMotions) : un familier du catalogue reste
 // PERMANENT tant que le catalogue est chargé, aucun plafond FIFO ne s'applique ici.
 const familiarMotions = new Map<string, ActorMotion>();
+// Une entrée de "motion" par hibou/loup-garou errant (voir WildlifeActorState), indexée par son id
+// stable `owl-N`/`werewolf-N` — régénérée intégralement par `ensureWildlifeSpawns` à chaque
+// changement de comptage/seed (contrairement à familiarMotions, la faune n'a pas d'identité
+// catalogue permanente : elle est purement procédurale).
+const wildlifeMotions = new Map<string, ActorMotion>();
 const listeners = new Set<(s: RoamingActorsState) => void>();
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -354,6 +380,21 @@ function stepActors(): void {
       familiars[id] = { x: result.pos.x, y: result.pos.y, facing: result.facing ?? cur.facing, moving: result.moving };
     }
   }
+  // Fait avancer la faune errante (hibou(x)/loup-garou(s), voir WildlifeActorState/
+  // ensureWildlifeSpawns) exactement comme familiars ci-dessus — même moteur d'errance/gel de
+  // proximité, chacun avec sa propre motion indépendante.
+  const wildlifeIds = Object.keys(state.wildlife);
+  let wildlife = state.wildlife;
+  if (wildlifeIds.length) {
+    wildlife = { ...state.wildlife };
+    for (const id of wildlifeIds) {
+      const cur = state.wildlife[id];
+      const motion = wildlifeMotions.get(id) ?? { dx: 0, dy: 0, holdTicks: 0 };
+      const result = advanceActor({ x: cur.x, y: cur.y }, motion);
+      wildlifeMotions.set(id, result.motion);
+      wildlife[id] = { x: result.pos.x, y: result.pos.y, facing: result.facing ?? cur.facing, moving: result.moving, kind: cur.kind };
+    }
+  }
   state = {
     ...state,
     npc: npcResult.pos,
@@ -364,6 +405,7 @@ function stepActors(): void {
     dragonMoving: dragonResult.moving,
     extras,
     familiars,
+    wildlife,
   };
   notify();
 }
@@ -452,6 +494,75 @@ export function ensureRoamingIdentities(markers: MapMarker[]): void {
   }
   if (familiarsCopy) next.familiars = familiarsCopy;
   if (changed) { state = next; notify(); ensureInterval(); }
+}
+
+// Point d'apparition par défaut partagé (voir commentaire de `state` ci-dessus) — sert d'ancrage
+// pour garantir qu'au moins 1 hibou ET 1 loup-garou apparaissent à portée raisonnable du joueur
+// (voir `ensureWildlifeSpawns` ci-dessous), au lieu d'un tirage 100% uniforme sur toute la
+// mapmonde qui pourrait statistiquement placer les 25 individus loin de tout parcours réaliste.
+const DEFAULT_SPAWN = { x: 50, y: 88 };
+// Rayon (cases mapmonde) dans lequel le PREMIER hibou et le PREMIER loup-garou générés sont forcés
+// d'apparaître autour de DEFAULT_SPAWN — garantit une rencontre quasi certaine en tout début de
+// partie sans pour autant les coller littéralement sur le point d'apparition (peu naturel).
+const GUARANTEED_ENCOUNTER_MIN_RADIUS = 12, GUARANTEED_ENCOUNTER_MAX_RADIUS = 25;
+
+function clampWorld(v: number): number {
+  return Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, v));
+}
+
+/** Tire une position aléatoire : soit UNIFORME sur toute la plage d'errance (`guaranteed=false`),
+ * soit à une distance `[GUARANTEED_ENCOUNTER_MIN_RADIUS, ...MAX_RADIUS]` de `DEFAULT_SPAWN` (angle
+ * aléatoire) si `guaranteed=true` — voir commentaire ci-dessus. */
+function randomWildlifeSpawn(guaranteed: boolean): RoamingActorPos {
+  if (guaranteed) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = GUARANTEED_ENCOUNTER_MIN_RADIUS + Math.random() * (GUARANTEED_ENCOUNTER_MAX_RADIUS - GUARANTEED_ENCOUNTER_MIN_RADIUS);
+    return { x: clampWorld(DEFAULT_SPAWN.x + Math.cos(angle) * radius), y: clampWorld(DEFAULT_SPAWN.y + Math.sin(angle) * radius) };
+  }
+  return { x: ROAM_MARGIN + Math.random() * (WORLD_SIZE - 2 * ROAM_MARGIN), y: ROAM_MARGIN + Math.random() * (WORLD_SIZE - 2 * ROAM_MARGIN) };
+}
+
+// Derniers paramètres appliqués (voir ensureWildlifeSpawns) — évite de régénérer TOUTES les
+// positions à chaque appel (un appel a lieu depuis chacun des 3 widgets à leur montage) : seule une
+// VRAIE variation d'un des 4 paramètres (dont `seedVersion`, incrémenté par le bouton Administration
+// « 🎲 Regénérer les positions ») déclenche une régénération complète.
+let lastWildlifeEnabled: boolean | null = null;
+let lastWildlifeOwlCount = -1;
+let lastWildlifeWerewolfCount = -1;
+let lastWildlifeSeedVersion = -1;
+
+/** (Re)génère la faune errante (hibou(x)/loup-garou(s)) — voir WildlifeActorState/RepRules.wildlife*
+ * (RepRulesPanel.tsx). Idempotent : n'effectue RIEN si `enabled`/`owlCount`/`werewolfCount`/
+ * `seedVersion` sont IDENTIQUES au dernier appel ayant réellement régénéré la faune (permet un
+ * appel sans risque depuis les 3 widgets à chaque montage/changement de RepRules). `seedVersion`
+ * (voir RepRules.wildlifeSpawnSeed) est un simple compteur : l'incrémenter (bouton Administration)
+ * force une régénération avec de NOUVELLES positions aléatoires même si les comptages n'ont pas
+ * changé. `enabled=false` vide entièrement `wildlife` (aucune faune affichée dans aucun widget) sans
+ * pour autant perdre les compteurs suivis ci-dessus (réactiver restaure le même comptage). */
+export function ensureWildlifeSpawns(enabled: boolean, owlCount: number, werewolfCount: number, seedVersion: number): void {
+  const safeOwl = Math.max(0, Math.round(owlCount));
+  const safeWere = Math.max(0, Math.round(werewolfCount));
+  if (enabled === lastWildlifeEnabled && safeOwl === lastWildlifeOwlCount && safeWere === lastWildlifeWerewolfCount && seedVersion === lastWildlifeSeedVersion) {
+    return; // rien n'a réellement changé — évite de re-tirer aléatoirement à chaque montage de widget
+  }
+  lastWildlifeEnabled = enabled; lastWildlifeOwlCount = safeOwl; lastWildlifeWerewolfCount = safeWere; lastWildlifeSeedVersion = seedVersion;
+  wildlifeMotions.clear();
+  const wildlife: Record<string, WildlifeActorState> = {};
+  if (enabled) {
+    for (let i = 0; i < safeOwl; i++) {
+      const pos = randomWildlifeSpawn(i === 0);
+      wildlife[`owl-${i}`] = { ...pos, facing: 'down', moving: false, kind: 'owl' };
+      wildlifeMotions.set(`owl-${i}`, { dx: 0, dy: 0, holdTicks: 0 });
+    }
+    for (let i = 0; i < safeWere; i++) {
+      const pos = randomWildlifeSpawn(i === 0);
+      wildlife[`werewolf-${i}`] = { ...pos, facing: 'down', moving: false, kind: 'werewolf' };
+      wildlifeMotions.set(`werewolf-${i}`, { dx: 0, dy: 0, holdTicks: 0 });
+    }
+  }
+  state = { ...state, wildlife };
+  notify();
+  ensureInterval();
 }
 
 /** Ajoute un PNJ de rencontre à la file d'errance persistante (voir ExtraRoamingActor et le

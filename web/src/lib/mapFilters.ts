@@ -50,12 +50,18 @@ export interface MapFilterState {
    * utilisateur « positionneras un filtre spécifique [...] pour retrouver les objets déposés par
    * Synk »). Actif par défaut, comme tous les autres filtres historiques. */
   showDrops: boolean;
+  /** Filtre "Faune" (hiboux/loups-garous errants, voir MapMarkerKind==='wildlife' et
+   * lib/roamingActors.ts::WildlifeActorState) — distinct de « Familiers » (dragons/familiers
+   * apprivoisés du catalogue) car ce sont des créatures sauvages non liées au catalogue,
+   * conformément à la demande utilisateur : « positionnes un filtre intelligent [...] pour ne pas
+   * avoir trop d'éléments qui surchargent l'affichage ». Actif par défaut. */
+  showWildlife: boolean;
 }
 
 export const DEFAULT_MAP_FILTERS: MapFilterState = {
   showPois: true, showWorlds: true, showNpcs: true, showTreasures: true, showFamiliars: true,
   showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true,
-  kingdomChapters: null, kingdomFullMoonMode: 'all', declutter: false, showDrops: true,
+  kingdomChapters: null, kingdomFullMoonMode: 'all', declutter: false, showDrops: true, showWildlife: true,
 };
 
 // Rayon (en % de l'échelle mapmonde 0-100, même échelle que MapMarker.x/y) au-delà duquel un
@@ -101,7 +107,7 @@ export function hasUserMapFilterChoice(): boolean { return hasUserChoice; }
 export function applyAdminMapFilterDefaults(defaults: {
   showPois: boolean; showWorlds: boolean; showNpcs: boolean; showTreasures: boolean; showFamiliars: boolean;
   showQuestsClassic: boolean; showQuestsNpc: boolean; showQuestsKingdom: boolean;
-  kingdomFullMoonMode: 'all' | 'onlyFullMoon' | 'onlyNormal'; declutter?: boolean; showDrops?: boolean;
+  kingdomFullMoonMode: 'all' | 'onlyFullMoon' | 'onlyNormal'; declutter?: boolean; showDrops?: boolean; showWildlife?: boolean;
 }) {
   if (hasUserChoice) return;
   current = { ...current, ...defaults };
@@ -133,6 +139,7 @@ export const MAP_FILTER_CATEGORIES: { key: keyof MapFilterState; icon: string; i
   { key: 'showQuestsNpc', icon: '❓', i18nKey: 'map.filters.questsNpc' },
   { key: 'showQuestsKingdom', icon: '👑', i18nKey: 'map.filters.questsKingdom' },
   { key: 'showDrops', icon: '📦', i18nKey: 'map.filters.drops' },
+  { key: 'showWildlife', icon: '🦉', i18nKey: 'map.filters.wildlife' },
   { key: 'declutter', icon: '🧹', i18nKey: 'map.filters.declutter' },
 ];
 
@@ -145,9 +152,11 @@ const LIVE_ACTOR_MARKER_IDS = new Set(['roaming.npc.live', 'roaming.dragon.live'
  * spawnExtraRoamingActor/ExtraRoamingActor) — identifiants dynamiques (un par rencontre, préfixe
  * stable `encounter.extra.`), donc non énumérables dans LIVE_ACTOR_MARKER_IDS ci-dessus. Même
  * exemption que les acteurs "en direct" historiques : ces PNJ restent visibles quelle que soit
- * leur distance à Synk quand le "filtre intelligent" est actif. */
+ * leur distance à Synk quand le "filtre intelligent" est actif. Idem pour la faune errante
+ * (préfixe stable `owl-`/`werewolf-`, voir lib/roamingActors.ts::ensureWildlifeSpawns) : ce sont
+ * elles aussi des entités EN DIRECT rares, que le "filtre intelligent" ne doit jamais masquer. */
 function isLiveActorMarkerId(id: string): boolean {
-  return LIVE_ACTOR_MARKER_IDS.has(id) || id.startsWith('encounter.extra.');
+  return LIVE_ACTOR_MARKER_IDS.has(id) || id.startsWith('encounter.extra.') || id.startsWith('owl-') || id.startsWith('werewolf-');
 }
 
 /** Prédicat de filtrage d'un marqueur — utilisé IDENTIQUEMENT par WorldMapWidget.tsx (rendu de la
@@ -167,6 +176,7 @@ export function markerMatchesFilters(m: MapMarker, f: MapFilterState, playerPos?
     case 'treasure': matchesCategory = f.showTreasures; break;
     case 'familiar': matchesCategory = f.showFamiliars; break;
     case 'drop': matchesCategory = f.showDrops; break;
+    case 'wildlife': matchesCategory = f.showWildlife; break;
     case 'quest': {
       if (m.questCategory === 'kingdom') {
         if (!f.showQuestsKingdom) { matchesCategory = false; break; }

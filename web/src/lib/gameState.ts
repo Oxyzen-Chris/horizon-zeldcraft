@@ -2590,7 +2590,7 @@ export async function getMapPoiDefs(mapId?: string): Promise<MapPoiDef[]> {
  * rechercher »). Source de vérité : `catalog/worldDrops/{dropId}` (voir WorldDroppedItem/
  * lib/worldDrops.ts ci-dessous) — jamais ajouté à getAllMapMarkers() (catalogue statique), fusionné
  * en direct par chaque widget via `useWorldDrops()`, exactement comme les PNJ/dragons errants. */
-export type MapMarkerKind = 'poi' | 'world' | 'npc' | 'treasure' | 'familiar' | 'quest' | 'zorghon' | 'captive' | 'drop';
+export type MapMarkerKind = 'poi' | 'world' | 'npc' | 'treasure' | 'familiar' | 'quest' | 'zorghon' | 'captive' | 'drop' | 'wildlife';
 
 /**
  * Marqueur unifié positionné sur la carte : regroupe les décors/terrain (MapPoiDef), les portes de
@@ -2821,12 +2821,15 @@ export interface MapFilterDefaults {
   /** Filtre "Objets déposés" (voir MapMarkerKind==='drop'/WorldDroppedItem ci-dessus) — `true` par
    * défaut (visible d'emblée, comme tous les autres filtres historiques). */
   showDrops: boolean;
+  /** Filtre "Faune" (hiboux/loups-garous errants, voir MapMarkerKind==='wildlife') — `true` par
+   * défaut (visible d'emblée, comme tous les autres filtres historiques). */
+  showWildlife: boolean;
   updatedAt: number;
 }
 export const DEFAULT_MAP_FILTER_DEFAULTS: MapFilterDefaults = {
   showPois: true, showWorlds: true, showNpcs: true, showTreasures: true, showFamiliars: true,
   showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true, kingdomFullMoonMode: 'all',
-  declutter: false, showDrops: true, updatedAt: 0,
+  declutter: false, showDrops: true, showWildlife: true, updatedAt: 0,
 };
 export async function getMapFilterDefaults(): Promise<MapFilterDefaults> {
   const db = getFirebaseDb();
@@ -4665,6 +4668,26 @@ export interface RepRules {
   roamProximityFreezeTiles: number;    // défaut 2 — distance (mêmes unités que WORLD_SIZE=100) en
                                         // deçà de laquelle le gel de proximité ci-dessus s'applique
 
+  // ─── Faune sauvage errante : hibou(x)/loup-garou(s) (voir lib/roamingActors.ts::WildlifeActorState/
+  // ensureWildlifeSpawns) — répond à la demande utilisateur « le loup garou et le hibou me suivent
+  // quand je me déplace [...] fait en sorte qu'ils soient positionnés aléatoirement sur le widget de
+  // la mapmonde [...] il peut y avoir 12 loup-garou et 13 hibou (rend paramétrable leur nombre et
+  // leur localisation dans le menu Administration) [...] positionnés aléatoirement [...] mais de
+  // telle sorte à ce que Synk en rencontre au moins 1 dans une partie ». Ces deux créatures errent
+  // désormais comme de VRAIES entités mapmonde (même moteur que les PNJ/familiers errants), visibles
+  // et localisées dans les 3 widgets (Plateforme 2D isométrique/Plateforme 3D/Mapmonde), au lieu
+  // d'un décor 3D fixe attaché à Synk.
+  wildlifeEnabled: boolean;            // défaut true — désactive entièrement la faune errante si
+                                        // false (aucun hibou/loup-garou dans aucun widget)
+  wildlifeOwlCount: number;            // défaut 13 — nombre total de hiboux errants sur la mapmonde
+  wildlifeWerewolfCount: number;       // défaut 12 — nombre total de loups-garous errants
+  wildlifeSpawnSeed: number;           // défaut 0 — simple compteur incrémenté par le bouton
+                                        // Administration « 🎲 Regénérer les positions » : force un
+                                        // nouveau tirage aléatoire de toutes les positions de faune
+                                        // sans changer les comptages ci-dessus (voir
+                                        // ensureWildlifeSpawns, idempotent tant que ce compteur ne
+                                        // change pas)
+
   // ─── Pop-up d'état environnemental toujours visibles (voir EnvStatusPopupLayer.tsx) — répond à
   // la demande utilisateur « les pop-up Altitude, Manque d'oxygène et Récupération d'oxygène
   // doivent être au-dessus de tous les widgets [...] tout comme le pop-up "Fin de l'accès démo" ».
@@ -4903,6 +4926,10 @@ export const DEFAULT_REP_RULES: RepRules = {
   roamPauseMaxSec: 8,
   roamProximityFreezeEnabled: true,
   roamProximityFreezeTiles: 2,
+  wildlifeEnabled: true,
+  wildlifeOwlCount: 13,
+  wildlifeWerewolfCount: 12,
+  wildlifeSpawnSeed: 0,
   envStatusPopupsOnTop: true,
   dayStartHour: 7,
   nightStartHour: 20,
