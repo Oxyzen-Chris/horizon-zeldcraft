@@ -1580,19 +1580,15 @@ réutilisée par `WeatherPanel.tsx`, `Platform3DWidget.tsx` et `WorldMapWidget.t
 les trois widgets affichent toujours exactement le même jour/nuit/thème (zéro incohérence
 inter-widgets).
 
-**Rendu visuel** — overlay DOM/CSS `pointer-events-none` (choix volontaire pour limiter le risque
-de régression : la scène Three.js elle-même n'est pas modifiée) :
-- `Platform3DAmbientOverlay.tsx` (dans `Platform3DWidget.tsx`, masqué en mode sous-marin) : ciel
-  étoilé, étoile filante occasionnelle, icône soleil/lune (avec emoji de phase), nuages qui
-  dérivent, pluie occasionnelle selon `rainChancePct`, rapace qui tournoie (jour), chauve-souris
-  (nuit), sorcière volante, bulles éphémères pour les évènements sonores textuels (hululement de
-  hibou, cri de loup-garou, sifflement de sorcière — le jeu n'ayant pas de système audio, ces
-  évènements restent décoratifs/textuels, cohérent avec le reste de l'app).
-- `WorldMapAmbientOverlay.tsx` (dans `WorldMapWidget.tsx`) : troupeau de sangliers/marcassins
-  traversant l'intégralité de la largeur de la Mapmonde, sorcière volante en diagonale, deux
-  rapaces qui tournoient (jour uniquement).
-- Animations en `<style jsx>` (styled-jsx, déjà utilisé dans `admin/page.tsx`) — aucune dépendance
-  supplémentaire.
+**Rendu visuel** :
+- Plateforme 3D : `Platform3DAmbientScene.tsx` (voir § « Objets d'ambiance 3D + module Audio »
+  ci-dessous) — **vrais objets Three.js** dans la scène (remplace l'ancien overlay DOM/CSS
+  `Platform3DAmbientOverlay.tsx`, supprimé).
+- `WorldMapAmbientOverlay.tsx` (dans `WorldMapWidget.tsx`, overlay DOM/CSS `pointer-events-none`
+  conservé tel quel — vue 2D top-down, les icônes plates y restent pertinentes) : troupeau de
+  sangliers/marcassins traversant l'intégralité de la largeur de la Mapmonde, sorcière volante en
+  diagonale, deux rapaces qui tournoient (jour uniquement). Animations en `<style jsx>`
+  (styled-jsx, déjà utilisé dans `admin/page.tsx`) — aucune dépendance supplémentaire.
 
 **Panneau Administration** `WorldThemesAdminPanel.tsx` (§ 28, `admin-sec-worldThemes`) : réglage
 des heures jour/nuit, bascule manuelle auto/jour/nuit forcée, éditeur de thèmes (actif, ordre,
@@ -1620,3 +1616,79 @@ réellement connecté, indisponible dans cet environnement de test).
 **Zéro régression confirmée** : `tsc --noEmit` et `npm run build` propres ; tous les widgets
 existants (stats, sablier de session Démo, badge météo on-chain, saisons, phase de lune du badge
 d'en-tête) inchangés et vérifiés visuellement lors des captures d'écran ci-dessus.
+
+## Objets d'ambiance 3D (Plateforme 3D) + module Audio
+
+Suite au retour utilisateur : les éléments d'ambiance jour/nuit ci-dessus (lune, soleil, étoiles,
+nuages, pluie, hibou, loup-garou, chauves-souris, rapaces, oiseaux, troupeau de sangliers, sorcière
+volante) doivent être de **vrais objets 3D dans la scène Three.js** de la Plateforme 3D (et non des
+icônes plates en overlay DOM/CSS, qui n'ont pas de sens dans un espace x/y/z) — plus un **module
+audio** pour donner vie à chaque créature (hululement, hurlement, sifflement, cris d'animaux…).
+
+**`Platform3DAmbientScene.tsx`** (nouveau composant R3F, rendu comme enfant de `<Canvas>` dans
+`Platform3DWidget.tsx`, sibling de `<Scene>`/`<CameraBridge>`, masqué en mode sous-marin — remplace
+et supprime `Platform3DAmbientOverlay.tsx`) :
+- `Moon3D` : texture canvas générée par `getMoonTexture()` (algorithme d'ellipse-terminateur,
+  8 phases `MoonPhaseKey` + teinte « lune rousse »), billboard toujours face caméra (copie du
+  quaternion caméra).
+- `Sun3D` : disque billboard équivalent, actif uniquement en thème Jour (`sun`/`moon` mutuellement
+  exclusifs selon le thème, jamais besoin de gérer leur coexistence).
+- `Starfield3D` (nuage de points `THREE.Points`) + `ShootingStar3D` (streak périodique animée).
+- `Clouds3D`/`Cloud3D` (amas de sphères qui dérivent), `Rain3D` (système de particules qui tombent,
+  actif selon `rainChancePct`).
+- `Owl3D` (perché, hululement + animation tête/ailes périodique), `Werewolf3D` (assis, hurlement
+  périodique).
+- `Bat3D`/`BatsSwarm3D`, `Raptor3D`/`RaptorsFlock3D`, `Bird3D`/`BirdsFlock3D` : vols circulaires/en
+  banking avec battement d'ailes, réutilisent le même schéma d'orbite paramétrée (rayon, hauteur,
+  vitesse, décalage de phase par `hashSeed()`).
+- `Boar3D`/`BoarHerd3D` : troupeau de sangliers/marcassins quadrupèdes en marche (démarche
+  diagonale, même principe que `DragonMarker`), `Witch3D` : vol sur balai avec trajectoire en 8.
+- `useAmbientSoundCycle(key, intervalSec, seedOffset, onTrigger, adminAudio)` : hook `useFrame`
+  déclenchant une fois par cycle (`Math.floor((elapsedTime + seedOffset) / intervalSec)`) à la fois
+  l'animation visuelle (`onTrigger`) et le son (`playAmbientSound`).
+
+**⚠️ Leçon retenue — calibrage empirique au frustum caméra** : la caméra par défaut de la
+Plateforme 3D est positionnée en `[0, 3.2, 5.6]`, vise `[0, 0.3, 0]`, `fov: 45` — un pitch
+descendant prononcé (~27°) avec un demi-FOV vertical étroit (~22.5°). Des positions « logiques »
+naïves (grande hauteur `y=7-8.5` pour « haut dans le ciel », `z` positif pour « proche du joueur »)
+tombent **hors du frustum visible** ou sont masquées par la canopée des arbres, même si le
+composant est monté et fonctionne sans erreur. Convention de positionnement retenue après
+calibrage par captures d'écran successives (sondes de couleur placées puis retirées) :
+- **z négatif** (à l'arrière-plan, loin de la caméra, ex. `-3` à `-16`) = généralement visible ;
+  **z positif** (entre l'origine et la caméra) = généralement hors-champ/rogné.
+- **y bas** (environ `0.7` à `3`) plutôt que haut (`>4`) pour rester dans le cône visible.
+- Excursions en `x` modestes (rayon d'orbite ≤ ~2.5) pour ne pas sortir latéralement du champ.
+- Le joueur peut orbiter la caméra (`OrbitControls` : `minPolarAngle=0.25`, `maxPolarAngle=1.35`,
+  `minDistance=3`, `maxDistance=11`) donc ce calibrage vise une **vue par défaut représentative**,
+  pas une garantie de visibilité sous tout angle. À réutiliser pour tout futur ajout d'objet 3D
+  décoratif dans ce widget : valider par capture d'écran Playwright plutôt que par intuition.
+
+**Module Audio** (`lib/audio.ts`) : sons synthétisés procéduralement via Web Audio API (aucun
+fichier audio externe — évite les risques de droits d'auteur/liens morts), une entrée par créature
+(`AudioSourceKey`). `unlockAudioOnFirstGesture()` lève la restriction navigateur d'autoplay au
+premier clic/touche. `playAmbientSound(key, adminSettings)` respecte le volume/mute global et
+par-source. `useAudioPrefs()` (préférences joueur, `localStorage`) et `useAdminAudioSettings()`
+(réglages globaux, `catalog/audioSettings/{key}`, CRUD dans `gameState.ts`).
+
+**Widget « Audio »** (`AudioWidget.tsx`, 14ᵉ widget flottant) : contrôle maître + un contrôle par
+créature (volume/mute), paramétrable via `RepRules.audioWidgetEnabled`.
+
+**Panneau Administration** `AudioAdminPanel.tsx` (`admin-sec-audio`) : active/désactive et règle le
+volume par défaut de chaque source sonore ; base pour un chargement futur de sons personnalisés par
+créature/thème (non requis dans l'itération actuelle, des sons par défaut sont fournis pour
+chaque créature).
+
+**Vérifié (Playwright)** : `tsc --noEmit` propre. Scène testée en thème **Jour** (soleil visible,
+nuages, troupeau de sangliers en arrière-plan) et en thème **Nuit** (bascule survenue naturellement
+pendant les tests, l'heure réelle ayant franchi minuit) : lune (billboard, halo), ciel étoilé,
+nuages, un oiseau/chauve-souris en vol capturé en cadrage par défaut, troupeau de sangliers visible
+également de nuit. Caméra inclinée manuellement (drag souris) pour confirmer nuages/silhouettes
+volantes plus haut dans le ciel. **0 erreur console/page** sur l'ensemble des scénarios. Widget
+Audio confirmé monté sans erreur (ouverture testée hors mode plein écran de la Plateforme 3D — en
+plein écran, comme les autres widgets flottants, il reste superposé par le calque plein écran,
+comportement préexistant du système de widgets, non spécifique à cette fonctionnalité).
+
+**Zéro régression confirmée** : `tsc --noEmit` et `npm run build` propres ; déplacement de Synk
+(touches fléchées), marqueurs PNJ/dragon existants (ex. dragon doré) toujours rendus et animés
+correctement aux côtés de la nouvelle couche d'ambiance ; `WorldMapAmbientOverlay.tsx` (Mapmonde)
+non modifié.

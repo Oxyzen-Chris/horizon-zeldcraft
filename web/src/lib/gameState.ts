@@ -34,6 +34,7 @@
  *   catalog/seasonState                → SeasonState (saison courante — auto (date réelle) ou forcée par l'admin)
  *   catalog/timeState                  → TimeState (jour/nuit courant — auto (horloge réelle) ou forcé par l'admin)
  *   catalog/worldThemes/{id}           → WorldThemeDef (thèmes Jour/Nuit + thèmes personnalisés programmés, widget "Weather")
+ *   catalog/audioSettings/{key}         → AudioSourceSetting (son par défaut/volume/activation par créature d'ambiance 3D, widget "Audio")
  *   catalog/aiAnalyticsSettings         → AiAnalyticsSettings (interrupteur global + config module « Intelligence IA GamePlay »)
  *   catalog/aiInsightsCache             → AiInsightsCache (dernière analyse générée par le LLM gratuit, voir web/src/app/api/ai/insights/route.ts)
  *   catalog/analytics/dauGlobal/{jour}         → nombre de joueurs actifs ce jour (compteur O(1), voir markPlayerActiveToday)
@@ -3336,6 +3337,71 @@ export function resolveActiveTheme(themes: WorldThemeDef[], date: Date, isNight:
     ?? DEFAULT_WORLD_THEMES.find(t => t.kind === fallbackKind)!;
 }
 
+// ─── Sons d'ambiance des créatures 3D (widget "Audio" + admin) ───────────────────────────────
+// Chaque créature d'ambiance de la Plateforme 3D (voir Platform3DAmbientScene.tsx) peut émettre un
+// son court et ponctuel (hululement, cri, sifflement...). Par défaut, AUCUN fichier audio externe
+// n'est requis : `lib/audio.ts` synthétise un son de repli via Web Audio API (aucune dépendance
+// réseau, aucun risque de lien mort/droit d'auteur). L'admin peut néanmoins définir ici, pour
+// chaque créature, une URL de fichier audio personnalisée (mp3/ogg hébergé par ses soins) qui
+// remplace alors le son synthétisé — voir AudioAdminPanel.tsx.
+export type AudioSourceKey = 'owl' | 'werewolf' | 'bat' | 'raptor' | 'bird' | 'boar' | 'witch';
+export const AUDIO_SOURCE_KEYS: AudioSourceKey[] = ['owl', 'werewolf', 'bat', 'raptor', 'bird', 'boar', 'witch'];
+export interface AudioSourceSetting {
+  enabled: boolean;   // Son par défaut activé pour cette créature (le joueur peut quand même la
+                       // couper individuellement côté client, voir AudioWidget.tsx/lib/audio.ts)
+  volume: number;      // Volume par défaut 0-100, appliqué avant le volume général du joueur
+  url?: string;        // URL audio personnalisée (admin) — sinon son synthétisé par défaut
+}
+export const DEFAULT_AUDIO_SETTINGS: Record<AudioSourceKey, AudioSourceSetting> = {
+  owl: { enabled: true, volume: 60 },
+  werewolf: { enabled: true, volume: 65 },
+  bat: { enabled: true, volume: 40 },
+  raptor: { enabled: true, volume: 55 },
+  bird: { enabled: true, volume: 45 },
+  boar: { enabled: true, volume: 50 },
+  witch: { enabled: true, volume: 50 },
+};
+
+export async function getAudioSettings(): Promise<Record<AudioSourceKey, AudioSourceSetting>> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_AUDIO_SETTINGS;
+  try {
+    const snap = await get(ref(db, 'catalog/audioSettings'));
+    const v = snap.val() as Partial<Record<AudioSourceKey, AudioSourceSetting>> | null;
+    if (!v) return DEFAULT_AUDIO_SETTINGS;
+    const merged = { ...DEFAULT_AUDIO_SETTINGS };
+    for (const k of AUDIO_SOURCE_KEYS) if (v[k]) merged[k] = { ...merged[k], ...v[k] };
+    return merged;
+  } catch (e) {
+    console.warn('[audioSettings] catalog read failed, using defaults:', e);
+    return DEFAULT_AUDIO_SETTINGS;
+  }
+}
+
+/** Abonnement temps réel aux réglages audio (widget "Audio" + admin) — même principe que
+ * subscribeWorldThemes. */
+export function subscribeAudioSettings(cb: (settings: Record<AudioSourceKey, AudioSourceSetting>) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(DEFAULT_AUDIO_SETTINGS); return () => {}; }
+  const r = ref(db, 'catalog/audioSettings');
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Partial<Record<AudioSourceKey, AudioSourceSetting>> | null;
+    const merged = { ...DEFAULT_AUDIO_SETTINGS };
+    if (v) for (const k of AUDIO_SOURCE_KEYS) if (v[k]) merged[k] = { ...merged[k], ...v[k] };
+    cb(merged);
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/** Écrit le réglage (admin) d'UNE créature — ne touche pas aux autres clés. */
+export async function upsertAudioSetting(key: AudioSourceKey, setting: AudioSourceSetting): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `catalog/audioSettings/${RKEY(key)}`), setting);
+}
+
 // ─────────────────────────────────────── Player index ───────────────────────────────────────
 
 /** Liste tous les joueurs enregistrés (pour dropdown admin). */
@@ -4443,6 +4509,11 @@ export interface RepRules {
   // lune, thème d'ambiance actif (Jour/Nuit/personnalisé), saison — voir demande utilisateur "cycle
   // jour/nuit [...] widget dédié que tu appelleras Weather". Même sémantique par défaut `true`.
   weatherWidgetEnabled: boolean;
+  // Nouveau widget flottant "Audio" (voir AudioWidget.tsx) — volume général on/off + volume/sourdine
+  // par créature d'ambiance 3D (hibou, loup-garou, chauve-souris, rapaces, oiseaux/hirondelles,
+  // sangliers/marcassins, sorcière) — voir demande utilisateur "widget Audio [...] permettre de
+  // allumer, couper le son [...] à chaque objet 3D". Même sémantique par défaut `true`.
+  audioWidgetEnabled: boolean;
   // Affiche/masque la rubrique "Nourrir Synk" (les 4 boutons de repas on-chain + leur cooldown)
   // dans le jeu — voir game/page.tsx. Distinct de `onchainFeedButtonsEnabled` ci-dessous qui ne
   // gère QUE les boutons on-chain eux-mêmes (déjà masqués par défaut à cause du bug connu) :
@@ -4798,6 +4869,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   walletTopupWidgetEnabled: true,
   platform3dWidgetEnabled: true,
   weatherWidgetEnabled: true,
+  audioWidgetEnabled: true,
   feedSectionEnabled: true,
   // Défaut false (voir commentaire sur l'interface RepRules) : bug de cooldown partagé sur le
   // contrat Sepolia actuellement déployé, correctif écrit mais en attente de redéploiement.

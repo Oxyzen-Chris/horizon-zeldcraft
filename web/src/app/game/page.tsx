@@ -49,6 +49,8 @@ import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { HelpWidget } from '@/components/HelpWidget';
 import { ProgressWidget } from '@/components/ProgressWidget';
 import { WeatherPanel } from '@/components/WeatherPanel';
+import { AudioWidget } from '@/components/AudioWidget';
+import { unlockAudioOnFirstGesture } from '@/lib/audio';
 import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { DemoSessionTimerWidget } from '@/components/DemoSessionTimerWidget';
 import { ActiveElixirsBanner } from '@/components/ActiveElixirsBanner';
@@ -110,6 +112,11 @@ export default function GamePage() {
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
   const { isLoading: isMining, isSuccess: isMined } = useWaitForTransactionReceipt({ hash: txHash });
+
+  // Déverrouille l'AudioContext (créatures d'ambiance 3D, voir lib/audio.ts) dès le premier geste
+  // utilisateur sur la page — les navigateurs bloquent la lecture audio tant qu'aucune interaction
+  // n'a eu lieu, ce hook pose une écoute ponctuelle (pointerdown/keydown) qui se retire elle-même.
+  useEffect(() => { unlockAudioOnFirstGesture(); }, []);
 
   // Auto-refetch après confirmation de la transaction (fix bug de refresh)
   useEffect(() => {
@@ -706,6 +713,11 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
           thème d'ambiance actif (Jour/Nuit/personnalisé programmé), saison — voir demande
           utilisateur "cycle jour/nuit [...] widget dédié [...] Weather" et WeatherPanel.tsx */}
       <WeatherPanel enabled={repRules?.weatherWidgetEnabled !== false} />
+      {/* Fenêtre flottante et déplaçable "Audio" — volume général + par créature d'ambiance 3D
+          (hibou, loup-garou, chauve-souris, rapaces, oiseaux/hirondelles, sangliers, sorcière) —
+          voir demande utilisateur "widget Audio [...] couper le son [...] à chaque objet 3D" et
+          AudioWidget.tsx/lib/audio.ts */}
+      <AudioWidget enabled={repRules?.audioWidgetEnabled !== false} />
     </div>
   );
 }
