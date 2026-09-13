@@ -12,6 +12,7 @@ import { EffectiveAccountBadge } from '@/components/EffectiveAccountBadge';
 import { useI18n } from '@/lib/i18n';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { getRepRules, formatDemoDurationLabel } from '@/lib/gameState';
+import { CHANGELOG_ENTRIES } from '@/lib/changelog';
 import { consumeDemoExpiredFlag } from '@/components/DemoSessionTimerWidget';
 import { consumePausedByAdminFlag } from '@/lib/effectiveAccount';
 
@@ -25,6 +26,7 @@ export default function Home() {
   const [demoExpiredMessage, setDemoExpiredMessage] = useState(false);
   const [demoExpiredDurationMin, setDemoExpiredDurationMin] = useState(120);
   const [pausedMessage, setPausedMessage] = useState(false);
+  const [changelogOpen, setChangelogOpen] = useState(false);
 
   useEffect(() => { getRepRules().then((r) => setWalletConnectEnabled(r.walletConnectEnabled !== false)).catch(() => {}); }, []);
   useEffect(() => {
@@ -94,6 +96,26 @@ export default function Home() {
             </p>
           </div>
         ))}
+      </section>
+
+      <section className="mt-8 card">
+        <button
+          className="w-full flex items-center justify-between text-sm font-semibold text-slate-200"
+          onClick={() => setChangelogOpen((v) => !v)}
+        >
+          <span>🆕 {t('changelog.title')}</span>
+          <span className="text-slate-400">{changelogOpen ? '▲' : '▼'}</span>
+        </button>
+        {changelogOpen && (
+          <div className="mt-3 space-y-2 text-left">
+            {CHANGELOG_ENTRIES.map((entry) => (
+              <div key={entry.titleKey} className="bg-slate-800/60 border border-slate-700 rounded-lg p-2.5">
+                <p className="text-xs font-semibold mb-1">{entry.icon} {t(entry.titleKey)}</p>
+                <p className="text-[11px] text-slate-400">{t(entry.bodyKey)}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <footer className="mt-12 text-center text-sm text-slate-500">

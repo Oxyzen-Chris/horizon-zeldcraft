@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ONBOARDING_STEPS } from '@/lib/onboardingContent';
+import { CHANGELOG_ENTRIES } from '@/lib/changelog';
 import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
@@ -79,15 +80,30 @@ export function HelpWidget({ enabled, onReplayTour }: { enabled: boolean; onRepl
             onClick={() => setTab(i)}
           >{s.icon} {t(s.titleKey)}</button>
         ))}
+        {/* Onglet "Nouveautés" — propre au widget "Aides" (n'apparaît PAS dans la visite guidée
+            plein écran OnboardingWizard.tsx, qui ne reprend que ONBOARDING_STEPS) : reprend les
+            dernières fonctionnalités déployées, voir lib/changelog.ts et demande utilisateur. */}
+        <button
+          className={`flex-1 text-[11px] px-1.5 py-1.5 rounded ${tab === ONBOARDING_STEPS.length ? 'bg-emerald-700/50 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-slate-200'}`}
+          onClick={() => setTab(ONBOARDING_STEPS.length)}
+        >🆕 {t('changelog.title')}</button>
       </div>
 
       <div className="p-3 overflow-y-auto space-y-2">
-        {step.topics.map(topic => (
-          <div key={topic.titleKey} className="bg-slate-800/60 border border-slate-700 rounded-lg p-2.5">
-            <p className="text-xs font-semibold mb-1">{topic.icon} {t(topic.titleKey)}</p>
-            <p className="text-[11px] text-slate-400">{t(topic.bodyKey)}</p>
-          </div>
-        ))}
+        {tab === ONBOARDING_STEPS.length
+          ? CHANGELOG_ENTRIES.map(entry => (
+            <div key={entry.titleKey} className="bg-slate-800/60 border border-slate-700 rounded-lg p-2.5">
+              <p className="text-xs font-semibold mb-1">{entry.icon} {t(entry.titleKey)}</p>
+              <p className="text-[11px] text-slate-400">{t(entry.bodyKey)}</p>
+              <p className="text-[10px] text-slate-500 mt-1">{new Date(entry.date).toLocaleDateString()}</p>
+            </div>
+          ))
+          : step.topics.map(topic => (
+            <div key={topic.titleKey} className="bg-slate-800/60 border border-slate-700 rounded-lg p-2.5">
+              <p className="text-xs font-semibold mb-1">{topic.icon} {t(topic.titleKey)}</p>
+              <p className="text-[11px] text-slate-400">{t(topic.bodyKey)}</p>
+            </div>
+          ))}
       </div>
 
       <div className="p-3 pt-0 shrink-0">

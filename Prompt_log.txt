@@ -482,14 +482,12 @@ Par rapport à une demande précédente (commit cbac7b9), voici les éléments q
 -----------------------------------------------------------------------------------------------------------------
 - Le classement des joueurs devrait me permettre de voir le classement de tous les joueurs, peu importe si je suis un joueur démo, sans portefeuille, avec un abonnement. Le principe de cette page est de permettre de connaitre son niveau mais aussi celui de tous les joueurs qui ont un compte ou joue au jeu donc fait en sorte que cela soit le cas car pour le moment, je ne vois que les scores de Pouic : [📷 copilot-image-1f59d9.png]. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 -----------------------------------------------------------------------------------------------------------------
+- Ajoutes une gestion du temps dans le jeu, c'est à dire, fait en sorte que le jeu se cale sur une journée de 24 heures pour avoir des jours et des nuits et dans les cas des nuits, transforme le décor du widget de la Plateforme 3D en paysage de nuit avec une lune (avec ses quartiers en fonction des périodes de la lune : pleine lune, quartiers de lune, 1/4 de lune, croissants, lune rousse), un ciel étoilés, parfois des étoiles filantes, un hibou qui hulule parfois dans la nuit ou un loup garou qui crie ou une ou plusieurs chauve-souris qui passent dans le ciel, mets une ambiance de nuit crépusculaire. La journée tu ajouteras un soleil, des oiseaux, des hirondelles, un ou plusieurs rapaces qui volent et tournoient (aigles, vautours, faucons), un troupeau de sangliers avec des petits marcassins qui passent et se déplacent sur l'intégralité de la MapMonde, une sorcières qui se déplacent sur son balai dans les airs en siflottant, des nuages et parfois mais rarement de la pluie; Tu rendras les conditions météo aléatoires mais proche de la réalité et tu rendras paramétrables tous ces éléments dans le menu Administration en définissant également des thèmes : un thème "Nuit" et un thème "Jour" en laissant la possiblité de créer d'autres thèmes, d'autres ambiances, d'autres personnages ou scènes qui peuvent se dérouler soit sur une semaine ou sur un mois en particulier soit pendant certaines heures de la journée : Tu rendras tous les éléments décrit ci-dessus paramétrable dans ces thèmes. L'idée est aussi ici de créer des mood ou thème hebdo, mensuel que je chargerai ou programmerai pour rendre le jeu plus attractif. Tu afficheras l'horloge du temps, l'heure de la journée, le nom du thème, le moment de la journée, etc... dans un widget dédié que tu appeleras "Weather", en anglais et que tu traduiras en fonction des langues. Enfin du penseras a ajouter dans le widget "Aides" et l'écran d'accueil de bienvenue, les dernières fonctionnalités qui ont été mise en place récemment et déployées dans le jeu et le menu Administration. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
 
 
 
-
-
-- Ajoutes une gestion du temps dans le jeu, c'est à dire, fait en sorte que le jeu se cale sur une journée de 24 heures pour avoir des jours et des nuits et dans les cas des nuits, transforme le décor en paysage de nuit avec une lune, des étoiles, un hibou qui hulule parfois dans la nuit ou un loup garou qui crie, mets une ambiance de nuit crépusculaire. La journée tu ajouteras un soleil, des nuages, parfois mais rarement de la pluie; Tu rendras les conditions météo aléatoires mais proche de la réalité et tu rendras paramétrables tous ces éléments dans le menu Administration. Tu afficheras l'horloge du temps dans un widget dédié que tu appeleras "Weather", en anglais et que tu traduiras en fonction des langues. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
 
@@ -572,6 +570,11 @@ Tu ne t'occuperas pas pour le moment du point "Sync inventaire on-chain ↔ jeu"
 
 
 - Créer un mode multi-joueur (multi-player à 4) en ligne :
+
+
+
+- Module de publication instantanée de posts dans instagram a partir d'une scène du jeu :
+
 
 
 - Développer et améliorer l'application sur mobile (iPhone et Android) :

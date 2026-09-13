@@ -65,7 +65,7 @@
 ### Routes
 
 - `/` — landing + connexion + choix langue + choix réseau
-- `/game` — dashboard Synk (stats, actions, inventaire, onboarding, 12 fenêtres flottantes - voir
+- `/game` — dashboard Synk (stats, actions, inventaire, onboarding, 13 fenêtres flottantes - voir
   § Widgets flottants)
 - `/admin` — panneau owner (26 rubriques - voir § Menu Administration)
 - `/scoreboard` — classement public des joueurs (lecture seule, sans wallet requis)
@@ -89,6 +89,7 @@ persistés en `localStorage`, distinction fiable clic/glissé via un `movedRef`,
 | Quêtes du Royaume                         | `KingdomQuestsWidget.tsx`      | Progression des 400 quêtes / 40 chapitres, badge pleine lune |
 | Aides                                     | `HelpWidget.tsx`               | Reprend le contenu de l'onboarding, disponible à tout moment |
 | État d'avancement / inventaire            | `ProgressWidget.tsx`           | Ledger dépliable par thème (17 catégories, ✅/❌) |
+| Météo                                      | `WeatherPanel.tsx`             | Horloge temps réel, jour/nuit, phase de lune, thème d'ambiance actif, saison |
 | Widgets personnalisés (admin)             | `CustomWidgetsRenderer.tsx`    | Rendu dynamique des widgets créés en Administration |
 
 `WorldMapWidget` et `GameCanvas2D` gèrent en plus leur propre redimensionnement (poignée de
@@ -130,6 +131,8 @@ Dans l'ordre d'affichage :
     réglage global) et d'afficher son profil détaillé (temps par widget, entonnoir de quêtes,
     évanouissements) sans avoir à suivre tous les joueurs.
 27. **Combinaisons de Potions / Élixirs** (`PotionComboAdminPanel.tsx`) — voir § dédiée ci-dessous.
+28. **Thèmes Jour/Nuit & cycle temporel** (`WorldThemesAdminPanel.tsx`) — voir § « Cycle jour/nuit,
+    thèmes d'ambiance & widget Météo » ci-dessous.
 
 ## Traductions (i18n) — couverture complète du contenu généré
 
@@ -1536,3 +1539,84 @@ console**, mise en page inchangée avec un plus grand nombre de lignes. `tsc --n
 Voxlyn on-chain) obtient des valeurs strictement identiques à avant (même source on-chain, même
 formule XP on-chain + bonus) ; seul un nouvel ensemble de lignes est désormais ajouté pour les
 comptes qui n'apparaissaient jamais.
+
+## Cycle jour/nuit, thèmes d'ambiance & widget Météo
+
+**Demande utilisateur** : caler le jeu sur une vraie journée de 24 heures (jour/nuit), avec un
+décor nocturne (lune + ses quartiers, ciel étoilé, étoiles filantes, hibou, loup-garou, chauve-
+souris) et un décor diurne (soleil, oiseaux/hirondelles, rapaces qui tournoient, troupeau de
+sangliers/marcassins traversant toute la Mapmonde, sorcière volante en sifflotant, nuages, pluie
+rare) — le tout aléatoire mais réaliste, entièrement paramétrable en Administration via un système
+de **thèmes** (Jour/Nuit intégrés + thèmes personnalisés programmables sur une plage horaire, un
+jour de semaine ou une période de dates), plus un nouveau widget dédié **« Météo »** affichant
+horloge/jour-nuit/phase de lune/thème actif/saison, et un journal des nouveautés dans le widget
+« Aides » et l'écran d'accueil.
+
+**Modèle de données** (`lib/gameState.ts`) :
+- `RepRules.dayStartHour`/`nightStartHour` (bornes horaires du jour, en mode auto) et
+  `weatherWidgetEnabled` (bascule d'affichage du nouveau widget, comme les autres widgets).
+- `TimeState` (`catalog/timeState`) : mode `auto`/`day`/`night` forcé par l'administrateur via
+  `setTimeState`/`getTimeState` — permet de tester ou d'imposer un thème sans attendre l'heure
+  réelle.
+- `MoonPhaseKey` + `computeMoonPhaseFromState` : 8 phases lunaires calculées déterministiquement à
+  partir de la date (même mécanisme que le badge pleine lune déjà existant), plus
+  `computeEasterSunday`/`isLuneRousseWindow` pour le repère folklorique de la « lune rousse »
+  (nouvelle lune suivant Pâques).
+- `WorldThemeDef`/`WorldThemeElements`/`WorldThemeSchedule` (`catalog/worldThemes/{id}`) : chaque
+  thème définit ses éléments d'ambiance (13 booléens + `rainChancePct` +
+  `ambientEventIntervalSec`) et sa programmation (`always`/`hourRange`/`weekday`/`dateRange`,
+  avec un `forcedTimeOfDay` optionnel). `DEFAULT_WORLD_THEMES` fournit les thèmes **Jour**/**Nuit**
+  intégrés (protégés de la suppression via `BUILTIN_THEME_IDS`) ; `resolveActiveTheme` choisit le
+  thème actif en résolvant priorité + fenêtre de programmation + heure courante.
+
+**Widget « Météo »** (`WeatherPanel.tsx`, 13ᵉ widget flottant, distinct du badge d'en-tête
+`WeatherWidget.tsx` qui gère la météo on-chain difficulté/saison) : horloge en direct, libellé
+jour/nuit, phase de lune (+ étiquette « Lune rousse » le cas échéant), nom du thème actif, saison.
+Paramétrable via `weatherWidgetEnabled` (menu Administration).
+
+**Hook partagé** `lib/useWorldTheme.ts::useWorldThemeAmbience()` : source unique de vérité
+(`isNight`/`theme`/`moonPhase`), abonnée à `RepRules`/`TimeState`/`MoonState`/`WorldThemeDef[]`,
+réutilisée par `WeatherPanel.tsx`, `Platform3DWidget.tsx` et `WorldMapWidget.tsx` pour garantir que
+les trois widgets affichent toujours exactement le même jour/nuit/thème (zéro incohérence
+inter-widgets).
+
+**Rendu visuel** — overlay DOM/CSS `pointer-events-none` (choix volontaire pour limiter le risque
+de régression : la scène Three.js elle-même n'est pas modifiée) :
+- `Platform3DAmbientOverlay.tsx` (dans `Platform3DWidget.tsx`, masqué en mode sous-marin) : ciel
+  étoilé, étoile filante occasionnelle, icône soleil/lune (avec emoji de phase), nuages qui
+  dérivent, pluie occasionnelle selon `rainChancePct`, rapace qui tournoie (jour), chauve-souris
+  (nuit), sorcière volante, bulles éphémères pour les évènements sonores textuels (hululement de
+  hibou, cri de loup-garou, sifflement de sorcière — le jeu n'ayant pas de système audio, ces
+  évènements restent décoratifs/textuels, cohérent avec le reste de l'app).
+- `WorldMapAmbientOverlay.tsx` (dans `WorldMapWidget.tsx`) : troupeau de sangliers/marcassins
+  traversant l'intégralité de la largeur de la Mapmonde, sorcière volante en diagonale, deux
+  rapaces qui tournoient (jour uniquement).
+- Animations en `<style jsx>` (styled-jsx, déjà utilisé dans `admin/page.tsx`) — aucune dépendance
+  supplémentaire.
+
+**Panneau Administration** `WorldThemesAdminPanel.tsx` (§ 28, `admin-sec-worldThemes`) : réglage
+des heures jour/nuit, bascule manuelle auto/jour/nuit forcée, éditeur de thèmes (actif, ordre,
+type de programmation avec champs dédiés, heure forcée, les 13 booléens d'ambiance,
+`rainChancePct`, `ambientEventIntervalSec`), suppression protégée pour les thèmes intégrés.
+
+**Journal des nouveautés** (`lib/changelog.ts::CHANGELOG_ENTRIES`) : liste manuelle des dernières
+fonctionnalités déployées (cycle jour/nuit, correctif classement, dépôt d'objets par glisser-
+déposer, PNJ/dragons plus vivants, fiabilisation session Démo), affichée dans un nouvel onglet
+« 🆕 Quoi de neuf ? » du widget **Aides** (`HelpWidget.tsx` — volontairement **indépendant** de
+`ONBOARDING_STEPS`/`onboardingContent.ts` pour ne pas l'injecter dans la visite guidée plein écran
+`OnboardingWizard.tsx`, non demandée par l'utilisateur) et dans un bloc dépliable sur l'écran
+d'accueil (`app/page.tsx`), juste au-dessus du pied de page.
+
+**Vérifié (Playwright)** : widget Météo testé en plein jour (horloge, « Il fait jour », thème
+« Jour », saison) et de nuit (`page.clock.install()` pour fixer l'heure du navigateur à 23h sans
+accès admin réel, moon icône + phase correcte) ; overlay Plateforme 3D confirmé en jour (soleil) et
+nuit (lune + étoiles) par capture d'écran ; overlay Mapmonde confirmé (troupeau de sangliers
+visible après ~20s, le temps que l'animation CSS entre dans le champ visible) ; onglet « Quoi de
+neuf ? » du widget Aides et bloc « Quoi de neuf ? » de l'écran d'accueil vérifiés affichant les 5
+entrées attendues, **0 erreur console**. `WorldThemesAdminPanel.tsx` type-vérifié (`tsc --noEmit`)
+mais non testé au clic en conditions réelles (nécessite un portefeuille propriétaire de contrat
+réellement connecté, indisponible dans cet environnement de test).
+
+**Zéro régression confirmée** : `tsc --noEmit` et `npm run build` propres ; tous les widgets
+existants (stats, sablier de session Démo, badge météo on-chain, saisons, phase de lune du badge
+d'en-tête) inchangés et vérifiés visuellement lors des captures d'écran ci-dessus.

@@ -1,0 +1,21 @@
+/**
+ * Journal des nouveautés ("Quoi de neuf ?") affiché dans le widget "Aides" (HelpWidget.tsx) et sur
+ * l'écran d'accueil (app/page.tsx) — voir demande utilisateur "ajouter [...] les dernières
+ * fonctionnalités qui ont été mise en place récemment et déployées dans le jeu et le menu
+ * Administration". Liste maintenue manuellement, entrée la plus récente en premier. Chaque entrée
+ * référence des clés i18n (titre + description courte), traduites dans les 4 langues du jeu.
+ */
+export interface ChangelogEntry {
+  date: string;   // AAAA-MM-JJ, à titre indicatif (affiché localisé côté UI)
+  icon: string;
+  titleKey: string;
+  bodyKey: string;
+}
+
+export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  { date: '2026-09-26', icon: '🌗', titleKey: 'changelog.dayNight.title', bodyKey: 'changelog.dayNight.body' },
+  { date: '2026-09-20', icon: '🏆', titleKey: 'changelog.leaderboard.title', bodyKey: 'changelog.leaderboard.body' },
+  { date: '2026-09-15', icon: '📦', titleKey: 'changelog.worldDrops.title', bodyKey: 'changelog.worldDrops.body' },
+  { date: '2026-09-10', icon: '🚶', titleKey: 'changelog.npcMovement.title', bodyKey: 'changelog.npcMovement.body' },
+  { date: '2026-09-05', icon: '⏳', titleKey: 'changelog.demoSession.title', bodyKey: 'changelog.demoSession.body' },
+];

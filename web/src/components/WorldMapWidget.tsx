@@ -27,6 +27,8 @@ import { NPC_SKINS } from '@/lib/contract';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
+import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
+import { WorldMapAmbientOverlay } from './WorldMapAmbientOverlay';
 import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs } from '@/lib/roamingActors';
 import { useNpcApproach } from '@/lib/npcApproach';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
@@ -81,6 +83,9 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   const resizeStart = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
   const [zoom, setZoom] = useState(1);
   const canvasRef = useRef<HTMLDivElement>(null);
+  // Cycle jour/nuit + thème d'ambiance effectif (voir WorldMapAmbientOverlay.tsx et
+  // lib/useWorldTheme.ts — même hook que WeatherPanel.tsx/Platform3DWidget.tsx).
+  const worldAmbience = useWorldThemeAmbience();
   // Zone défilable (overflow-auto) — utilisée pour le glisser (clic droit + déplacement) et pour
   // recentrer le zoom molette sur la position du curseur (voir onMapWheel/onMapMouseDown ci-dessous).
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -747,6 +752,11 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
           <p className="absolute top-1 left-2 text-[10px] italic text-amber-900/60 pointer-events-none" style={{ fontFamily: 'serif' }}>
             {t('map.parchmentCaption')}
           </p>
+
+          {/* Faune/ambiance décorative (troupeau de sangliers, sorcière, rapaces) traversant toute
+              la Mapmonde — voir WorldMapAmbientOverlay.tsx et lib/useWorldTheme.ts (même hook que
+              WeatherPanel.tsx/Platform3DWidget.tsx, une seule résolution jour/nuit/thème). */}
+          <WorldMapAmbientOverlay theme={worldAmbience.theme} isNight={worldAmbience.isNight} />
 
           {/* Calque de terrain (lacs, montagnes, sentiers, plages…) — même générateur déterministe
               que la plateforme 2D isométrique, en arrière-plan et sans interférer avec les clics. */}

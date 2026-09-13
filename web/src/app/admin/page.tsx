@@ -32,6 +32,7 @@ import { FoodAdminPanel } from '@/components/FoodAdminPanel';
 import { PotionsSpellsAdminPanel } from '@/components/PotionsSpellsAdminPanel';
 import { PotionComboAdminPanel } from '@/components/PotionComboAdminPanel';
 import { MapFiltersAdminPanel } from '@/components/MapFiltersAdminPanel';
+import { WorldThemesAdminPanel } from '@/components/WorldThemesAdminPanel';
 import { MapNavigationAdminPanel } from '@/components/MapNavigationAdminPanel';
 import { ContentPacksAdminPanel } from '@/components/ContentPacksAdminPanel';
 import { AiGameplayIntelligencePanel } from '@/components/AiGameplayIntelligencePanel';
@@ -80,6 +81,7 @@ const ADMIN_TOC_SECTIONS: { id: string; labelKey: string; icon?: string }[] = [
   { id: 'admin-sec-weather', labelKey: 'admin.weather.title' },
   { id: 'admin-sec-season', labelKey: 'admin.season.title' },
   { id: 'admin-sec-moon', labelKey: 'admin.moon.title' },
+  { id: 'admin-sec-worldThemes', labelKey: 'admin.worldThemes.title', icon: '🌗' },
   { id: 'admin-sec-npcFreq', labelKey: 'admin.npcFreq.title' },
   { id: 'admin-sec-price', labelKey: 'admin.price.title' },
   { id: 'admin-sec-cooldowns', labelKey: 'admin.cooldowns.title' },
@@ -806,6 +808,8 @@ export default function AdminPage() {
               })}
             </div>
           </section>
+
+          <div id="admin-sec-worldThemes" className="scroll-mt-6"><WorldThemesAdminPanel /></div>
 
           <section id="admin-sec-npcFreq" className="card scroll-mt-6">
             <h2 className="text-xl font-semibold mb-3">{t('admin.npcFreq.title')}</h2>

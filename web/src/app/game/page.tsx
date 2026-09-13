@@ -48,6 +48,7 @@ import { SleepModal } from '@/components/SleepModal';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { HelpWidget } from '@/components/HelpWidget';
 import { ProgressWidget } from '@/components/ProgressWidget';
+import { WeatherPanel } from '@/components/WeatherPanel';
 import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { DemoSessionTimerWidget } from '@/components/DemoSessionTimerWidget';
 import { ActiveElixirsBanner } from '@/components/ActiveElixirsBanner';
@@ -701,6 +702,10 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
           trésors, selles, familiers, quêtes classiques/PNJ/archipel/îles sauvages/Royaume, mondes,
           PNJ rencontrés) avec icône ✅/❌ par élément selon possession/réussite passée ou présente */}
       <ProgressWidget enabled={repRules?.progressWidgetEnabled !== false} />
+      {/* Fenêtre flottante et déplaçable "Weather" — horloge locale, jour/nuit, phase de lune,
+          thème d'ambiance actif (Jour/Nuit/personnalisé programmé), saison — voir demande
+          utilisateur "cycle jour/nuit [...] widget dédié [...] Weather" et WeatherPanel.tsx */}
+      <WeatherPanel enabled={repRules?.weatherWidgetEnabled !== false} />
     </div>
   );
 }

@@ -32,6 +32,8 @@
  *   players/{addr}/mapPos              → { mapId, x, y, updatedAt } (position libre de Synk sur la carte, déplacement libre)
  *   players/{addr}/mapPoisVisited/{id} → { visitedAt } (POI découvert par hasard en explorant — XP de découverte, une fois)
  *   catalog/seasonState                → SeasonState (saison courante — auto (date réelle) ou forcée par l'admin)
+ *   catalog/timeState                  → TimeState (jour/nuit courant — auto (horloge réelle) ou forcé par l'admin)
+ *   catalog/worldThemes/{id}           → WorldThemeDef (thèmes Jour/Nuit + thèmes personnalisés programmés, widget "Weather")
  *   catalog/aiAnalyticsSettings         → AiAnalyticsSettings (interrupteur global + config module « Intelligence IA GamePlay »)
  *   catalog/aiInsightsCache             → AiInsightsCache (dernière analyse générée par le LLM gratuit, voir web/src/app/api/ai/insights/route.ts)
  *   catalog/analytics/dauGlobal/{jour}         → nombre de joueurs actifs ce jour (compteur O(1), voir markPlayerActiveToday)
@@ -3062,6 +3064,278 @@ export function seasonalWeatherIndex(rawIdx: number, season: Season, date: Date 
   return pick([1, 2, 2]); // printemps/automne : majoritairement pluvieux/nuageux
 }
 
+// ────────────────── Cycle jour/nuit + phases de lune + thèmes (widget "Weather") ──────────────────
+// Système ENTIÈREMENT décoratif/immersif, orthogonal à la météo on-chain existante (WEATHER_KEYS,
+// `currentWeather` — un tirage aléatoire indépendant de l'heure réelle, jamais modifié ici) et à la
+// saison (Season ci-dessus, déjà utilisée pour le contenu saisonnier PNJ/quêtes/trésors/POI). Calé
+// sur une véritable horloge 24h (heure locale du navigateur — "caler le jeu sur une journée de 24
+// heures" = suivre l'heure réelle du joueur, pour un rythme jour/nuit cohérent avec le moment où il
+// joue réellement, plutôt qu'une horloge de jeu accélérée artificielle) : anime le décor de la
+// Plateforme 3D/2D isométrique/Mapmonde (soleil/lune/étoiles/faune) et alimente le widget flottant
+// "Weather" (voir WeatherPanel.tsx) — voir demande utilisateur.
+
+export interface TimeState { mode: 'auto' | 'manual'; manualIsNight?: boolean; updatedAt: number }
+const DEFAULT_TIME_STATE: TimeState = { mode: 'auto', updatedAt: 0 };
+
+export async function getTimeState(): Promise<TimeState> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_TIME_STATE;
+  const snap = await get(ref(db, 'catalog/timeState'));
+  const v = snap.val() as TimeState | null;
+  return v ? { ...DEFAULT_TIME_STATE, ...v } : DEFAULT_TIME_STATE;
+}
+
+/** Force (ou remet en automatique) le jour/nuit courant — admin uniquement. Sert surtout à
+ * prévisualiser/tester le thème "Nuit" sans attendre la vraie nuit (voir WorldThemesAdminPanel.tsx). */
+export async function setTimeState(mode: 'auto' | 'manual', manualIsNight?: boolean): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, 'catalog/timeState'), {
+    mode, ...(mode === 'manual' ? { manualIsNight: !!manualIsNight } : {}), updatedAt: Date.now(),
+  });
+}
+
+/** true si l'heure locale (0-23) tombe dans la plage nocturne configurée par l'admin
+ * (`RepRules.nightStartHour` inclus jusqu'à `dayStartHour` exclu, avec passage de minuit géré) —
+ * pure/synchrone. */
+export function computeAutoIsNight(rules: Pick<RepRules, 'dayStartHour' | 'nightStartHour'>, date: Date = new Date()): boolean {
+  const h = date.getHours();
+  const { dayStartHour, nightStartHour } = rules;
+  if (dayStartHour === nightStartHour) return false; // config invalide → toujours jour, ne jamais planter
+  if (dayStartHour < nightStartHour) return h < dayStartHour || h >= nightStartHour;
+  return h >= nightStartHour && h < dayStartHour; // plage nocturne traversant minuit (rare mais gérée)
+}
+
+/** Jour/nuit EFFECTIF (mode auto → horloge réelle + heures admin, mode manuel → forcé par l'admin). */
+export function resolveIsNight(state: TimeState, rules: Pick<RepRules, 'dayStartHour' | 'nightStartHour'>, date: Date = new Date()): boolean {
+  if (state.mode === 'manual' && state.manualIsNight !== undefined) return state.manualIsNight;
+  return computeAutoIsNight(rules, date);
+}
+
+export interface GameClock { hour: number; minute: number; second: number; hhmm: string }
+/** Horloge affichée par le widget "Weather" — horloge réelle locale du navigateur. */
+export function getGameClock(date: Date = new Date()): GameClock {
+  const hour = date.getHours(), minute = date.getMinutes(), second = date.getSeconds();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return { hour, minute, second, hhmm: `${pad(hour)}:${pad(minute)}` };
+}
+
+// ─── Phases de lune (8 phases visuelles du ciel nocturne, ancrées sur LA MÊME pleine lune
+// EFFECTIVE que MoonState/isFullMoonToday plus haut, pour rester cohérent avec la pleine lune qui
+// déverrouille les Quêtes du Royaume) ───
+export type MoonPhaseKey =
+  | 'full' | 'waning_gibbous' | 'last_quarter' | 'waning_crescent'
+  | 'new' | 'waxing_crescent' | 'first_quarter' | 'waxing_gibbous';
+export const MOON_PHASE_KEYS: MoonPhaseKey[] = [
+  'full', 'waning_gibbous', 'last_quarter', 'waning_crescent',
+  'new', 'waxing_crescent', 'first_quarter', 'waxing_gibbous',
+];
+export const MOON_PHASE_EMOJI: Record<MoonPhaseKey, string> = {
+  full: '🌕', waning_gibbous: '🌖', last_quarter: '🌗', waning_crescent: '🌘',
+  new: '🌑', waxing_crescent: '🌒', first_quarter: '🌓', waxing_gibbous: '🌔',
+};
+export interface MoonPhaseInfo { key: MoonPhaseKey; emoji: string; isLuneRousse: boolean }
+
+/** Dimanche de Pâques (calendrier grégorien, algorithme de Meeus/Jones/Butcher) — pur/synchrone,
+ * sert uniquement d'ancre pour la "lune rousse" ci-dessous (aucun autre usage dans le jeu). */
+export function computeEasterSunday(year: number): Date {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+/** "Lune rousse" : nom traditionnel donné, dans le folklore agricole français, à la lunaison
+ * (≈ 29,5 jours) qui suit le dimanche de Pâques — période jugée à risque de gelées tardives. Ici
+ * simplifiée en une fenêtre [Pâques, Pâques + 29 jours] : documenté volontairement comme une
+ * approximation (la tradition démarre à la nouvelle lune suivant Pâques, pas à Pâques pile) —
+ * suffisant pour un habillage décoratif du ciel nocturne, sans prétention astronomique exacte. */
+export function isLuneRousseWindow(date: Date = new Date()): boolean {
+  const easter = computeEasterSunday(date.getFullYear());
+  const daysAfter = Math.floor((date.getTime() - easter.getTime()) / 86_400_000);
+  return daysAfter >= 0 && daysAfter <= 29;
+}
+
+/** Calcule la phase de lune visuelle du ciel nocturne pour `date`, ancrée sur la pleine lune
+ * EFFECTIVE (respecte les overrides admin/mode manuel — voir resolveFullMoonDayForMonth) la plus
+ * proche parmi le mois précédent/courant/suivant. Fonction pure (aucun accès réseau) : le seul
+ * appel réseau nécessaire (getMoonState()) est fait UNE fois par l'appelant (voir WeatherPanel.tsx). */
+export function computeMoonPhaseFromState(state: MoonState, date: Date = new Date()): MoonPhaseInfo {
+  const y = date.getFullYear(), m = date.getMonth();
+  const candidates: Date[] = [-1, 0, 1].map((delta) => {
+    let yy = y, mm = m + delta;
+    if (mm < 0) { mm = 11; yy -= 1; } else if (mm > 11) { mm = 0; yy += 1; }
+    return new Date(yy, mm, resolveFullMoonDayForMonth(state, yy, mm));
+  });
+  let closest = candidates[0];
+  for (const c of candidates) {
+    if (Math.abs(c.getTime() - date.getTime()) < Math.abs(closest.getTime() - date.getTime())) closest = c;
+  }
+  const cycleMs = SYNODIC_MONTH_DAYS * 86_400_000;
+  let ageMs = (date.getTime() - closest.getTime()) % cycleMs;
+  if (ageMs < 0) ageMs += cycleMs;
+  const idx = Math.round((ageMs / cycleMs) * 8) % 8;
+  const key = MOON_PHASE_KEYS[idx];
+  return { key, emoji: MOON_PHASE_EMOJI[key], isLuneRousse: isLuneRousseWindow(date) };
+}
+
+// ─── Thèmes d'ambiance jour/nuit (widget "Weather" + décor Plateforme 3D/2D isométrique/Mapmonde) ───
+// Deux thèmes intégrés ("Jour"/"Nuit", non supprimables mais entièrement reconfigurables) couvrent
+// le cycle normal. L'admin peut en plus créer des thèmes personnalisés programmés (jour de semaine,
+// plage horaire précise, ou période "MM-JJ" récurrente chaque année — ex. semaine d'Halloween,
+// vacances de Noël) qui, lorsqu'ils correspondent à la date/heure courante, remplacent temporairement
+// le thème Jour/Nuit par défaut (priorité entre thèmes qui se chevauchent via `order`).
+export interface WorldThemeElements {
+  sun: boolean;                   // ☀️ Soleil visible (jour)
+  moon: boolean;                  // 🌙 Lune + phases visibles (nuit)
+  stars: boolean;                 // ✨ Ciel étoilé (nuit)
+  shootingStarsEnabled: boolean;  // 🌠 Étoiles filantes occasionnelles (nuit)
+  clouds: boolean;                // ☁️ Nuages
+  rainChancePct: number;          // 🌧️ % de chance de pluie passagère (indépendant de la météo on-chain)
+  birds: boolean;                 // 🐦 Oiseaux (jour)
+  swallows: boolean;              // 🐦‍⬛ Hirondelles (jour)
+  raptorsEnabled: boolean;        // 🦅 Rapaces qui tournoient (aigles/vautours/faucons — jour)
+  boarHerdEnabled: boolean;       // 🐗 Troupeau de sangliers + marcassins (Mapmonde, jour)
+  witchEnabled: boolean;          // 🧙‍♀️ Sorcière volant sur son balai en sifflotant
+  batsEnabled: boolean;           // 🦇 Chauve-souris (nuit)
+  owlHootEnabled: boolean;        // 🦉 Hululement de hibou occasionnel (nuit)
+  werewolfHowlEnabled: boolean;   // 🐺 Cri de loup-garou occasionnel (nuit)
+  ambientEventIntervalSec: number;// Intervalle moyen (s) entre deux évènements d'ambiance aléatoires
+}
+export type ThemeScheduleType = 'always' | 'hourRange' | 'weekday' | 'dateRange';
+export interface WorldThemeSchedule {
+  type: ThemeScheduleType;
+  startHour?: number; endHour?: number;   // 'hourRange' (0-23, endHour exclu, passage de minuit géré)
+  weekdays?: number[];                    // 'weekday' — 0 (dimanche) à 6 (samedi)
+  startDate?: string; endDate?: string;   // 'dateRange' — "MM-JJ", répété chaque année, passage d'année géré
+}
+export interface WorldThemeDef {
+  id: string; name: string; i18nKey?: string;
+  kind: 'day' | 'night' | 'custom'; // 'day'/'night' = thèmes intégrés (fallback), 'custom' = programmé
+  active: boolean;
+  order?: number;                    // priorité entre thèmes personnalisés qui se chevauchent (plus grand = prioritaire)
+  forcedTimeOfDay?: 'day' | 'night'; // thème personnalisé uniquement : force jour/nuit visuel, sinon suit l'horloge réelle
+  schedule: WorldThemeSchedule;       // ignoré pour 'day'/'night' (toujours actifs en repli)
+  elements: WorldThemeElements;
+  createdAt: number; updatedAt: number;
+}
+
+const DAY_ELEMENTS: WorldThemeElements = {
+  sun: true, moon: false, stars: false, shootingStarsEnabled: false, clouds: true, rainChancePct: 6,
+  birds: true, swallows: true, raptorsEnabled: true, boarHerdEnabled: true, witchEnabled: true,
+  batsEnabled: false, owlHootEnabled: false, werewolfHowlEnabled: false, ambientEventIntervalSec: 45,
+};
+const NIGHT_ELEMENTS: WorldThemeElements = {
+  sun: false, moon: true, stars: true, shootingStarsEnabled: true, clouds: true, rainChancePct: 4,
+  birds: false, swallows: false, raptorsEnabled: false, boarHerdEnabled: false, witchEnabled: false,
+  batsEnabled: true, owlHootEnabled: true, werewolfHowlEnabled: true, ambientEventIntervalSec: 40,
+};
+export const DEFAULT_WORLD_THEMES: WorldThemeDef[] = [
+  { id: 'theme.day', name: '☀️ Jour', i18nKey: 'theme.day', kind: 'day', active: true, schedule: { type: 'always' }, elements: DAY_ELEMENTS, createdAt: 0, updatedAt: 0 },
+  { id: 'theme.night', name: '🌙 Nuit', i18nKey: 'theme.night', kind: 'night', active: true, schedule: { type: 'always' }, elements: NIGHT_ELEMENTS, createdAt: 0, updatedAt: 0 },
+];
+export const BUILTIN_THEME_IDS = new Set(['theme.day', 'theme.night']);
+
+export async function getWorldThemeDefs(): Promise<WorldThemeDef[]> {
+  const db = getFirebaseDb();
+  if (!db) return DEFAULT_WORLD_THEMES;
+  try {
+    const snap = await get(ref(db, 'catalog/worldThemes'));
+    const v = snap.val() as Record<string, WorldThemeDef> | null;
+    if (!v || !Object.keys(v).length) return DEFAULT_WORLD_THEMES;
+    // Fusionne avec les thèmes intégrés (même principe que getShopCatalog) : un thème personnalisé
+    // ajouté en base ne doit jamais faire disparaître "Jour"/"Nuit" du résultat.
+    const merged: Record<string, WorldThemeDef> = {};
+    for (const th of DEFAULT_WORLD_THEMES) merged[th.id] = th;
+    for (const th of Object.values(v)) merged[th.id] = th;
+    return sortDefsByOrder(Object.values(merged));
+  } catch (e) {
+    console.warn('[worldThemes] catalog read failed, using defaults:', e);
+    return DEFAULT_WORLD_THEMES;
+  }
+}
+
+/** Abonnement temps réel aux thèmes (admin) — même principe que subscribeRepRules. */
+export function subscribeWorldThemes(cb: (themes: WorldThemeDef[]) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(DEFAULT_WORLD_THEMES); return () => {}; }
+  const r = ref(db, 'catalog/worldThemes');
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, WorldThemeDef> | null;
+    if (!v || !Object.keys(v).length) { cb(DEFAULT_WORLD_THEMES); return; }
+    const merged: Record<string, WorldThemeDef> = {};
+    for (const th of DEFAULT_WORLD_THEMES) merged[th.id] = th;
+    for (const th of Object.values(v)) merged[th.id] = th;
+    cb(sortDefsByOrder(Object.values(merged)));
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/** Crée/modifie un thème (admin). `theme.day`/`theme.night` restent toujours réinscriptibles (pour
+ * ajuster leurs éléments) mais jamais supprimables — voir deleteWorldThemeDef(). */
+export async function upsertWorldThemeDef(def: WorldThemeDef): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const now = Date.now();
+  await set(ref(db, `catalog/worldThemes/${RKEY(def.id)}`), { ...def, updatedAt: now, createdAt: def.createdAt || now });
+}
+
+/** Supprime un thème personnalisé (admin). Retourne 'builtin' sans rien faire pour `theme.day`/
+ * `theme.night` (toujours au moins un thème Jour et un thème Nuit disponible en repli). */
+export async function deleteWorldThemeDef(id: string): Promise<'ok' | 'builtin'> {
+  if (BUILTIN_THEME_IDS.has(id)) return 'builtin';
+  const db = getFirebaseDb();
+  if (!db) return 'ok';
+  await ensureAnonSignIn();
+  await remove(ref(db, `catalog/worldThemes/${RKEY(id)}`));
+  return 'ok';
+}
+
+function scheduleMatches(schedule: WorldThemeSchedule, date: Date): boolean {
+  switch (schedule.type) {
+    case 'always': return true;
+    case 'hourRange': {
+      const h = date.getHours();
+      const s = schedule.startHour ?? 0, e = schedule.endHour ?? 24;
+      return s <= e ? (h >= s && h < e) : (h >= s || h < e); // passage de minuit
+    }
+    case 'weekday': {
+      const days = schedule.weekdays ?? [];
+      return days.includes(date.getDay());
+    }
+    case 'dateRange': {
+      if (!schedule.startDate || !schedule.endDate) return false;
+      const mmdd = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      return schedule.startDate <= schedule.endDate
+        ? (mmdd >= schedule.startDate && mmdd <= schedule.endDate)
+        : (mmdd >= schedule.startDate || mmdd <= schedule.endDate); // plage à cheval sur le nouvel an
+    }
+    default: return false;
+  }
+}
+
+/** Thème effectivement actif à `date` : un thème personnalisé programmé (`kind:'custom'`, actif,
+ * dont le planning correspond à `date` — le plus prioritaire selon `order` en cas de chevauchement)
+ * prévaut ; à défaut, retombe sur le thème intégré Jour ou Nuit selon `isNight`. Fonction pure,
+ * réutilisée par WeatherPanel.tsx, Platform3DWidget.tsx, GameCanvas2D.tsx et WorldMapWidget.tsx —
+ * une seule fonction fait autorité pour la résolution du thème actif, évitant toute incohérence
+ * entre widgets (ex. thème "Nuit" dans l'un et "Jour" dans l'autre au même instant). */
+export function resolveActiveTheme(themes: WorldThemeDef[], date: Date, isNight: boolean): WorldThemeDef {
+  const customMatches = themes
+    .filter(t => t.kind === 'custom' && t.active && scheduleMatches(t.schedule, date))
+    .sort((a, b) => (b.order ?? 0) - (a.order ?? 0));
+  if (customMatches.length) return customMatches[0];
+  const fallbackKind = isNight ? 'night' : 'day';
+  return themes.find(t => t.kind === fallbackKind && t.active)
+    ?? themes.find(t => t.kind === fallbackKind)
+    ?? DEFAULT_WORLD_THEMES.find(t => t.kind === fallbackKind)!;
+}
+
 // ─────────────────────────────────────── Player index ───────────────────────────────────────
 
 /** Liste tous les joueurs enregistrés (pour dropdown admin). */
@@ -4165,6 +4439,10 @@ export interface RepRules {
   // voir ROADMAP.md § Phase 3 pour la justification de ce choix technique. Même sémantique par
   // défaut `true` que les autres widgets ci-dessus (comportement additif, ne retire rien).
   platform3dWidgetEnabled: boolean;
+  // Nouveau widget flottant "Weather" (voir WeatherPanel.tsx) — horloge locale, jour/nuit, phase de
+  // lune, thème d'ambiance actif (Jour/Nuit/personnalisé), saison — voir demande utilisateur "cycle
+  // jour/nuit [...] widget dédié que tu appelleras Weather". Même sémantique par défaut `true`.
+  weatherWidgetEnabled: boolean;
   // Affiche/masque la rubrique "Nourrir Synk" (les 4 boutons de repas on-chain + leur cooldown)
   // dans le jeu — voir game/page.tsx. Distinct de `onchainFeedButtonsEnabled` ci-dessous qui ne
   // gère QUE les boutons on-chain eux-mêmes (déjà masqués par défaut à cause du bug connu) :
@@ -4327,6 +4605,13 @@ export interface RepRules {
                                         // DemoSessionTimerWidget), donc TOUJOURS visibles au-dessus
                                         // de tous les widgets flottants ; si false, restitue le
                                         // comportement historique (rendu local, peut être recouvert)
+
+  // ─── Cycle jour/nuit (widget "Weather", décor Plateforme 3D/2D isométrique/Mapmonde — voir
+  // computeAutoIsNight/resolveIsNight ci-dessous) — orthogonal à la météo on-chain existante
+  // (`weather.night` = un tirage aléatoire du contrat, jamais modifié ici) : ici, "nuit" suit la
+  // véritable horloge locale du joueur, entre `nightStartHour` (inclus) et `dayStartHour` (exclu).
+  dayStartHour: number;   // défaut 7 — heure (0-23) à laquelle le thème "Jour" reprend le dessus
+  nightStartHour: number; // défaut 20 — heure (0-23) à laquelle le thème "Nuit" démarre
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -4512,6 +4797,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   questsZeldaCraftWidgetEnabled: true,
   walletTopupWidgetEnabled: true,
   platform3dWidgetEnabled: true,
+  weatherWidgetEnabled: true,
   feedSectionEnabled: true,
   // Défaut false (voir commentaire sur l'interface RepRules) : bug de cooldown partagé sur le
   // contrat Sepolia actuellement déployé, correctif écrit mais en attente de redéploiement.
@@ -4546,6 +4832,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   roamProximityFreezeEnabled: true,
   roamProximityFreezeTiles: 2,
   envStatusPopupsOnTop: true,
+  dayStartHour: 7,
+  nightStartHour: 20,
 }
 
 /** Merge une valeur brute Firebase (`catalog/repRules`, potentiellement partielle/absente) avec

@@ -31,6 +31,8 @@ import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
+import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
+import { Platform3DAmbientOverlay } from './Platform3DAmbientOverlay';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 
 const POS_KEY = 'zc.platform3dWidgetPos';
@@ -1724,6 +1726,10 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
 
   const [rules, setRules] = useState<RepRules | null>(null);
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
+  // Cycle jour/nuit + thème d'ambiance effectif (voir Platform3DAmbientOverlay.tsx et
+  // lib/useWorldTheme.ts — même hook que WeatherPanel.tsx/WorldMapWidget.tsx, une seule résolution
+  // fait autorité pour éviter toute incohérence entre widgets).
+  const worldAmbience = useWorldThemeAmbience();
   // Pousse la config Administration (vitesse/pauses/gel de proximité des PNJ/familiers errants,
   // voir RepRules.roamStepMs et suivants, RepRulesPanel.tsx section « 🚶 Déplacement des PNJ/
   // Familiers errants ») vers le registre partagé lib/roamingActors.ts — sans effet tant que
@@ -2551,6 +2557,9 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           }
         }}
       >
+        {!underwaterMode && (
+          <Platform3DAmbientOverlay isNight={worldAmbience.isNight} theme={worldAmbience.theme} moonPhase={worldAmbience.moonPhase} />
+        )}
         <Canvas shadows camera={{ position: [0, 3.2, 5.6], fov: 45 }}>
           {underwaterMode ? (
             <UnderwaterScene
