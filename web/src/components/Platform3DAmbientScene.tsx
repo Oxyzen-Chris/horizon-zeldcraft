@@ -109,37 +109,39 @@ function getMoonTexture(phase: MoonPhaseKey, luneRousse: boolean): THREE.CanvasT
   return tex;
 }
 
+// Position FIXE de la lune/du soleil (voir Sun3D ci-dessous), à l'intérieur de SkyFollowGroup (qui
+// ne fait que TRANSLATER avec Synk, jamais tourner — voir commentaire de SkyFollowGroup) : corrige
+// le bug remonté par l'utilisateur « elle bouge lors des rotations et changement de caméra [...]
+// alors qu'elle devrait rester à son endroit d'origine et ne pas suivre la rotation de caméra ».
+// Déviation ASSUMÉE par rapport à une demande antérieure (« il n'y a plus rien dans le ciel [...]
+// quand je tourne l'angle ») : cette dernière demande concernait le remplissage GÉNÉRAL du ciel
+// (étoiles/nuages/pluie, TOUJOURS 360° via Starfield3D/Clouds3D/Rain3D ci-dessous, inchangé), pas
+// spécifiquement la lune/le soleil qui redeviennent ici de VRAIS objets célestes à position fixe,
+// comme demandé explicitement dans le message le plus récent de l'utilisateur.
+// Altitude élevée (y=18) et distance (~33 unités) très supérieures à celles des nuages (y=2.6-3.4,
+// rayon 7-9, voir Clouds3D) : la lune apparaît PLUS HAUTE dans le ciel et peut être occultée
+// naturellement par les nuages qui passent devant elle (profondeur réelle, depthWrite activé sur
+// le disque principal) — corrige aussi « elle ne devrait pas [...] s'enfoncer dans la terre » (une
+// altitude fixe très supérieure au relief ne peut plus jamais s'y confondre).
+const MOON_ANCHOR: [number, number, number] = [-16, 18, -27];
+const SUN_ANCHOR: [number, number, number] = [17, 16, -24];
+
 function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   const groupRef = useRef<THREE.Group>(null);
   const texture = useMemo(() => getMoonTexture(phase.key, phase.isLuneRousse), [phase.key, phase.isLuneRousse]);
-  // Ancrage sur le vecteur de vue de la caméra (et non plus une position locale fixe) : la lune
-  // reste ainsi TOUJOURS visible quels que soient l'angle de rotation et le niveau de zoom (voir
-  // demande utilisateur « dans tout le ciel [...] quand je tourne l'angle de vue [...] il n'y a
-  // plus rien dans le ciel »). Décision assumée de prioriser cette demande explicite sur un rendu
-  // "astronomiquement réaliste" où la lune pourrait sortir du champ de vision.
-  const dir = useMemo(() => new THREE.Vector3(), []);
-  const right = useMemo(() => new THREE.Vector3(), []);
-  const up = useMemo(() => new THREE.Vector3(), []);
-  useFrame(({ camera }) => {
-    if (!groupRef.current) return;
-    camera.getWorldDirection(dir);
-    right.crossVectors(dir, camera.up).normalize();
-    up.crossVectors(right, dir).normalize();
-    groupRef.current.position.copy(camera.position)
-      .addScaledVector(dir, 14)
-      .addScaledVector(right, 4.4)
-      .addScaledVector(up, 2.5);
-    groupRef.current.quaternion.copy(camera.quaternion);
-  });
+  // Seule l'ORIENTATION (billboard face-caméra, pour que le disque plat reste toujours visible de
+  // face) est recalculée chaque frame — jamais la POSITION, qui reste celle de MOON_ANCHOR ci-dessus
+  // (fixe dans le repère de SkyFollowGroup, donc fixe dans le monde par rapport à Synk).
+  useFrame(({ camera }) => { groupRef.current?.lookAt(camera.position); });
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} position={MOON_ANCHOR}>
       <mesh position={[0, 0, -0.02]}>
-        <circleGeometry args={[1.55, 28]} />
+        <circleGeometry args={[3.4, 28]} />
         <meshBasicMaterial color={phase.isLuneRousse ? '#f2c9a0' : '#bfdbfe'} transparent opacity={0.14} depthWrite={false} toneMapped={false} />
       </mesh>
       <mesh>
-        <circleGeometry args={[1.05, 32]} />
-        <meshBasicMaterial map={texture} transparent toneMapped={false} depthWrite={false} />
+        <circleGeometry args={[2.3, 32]} />
+        <meshBasicMaterial map={texture} transparent toneMapped={false} depthWrite />
       </mesh>
     </group>
   );
@@ -164,30 +166,17 @@ function getSunGlowTexture(): THREE.CanvasTexture {
 function Sun3D() {
   const groupRef = useRef<THREE.Group>(null);
   const tex = useMemo(getSunGlowTexture, []);
-  // Même ancrage sur le vecteur de vue de la caméra que Moon3D ci-dessus (voir commentaire détaillé
-  // sur Moon3D) — le soleil reste également visible « dans tout le ciel » quel que soit l'angle.
-  const dir = useMemo(() => new THREE.Vector3(), []);
-  const right = useMemo(() => new THREE.Vector3(), []);
-  const up = useMemo(() => new THREE.Vector3(), []);
-  useFrame(({ camera }) => {
-    if (!groupRef.current) return;
-    camera.getWorldDirection(dir);
-    right.crossVectors(dir, camera.up).normalize();
-    up.crossVectors(right, dir).normalize();
-    groupRef.current.position.copy(camera.position)
-      .addScaledVector(dir, 13)
-      .addScaledVector(right, -4)
-      .addScaledVector(up, 3);
-    groupRef.current.quaternion.copy(camera.quaternion);
-  });
+  // Même position FIXE (SUN_ANCHOR, voir commentaire détaillé sur MOON_ANCHOR ci-dessus) — seule
+  // l'orientation billboard est mise à jour chaque frame, jamais la position.
+  useFrame(({ camera }) => { groupRef.current?.lookAt(camera.position); });
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} position={SUN_ANCHOR}>
       <mesh>
-        <circleGeometry args={[2.4, 28]} />
+        <circleGeometry args={[5.4, 28]} />
         <meshBasicMaterial map={tex} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
       </mesh>
       <mesh position={[0, 0, 0.01]}>
-        <circleGeometry args={[0.75, 24]} />
+        <circleGeometry args={[1.7, 24]} />
         <meshBasicMaterial color="#fff8dc" toneMapped={false} />
       </mesh>
     </group>
@@ -377,25 +366,42 @@ export function Owl3D({ adminAudio, soundEnabled = true, seedKey, moving }: {
   const headRef = useRef<THREE.Group>(null);
   const wingLRef = useRef<THREE.Mesh>(null);
   const wingRRef = useRef<THREE.Mesh>(null);
+  const bodyRef = useRef<THREE.Group>(null); // permet le tangage/l'altitude de vol, voir useFrame
   const hootRef = useRef(0); // timestamp (elapsedTime) du dernier hululement, pour l'animation de tête
   const seedOffset = useMemo(() => (hashSeed(seedKey || 'owl') % 1000) / 100, [seedKey]);
   useAmbientSoundCycle('owl', 22, seedOffset, () => { hootRef.current = performance.now() / 1000; }, adminAudio, soundEnabled);
   useFrame((state) => {
     const t = state.clock.elapsedTime;
-    // Ruffle d'ailes discret en continu (vie), plus prononcé juste après un hululement, et pendant
-    // le déplacement (voir prop `moving`, cohérent avec la marche des PNJ/familiers).
     const sinceHoot = t - hootRef.current;
     const hooting = sinceHoot < 1.2;
-    const flap = Math.sin(t * (moving ? 6 : 2.4)) * (moving ? 0.14 : 0.05) + (hooting ? Math.sin(t * 14) * 0.18 : 0);
-    if (wingLRef.current) wingLRef.current.rotation.z = 0.25 + flap;
-    if (wingRRef.current) wingRRef.current.rotation.z = -0.25 - flap;
+    // En vol (`moving`) : grand battement d'ailes ample et rapide, synchronisé avec le déplacement —
+    // corrige la demande utilisateur « il doit voler, déployer ses ailes [...] fait en sorte qu'il
+    // batte des ailes tout en étant synchronisé avec son déplacement ». Posé : ailes repliées, léger
+    // ruffle de vie occasionnellement accentué par un hululement (`hooting`).
+    const flapFreq = moving ? 9 : 2.4;
+    const flapAmp = moving ? 0.95 : 0.05;
+    const baseAngle = moving ? 0.12 : 0.25;
+    const flap = Math.sin(t * flapFreq) * flapAmp + (hooting ? Math.sin(t * 14) * 0.18 : 0);
+    if (wingLRef.current) wingLRef.current.rotation.z = baseAngle + flap;
+    if (wingRRef.current) wingRRef.current.rotation.z = -baseAngle - flap;
     if (headRef.current) headRef.current.rotation.x = hooting ? Math.sin(sinceHoot * 6) * 0.18 : Math.sin(t * 0.8) * 0.05;
+    // Légère prise d'altitude + tangage vers l'avant en vol (posture de vol crédible), corps stable
+    // et posé une fois immobile.
+    if (bodyRef.current) {
+      bodyRef.current.position.y = moving ? 0.95 + Math.sin(t * flapFreq * 0.5) * 0.05 : 0.7;
+      bodyRef.current.rotation.x = moving ? -0.18 + Math.sin(t * flapFreq) * 0.05 : 0;
+    }
   });
   return (
     <group>
-      {/* Perchoir (petit poteau de bois) */}
-      <mesh position={[0, 0.32, 0]} castShadow><cylinderGeometry args={[0.05, 0.06, 0.64, 6]} /><meshStandardMaterial color="#5b4636" roughness={0.9} /></mesh>
-      <group position={[0, 0.7, 0]}>
+      {/* Perchoir (petit poteau de bois) — masqué en vol : corrige la demande utilisateur « il
+          pourra effectivement se poser quelques instants sur un morceau de bois mais quand il
+          repart [...] le bâton [...] ne doit pas le suivre » (le perchoir reste un décor immobile,
+          il n'est plus rendu tant que le hibou est en déplacement). */}
+      {!moving && (
+        <mesh position={[0, 0.32, 0]} castShadow><cylinderGeometry args={[0.05, 0.06, 0.64, 6]} /><meshStandardMaterial color="#5b4636" roughness={0.9} /></mesh>
+      )}
+      <group ref={bodyRef} position={[0, 0.7, 0]}>
         {/* Corps ovoïde */}
         <mesh castShadow scale={[0.85, 1, 0.8]}><sphereGeometry args={[0.22, 10, 8]} /><meshStandardMaterial color="#78716c" roughness={0.8} /></mesh>
         {/* Ventre plus clair */}
@@ -416,7 +422,7 @@ export function Owl3D({ adminAudio, soundEnabled = true, seedKey, moving }: {
             <mesh key={i} position={[ex, 0.14, -0.01]} rotation={[0.3, 0, ex > 0 ? -0.25 : 0.25]}><coneGeometry args={[0.025, 0.09, 4]} /><meshStandardMaterial color="#57534e" /></mesh>
           ))}
         </group>
-        {/* Ailes repliées, s'écartent lors du ruffle */}
+        {/* Ailes repliées, s'écartent lors du ruffle ou se déploient largement en vol */}
         <mesh ref={wingLRef} position={[-0.2, -0.02, -0.02]} rotation={[0, 0, 0.25]}><boxGeometry args={[0.09, 0.32, 0.14]} /><meshStandardMaterial color="#57534e" roughness={0.85} /></mesh>
         <mesh ref={wingRRef} position={[0.2, -0.02, -0.02]} rotation={[0, 0, -0.25]}><boxGeometry args={[0.09, 0.32, 0.14]} /><meshStandardMaterial color="#57534e" roughness={0.85} /></mesh>
       </group>
@@ -431,6 +437,12 @@ export function Werewolf3D({ adminAudio, soundEnabled = true, seedKey, moving }:
 }) {
   const headRef = useRef<THREE.Group>(null);
   const howlRef = useRef(0);
+  // 4 pattes (2 avant + 2 arrière, voir demande utilisateur « anime ses 4 pattes proportionnellement
+  // à son déplacement afin de rester réaliste » — l'ancienne version n'en affichait que 2).
+  const legFLRef = useRef<THREE.Mesh>(null);
+  const legFRRef = useRef<THREE.Mesh>(null);
+  const legRLRef = useRef<THREE.Mesh>(null);
+  const legRRRef = useRef<THREE.Mesh>(null);
   const seedOffset = useMemo(() => (hashSeed(seedKey || 'werewolf') % 1000) / 90, [seedKey]);
   useAmbientSoundCycle('werewolf', 38, seedOffset, () => { howlRef.current = performance.now() / 1000; }, adminAudio, soundEnabled);
   useFrame((state) => {
@@ -438,6 +450,17 @@ export function Werewolf3D({ adminAudio, soundEnabled = true, seedKey, moving }:
     const sinceHowl = t - howlRef.current;
     const howling = sinceHowl < 1.8;
     if (headRef.current) headRef.current.rotation.x = howling ? -0.55 + Math.sin(sinceHowl * 10) * 0.04 : Math.sin(t * (moving ? 3 : 0.5)) * 0.06;
+    // Démarche au trot (diagonale) : avant-gauche/arrière-droite en phase, avant-droite/
+    // arrière-gauche en opposition de phase — amplitude PROPORTIONNELLE au déplacement réel
+    // (nulle à l'arrêt, l'angle de base "assis" est alors conservé) plutôt qu'une animation
+    // continue indépendante de `moving`.
+    const walkFreq = 6.5, walkAmp = 0.55;
+    const swingA = moving ? Math.sin(t * walkFreq) * walkAmp : 0;
+    const swingB = moving ? Math.sin(t * walkFreq + Math.PI) * walkAmp : 0;
+    if (legFLRef.current) legFLRef.current.rotation.x = 0.5 + swingA;
+    if (legFRRef.current) legFRRef.current.rotation.x = 0.5 + swingB;
+    if (legRLRef.current) legRLRef.current.rotation.x = -0.4 + swingB;
+    if (legRRRef.current) legRRRef.current.rotation.x = -0.4 + swingA;
   });
   const fur = '#3f3a36';
   return (
@@ -457,10 +480,13 @@ export function Werewolf3D({ adminAudio, soundEnabled = true, seedKey, moving }:
           <mesh key={i} position={[ex, 0.02, 0.14]}><sphereGeometry args={[0.022, 6, 6]} /><meshStandardMaterial color="#fde047" emissive="#facc15" emissiveIntensity={0.8} /></mesh>
         ))}
       </group>
-      {/* Pattes avant assises, posées au sol */}
-      {[-0.13, 0.13].map((ex, i) => (
-        <mesh key={i} position={[ex, 0.1, 0.16]} rotation={[0.5, 0, 0]} castShadow><cylinderGeometry args={[0.045, 0.05, 0.32, 6]} /><meshStandardMaterial color={fur} roughness={0.9} /></mesh>
-      ))}
+      {/* Pattes avant */}
+      <mesh ref={legFLRef} position={[-0.13, 0.1, 0.16]} rotation={[0.5, 0, 0]} castShadow><cylinderGeometry args={[0.045, 0.05, 0.32, 6]} /><meshStandardMaterial color={fur} roughness={0.9} /></mesh>
+      <mesh ref={legFRRef} position={[0.13, 0.1, 0.16]} rotation={[0.5, 0, 0]} castShadow><cylinderGeometry args={[0.045, 0.05, 0.32, 6]} /><meshStandardMaterial color={fur} roughness={0.9} /></mesh>
+      {/* Pattes arrière (nouvelles — corrige « je devrais voir ses jambes » côté quadrupède : 4
+          pattes visibles au lieu de 2) */}
+      <mesh ref={legRLRef} position={[-0.13, 0.08, -0.18]} rotation={[-0.4, 0, 0]} castShadow><cylinderGeometry args={[0.05, 0.055, 0.3, 6]} /><meshStandardMaterial color={fur} roughness={0.9} /></mesh>
+      <mesh ref={legRRRef} position={[0.13, 0.08, -0.18]} rotation={[-0.4, 0, 0]} castShadow><cylinderGeometry args={[0.05, 0.055, 0.3, 6]} /><meshStandardMaterial color={fur} roughness={0.9} /></mesh>
     </group>
   );
 }
@@ -684,9 +710,12 @@ export function Platform3DAmbientScene({ theme, moonPhase }: { isNight: boolean;
         {elements.shootingStarsEnabled && <ShootingStar3D />}
         {elements.clouds && <Clouds3D />}
         {elements.rainChancePct > 0 && Math.random() * 100 < elements.rainChancePct && <Rain3D />}
+        {/* Lune/soleil à position FIXE (voir MOON_ANCHOR/SUN_ANCHOR) rendus DANS SkyFollowGroup afin
+            de translater avec Synk (mais jamais tourner avec la caméra) — voir commentaire détaillé
+            sur Moon3D ci-dessus. */}
+        {elements.moon && moonPhase && <Moon3D phase={moonPhase} />}
+        {elements.sun && <Sun3D />}
       </SkyFollowGroup>
-      {elements.moon && moonPhase && <Moon3D phase={moonPhase} />}
-      {elements.sun && <Sun3D />}
       {/* Le hibou/loup-garou ne sont plus rendus ici : ce sont désormais de VRAIES entités errantes
           du monde (voir lib/roamingActors.ts::ensureWildlifeSpawns), rendues par Platform3DWidget.
           tsx::MarkerBlock au même titre qu'un PNJ/familier — corrige le bug « le loup garou et le

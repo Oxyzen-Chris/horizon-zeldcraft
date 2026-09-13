@@ -4667,6 +4667,18 @@ export interface RepRules {
                                         // s'éloigne
   roamProximityFreezeTiles: number;    // défaut 2 — distance (mêmes unités que WORLD_SIZE=100) en
                                         // deçà de laquelle le gel de proximité ci-dessus s'applique
+  roamProximityFreezeResumeSec: number; // défaut 6 — répond à la demande utilisateur « fixe un délai
+                                        // de 6 secondes [...] où le ou les PNJ proches de Synk
+                                        // s'arrêtent et si Synk ou le joueur n'interragissent pas
+                                        // [...] alors ces derniers peuvent continuer à se déplacer ».
+                                        // Corrige le bug « une masse de PNJ [...] s'aglutinent et
+                                        // restent bloqués sur Synk » : au-delà de ce délai (en
+                                        // secondes réelles) passé immobile à proximité, un acteur
+                                        // reprend sa marche même si Synk reste à proximité — SAUF
+                                        // si le joueur est activement en train d'interagir avec LUI
+                                        // précisément (pop-up de rencontre ouvert sur son marqueur,
+                                        // voir setInteractingActorId()), auquel cas il reste immobile
+                                        // tant que le pop-up n'est pas refermé
 
   // ─── Faune sauvage errante : hibou(x)/loup-garou(s) (voir lib/roamingActors.ts::WildlifeActorState/
   // ensureWildlifeSpawns) — répond à la demande utilisateur « le loup garou et le hibou me suivent
@@ -4926,6 +4938,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   roamPauseMaxSec: 8,
   roamProximityFreezeEnabled: true,
   roamProximityFreezeTiles: 2,
+  roamProximityFreezeResumeSec: 6,
   wildlifeEnabled: true,
   wildlifeOwlCount: 13,
   wildlifeWerewolfCount: 12,

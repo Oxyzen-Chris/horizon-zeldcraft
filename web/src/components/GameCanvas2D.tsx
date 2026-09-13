@@ -22,7 +22,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs, type ExtraRoamingActor } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, setInteractingActorId, getRoamStepMs, type ExtraRoamingActor } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -195,6 +195,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     configureRoaming({
       stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
+      proximityFreezeResumeSec: rules.roamProximityFreezeResumeSec,
     });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous) — voir le même appel, avec les mêmes
@@ -208,6 +209,15 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // case adjacente — voir handleMarkerClick() plus bas. `hutResting` bascule sur la fenêtre plein
   // écran de repos (voir HutRestModal.tsx) une fois le pop-up d'interaction refermé.
   const [interactionMarker, setInteractionMarker] = useState<MapMarker | null>(null);
+  // Répercute l'ouverture/fermeture du pop-up de rencontre vers lib/roamingActors.ts — voir
+  // setInteractingActorId() : tant qu'un marqueur est ouvert ici, l'acteur errant correspondant
+  // (PNJ/dragon/familier/faune) reste gelé indéfiniment près de Synk MÊME au-delà du délai de
+  // reprise automatique (RepRules.roamProximityFreezeResumeSec) — corrige le risque qu'un PNJ en
+  // pleine discussion se remette à marcher sous les yeux du joueur.
+  useEffect(() => {
+    setInteractingActorId(interactionMarker?.id ?? null);
+    return () => setInteractingActorId(null);
+  }, [interactionMarker]);
   const [hutResting, setHutResting] = useState(false);
   const [hutFeedback, setHutFeedback] = useState<string | null>(null);
   // Message de confirmation après un dépôt réussi (glisser-déposer depuis la besace) — voir

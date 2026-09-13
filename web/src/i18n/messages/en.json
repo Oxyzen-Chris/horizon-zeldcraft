@@ -743,6 +743,7 @@
   "admin.repRules.roamPauseMaxSec": "⏸️ Maximum deliberate pause (seconds)",
   "admin.repRules.roamProximityFreezeEnabled": "Freeze NPCs/dragons/familiars near Synk",
   "admin.repRules.roamProximityFreezeTiles": "📏 Proximity freeze distance (tiles)",
+  "admin.repRules.roamProximityFreezeResumeSec": "⏳ Resume walking after (seconds) if no interaction",
   "admin.repRules.wildlifeTitle": "🦉🐺 Wandering wildlife (owls/werewolves)",
   "admin.repRules.wildlifeDescription": "The owl and the werewolf are now real creatures that roam freely across the Worldmap (2D/3D Platform/Worldmap), just like NPCs and familiars — they no longer follow Synk. At least one of each is guaranteed near the player's starting point.",
   "admin.repRules.wildlifeEnabled": "Enable wandering wildlife",

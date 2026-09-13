@@ -25,7 +25,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs, ensureWildlifeSpawns } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
@@ -1781,6 +1781,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     configureRoaming({
       stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
+      proximityFreezeResumeSec: rules.roamProximityFreezeResumeSec,
     });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous) — voir le même appel, avec les mêmes
@@ -1879,6 +1880,12 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // que GameCanvas2D.tsx (voir PoiInteractionModal.tsx), pour garantir des mécaniques identiques
   // entre les 3 vues (2D isométrique/3D/mapmonde), sans aucune duplication de logique de jeu.
   const [interactionMarker, setInteractionMarker] = useState<MapMarker | null>(null);
+  // Répercute l'ouverture/fermeture du pop-up de rencontre vers lib/roamingActors.ts — même
+  // rationale et mêmes commentaires détaillés que dans GameCanvas2D.tsx.
+  useEffect(() => {
+    setInteractingActorId(interactionMarker?.id ?? null);
+    return () => setInteractingActorId(null);
+  }, [interactionMarker]);
   const [hutResting, setHutResting] = useState(false);
   const [hutFeedback, setHutFeedback] = useState<string | null>(null);
 

@@ -207,6 +207,22 @@ const PAUSE_PROBABILITY = 0.2; // probabilité de rester immobile un moment plut
 // marche [...] ça permet d'éviter de courir derrière eux et aux joueurs d'échanger avec eux ».
 let proximityFreezeEnabled = true;
 let proximityFreezeTiles = 2; // ≈ adjacence (1 case cardinale = 1 unité, 1 case diagonale ≈ 1,41)
+/** Délai (secondes réelles) au bout duquel un acteur gelé par proximité REPREND sa marche même si
+ * Synk reste à proximité — voir RepRules.roamProximityFreezeResumeSec. Corrige le bug remonté par
+ * l'utilisateur : « une multitude de PNJ [...] s'aglutinent et restent bloqués sur Synk [...] alors
+ * qu'ils devraient [...] pouvoir se remettre à se déplacer si Synk [...] n'interragit[ent] pas ».
+ * Sans ce délai, un gel de proximité permanent (tant que Synk reste à portée) finissait par
+ * accumuler tous les acteurs errants passant par là en une masse figée indéfiniment. */
+let proximityFreezeResumeSec = 6;
+/** Horodatage (ms, `Date.now()`) du DÉBUT du gel courant pour chaque acteur, indexé par un id
+ * stable (voir `advanceActor` ci-dessous) — retiré dès que l'acteur ressort du rayon de proximité,
+ * afin qu'une NOUVELLE approche redémarre un délai de grâce complet. */
+const freezeStartedAt = new Map<string, number>();
+/** Id du marqueur avec lequel le joueur est ACTUELLEMENT en interaction (pop-up de rencontre/quête
+ * ouvert, voir setInteractingActorId ci-dessous) — `null` si aucun pop-up n'est ouvert. Tant que
+ * cet id correspond à celui d'un acteur gelé par proximité, ce dernier reste immobile indéfiniment
+ * (jamais de reprise automatique après `proximityFreezeResumeSec`, contrairement au cas général). */
+let interactingActorId: string | null = null;
 /** Dernière position CONNUE de Synk (coordonnées mapmonde 0-100, voir reportSynkPositionForFreeze)
  * — `null` tant qu'aucun widget n'a encore rapporté de position (aucun gel possible dans ce cas).
  * ⚠️ Sert UNIQUEMENT à geler un acteur déjà à proximité — ne le fait JAMAIS se rapprocher ni
@@ -321,15 +337,31 @@ function distanceToSynk(pos: RoamingActorPos): number {
  * épuisé (ou si un bord de mapmonde vient d'être atteint), applique le déplacement borné à
  * `[ROAM_MARGIN, WORLD_SIZE-ROAM_MARGIN]`, et renvoie la nouvelle position/motion/facing/moving.
  * 🔒 Gel de proximité (voir commentaire de `proximityFreezeEnabled` ci-dessus) : si Synk se trouve
- * à `proximityFreezeTiles` cases ou moins, l'acteur reste IMMOBILE ce tick — `motion` (direction ET
+ * à `proximityFreezeTiles` cases ou moins, l'acteur reste IMMOBILE — `motion` (direction ET
  * `holdTicks` restants) n'est PAS consommé, afin que l'acteur reprenne EXACTEMENT là où il en était
- * (même direction, même maintien restant) dès que Synk s'éloigne, plutôt que de perdre sa
- * progression ou de retirer immédiatement une nouvelle direction aléatoire. */
-function advanceActor(pos: RoamingActorPos, motion: ActorMotion): {
+ * (même direction, même maintien restant) une fois le gel levé, plutôt que de perdre sa
+ * progression ou de tirer immédiatement une nouvelle direction aléatoire. Le gel n'est TOUTEFOIS
+ * plus permanent (voir `proximityFreezeResumeSec`/`freezeStartedAt` ci-dessus) : passé ce délai
+ * sans interaction du joueur avec CET acteur précis (`interactingActorId`), il reprend sa marche
+ * même si Synk reste à proximité — corrige l'aglutination de PNJ signalée par l'utilisateur. */
+function advanceActor(pos: RoamingActorPos, motion: ActorMotion, id: string): {
   pos: RoamingActorPos; motion: ActorMotion; moving: boolean; facing: SynkDirection | null;
 } {
-  if (proximityFreezeEnabled && distanceToSynk(pos) <= proximityFreezeTiles) {
-    return { pos, motion, moving: false, facing: null };
+  const withinRange = proximityFreezeEnabled && distanceToSynk(pos) <= proximityFreezeTiles;
+  if (withinRange) {
+    const now = Date.now();
+    let startedAt = freezeStartedAt.get(id);
+    if (startedAt === undefined) { startedAt = now; freezeStartedAt.set(id, now); }
+    const elapsedSec = (now - startedAt) / 1000;
+    const interacting = interactingActorId !== null && interactingActorId === id;
+    if (interacting || elapsedSec < proximityFreezeResumeSec) {
+      return { pos, motion, moving: false, facing: null };
+    }
+    // Délai de grâce écoulé et aucune interaction en cours : l'acteur reprend sa marche normale
+    // ci-dessous MÊME s'il reste géographiquement à proximité (tant qu'il ne s'en éloigne pas puis
+    // ne s'en rapproche pas à nouveau, `freezeStartedAt` n'est pas réinitialisé — voir ci-dessous).
+  } else {
+    freezeStartedAt.delete(id);
   }
   let { dx, dy, holdTicks } = motion;
   if (holdTicks <= 0) {
@@ -353,15 +385,15 @@ function advanceActor(pos: RoamingActorPos, motion: ActorMotion): {
 }
 
 function stepActors(): void {
-  const npcResult = advanceActor(state.npc, npcMotion);
-  const dragonResult = advanceActor(state.dragon, dragonMotion);
+  const npcResult = advanceActor(state.npc, npcMotion, state.npcMarkerId ?? 'main-npc');
+  const dragonResult = advanceActor(state.dragon, dragonMotion, state.dragonMarkerId ?? 'main-dragon');
   npcMotion = npcResult.motion;
   dragonMotion = dragonResult.motion;
   // Fait avancer chaque PNJ de rencontre persisté (voir ExtraRoamingActor) exactement comme npc/
   // dragon ci-dessus — même moteur d'errance, même cadence (STEP_MS), position/motion indépendantes.
   const extras = state.extras.map((e) => {
     const motion = extraMotions.get(e.id) ?? { dx: 0, dy: 0, holdTicks: 0 };
-    const result = advanceActor({ x: e.x, y: e.y }, motion);
+    const result = advanceActor({ x: e.x, y: e.y }, motion, e.id);
     extraMotions.set(e.id, result.motion);
     return { ...e, x: result.pos.x, y: result.pos.y, facing: result.facing ?? e.facing, moving: result.moving };
   });
@@ -375,7 +407,7 @@ function stepActors(): void {
     for (const id of familiarIds) {
       const cur = state.familiars[id];
       const motion = familiarMotions.get(id) ?? { dx: 0, dy: 0, holdTicks: 0 };
-      const result = advanceActor({ x: cur.x, y: cur.y }, motion);
+      const result = advanceActor({ x: cur.x, y: cur.y }, motion, id);
       familiarMotions.set(id, result.motion);
       familiars[id] = { x: result.pos.x, y: result.pos.y, facing: result.facing ?? cur.facing, moving: result.moving };
     }
@@ -390,7 +422,7 @@ function stepActors(): void {
     for (const id of wildlifeIds) {
       const cur = state.wildlife[id];
       const motion = wildlifeMotions.get(id) ?? { dx: 0, dy: 0, holdTicks: 0 };
-      const result = advanceActor({ x: cur.x, y: cur.y }, motion);
+      const result = advanceActor({ x: cur.x, y: cur.y }, motion, id);
       wildlifeMotions.set(id, result.motion);
       wildlife[id] = { x: result.pos.x, y: result.pos.y, facing: result.facing ?? cur.facing, moving: result.moving, kind: cur.kind };
     }
@@ -433,7 +465,7 @@ export function getRoamStepMs(): number { return stepMs; }
  * (évite de réinitialiser inutilement l'intervalle à chaque re-render des widgets appelants). */
 export function configureRoaming(cfg: {
   stepMs?: number; pauseMinSec?: number; pauseMaxSec?: number;
-  proximityFreezeEnabled?: boolean; proximityFreezeTiles?: number;
+  proximityFreezeEnabled?: boolean; proximityFreezeTiles?: number; proximityFreezeResumeSec?: number;
 }): void {
   if (typeof cfg.stepMs === 'number' && cfg.stepMs > 0 && cfg.stepMs !== stepMs) {
     stepMs = cfg.stepMs;
@@ -443,6 +475,16 @@ export function configureRoaming(cfg: {
   if (typeof cfg.pauseMaxSec === 'number' && cfg.pauseMaxSec > 0) pauseMaxSec = cfg.pauseMaxSec;
   if (typeof cfg.proximityFreezeEnabled === 'boolean') proximityFreezeEnabled = cfg.proximityFreezeEnabled;
   if (typeof cfg.proximityFreezeTiles === 'number' && cfg.proximityFreezeTiles >= 0) proximityFreezeTiles = cfg.proximityFreezeTiles;
+  if (typeof cfg.proximityFreezeResumeSec === 'number' && cfg.proximityFreezeResumeSec >= 0) proximityFreezeResumeSec = cfg.proximityFreezeResumeSec;
+}
+
+/** À appeler par les widgets à chaque ouverture/fermeture d'un pop-up de rencontre/quête (voir
+ * `interactionMarker` dans GameCanvas2D.tsx/Platform3DWidget.tsx/WorldMapWidget.tsx) avec l'id du
+ * marqueur concerné (`null` à la fermeture) — tant que cet id reste renseigné, l'acteur
+ * correspondant reste gelé indéfiniment MÊME au-delà de `proximityFreezeResumeSec` (voir
+ * `advanceActor` ci-dessus), pour ne jamais faire fuir un PNJ/familier en pleine discussion. */
+export function setInteractingActorId(id: string | null): void {
+  interactingActorId = id;
 }
 
 /** Rapporte la position COURANTE de Synk (coordonnées mapmonde 0-100, même échelle que

@@ -869,6 +869,7 @@
   "admin.repRules.roamPauseMaxSec": "⏸️ Pause volontaire maximale (secondes)",
   "admin.repRules.roamProximityFreezeEnabled": "Geler les PNJ/dragons/familiers proches de Synk",
   "admin.repRules.roamProximityFreezeTiles": "📏 Distance de gel de proximité (cases)",
+  "admin.repRules.roamProximityFreezeResumeSec": "⏳ Reprise de marche après (secondes) si aucune interaction",
   "admin.repRules.wildlifeTitle": "🦉🐺 Faune sauvage errante (hiboux/loups-garous)",
   "admin.repRules.wildlifeDescription": "Le hibou et le loup-garou sont désormais de vraies créatures qui se déplacent librement sur la Mapmonde (Plateforme 2D/3D/Mapmonde), comme les PNJ et familiers — ils ne suivent plus Synk. Au moins un de chaque est garanti à proximité du point de départ du joueur.",
   "admin.repRules.wildlifeEnabled": "Activer la faune sauvage errante",

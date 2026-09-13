@@ -1033,6 +1033,12 @@ export function RepRulesPanel() {
               disabled={rules.roamProximityFreezeEnabled === false}
               value={rules.roamProximityFreezeTiles} onChange={e => set('roamProximityFreezeTiles', e.target.value)} />
           </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.roamProximityFreezeResumeSec')}</span>
+            <input type="number" className="input mt-1 w-full" min={0}
+              disabled={rules.roamProximityFreezeEnabled === false}
+              value={rules.roamProximityFreezeResumeSec ?? 6} onChange={e => set('roamProximityFreezeResumeSec', e.target.value)} />
+          </label>
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={rules.roamProximityFreezeEnabled !== false}

@@ -743,6 +743,7 @@
   "admin.repRules.roamPauseMaxSec": "⏸️ Pausa deliberada máxima (segundos)",
   "admin.repRules.roamProximityFreezeEnabled": "Congelar PNJ/dragões/familiares perto de Synk",
   "admin.repRules.roamProximityFreezeTiles": "📏 Distância de congelamento de proximidade (casas)",
+  "admin.repRules.roamProximityFreezeResumeSec": "⏳ Retomar a marcha após (segundos) sem interação",
   "admin.repRules.wildlifeTitle": "🦉🐺 Fauna selvagem errante (corujas/lobisomens)",
   "admin.repRules.wildlifeDescription": "A coruja e o lobisomem agora são criaturas reais que vagam livremente pelo Mapa-múndi (Plataforma 2D/3D/Mapa-múndi), assim como os PNJ e familiares — eles não seguem mais Synk. Pelo menos um de cada é garantido perto do ponto de partida do jogador.",
   "admin.repRules.wildlifeEnabled": "Ativar a fauna selvagem errante",

@@ -743,6 +743,7 @@
   "admin.repRules.roamPauseMaxSec": "⏸️ Pausa deliberada máxima (segundos)",
   "admin.repRules.roamProximityFreezeEnabled": "Congelar PNJ/dragones/familiares cerca de Synk",
   "admin.repRules.roamProximityFreezeTiles": "📏 Distancia de congelación de proximidad (casillas)",
+  "admin.repRules.roamProximityFreezeResumeSec": "⏳ Reanudar la marcha tras (segundos) si no hay interacción",
   "admin.repRules.wildlifeTitle": "🦉🐺 Fauna salvaje errante (búhos/hombres lobo)",
   "admin.repRules.wildlifeDescription": "El búho y el hombre lobo son ahora criaturas reales que deambulan libremente por el Mapamundi (Plataforma 2D/3D/Mapamundi), igual que los PNJ y familiares — ya no siguen a Synk. Se garantiza al menos uno de cada uno cerca del punto de partida del jugador.",
   "admin.repRules.wildlifeEnabled": "Activar la fauna salvaje errante",

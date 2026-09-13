@@ -1794,3 +1794,78 @@ séquentielle.
 **Zéro régression confirmée** : `tsc --noEmit` propre ; PNJ errant, dragon errant et le reste du
 décor d'ambiance (soleil/nuages/troupeau de sangliers en thème Jour) toujours rendus et comptés
 correctement aux côtés de la nouvelle faune ; `WorldMapAmbientOverlay.tsx` non modifié.
+
+## 🔒 Lune fixe dans le ciel, démarche à 4 pattes du loup-garou, vol du hibou, Audio redimensionnable, PNJ qui s'agglutinent
+
+**Demandes utilisateur** (suite au correctif précédent « ciel qui se vide au dézoom/rotation +
+hibou/loup-garou collés à Synk ») :
+- La lune est trop basse, s'enfonce dans le sol au changement de caméra, et **bouge/suit la
+  rotation de la caméra** alors qu'elle devrait rester à son endroit d'origine (plus haute, derrière
+  les nuages).
+- Le loup-garou doit animer ses **4 pattes** proportionnellement à son déplacement (démarche
+  réaliste), pas seulement translater.
+- Le hibou doit battre des ailes en vol, synchronisé avec son déplacement, et **ne plus emporter le
+  morceau de bois/perchoir** avec lui quand il vole (celui-ci doit rester en place, le hibou peut
+  s'y reposer occasionnellement).
+- Le widget **Audio** doit être redimensionnable (sizable) tout en restant lisible une fois réduit.
+- Bug : plusieurs PNJ s'agglutinent en une masse bloquée sur Synk sans jamais repartir — un PNJ
+  proche de Synk doit s'arrêter pour permettre l'interaction, mais **reprendre sa marche après un
+  délai (6 s, paramétrable)** si le joueur n'interagit pas avec lui spécifiquement.
+
+**Lune/Soleil à position FIXE** (`Platform3DAmbientScene.tsx`) : la version précédente ancrait
+`Moon3D`/`Sun3D` sur `camera.getWorldDirection()` + vecteurs droite/haut + copie du quaternion de la
+caméra, pour rester « toujours visibles quel que soit l'angle » (demande antérieure, qui concernait
+en réalité le remplissage général du ciel — étoiles/nuages/pluie, toujours 360° via
+`Starfield3D`/`Clouds3D`/`Rain3D`, inchangé). Cette demande-ci **inverse explicitement la priorité**
+pour la lune/le soleil : `MOON_ANCHOR`/`SUN_ANCHOR` sont désormais des constantes de position FIXE
+(`[-16, 18, -27]`/`[17, 16, -24]`, altitude et distance très supérieures aux nuages `y=2.6-3.4,
+rayon 7-9`), rendues à l'intérieur de `<SkyFollowGroup>` (qui ne fait que **translater** avec la
+position monde de Synk, jamais tourner). `useFrame` ne touche plus qu'à `groupRef.current.lookAt
+(camera.position)` (orientation billboard du disque plat) — jamais à la position. Conséquence
+assumée : la lune peut désormais sortir du champ de vision en tournant complètement autour de
+Synk (comportement voulu, exactement l'inverse de l'ancien comportement « toujours visible en
+suivant la caméra »). Le disque principal de la lune passe `depthWrite={false}` → `depthWrite`
+(true) pour être correctement occulté par les nuages (profondeur réelle) ; rayons de géométrie
+doublés (halo 1.55→3.4, disque 1.05→2.3 ; soleil 2.4→5.4/0.75→1.7) pour compenser la distance et
+conserver une taille apparente similaire.
+
+**Loup-garou à 4 pattes** (`Werewolf3D`) : ajout de 2 pattes arrière (`legRLRef`/`legRRRef`) en plus
+des 2 pattes avant existantes. Démarche « trot diagonal » (patron de marche réaliste standard pour
+un quadrupède) : deux ondes sinusoïdales en opposition de phase (`swingA`/`swingB`, amplitude nulle
+si `!moving` pour conserver exactement la pose statique « assise » d'origine à l'arrêt) — avant-
+gauche/arrière-droite en phase A, avant-droit/arrière-gauche en phase B.
+
+**Hibou en vol réaliste** (`Owl3D`) : `bodyRef` enveloppe désormais le corps/tête/ailes (mais pas le
+perchoir, qui devient un élément frère). Battement d'ailes dramatique quand `moving` (fréquence 9,
+amplitude 0.95) contre un léger ébouriffement quand posé (fréquence 2.4, amplitude 0.05) ; le corps
+s'élève (y: 0.7→0.95) et s'incline vers l'avant en vol. Le perchoir en bois n'est rendu que
+`{!moving && (...)}` — corrige le bug où le morceau de bois suivait le hibou en vol.
+
+**Widget Audio redimensionnable** (`AudioWidget.tsx`) : même patron de redimensionnement que
+`Platform3DWidget.tsx` (poignée `⤡` en bas à droite, persistance `localStorage`, bornes
+`MIN 240×200` – `MAX 560×760`). Un mode `compact` (largeur < 280 px) réduit la taille du texte/
+padding et masque le texte d'aide secondaire pour rester lisible même très réduit.
+
+**Gel de proximité PNJ non permanent** (`roamingActors.ts`) : ajout de
+`proximityFreezeResumeSec` (défaut 6 s, `RepRules.roamProximityFreezeResumeSec`,
+`RepRulesPanel.tsx`), `freezeStartedAt: Map<string, number>` (horodatage de début de gel par
+acteur) et `interactingActorId` (acteur avec lequel le joueur interagit actuellement, via
+`setInteractingActorId`, synchronisé depuis `interactionMarker` dans `GameCanvas2D.tsx`/
+`Platform3DWidget.tsx`). `advanceActor(pos, motion, id)` prend désormais un `id` : à l'entrée dans
+le rayon de gel, l'horodatage de départ est mémorisé ; l'acteur reste immobile **seulement** si
+`interactingActorId === id` OU si le délai de grâce n'est pas écoulé — au-delà, il reprend sa marche
+même si Synk reste à proximité (corrige l'agglutination). `freezeStartedAt` est effacé dès que
+l'acteur quitte le rayon (délai de grâce entièrement renouvelé à chaque nouvelle approche).
+
+**Vérifié (Playwright)** : flux Accès Démo → Jeu anonyme → `/game`, ouverture Plateforme 3D,
+rotation caméra (drag souris) + zoom (molette) — 0 erreur console. Ciel étoilé/nuageux nocturne
+confirmé stable sur plusieurs angles de caméra (horloge navigateur forcée à 23h via
+`page.addInitScript` pour atteindre le thème Nuit sans compte administrateur). Loup-garou et
+dragon observés avec leurs pattes visibles en gros plan. Widget Audio ouvert, redimensionné (largeur
+320→~230 px, hauteur 460→~290 px) : contenu reste lisible, défilement fonctionnel, 0 erreur
+console.
+
+**Zéro régression confirmée** : `tsc --noEmit` propre ; 4 locales JSON valides ; le PNJ/dragon/
+familier/faune errants continuent de fonctionner normalement en dehors du rayon de gel (aucun
+changement de leur logique de marche/pause existante) ; `WorldMapWidget.tsx` (sans `interactionMarker`)
+ne reçoit que le paramètre `proximityFreezeResumeSec` sans logique d'interaction supplémentaire.
