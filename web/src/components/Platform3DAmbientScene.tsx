@@ -35,19 +35,47 @@ function hashSeed(s: string): number {
 }
 
 /**
- * Enveloppe les éléments de "remplissage" du ciel (étoiles, étoile filante, nuages, pluie) pour
- * qu'ils suivent la TRANSLATION de la caméra (mais pas sa rotation) chaque frame — technique de
- * "skybox à parallaxe quasi nulle". Corrige le bug remonté par l'utilisateur : « quand je tourne
- * l'angle de vue de Synk ou que je dézoome, il n'y a plus rien dans le ciel ». Combiné à une
- * distribution sur 360° autour de l'origine (voir Starfield3D/Clouds3D/Rain3D ci-dessous, au lieu
- * de l'ancienne boîte orientée uniquement face à la caméra par défaut), ce groupe garantit qu'il y
- * a toujours quelque chose de visible dans le ciel, quels que soient l'angle de vue et le zoom.
+ * Enveloppe les éléments de "remplissage" du ciel (étoiles, étoile filante, nuages, pluie, lune,
+ * soleil) à une position FIXE dans le monde (ancrée sur l'origine locale de Synk, qui ne bouge
+ * jamais — voir plus bas).
+ *
+ * 🔧 RÉGRESSION #4 (celle-ci remplace une version antérieure qui translatait AVEC la caméra) :
+ * l'utilisateur a signalé qu'en dézoomant ou en tournant la caméra (plage de zoom élargie par le
+ * correctif caméra précédent, 1,3-20 unités au lieu de 3-11), « la lune comme le soleil se
+ * retrouve au milieu du décor », « planté dans le décor », et « les étoiles passent au-dessus du
+ * château [...] alors qu'ils devraient être derrière en arrière-plan peu importe la rotation de la
+ * caméra ». Cause : cette version précédente faisait translater le groupe avec `camera.position`
+ * (jamais tourner) — une technique de "skybox à parallaxe quasi nulle" qui semblait fonctionner
+ * tant que la caméra restait proche de sa position par défaut, mais qui recale en réalité la
+ * position ABSOLUE de la lune/des étoiles à chaque déplacement de la caméra (zoom OU orbite) : à
+ * une distance de zoom différente ou un angle d'orbite différent, la même ancre locale (ex.
+ * `MOON_ANCHOR`) retombe à un endroit du monde plus proche du décor (voire dedans), au lieu de
+ * rester à distance constante du décor (qui est, lui, positionné par rapport à Synk/l'origine, pas
+ * par rapport à la caméra).
+ *
+ * Correctif : Synk étant TOUJOURS rendu à l'origine locale `[0, y, 0]` (le monde défile autour de
+ * lui, voir `Platform3DWidget.tsx`), une position vraiment FIXE dans le monde revient à une
+ * position fixe par rapport à Synk — il suffit donc de ne plus jamais déplacer ce groupe (identité,
+ * aucune translation) et d'éloigner suffisamment chaque ancre (voir `SKY_SAFE_MIN_DISTANCE`
+ * ci-dessous) pour qu'elle reste, par construction géométrique, toujours plus profonde que le
+ * décor (rayon max `VIEW_RADIUS≈7` tuiles, soit ≈9,9 unités en diagonale) et que la caméra elle-même
+ * (distance max désormais 20, voir `Platform3DWidget.tsx::CAMERA_MAX_DISTANCE`) ne peut jamais la
+ * dépasser. Conséquence acceptée : la lune/le soleil (ancres ponctuelles, pas une distribution
+ * omnidirectionnelle) peuvent sortir du cadre si le joueur oriente la caméra à l'opposé — comportement
+ * RÉALISTE (comme un vrai ciel), et ce n'était pas le problème signalé (qui portait sur le mauvais
+ * ordre de profondeur, pas sur la disponibilité permanente). Les étoiles/nuages restent, eux,
+ * répartis sur 360° autour de l'origine (voir Starfield3D/Clouds3D ci-dessous) donc toujours
+ * visibles dans une partie du ciel quelle que soit l'orientation de la caméra.
  */
 function SkyFollowGroup({ children }: { children: ReactNode }) {
-  const ref = useRef<THREE.Group>(null);
-  useFrame(({ camera }) => { ref.current?.position.set(camera.position.x, 0, camera.position.z); });
-  return <group ref={ref}>{children}</group>;
+  return <group>{children}</group>;
 }
+
+// Marge de sécurité géométrique (voir commentaire de SkyFollowGroup ci-dessus) : distance minimale
+// (depuis l'origine/Synk) à laquelle un élément de ciel DOIT être placé pour ne jamais pouvoir être
+// dépassé par la caméra (`CAMERA_MAX_DISTANCE=20`, `Platform3DWidget.tsx`) ni par le décor le plus
+// éloigné (`VIEW_RADIUS≈7` tuiles ⇒ ≈9,9 unités en diagonale) — avec une marge confortable.
+const SKY_SAFE_MIN_DISTANCE = 40;
 
 // ─────────────────────────────── Texture lune (canvas → phases réelles) ───────────────────────
 const MOON_ILLUM: Record<MoonPhaseKey, number> = {
@@ -109,15 +137,9 @@ function getMoonTexture(phase: MoonPhaseKey, luneRousse: boolean): THREE.CanvasT
   return tex;
 }
 
-// Position FIXE de la lune/du soleil (voir Sun3D ci-dessous), à l'intérieur de SkyFollowGroup (qui
-// ne fait que TRANSLATER avec Synk, jamais tourner — voir commentaire de SkyFollowGroup) : corrige
-// le bug remonté par l'utilisateur « elle bouge lors des rotations et changement de caméra [...]
-// alors qu'elle devrait rester à son endroit d'origine et ne pas suivre la rotation de caméra ».
-// Déviation ASSUMÉE par rapport à une demande antérieure (« il n'y a plus rien dans le ciel [...]
-// quand je tourne l'angle ») : cette dernière demande concernait le remplissage GÉNÉRAL du ciel
-// (étoiles/nuages/pluie, TOUJOURS 360° via Starfield3D/Clouds3D/Rain3D ci-dessous, inchangé), pas
-// spécifiquement la lune/le soleil qui redeviennent ici de VRAIS objets célestes à position fixe,
-// comme demandé explicitement dans le message le plus récent de l'utilisateur.
+// Position FIXE de la lune/du soleil (voir Sun3D ci-dessous), au sein de `SkyFollowGroup` (qui ne
+// translate plus du tout depuis la régression #4, voir commentaire détaillé plus haut — il s'agit
+// donc d'une position ABSOLUE dans le monde, ancrée par rapport à Synk/l'origine).
 // 🔧 CORRECTIF (régression #1) : une première tentative avait placé l'ancre à très haute altitude/
 // distance (y=18, ~33 unités) — hors du champ de vision par défaut (plus aucune lune/soleil
 // visible, y compris en se déplaçant).
@@ -127,28 +149,27 @@ function getMoonTexture(phase: MoonPhaseKey, luneRousse: boolean): THREE.CanvasT
 // (`position:[0,3.2,5.6]`, `fov:45°`, `OrbitControls target:[0,0.3,0]`, donc axe de visée penché
 // ~27° VERS LE BAS) : le champ de vision vertical ne couvre que ±22,5° autour de cet axe déjà
 // incliné vers le sol — un point à la fois ÉLEVÉ (grand Y) ET LOINTAIN (grand |Z|) sort
-// nécessairement de ce cône (c'est pourquoi même les nuages de `Clouds3D`, y=2.6-3.4, ne sont
-// visibles qu'en rasant la limite haute du cadre, cf. capture — jamais plus haut). Ancre recalculée
-// à ~19° de l'axe de visée (Az≈-8, y≈2).
-// 🔧 CORRECTIF (régression #3, cf. capture utilisateur « la lune doit être en arrière-plan et
-// passer derrière les arbres/la maison/le château, pas devant ») : avec l'ancre de la régression #2
-// (Az=-8), la lune se retrouvait au monde à `caméra.z + Az ≈ 5,6-8 = -2,4`, soit PLUS PROCHE de la
-// caméra que la plupart des éléments de décor (arbres/PNJ/château) qui peuvent être affichés
-// jusqu'à `VIEW_RADIUS` (7 tuiles, voir `Platform3DWidget.tsx`) de profondeur, donc jusqu'à un Z
-// monde de -7 — la lune (test de profondeur standard, jamais désactivé) s'affichait alors
-// correctement selon les règles du moteur, mais DEVANT du décor pourtant censé être plus proche
-// d'elle. Nouvelle ancre repoussée à Az=-16/-15 (lune/soleil), donnant un Z monde ≈ -10,4, au-delà
-// de la portée maximale du décor (-7) avec une marge confortable : désormais TOUJOURS l'élément le
-// plus profond de la scène, donc occulté par n'importe quel arbre/PNJ/bâtiment placé devant, tout
-// en restant à ~19° de l'axe de visée (même méthode de calcul que ci-dessus) pour ne pas ressortir
-// du cadre par défaut. Conséquence acceptée (arbitrage imposé par la géométrie de la caméra, axe de
-// visée penché vers le bas — voir calcul ci-dessus) : l'altitude apparente redescend à y≈0,85-1
-// (au lieu de ~2), plus basse mais toujours visible et cohérente avec « en arrière-plan, dans le
-// ciel au-dessus de l'horizon plutôt qu'au zénith » (voir aussi Moon3D/Sun3D ci-dessous : rayons
-// augmentés en proportion de la distance ~1,8× plus grande, pour conserver une taille apparente
-// cohérente avec les captures de référence).
-const MOON_ANCHOR: [number, number, number] = [-4, 0.85, -16];
-const SUN_ANCHOR: [number, number, number] = [4.5, 0.99, -15];
+// nécessairement de ce cône. Ancre recalculée à ~19° de l'axe de visée (Az≈-8, y≈2).
+// 🔧 CORRECTIF (régression #3, cf. « la lune doit être en arrière-plan [...] pas devant ») : ancre
+// repoussée à Az=-16/-15 pour rester plus profonde que le décor (portée max ~7 tuiles) — mais
+// toujours positionnée par TRANSLATION AVEC LA CAMÉRA (voir ancienne version de `SkyFollowGroup`).
+// 🔧 CORRECTIF (régression #4, cf. « en dézoomant [...] la lune [...] se retrouve au milieu du
+// décor [...] planté dans le décor [...] devraient être derrière en arrière-plan peu importe la
+// rotation de la caméra ») : la régression #3 restait valable uniquement pour un zoom/angle proche
+// des réglages par défaut de l'époque (`maxDistance=11`) — une fois le zoom élargi à 20 (voir
+// correctif caméra "lever la tête"), une ancre à seulement ~16 unités de la caméra pouvait se
+// retrouver, selon le zoom/l'angle d'orbite courant, plus proche que le décor lui-même (la
+// translation suivait `camera.position`, qui varie beaucoup plus largement désormais). Solution :
+// l'ancre devient une position ABSOLUE fixe (plus de translation du tout, voir `SkyFollowGroup`),
+// recalculée à une distance ≥ `SKY_SAFE_MIN_DISTANCE` (40) de l'origine — garantissant
+// géométriquement qu'elle reste toujours plus profonde que le décor (≤~9,9 unités) ET que la
+// portée maximale de la caméra (20 unités), quels que soient le zoom/l'angle. Direction conservée
+// identique à l'ancienne ancre relative à la caméra par défaut (pour ne pas changer le cadrage par
+// défaut), simplement étendue à une distance ~4,3× plus grande (~68-70 unités depuis l'origine) ;
+// rayons agrandis dans la même proportion (voir Moon3D/Sun3D ci-dessous) pour conserver une taille
+// apparente cohérente à l'écran.
+const MOON_ANCHOR: [number, number, number] = [-18, 7, -67];
+const SUN_ANCHOR: [number, number, number] = [21, 8, -63];
 
 function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -160,11 +181,11 @@ function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   return (
     <group ref={groupRef} position={MOON_ANCHOR}>
       <mesh position={[0, 0, -0.02]}>
-        <circleGeometry args={[2.0, 28]} />
+        <circleGeometry args={[8.6, 28]} />
         <meshBasicMaterial color={phase.isLuneRousse ? '#f2c9a0' : '#bfdbfe'} transparent opacity={0.14} depthWrite={false} toneMapped={false} />
       </mesh>
       <mesh>
-        <circleGeometry args={[1.4, 32]} />
+        <circleGeometry args={[6.0, 32]} />
         <meshBasicMaterial map={texture} transparent toneMapped={false} depthWrite />
       </mesh>
     </group>
@@ -196,11 +217,11 @@ function Sun3D() {
   return (
     <group ref={groupRef} position={SUN_ANCHOR}>
       <mesh>
-        <circleGeometry args={[3.2, 28]} />
+        <circleGeometry args={[13.8, 28]} />
         <meshBasicMaterial map={tex} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
       </mesh>
       <mesh position={[0, 0, 0.01]}>
-        <circleGeometry args={[1.0, 24]} />
+        <circleGeometry args={[4.3, 24]} />
         <meshBasicMaterial color="#fff8dc" toneMapped={false} />
       </mesh>
     </group>
@@ -212,16 +233,21 @@ function Starfield3D() {
   const pointsRef = useRef<THREE.Points>(null);
   const positions = useMemo(() => {
     // Distribution sur 360° d'azimut autour de l'origine (au lieu d'une boîte orientée uniquement
-    // face à la caméra par défaut) — combinée au SkyFollowGroup (translation-only) englobant, ceci
-    // garantit qu'il y a toujours des étoiles visibles quel que soit l'angle/zoom de la caméra
-    // (corrige le bug « quand je tourne l'angle de vue [...] il n'y a plus rien dans le ciel »).
+    // face à la caméra par défaut) — garantit qu'il y a toujours des étoiles visibles quel que soit
+    // l'angle/zoom de la caméra (corrige le bug « quand je tourne l'angle de vue [...] il n'y a
+    // plus rien dans le ciel »). 🔧 Régression #4 : rayon/altitude repoussés très au-delà de
+    // `SKY_SAFE_MIN_DISTANCE` (40, voir `SkyFollowGroup`) — les étoiles sont désormais des points
+    // fixes du monde (plus de translation avec la caméra), il faut donc qu'elles soient
+    // intrinsèquement assez loin de l'origine pour rester toujours plus profondes que le décor et
+    // la caméra, quel que soit le zoom/l'angle d'orbite (au lieu de ~6-16 unités, qui pouvait finir
+    // plus proche de la caméra que le décor une fois le zoom élargi à 20).
     const count = 320;
     const pos = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const radius = 6 + Math.random() * 10;
+      const radius = 42 + Math.random() * 22;
       pos[i * 3 + 0] = Math.cos(angle) * radius;
-      pos[i * 3 + 1] = 1.2 + Math.random() * 6.8;
+      pos[i * 3 + 1] = 14 + Math.random() * 24;
       pos[i * 3 + 2] = Math.sin(angle) * radius;
     }
     return pos;
@@ -235,7 +261,7 @@ function Starfield3D() {
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} count={positions.length / 3} array={positions} itemSize={3} />
       </bufferGeometry>
-      <pointsMaterial size={0.1} color="#f8fafc" transparent opacity={0.75} sizeAttenuation depthWrite={false} />
+      <pointsMaterial size={0.28} color="#f8fafc" transparent opacity={0.75} sizeAttenuation depthWrite={false} />
     </points>
   );
 }
@@ -244,20 +270,20 @@ function ShootingStar3D() {
   const groupRef = useRef<THREE.Group>(null);
   const state = useRef({ active: false, start: 0, nextAt: 2 + Math.random() * 6, from: new THREE.Vector3(), to: new THREE.Vector3() });
   // 🔧 Trajectoire remontée plus HAUT et plus LOIN dans le ciel (demande utilisateur : « fait en
-  // sorte que les étoiles filantes passent au-dessus dans le ciel et au lointain ») : rayon/altitude
-  // alignés sur le fond du ciel (au-delà des nuages, radius 7-11, voir Clouds3D) plutôt que juste
-  // au-dessus de la tête du joueur comme précédemment (radius 6, y~3.2-4.5). Le déplacement reste
-  // surtout horizontal (léger delta Y) pour un arc qui traverse le ciel lointain au lieu de tomber
-  // vers le sol/le joueur.
+  // sorte que les étoiles filantes passent au-dessus dans le ciel et au lointain »), puis repoussée
+  // ENCORE plus loin lors de la régression #4 (voir `SkyFollowGroup`/`SKY_SAFE_MIN_DISTANCE`) pour
+  // rester, comme les étoiles fixes/la lune/le soleil, toujours au-delà du décor et de la portée de
+  // la caméra — rayon/altitude/amplitude du déplacement mis à l'échelle en conséquence (~×3) pour
+  // conserver une trajectoire/trainée visuellement significative à cette distance accrue.
   useFrame((s) => {
     const t = s.clock.elapsedTime;
     const st = state.current;
     if (!st.active && t > st.nextAt) {
       st.active = true; st.start = t;
       const angle = Math.random() * Math.PI * 2;
-      const radius = 13 + Math.random() * 6;
-      st.from.set(Math.cos(angle) * radius, 8.5 + Math.random() * 2.5, Math.sin(angle) * radius);
-      st.to.copy(st.from).add(new THREE.Vector3((Math.random() - 0.5) * 10 - Math.cos(angle) * 4, -1.2 - Math.random() * 0.8, (Math.random() - 0.5) * 10 - Math.sin(angle) * 4));
+      const radius = 46 + Math.random() * 16;
+      st.from.set(Math.cos(angle) * radius, 24 + Math.random() * 8, Math.sin(angle) * radius);
+      st.to.copy(st.from).add(new THREE.Vector3((Math.random() - 0.5) * 30 - Math.cos(angle) * 12, -3.6 - Math.random() * 2.4, (Math.random() - 0.5) * 30 - Math.sin(angle) * 12));
     }
     if (!groupRef.current) return;
     if (!st.active) { groupRef.current.visible = false; return; }
@@ -277,7 +303,7 @@ function ShootingStar3D() {
   return (
     <group ref={groupRef} visible={false}>
       <mesh rotation={[0, 0, Math.PI / 4]}>
-        <cylinderGeometry args={[0.018, 0.018, 1.1, 5]} />
+        <cylinderGeometry args={[0.05, 0.05, 3.3, 5]} />
         <meshBasicMaterial color="#fefce8" transparent toneMapped={false} />
       </mesh>
     </group>
@@ -290,7 +316,7 @@ function Cloud3D({ seed, x0, z0, y }: { seed: number; x0: number; z0: number; y:
   const speed = 0.12 + (seed % 5) * 0.025;
   useFrame((state) => {
     if (!ref.current) return;
-    const span = 20;
+    const span = 90;
     const drift = ((state.clock.elapsedTime * speed + seed * 3.3) % span) - span / 2;
     ref.current.position.x = x0 + drift;
   });
@@ -302,7 +328,7 @@ function Cloud3D({ seed, x0, z0, y }: { seed: number; x0: number; z0: number; y:
     }));
   }, [seed]);
   return (
-    <group ref={ref} position={[x0, y, z0]}>
+    <group ref={ref} position={[x0, y, z0]} scale={4.2}>
       {puffs.map((p, i) => (
         <mesh key={i} position={[p.x, 0, 0]} scale={[p.s, p.s * 0.62, p.s]}>
           <sphereGeometry args={[0.62, 8, 6]} />
@@ -315,11 +341,14 @@ function Cloud3D({ seed, x0, z0, y }: { seed: number; x0: number; z0: number; y:
 function Clouds3D() {
   // 8 nuages répartis sur 360° d'azimut (au lieu de 4 uniquement face à la caméra par défaut) —
   // corrige le même bug que Starfield3D/Rain3D ci-dessus/dessous : le ciel se vidait au dézoom/à la
-  // rotation. `x0`/`z0` fixent l'azimut de dérive de chaque nuage (voir Cloud3D).
+  // rotation. 🔧 Régression #4 : rayon/altitude repoussés au-delà de `SKY_SAFE_MIN_DISTANCE` (voir
+  // `SkyFollowGroup`) et mis à l'échelle (×4,2, voir `Cloud3D`) pour rester toujours derrière le
+  // décor tout en restant visuellement lisibles à cette distance accrue. `x0`/`z0` fixent l'azimut
+  // de dérive de chaque nuage (voir Cloud3D).
   return <>{[0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
     const angle = (i / 8) * Math.PI * 2;
-    const radius = 7 + (i % 3) * 2;
-    return <Cloud3D key={i} seed={i * 37 + 11} x0={Math.cos(angle) * radius} z0={Math.sin(angle) * radius} y={2.6 + (i % 2) * 0.8} />;
+    const radius = 44 + (i % 3) * 8;
+    return <Cloud3D key={i} seed={i * 37 + 11} x0={Math.cos(angle) * radius} z0={Math.sin(angle) * radius} y={15 + (i % 2) * 3} />;
   })}</>;
 }
 
@@ -724,27 +753,25 @@ function Witch3D({ adminAudio, intervalSec }: { adminAudio: Record<AudioSourceKe
     if (!groupRef.current) return;
     groupRef.current.visible = true;
     const p = elapsed / WITCH_FLIGHT_DURATION_SEC; // 0 → 1 sur toute la traversée
-    const span = 26; // largeur du balayage — traverse aussi bien MOON_ANCHOR.x (-4) que SUN_ANCHOR.x (4.5)
+    // 🔧 Régression #4 : balayage/profondeur repoussés (×~4,3, voir MOON_ANCHOR/SUN_ANCHOR) pour
+    // rester cohérente avec la nouvelle distance, bien plus grande, de la lune/du soleil — sinon
+    // elle apparaîtrait bien plus proche/grande que ces derniers, rompant l'effet "silhouette
+    // lointaine passant devant la lune".
+    const span = 112; // largeur du balayage — traverse aussi bien MOON_ANCHOR.x (-18) que SUN_ANCHOR.x (21)
     const x = -span / 2 + span * p;
-    groupRef.current.position.set(x, 0.9 + Math.sin(p * Math.PI) * 1.1, -15.5 + Math.sin(p * Math.PI * 2) * 1.4);
+    groupRef.current.position.set(x, 7 + Math.sin(p * Math.PI) * 4.7, -65 + Math.sin(p * Math.PI * 2) * 6);
     groupRef.current.rotation.y = Math.PI / 2;
     groupRef.current.rotation.z = 0.12 * Math.sin(elapsed * 2);
     if (robeRef.current) robeRef.current.rotation.x = 0.15 + Math.sin(elapsed * 3) * 0.05;
   });
   return (
-    // 🔧 Mise à l'échelle ×5.3 (ajustée suite au recalibrage régression #3 de MOON_ANCHOR/SUN_ANCHOR,
-    // voir plus haut : distance repoussée de ~9 à ~16 unités pour que la lune/le soleil restent
-    // TOUJOURS l'élément le plus profond de la scène, donc occultés par le décor comme demandé,
-    // plutôt que de rester devant) — corrige un bug de FOND (pas seulement de timing) : les
-    // proportions de la sorcière (rayons 0.02-0.34) étaient calibrées pour un survol proche façon
-    // chauve-souris/rapace (orbite à 2-7 unités de la caméra, voir Bat3D/Raptor3D plus haut), alors
-    // qu'elle vole désormais à la distance de la lune/du soleil (~16 unités, voir
-    // MOON_ANCHOR/SUN_ANCHOR) : sans mise à l'échelle sa silhouette ne mesurerait que quelques
-    // pixels à l'écran, strictement invisible en pratique (aggravé par sa robe bleu-nuit quasi
-    // identique à la couleur du ciel nocturne). `emissive` ajouté sur la robe/le chapeau pour
-    // qu'elle reste visible en silhouette même sans lumière directe (comme éclairée par la lune),
-    // au lieu de sombre-sur-sombre.
-    <group ref={groupRef} visible={false} scale={5.3}>
+    // 🔧 Mise à l'échelle ×5,3 (régression #3) puis ×22,8 (régression #4, ×4,3 supplémentaire — voir
+    // commentaire sur le balayage ci-dessus) pour suivre le recalibrage de MOON_ANCHOR/SUN_ANCHOR
+    // (distance repoussée de ~16 à ~65-67 unités, désormais fixe/absolue — voir SkyFollowGroup) :
+    // sans cette mise à l'échelle, sa silhouette serait, à cette distance, strictement invisible en
+    // pratique. `emissive` ajouté sur la robe/le chapeau pour qu'elle reste visible en silhouette
+    // même sans lumière directe (comme éclairée par la lune), au lieu de sombre-sur-sombre.
+    <group ref={groupRef} visible={false} scale={22.8}>
       {/* Balai */}
       <mesh rotation={[0, 0, Math.PI / 2]} castShadow><cylinderGeometry args={[0.02, 0.02, 0.9, 6]} /><meshStandardMaterial color="#a16207" roughness={0.9} /></mesh>
       <mesh position={[-0.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.09, 0.22, 8]} /><meshStandardMaterial color="#ca8a04" roughness={1} /></mesh>

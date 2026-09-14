@@ -2219,3 +2219,68 @@ déplacement au clavier, interactions avec PNJ/dragons/objets déposés, et les 
 lune/soleil/sorcière/hibou/loup-garou des sections précédentes (position fixe hors rotation caméra,
 profondeur derrière le décor, visibilité par défaut) intégralement conservés — seuls les bornes de
 zoom, la hauteur du pivot de la caméra et le plafond dynamique de l'angle polaire ont été modifiés.
+
+## 🌌 Régression #4 : lune/soleil/étoiles « plantés dans le décor » au lieu de rester à l'arrière-plan
+
+**Régression utilisateur** : suite à l'élargissement du zoom (voir section précédente), « en
+dézoomant [...] la lune comme le soleil se retrouve au milieu du décor », « même de près, la lune
+comme le soleil est planté dans le décor et les étoiles passent au-dessus du château [...] alors
+qu'ils devraient être derrière en arrière-plan peu importe la rotation de la caméra ».
+
+**Cause racine** : `Moon3D`/`Sun3D`/`Starfield3D`/`ShootingStar3D`/`Clouds3D` (`Platform3DAmbientScene.
+tsx`) étaient enveloppés dans `SkyFollowGroup`, un groupe qui **translatait avec `camera.position`**
+chaque frame (mais ne tournait jamais) — une technique de « skybox à parallaxe quasi nulle » conçue
+lors d'une régression antérieure pour que le ciel reste toujours rempli. Problème : le décor (arbres/
+PNJ/château, voir `Platform3DWidget.tsx`) est positionné par rapport à **Synk/l'origine** (fixe, le
+monde défile autour de lui), alors que les éléments du ciel étaient positionnés par rapport à **la
+caméra**, qui se déplace désormais dans une plage bien plus large (`minDistance=1,3`/`maxDistance=20`
+depuis le correctif caméra précédent, contre `3-11` avant). Résultat : à chaque zoom/orbite différent
+de la position par défaut, l'ancre locale (ex. `MOON_ANCHOR=[-4,0.85,-16]`) retombait à un endroit du
+monde absolu différent — parfois plus proche de la caméra que le décor lui-même (donc rendue PAR-DESSUS
+lui, exactement comme dans les captures utilisateur), au lieu de rester à une profondeur constante par
+rapport au décor.
+
+**Correctif** — `Platform3DAmbientScene.tsx` :
+- `SkyFollowGroup` ne translate plus DU TOUT (identité fixe) : Synk étant toujours rendu à l'origine
+  locale (le monde défile autour de lui), une position vraiment fixe dans le monde revient à une
+  position fixe par rapport à Synk — il suffit de ne plus jamais déplacer ce groupe.
+- Nouvelle constante `SKY_SAFE_MIN_DISTANCE=40` : marge géométrique garantissant qu'un élément de
+  ciel placé à au moins cette distance de l'origine ne peut JAMAIS être dépassé ni par le décor le
+  plus éloigné (`VIEW_RADIUS≈7` tuiles ⇒ ≈9,9 unités en diagonale) ni par la caméra elle-même
+  (`CAMERA_MAX_DISTANCE=20`), avec une marge confortable.
+- `MOON_ANCHOR`/`SUN_ANCHOR` repoussés de `[-4,0.85,-16]`/`[4.5,0.99,-15]` (≈16,5/15,7 unités,
+  relatifs à la caméra) à `[-18,7,-67]`/`[21,8,-63]` (≈69,8/66,9 unités, **absolus**, direction
+  conservée depuis la position initiale de la caméra pour ne pas changer le cadrage par défaut).
+  Rayons agrandis en proportion (×~4,3) pour conserver une taille apparente cohérente : halo lune
+  `2,0→8,6`, disque lune `1,4→6,0` ; lueur soleil `3,2→13,8`, cœur soleil `1,0→4,3`.
+- `Starfield3D` : rayon `6-16→42-64`, altitude `1,2-8→14-38` (autour de l'origine, plus de
+  translation caméra). `ShootingStar3D` : rayon `13-19→46-62`, altitude `8,5-11→24-32`, amplitude du
+  déplacement/traînée ×3 pour rester visuellement significative à cette distance. `Clouds3D` : rayon
+  `7-11→44-60`, altitude `2,6-3,4→15-18`, échelle ×4,2 par nuage, largeur de dérive `20→90`.
+- `Witch3D` (survol périodique) : balayage/profondeur repoussés dans les mêmes proportions
+  (`span 26→112`, profondeur `-15,5→-65`, altitude `0,9→7`) et échelle `×5,3→×22,8`, pour rester
+  cohérente avec la nouvelle distance, bien plus grande, de la lune/du soleil qu'elle est censée
+  croiser.
+- `Rain3D` conservé inchangé (rayon `0-9` autour de l'origine) : la pluie est un effet LOCAL autour
+  du joueur (pas un élément céleste distant), son comportement était déjà correct et n'est pas
+  concerné par le bug remonté.
+
+**Vérifié (Playwright)** : connexion « Jeu anonyme », widget Plateforme 3D maximisé, thème nuit
+(par défaut) ET thème jour (horloge navigateur forcée à 14h) —
+1. Vue par défaut, dézoom modéré (6 crans), dézoom maximal (26 crans, reproduisant exactement le
+   scénario des captures utilisateur montrant la lune « dans » le château) : lune/soleil restent
+   systématiquement dans le ciel noir, au-dessus et en arrière du château/des arbres, jamais
+   superposés ni incrustés dans le décor.
+2. Rotation/orbite de la caméra (glissements horizontaux répétés, plusieurs azimuts) : lune/soleil
+   sortent parfois du cadre lorsque la caméra regarde dans une autre direction (comportement RÉALISTE
+   attendu, comme un vrai ciel — ce n'était pas le problème signalé) mais ne réapparaissent JAMAIS
+   incrustés dans le décor lorsqu'ils sont visibles.
+3. Zoom rapproché : lune toujours correctement à l'arrière-plan, aucune incrustation.
+4. 0 erreur console/page sur l'ensemble des interactions, dans les deux thèmes.
+
+**Zéro régression confirmée** : `tsc --noEmit` propre ; correctifs des régressions #1/#2/#3 (position
+fixe hors rotation caméra, visibilité par défaut, profondeur derrière le décor de proximité)
+intégralement conservés — seule la référence de translation (caméra → fixe/origine) et les distances/
+échelles ont changé ; `Rain3D` et la faune terrestre/volante (hibou/loup-garou/rapaces/oiseaux/
+sangliers, gérés séparément via `lib/roamingActors.ts`) non affectés ; correctif caméra zoom/tête
+levée de la section précédente non modifié.
