@@ -118,18 +118,25 @@ function getMoonTexture(phase: MoonPhaseKey, luneRousse: boolean): THREE.CanvasT
 // (étoiles/nuages/pluie, TOUJOURS 360° via Starfield3D/Clouds3D/Rain3D ci-dessous, inchangé), pas
 // spécifiquement la lune/le soleil qui redeviennent ici de VRAIS objets célestes à position fixe,
 // comme demandé explicitement dans le message le plus récent de l'utilisateur.
-// 🔧 CORRECTIF (régression) : une première tentative avait placé l'ancre à très haute altitude/
-// distance (y=18, ~33 unités) pour garantir qu'elle ne s'enfonce jamais dans le relief — mais cela
-// la sortait quasi systématiquement du champ de vision par défaut (plus aucune lune/soleil visible,
-// y compris en se déplaçant), régression remontée par l'utilisateur : « je ne les vois plus du
-// tout, même en bougeant les vues de Synk ». Nouvelle ancre ramenée à hauteur/distance PROCHES de
-// celles utilisées par l'ancienne version qui suivait la caméra (~14 unités de distance, cf.
-// captures utilisateur de référence) — juste un peu AU-DESSUS du niveau des nuages (y=2.6-3.4, voir
-// Clouds3D) plutôt qu'au même niveau, pour que les nuages puissent continuer à défiler devant elle
-// (profondeur réelle, depthWrite activé sur le disque principal) sans qu'elle s'y confonde ni ne
-// s'enfonce dans le sol (altitude fixe toujours nettement supérieure au relief).
-const MOON_ANCHOR: [number, number, number] = [-6, 6.5, -12];
-const SUN_ANCHOR: [number, number, number] = [7, 6, -11];
+// 🔧 CORRECTIF (régression #1) : une première tentative avait placé l'ancre à très haute altitude/
+// distance (y=18, ~33 unités) — hors du champ de vision par défaut (plus aucune lune/soleil
+// visible, y compris en se déplaçant).
+// 🔧 CORRECTIF (régression #2, cf. capture utilisateur « je ne vois que la base grisée du cercle
+// tout en haut du widget ») : la 2e tentative (y=6-6.5, ~14 unités de distance) restait ENCORE hors
+// cadre par défaut. Calcul precis via la géométrie de la caméra `Platform3DWidget.tsx`
+// (`position:[0,3.2,5.6]`, `fov:45°`, `OrbitControls target:[0,0.3,0]`, donc axe de visée penché
+// ~27° VERS LE BAS) : le champ de vision vertical ne couvre que ±22,5° autour de cet axe déjà
+// incliné vers le sol — un point à la fois ÉLEVÉ (grand Y) ET LOINTAIN (grand |Z|) sort
+// nécessairement de ce cône (c'est pourquoi même les nuages de `Clouds3D`, y=2.6-3.4, ne sont
+// visibles qu'en rasant la limite haute du cadre, cf. capture — jamais plus haut). Nouvelle ancre
+// recalculée pour rester à ~19-20° de l'axe de visée (donc nettement sous la limite de 22,5°, avec
+// marge) tout en gardant une profondeur proche de celle des nuages (Az≈-8, même registre de
+// distance) : altitude ramenée à y≈2 (au lieu de 6-6.5), c'est-à-dire légèrement SOUS le sommet des
+// nuages plutôt qu'au-dessus — accepté comme compromis nécessaire pour rester dans le cadre par
+// défaut (voir aussi Moon3D/Sun3D ci-dessous : rayons réduits en proportion de la distance ~35%
+// plus courte, pour conserver une taille apparente cohérente avec les captures de référence).
+const MOON_ANCHOR: [number, number, number] = [-4, 2, -8];
+const SUN_ANCHOR: [number, number, number] = [4.5, 1.9, -7.5];
 
 function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -141,11 +148,11 @@ function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   return (
     <group ref={groupRef} position={MOON_ANCHOR}>
       <mesh position={[0, 0, -0.02]}>
-        <circleGeometry args={[1.7, 28]} />
+        <circleGeometry args={[1.1, 28]} />
         <meshBasicMaterial color={phase.isLuneRousse ? '#f2c9a0' : '#bfdbfe'} transparent opacity={0.14} depthWrite={false} toneMapped={false} />
       </mesh>
       <mesh>
-        <circleGeometry args={[1.15, 32]} />
+        <circleGeometry args={[0.75, 32]} />
         <meshBasicMaterial map={texture} transparent toneMapped={false} depthWrite />
       </mesh>
     </group>
@@ -177,11 +184,11 @@ function Sun3D() {
   return (
     <group ref={groupRef} position={SUN_ANCHOR}>
       <mesh>
-        <circleGeometry args={[2.7, 28]} />
+        <circleGeometry args={[1.8, 28]} />
         <meshBasicMaterial map={tex} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
       </mesh>
       <mesh position={[0, 0, 0.01]}>
-        <circleGeometry args={[0.85, 24]} />
+        <circleGeometry args={[0.56, 24]} />
         <meshBasicMaterial color="#fff8dc" toneMapped={false} />
       </mesh>
     </group>
@@ -705,23 +712,25 @@ function Witch3D({ adminAudio, intervalSec }: { adminAudio: Record<AudioSourceKe
     if (!groupRef.current) return;
     groupRef.current.visible = true;
     const p = elapsed / WITCH_FLIGHT_DURATION_SEC; // 0 → 1 sur toute la traversée
-    const span = 26; // largeur du balayage — traverse aussi bien MOON_ANCHOR.x (-6) que SUN_ANCHOR.x (7)
+    const span = 26; // largeur du balayage — traverse aussi bien MOON_ANCHOR.x (-4) que SUN_ANCHOR.x (4.5)
     const x = -span / 2 + span * p;
-    groupRef.current.position.set(x, 6.4 + Math.sin(p * Math.PI) * 1.1, -11 + Math.sin(p * Math.PI * 2) * 1.4);
+    groupRef.current.position.set(x, 2 + Math.sin(p * Math.PI) * 1.1, -8 + Math.sin(p * Math.PI * 2) * 1.4);
     groupRef.current.rotation.y = Math.PI / 2;
     groupRef.current.rotation.z = 0.12 * Math.sin(elapsed * 2);
     if (robeRef.current) robeRef.current.rotation.x = 0.15 + Math.sin(elapsed * 3) * 0.05;
   });
   return (
-    // 🔧 Mise à l'échelle ×3.2 — corrige un bug de FOND (pas seulement de timing) : les proportions
-    // de la sorcière (rayons 0.02-0.34) étaient calibrées pour un survol proche façon chauve-souris/
-    // rapace (orbite à 2-7 unités de la caméra, voir Bat3D/Raptor3D plus haut), alors qu'elle est
-    // désormais positionnée à la distance de la lune/du soleil (~14-18 unités, voir MOON_ANCHOR/
-    // SUN_ANCHOR) : à cette distance son silhouette ne mesurait que quelques pixels à l'écran,
-    // strictement invisible en pratique (aggravé par sa robe bleu-nuit quasi identique à la couleur
-    // du ciel nocturne). `emissive` ajouté sur la robe/le chapeau pour qu'elle reste visible en
-    // silhouette même sans lumière directe (comme éclairée par la lune), au lieu de sombre-sur-sombre.
-    <group ref={groupRef} visible={false} scale={4.4}>
+    // 🔧 Mise à l'échelle ×2.9 (ajustée suite au recalibrage de MOON_ANCHOR/SUN_ANCHOR, voir plus
+    // haut : distance ramenée de ~14-18 à ~9 unités pour rester dans le cadre par défaut de la
+    // caméra) — corrige un bug de FOND (pas seulement de timing) : les proportions de la sorcière
+    // (rayons 0.02-0.34) étaient calibrées pour un survol proche façon chauve-souris/rapace (orbite
+    // à 2-7 unités de la caméra, voir Bat3D/Raptor3D plus haut), alors qu'elle vole désormais à la
+    // distance de la lune/du soleil (~9 unités, voir MOON_ANCHOR/SUN_ANCHOR) : sans mise à l'échelle
+    // sa silhouette ne mesurerait que quelques pixels à l'écran, strictement invisible en pratique
+    // (aggravé par sa robe bleu-nuit quasi identique à la couleur du ciel nocturne). `emissive`
+    // ajouté sur la robe/le chapeau pour qu'elle reste visible en silhouette même sans lumière
+    // directe (comme éclairée par la lune), au lieu de sombre-sur-sombre.
+    <group ref={groupRef} visible={false} scale={2.9}>
       {/* Balai */}
       <mesh rotation={[0, 0, Math.PI / 2]} castShadow><cylinderGeometry args={[0.02, 0.02, 0.9, 6]} /><meshStandardMaterial color="#a16207" roughness={0.9} /></mesh>
       <mesh position={[-0.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.09, 0.22, 8]} /><meshStandardMaterial color="#ca8a04" roughness={1} /></mesh>

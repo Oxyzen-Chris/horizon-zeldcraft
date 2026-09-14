@@ -1949,3 +1949,55 @@ le rendu/l'échelle/le déclenchement sont désormais validés corrects.
 `admin.worldThemes.witchInterval` ajoutée à fr/en/es/pt) ; owl/werewolf/chauves-souris/rapaces/
 oiseaux/sangliers non modifiés (aucun changement de leur code) ; `SkyFollowGroup` et le comportement
 « lune fixe, ne suit pas la rotation de caméra » de la demande précédente restent inchangés.
+
+## 🌙 Régression #2 : lune/soleil encore hors cadre par défaut — recalibrage géométrique complet
+
+**Régression utilisateur** (suite au correctif précédent ci-dessus) : « la lune est encore trop
+haute dans le ciel, je ne la vois pas du tout et perçois à peine la base de son cercle en gris »,
+constatée dans le widget Plateforme 3D **sans dézoomer** (cadrage par défaut). Le correctif
+précédent (`MOON_ANCHOR`/`SUN_ANCHOR` à ~14-15 unités, y=6-6.5) restait donc encore hors du champ de
+vision par défaut malgré la correction de la régression n°1 (anciens anchors à ~33-40 unités).
+
+**Cause racine (calcul géométrique précis)** : la caméra par défaut de `Platform3DWidget.tsx`
+(`position:[0,3.2,5.6]`, `fov:45°`, `OrbitControls target:[0,0.3,0]`) a un axe de visée penché
+**~27° vers le bas** (le point visé est nettement plus bas que la caméra). Le champ de vision
+vertical ne couvre que ±22,5° autour de cet axe déjà incliné — en calculant précisément la
+projection en repère caméra (vecteurs `right`/`up`/`forward` de la base orthonormée de la caméra),
+un point placé à `y=6.5` et `z=-12` (l'ancienne ancre) se retrouvait à **~38-42° du centre de vue**,
+très au-delà de la limite de 22,5°, ce qui explique l'invisibilité quasi totale (juste un fragment
+visible au bord du cadre par accident d'arrondi). Fait notable découvert par ce calcul : parce que
+l'axe de visée est penché vers le bas, un point à la fois **élevé** (grand `y`) et **lointain**
+(grand `|z|`) sort presque nécessairement du cône de vue à ce pitch de caméra — même les nuages
+(`Clouds3D`, `y=2.6-3.4`) ne sont visibles qu'en rasant tout juste la limite haute du cadre (~22,5°),
+jamais plus haut. Un objet céleste ne peut donc être à la fois lointain, élevé ET dans le cadre par
+défaut : il faut sacrifier un peu d'altitude apparente pour rester dans le cône visible.
+
+**Correctif** : `MOON_ANCHOR`/`SUN_ANCHOR` recalculés pour rester à ~19-20° de l'axe de visée
+(marge de sécurité sous la limite de 22,5°) tout en gardant une profondeur proche de celle des
+nuages (registre de distance similaire, `Az≈-8`) :
+- `MOON_ANCHOR` : `[-6, 6.5, -12]` → `[-4, 2, -8]` (distance caméra ~9 unités, contre ~14 avant).
+- `SUN_ANCHOR` : `[7, 6, -11]` → `[4.5, 1.9, -7.5]` (distance caméra ~8.8 unités).
+- Rayons de géométrie réduits en proportion de la distance ~35% plus courte (pour conserver une
+  taille apparente cohérente avec les captures de référence) : halo lune `1.7→1.1`, disque lune
+  `1.15→0.75` ; lueur soleil `2.7→1.8`, cœur soleil `0.85→0.56`.
+- `Witch3D` (survol périodique, voir section précédente) repositionnée sur le même plan
+  profondeur/altitude que les nouvelles ancres (`y≈2±1.1`, `z≈-8±1.4` au lieu de `y≈6.4±1.1`,
+  `z≈-11±1.4`) pour continuer à passer visuellement devant/près de la lune/du soleil ; son échelle
+  réduite en proportion (`×4.4 → ×2.9`) pour conserver une taille apparente cohérente à la distance
+  plus courte (sans quoi elle serait ~1,5× trop grande par rapport à son calibrage précédent).
+
+**Vérifié (Playwright)** : horloge navigateur forcée à 23h (nuit) et 14h (jour), connexion en mode
+« Jeu anonyme », ouverture du widget Plateforme 3D **maximisé sans zoomer** (cadrage par défaut
+identique à la capture utilisateur) — lune ET soleil désormais clairement visibles dès l'ouverture,
+sans aucune manipulation de caméra, dans le même cadrage que la capture du bug remonté. Confirmé
+également que la lune sort du cadre normalement quand la caméra pivote pour regarder ailleurs
+(comportement attendu d'un objet céleste réel à position fixe, pas une régression). Sorcière
+revérifiée par la même technique de diagnostic (survol forcé en boucle continue, retiré avant
+commit) : silhouette (visage clair + robe violette) retrouvée nettement visible à la nouvelle
+distance/échelle, confirmant que le repositionnement/rescaling n'a pas cassé son rendu. 0 erreur
+console/page sur l'ensemble des passages de test.
+
+**Zéro régression confirmée** : `tsc --noEmit` propre ; comportement « lune/soleil à position
+fixe, ne suivent pas la rotation de caméra » (régression n°1) intégralement conservé — seule la
+valeur des ancres/rayons a changé, pas le mécanisme (`SkyFollowGroup`, billboard `lookAt`) ; étoiles
+filantes, nuages, pluie, hibou/loup-garou/rapaces/oiseaux/sangliers non touchés.
