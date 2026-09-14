@@ -128,15 +128,27 @@ function getMoonTexture(phase: MoonPhaseKey, luneRousse: boolean): THREE.CanvasT
 // ~27° VERS LE BAS) : le champ de vision vertical ne couvre que ±22,5° autour de cet axe déjà
 // incliné vers le sol — un point à la fois ÉLEVÉ (grand Y) ET LOINTAIN (grand |Z|) sort
 // nécessairement de ce cône (c'est pourquoi même les nuages de `Clouds3D`, y=2.6-3.4, ne sont
-// visibles qu'en rasant la limite haute du cadre, cf. capture — jamais plus haut). Nouvelle ancre
-// recalculée pour rester à ~19-20° de l'axe de visée (donc nettement sous la limite de 22,5°, avec
-// marge) tout en gardant une profondeur proche de celle des nuages (Az≈-8, même registre de
-// distance) : altitude ramenée à y≈2 (au lieu de 6-6.5), c'est-à-dire légèrement SOUS le sommet des
-// nuages plutôt qu'au-dessus — accepté comme compromis nécessaire pour rester dans le cadre par
-// défaut (voir aussi Moon3D/Sun3D ci-dessous : rayons réduits en proportion de la distance ~35%
-// plus courte, pour conserver une taille apparente cohérente avec les captures de référence).
-const MOON_ANCHOR: [number, number, number] = [-4, 2, -8];
-const SUN_ANCHOR: [number, number, number] = [4.5, 1.9, -7.5];
+// visibles qu'en rasant la limite haute du cadre, cf. capture — jamais plus haut). Ancre recalculée
+// à ~19° de l'axe de visée (Az≈-8, y≈2).
+// 🔧 CORRECTIF (régression #3, cf. capture utilisateur « la lune doit être en arrière-plan et
+// passer derrière les arbres/la maison/le château, pas devant ») : avec l'ancre de la régression #2
+// (Az=-8), la lune se retrouvait au monde à `caméra.z + Az ≈ 5,6-8 = -2,4`, soit PLUS PROCHE de la
+// caméra que la plupart des éléments de décor (arbres/PNJ/château) qui peuvent être affichés
+// jusqu'à `VIEW_RADIUS` (7 tuiles, voir `Platform3DWidget.tsx`) de profondeur, donc jusqu'à un Z
+// monde de -7 — la lune (test de profondeur standard, jamais désactivé) s'affichait alors
+// correctement selon les règles du moteur, mais DEVANT du décor pourtant censé être plus proche
+// d'elle. Nouvelle ancre repoussée à Az=-16/-15 (lune/soleil), donnant un Z monde ≈ -10,4, au-delà
+// de la portée maximale du décor (-7) avec une marge confortable : désormais TOUJOURS l'élément le
+// plus profond de la scène, donc occulté par n'importe quel arbre/PNJ/bâtiment placé devant, tout
+// en restant à ~19° de l'axe de visée (même méthode de calcul que ci-dessus) pour ne pas ressortir
+// du cadre par défaut. Conséquence acceptée (arbitrage imposé par la géométrie de la caméra, axe de
+// visée penché vers le bas — voir calcul ci-dessus) : l'altitude apparente redescend à y≈0,85-1
+// (au lieu de ~2), plus basse mais toujours visible et cohérente avec « en arrière-plan, dans le
+// ciel au-dessus de l'horizon plutôt qu'au zénith » (voir aussi Moon3D/Sun3D ci-dessous : rayons
+// augmentés en proportion de la distance ~1,8× plus grande, pour conserver une taille apparente
+// cohérente avec les captures de référence).
+const MOON_ANCHOR: [number, number, number] = [-4, 0.85, -16];
+const SUN_ANCHOR: [number, number, number] = [4.5, 0.99, -15];
 
 function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -148,11 +160,11 @@ function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   return (
     <group ref={groupRef} position={MOON_ANCHOR}>
       <mesh position={[0, 0, -0.02]}>
-        <circleGeometry args={[1.1, 28]} />
+        <circleGeometry args={[2.0, 28]} />
         <meshBasicMaterial color={phase.isLuneRousse ? '#f2c9a0' : '#bfdbfe'} transparent opacity={0.14} depthWrite={false} toneMapped={false} />
       </mesh>
       <mesh>
-        <circleGeometry args={[0.75, 32]} />
+        <circleGeometry args={[1.4, 32]} />
         <meshBasicMaterial map={texture} transparent toneMapped={false} depthWrite />
       </mesh>
     </group>
@@ -184,11 +196,11 @@ function Sun3D() {
   return (
     <group ref={groupRef} position={SUN_ANCHOR}>
       <mesh>
-        <circleGeometry args={[1.8, 28]} />
+        <circleGeometry args={[3.2, 28]} />
         <meshBasicMaterial map={tex} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
       </mesh>
       <mesh position={[0, 0, 0.01]}>
-        <circleGeometry args={[0.56, 24]} />
+        <circleGeometry args={[1.0, 24]} />
         <meshBasicMaterial color="#fff8dc" toneMapped={false} />
       </mesh>
     </group>
@@ -714,23 +726,25 @@ function Witch3D({ adminAudio, intervalSec }: { adminAudio: Record<AudioSourceKe
     const p = elapsed / WITCH_FLIGHT_DURATION_SEC; // 0 → 1 sur toute la traversée
     const span = 26; // largeur du balayage — traverse aussi bien MOON_ANCHOR.x (-4) que SUN_ANCHOR.x (4.5)
     const x = -span / 2 + span * p;
-    groupRef.current.position.set(x, 2 + Math.sin(p * Math.PI) * 1.1, -8 + Math.sin(p * Math.PI * 2) * 1.4);
+    groupRef.current.position.set(x, 0.9 + Math.sin(p * Math.PI) * 1.1, -15.5 + Math.sin(p * Math.PI * 2) * 1.4);
     groupRef.current.rotation.y = Math.PI / 2;
     groupRef.current.rotation.z = 0.12 * Math.sin(elapsed * 2);
     if (robeRef.current) robeRef.current.rotation.x = 0.15 + Math.sin(elapsed * 3) * 0.05;
   });
   return (
-    // 🔧 Mise à l'échelle ×2.9 (ajustée suite au recalibrage de MOON_ANCHOR/SUN_ANCHOR, voir plus
-    // haut : distance ramenée de ~14-18 à ~9 unités pour rester dans le cadre par défaut de la
-    // caméra) — corrige un bug de FOND (pas seulement de timing) : les proportions de la sorcière
-    // (rayons 0.02-0.34) étaient calibrées pour un survol proche façon chauve-souris/rapace (orbite
-    // à 2-7 unités de la caméra, voir Bat3D/Raptor3D plus haut), alors qu'elle vole désormais à la
-    // distance de la lune/du soleil (~9 unités, voir MOON_ANCHOR/SUN_ANCHOR) : sans mise à l'échelle
-    // sa silhouette ne mesurerait que quelques pixels à l'écran, strictement invisible en pratique
-    // (aggravé par sa robe bleu-nuit quasi identique à la couleur du ciel nocturne). `emissive`
-    // ajouté sur la robe/le chapeau pour qu'elle reste visible en silhouette même sans lumière
-    // directe (comme éclairée par la lune), au lieu de sombre-sur-sombre.
-    <group ref={groupRef} visible={false} scale={2.9}>
+    // 🔧 Mise à l'échelle ×5.3 (ajustée suite au recalibrage régression #3 de MOON_ANCHOR/SUN_ANCHOR,
+    // voir plus haut : distance repoussée de ~9 à ~16 unités pour que la lune/le soleil restent
+    // TOUJOURS l'élément le plus profond de la scène, donc occultés par le décor comme demandé,
+    // plutôt que de rester devant) — corrige un bug de FOND (pas seulement de timing) : les
+    // proportions de la sorcière (rayons 0.02-0.34) étaient calibrées pour un survol proche façon
+    // chauve-souris/rapace (orbite à 2-7 unités de la caméra, voir Bat3D/Raptor3D plus haut), alors
+    // qu'elle vole désormais à la distance de la lune/du soleil (~16 unités, voir
+    // MOON_ANCHOR/SUN_ANCHOR) : sans mise à l'échelle sa silhouette ne mesurerait que quelques
+    // pixels à l'écran, strictement invisible en pratique (aggravé par sa robe bleu-nuit quasi
+    // identique à la couleur du ciel nocturne). `emissive` ajouté sur la robe/le chapeau pour
+    // qu'elle reste visible en silhouette même sans lumière directe (comme éclairée par la lune),
+    // au lieu de sombre-sur-sombre.
+    <group ref={groupRef} visible={false} scale={5.3}>
       {/* Balai */}
       <mesh rotation={[0, 0, Math.PI / 2]} castShadow><cylinderGeometry args={[0.02, 0.02, 0.9, 6]} /><meshStandardMaterial color="#a16207" roughness={0.9} /></mesh>
       <mesh position={[-0.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.09, 0.22, 8]} /><meshStandardMaterial color="#ca8a04" roughness={1} /></mesh>

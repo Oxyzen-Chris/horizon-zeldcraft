@@ -2001,3 +2001,57 @@ console/page sur l'ensemble des passages de test.
 fixe, ne suivent pas la rotation de caméra » (régression n°1) intégralement conservé — seule la
 valeur des ancres/rayons a changé, pas le mécanisme (`SkyFollowGroup`, billboard `lookAt`) ; étoiles
 filantes, nuages, pluie, hibou/loup-garou/rapaces/oiseaux/sangliers non touchés.
+
+## 🌲 Régression #3 : la lune passe devant les arbres/la maison/le château au lieu de derrière
+
+**Régression utilisateur** : « la lune doit être en arrière-plan et passer derrière les arbres ou
+derrière Synk ou derrière la maison ou le château et non devant », constatée sur plusieurs captures
+où le disque lunaire recouvre visiblement des sapins, une maison et les tours du château au premier
+plan — alors que ce même code de test de profondeur (jamais désactivé, `depthTest` par défaut à
+`true` sur tous les matériaux `Moon3D`/`Sun3D`) fonctionnait déjà correctement pour les objets
+proches (un sapin très proche de Synk occultait bien un morceau du halo, cf. captures précédentes).
+
+**Cause racine** : l'ancre de la régression #2 (`Az≈-8`) plaçait la lune à une profondeur MONDE de
+seulement `caméra.z + Az ≈ 5,6 - 8 = -2,4` (la caméra par défaut de `Platform3DWidget.tsx` étant à
+`z=5,6`, `SkyFollowGroup` ne faisant que translater avec elle). Or le décor (arbres/PNJ/
+maison/château, voir `Scene()` dans `Platform3DWidget.tsx`) peut être affiché jusqu'à `VIEW_RADIUS`
+(7 tuiles) de profondeur, donc jusqu'à un Z monde de `-7` — largement plus loin que `-2,4`. Le test
+de profondeur standard plaçait donc, à juste titre selon les règles du moteur 3D, la lune (plus
+proche de la caméra) DEVANT la plupart du décor de fond, contrairement à l'intention voulue (un
+astre censé être à une distance quasi infinie, donc toujours le plus profond de la scène).
+
+**Correctif** : `MOON_ANCHOR`/`SUN_ANCHOR` repoussés à `Az=-16`/`Az=-15` (au lieu de `-8`/`-7,5`),
+donnant un Z monde ≈ `-10,4`, au-delà de la portée maximale du décor (`-7`) avec une marge
+confortable — la lune/le soleil restent ainsi TOUJOURS l'élément le plus profond de la scène, donc
+occultés par tout arbre/PNJ/bâtiment placé devant, tout en recalculant `Ay` (via le même calcul
+géométrique de frustum que la régression #2) pour rester à ~19° de l'axe de visée de la caméra et
+ne pas ressortir du cadre par défaut :
+- `MOON_ANCHOR` : `[-4, 2, -8]` → `[-4, 0.85, -16]` (distance caméra ~16,7 unités, contre ~9 avant).
+- `SUN_ANCHOR` : `[4.5, 1.9, -7.5]` → `[4.5, 0.99, -15]` (distance caméra ~15,8 unités).
+- Arbitrage accepté (imposé par la géométrie de la caméra, axe de visée penché vers le bas — voir
+  régression #2) : l'altitude apparente redescend à `y≈0,85-1` (au lieu de `~2`), plus basse mais
+  toujours visible dans le cadre par défaut et cohérente avec « en arrière-plan, au-dessus de
+  l'horizon plutôt qu'au zénith ».
+- Rayons de géométrie augmentés en proportion de la distance ~1,8× plus grande (pour conserver une
+  taille apparente cohérente avec les captures de référence) : halo lune `1.1→2.0`, disque lune
+  `0.75→1.4` ; lueur soleil `1.8→3.2`, cœur soleil `0.56→1.0`.
+- `Witch3D` (survol périodique) repositionnée sur le même plan profondeur/altitude que les
+  nouvelles ancres (`y≈0,9±1.1`, `z≈-15,5±1.4` au lieu de `y≈2±1.1`, `z≈-8±1.4`) ; échelle augmentée
+  en proportion (`×2.9 → ×5.3`) pour conserver une taille apparente cohérente à la distance plus
+  grande.
+
+**Vérifié (Playwright)** : horloge navigateur forcée à 23h (nuit) et 14h (jour), connexion en mode
+« Jeu anonyme », widget Plateforme 3D maximisé sans zoomer, balayage caméra (rotation + déplacement
+de Synk au clavier sur plusieurs tuiles) capturant une dizaine de cadrages successifs — confirmé à
+plusieurs reprises que le disque/halo de la lune est désormais correctement recouvert par les
+sapins/canopées placés devant elle à l'écran (contrairement aux captures du bug remonté), y compris
+lorsque Synk se rapproche du château (tours/mur d'enceinte visibles sans recouvrement erroné par la
+lune). Même comportement confirmé pour le soleil (halo partiellement occulté par un palmier au
+premier plan). 0 erreur console/page sur l'ensemble des passages de test.
+
+**Zéro régression confirmée** : `tsc --noEmit` propre ; comportement « lune/soleil à position fixe,
+ne suivent pas la rotation de caméra » (régression n°1) et « visible dans le cadrage par défaut sans
+zoomer » (régression n°2) intégralement conservés — seule la profondeur (`Az`) et l'altitude (`Ay`)
+des ancres ont été recalculées (avec les rayons/l'échelle de la sorcière ajustés en proportion),
+sans toucher au mécanisme (`SkyFollowGroup`, billboard `lookAt`, test de profondeur standard) ;
+étoiles filantes, nuages, pluie, hibou/loup-garou/rapaces/oiseaux/sangliers non touchés.
