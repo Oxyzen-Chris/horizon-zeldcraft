@@ -1869,3 +1869,83 @@ console.
 familier/faune errants continuent de fonctionner normalement en dehors du rayon de gel (aucun
 changement de leur logique de marche/pause existante) ; `WorldMapWidget.tsx` (sans `interactionMarker`)
 ne reçoit que le paramètre `proximityFreezeResumeSec` sans logique d'interaction supplémentaire.
+
+## 🌙 Régression lune/soleil invisibles, passage périodique de la sorcière dans le ciel
+
+**Demande/régression utilisateur** (suite au correctif précédent « lune fixe, ne suit plus la
+rotation de caméra ») : après avoir fixé `MOON_ANCHOR`/`SUN_ANCHOR` à une position monde figée
+(`[-16, 18, -27]`/`[17, 16, -24]`), la lune/le soleil ne sont plus **du tout visibles**, même en
+faisant pivoter la caméra dans tous les sens. Le joueur souhaite les retrouver un peu plus haut que
+leur ancienne position basse (au niveau des nuages, pour que les nuages/chauves-souris continuent à
+passer devant), et demande si la sorcière volante sur son balai (déjà demandée précédemment) a bien
+été ajoutée, ne l'ayant jamais vue passer au loin — si ce n'est pas fait, la faire traverser le ciel
+et passer devant la lune toutes les 10 minutes (paramétrable en Administration).
+
+**Cause de la régression** : `MOON_ANCHOR`/`SUN_ANCHOR` avaient été fixés à une distance de ~33-40
+unités de la caméra par défaut (`position: [0, 3.2, 5.6]`, `fov: 45`), avec un décalage vertical
+(`y=16-18`) largement hors du demi-champ de vision vertical (~22.5°) quel que soit l'angle de
+caméra — un mauvais calibrage empirique (voir la leçon retenue sur le frustum caméra ci-dessus),
+pas un bug de logique. **Correctif** : `MOON_ANCHOR`/`SUN_ANCHOR` ramenés à `[-6, 6.5, -12]`/
+`[7, 6, -11]` (distance ~14-15 unités, cohérente avec la config caméra qui fonctionnait avant
+l'introduction de l'ancrage fixe), rayons de géométrie réduits en proportion (halo lune 3.4→1.7,
+disque 2.3→1.15 ; lueur soleil 5.4→2.7, cœur 1.7→0.85) pour conserver une taille apparente
+cohérente. Toujours rendus dans `<SkyFollowGroup>` (translation-only avec la position de Synk,
+jamais de rotation avec la caméra — comportement demandé conservé intact).
+
+**`ShootingStar3D`** : trajectoire revue pour « passer au-dessus, au lointain » (au lieu de tomber
+vers le joueur) — rayon de spawn `6→13-19`, hauteur de spawn `3.2-4.5→8.5-11`, descente réduite et
+dispersion latérale augmentée (arc plus horizontal), durée `0.85s→1.1s`.
+
+**`Witch3D` — passages périodiques (au lieu d'un survol continu en petit rayon)** : la sorcière
+existait déjà mais volait en continu dans une boucle de ~34 s très proche du sol (rayon 12, y≈2.6),
+et `NIGHT_ELEMENTS.witchEnabled` valait `false` — d'où l'impression de ne « jamais » la voir passer
+au loin. Redesign complet :
+- Nouveau champ `WorldThemeElements.witchFlybyIntervalSec` (défaut `600` = 10 min, paramétrable par
+  thème dans `WorldThemesAdminPanel.tsx`, icône 🧙‍♀️, `min={30}`), `NIGHT_ELEMENTS.witchEnabled`
+  passé à `true` (elle vole désormais aussi bien de jour que de nuit).
+- `Witch3D` réutilise `useAmbientSoundCycle('witch', intervalSec, ...)` (même mécanisme que le
+  hululement du hibou/hurlement du loup-garou) pour déclencher un survol : la sorcière devient
+  visible et balaie le ciel lointain sur `x: -13 → +13` (span 26, traverse aussi bien
+  `MOON_ANCHOR.x` que `SUN_ANCHOR.x`) en 14 secondes à `y≈6.4±1.1`/`z≈-11±1.4` (même profondeur que
+  la lune/le soleil, pour bien passer devant), puis redevient invisible jusqu'au prochain cycle.
+  `Math.max(30, intervalSec)` empêche un réglage admin trop court de provoquer des survols qui se
+  chevauchent.
+- **Bug de fond découvert et corrigé pendant la vérification Playwright** : au premier test, la
+  sorcière restait invisible malgré un déclenchement confirmé correct (elle est censée jouer un
+  premier survol quasi immédiatement au montage de la scène, `useAmbientSoundCycle` comptant le tout
+  premier `useFrame` comme un changement de cycle). En forçant temporairement le survol en boucle
+  continue (diagnostic), elle apparaissait bien à l'écran mais **minuscule et quasi invisible** :
+  ses proportions (rayons de géométrie 0.02-0.34) avaient été calibrées pour un survol proche façon
+  chauve-souris/rapace (orbite à 2-7 unités de la caméra, voir `Bat3D`/`Raptor3D`), alors qu'elle est
+  désormais positionnée à la distance de la lune/du soleil (~14-18 unités) — à cette distance sa
+  silhouette ne mesurait que quelques pixels, aggravé par sa robe bleu-nuit (`#1e1b4b`) quasiment
+  identique à la couleur du ciel nocturne (camouflage involontaire). **Correctif** : groupe entier
+  mis à l'échelle ×4.4, matériaux de la robe/du chapeau passés à une teinte violette plus saturée
+  (`#3b0764`/`#44403c`/`#57534e`) avec `emissive`/`emissiveIntensity` (0.25-0.55) pour qu'elle reste
+  visible en silhouette même sans lumière directe (comme éclairée par la lune), au lieu de
+  sombre-sur-sombre. Balai gardé en couleur bois clair (`#a16207`/`#ca8a04`) pour le contraste.
+
+**Compatibilité ascendante des thèmes en base** : `getWorldThemeDefs()`/`subscribeWorldThemes()`
+faisaient un merge **shallow** (`merged[th.id] = th`) des thèmes lus depuis Firebase par-dessus les
+défauts — un thème déjà enregistré en base sous l'ancien schéma (sans `witchFlybyIntervalSec`)
+aurait donc ce champ `undefined` après merge. Ajout d'une constante `ELEMENTS_FALLBACK =
+{ witchFlybyIntervalSec: 600 }` fusionnée en base de `elements` (`{ ...ELEMENTS_FALLBACK,
+...th.elements }`) dans les deux fonctions — tout futur champ ajouté à `WorldThemeElements` doit
+suivre le même patron pour rester robuste face à des thèmes déjà enregistrés.
+
+**Vérifié (Playwright)** : horloge navigateur forcée à 23h (thème Nuit), ouverture Plateforme 3D en
+plein écran, zoom arrière + inclinaison de la caméra vers l'horizon puis balayage azimutal complet
+(plusieurs dizaines de captures) — lune retrouvée clairement visible (grande, au-dessus des tours du
+château, non enfoncée dans le sol, ne tourne pas avec la caméra) à plusieurs angles de caméra ;
+chauve-souris/nuages/étoiles confirmés visibles simultanément dans le même cadrage. Sorcière
+confirmée fonctionnelle par un test de diagnostic (survol forcé en boucle continue, retiré avant
+commit) : silhouette violette distincte visible traversant le ciel entre les frondaisons, dans le
+bon plan de profondeur (même zone que la lune) — le comportement de production (un seul passage de
+14 s toutes les `witchFlybyIntervalSec` secondes, ~600 s par défaut) n'a pas pu être capturé sur un
+angle de caméra précis en une seule fenêtre de test courte (aléa d'angle, comme pour la lune), mais
+le rendu/l'échelle/le déclenchement sont désormais validés corrects.
+
+**Zéro régression confirmée** : `tsc --noEmit` propre ; 4 locales JSON valides (nouvelle clé
+`admin.worldThemes.witchInterval` ajoutée à fr/en/es/pt) ; owl/werewolf/chauves-souris/rapaces/
+oiseaux/sangliers non modifiés (aucun changement de leur code) ; `SkyFollowGroup` et le comportement
+« lune fixe, ne suit pas la rotation de caméra » de la demande précédente restent inchangés.

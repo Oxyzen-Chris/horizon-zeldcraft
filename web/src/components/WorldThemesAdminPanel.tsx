@@ -32,6 +32,7 @@ function blankCustomTheme(): WorldThemeDef {
     elements: {
       sun: false, moon: false, stars: false, shootingStarsEnabled: false, clouds: true, rainChancePct: 5,
       birds: false, swallows: false, raptorsEnabled: false, boarHerdEnabled: false, witchEnabled: false,
+      witchFlybyIntervalSec: 600,
       batsEnabled: false, owlHootEnabled: false, werewolfHowlEnabled: false, ambientEventIntervalSec: 45,
     },
     createdAt: now, updatedAt: now,
@@ -267,6 +268,10 @@ export function WorldThemesAdminPanel() {
                 <label>⏱️ {t('admin.worldThemes.ambientInterval')}
                   <input type="number" min={5} className="input w-20 ml-1" value={th.elements.ambientEventIntervalSec}
                     onChange={e => patchElements(th.id, { ambientEventIntervalSec: Number(e.target.value) })} />
+                </label>
+                <label>🧙‍♀️ {t('admin.worldThemes.witchInterval')}
+                  <input type="number" min={30} className="input w-20 ml-1" value={th.elements.witchFlybyIntervalSec ?? 600}
+                    onChange={e => patchElements(th.id, { witchFlybyIntervalSec: Number(e.target.value) })} />
                 </label>
               </div>
             </div>

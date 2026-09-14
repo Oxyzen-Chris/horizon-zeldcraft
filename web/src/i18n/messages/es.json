@@ -303,6 +303,7 @@
   "admin.worldThemes.forcedTodNone": "Sigue el reloj",
   "admin.worldThemes.rainChance": "% lluvia pasajera",
   "admin.worldThemes.ambientInterval": "Intervalo de ambiente (s)",
+  "admin.worldThemes.witchInterval": "Paso de la bruja (s)",
   "admin.worldThemes.confirmDelete": "¿Eliminar definitivamente este tema personalizado?",
   "admin.audio.title": "🔊 Módulo de Audio (criaturas 3D)",
   "admin.audio.hint": "Ajustes por defecto del sonido de cada criatura de ambiente de la Plataforma 3D. Se sintetiza un sonido ligero automáticamente si no se proporciona ninguna URL (sin archivo de terceros incluido, sin riesgo de enlace roto/derechos de autor inciertos) — indica una URL de audio (mp3/ogg) para sustituirlo por un sonido personalizado. El jugador puede silenciar/ajustar cada criatura desde el widget Audio, pero no puede reactivar un sonido desactivado aquí.",

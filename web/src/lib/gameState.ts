@@ -3204,6 +3204,10 @@ export interface WorldThemeElements {
   raptorsEnabled: boolean;        // 🦅 Rapaces qui tournoient (aigles/vautours/faucons — jour)
   boarHerdEnabled: boolean;       // 🐗 Troupeau de sangliers + marcassins (Mapmonde, jour)
   witchEnabled: boolean;          // 🧙‍♀️ Sorcière volant sur son balai en sifflotant
+  witchFlybyIntervalSec: number;  // ⏱️ Intervalle (s) entre deux passages de la sorcière dans le ciel
+                                   // (défaut 600 = 10 min) — elle traverse alors le ciel lointain, à
+                                   // hauteur de la lune/du soleil, en passant devant/derrière les
+                                   // nuages. Paramétrable par thème (menu Administration).
   batsEnabled: boolean;           // 🦇 Chauve-souris (nuit)
   owlHootEnabled: boolean;        // 🦉 Hululement de hibou occasionnel (nuit)
   werewolfHowlEnabled: boolean;   // 🐺 Cri de loup-garou occasionnel (nuit)
@@ -3230,13 +3234,21 @@ export interface WorldThemeDef {
 const DAY_ELEMENTS: WorldThemeElements = {
   sun: true, moon: false, stars: false, shootingStarsEnabled: false, clouds: true, rainChancePct: 6,
   birds: true, swallows: true, raptorsEnabled: true, boarHerdEnabled: true, witchEnabled: true,
+  witchFlybyIntervalSec: 600,
   batsEnabled: false, owlHootEnabled: false, werewolfHowlEnabled: false, ambientEventIntervalSec: 45,
 };
 const NIGHT_ELEMENTS: WorldThemeElements = {
   sun: false, moon: true, stars: true, shootingStarsEnabled: true, clouds: true, rainChancePct: 4,
-  birds: false, swallows: false, raptorsEnabled: false, boarHerdEnabled: false, witchEnabled: false,
+  birds: false, swallows: false, raptorsEnabled: false, boarHerdEnabled: false, witchEnabled: true,
+  witchFlybyIntervalSec: 600,
   batsEnabled: true, owlHootEnabled: true, werewolfHowlEnabled: true, ambientEventIntervalSec: 40,
 };
+// Valeurs de repli pour les champs de WorldThemeElements ajoutés APRÈS la création initiale d'un
+// thème (intégré resauvegardé par un admin avec l'ancien schéma, ou personnalisé créé avant cet
+// ajout) : fusionnées "en creux" (seulement les clés ABSENTES du thème lu en base) avec les valeurs
+// lues depuis Firebase dans getWorldThemeDefs()/subscribeWorldThemes() ci-dessous, pour ne JAMAIS
+// faire planter un thème existant faute de champ manquant — voir witchFlybyIntervalSec plus haut.
+const ELEMENTS_FALLBACK: Partial<WorldThemeElements> = { witchFlybyIntervalSec: 600 };
 export const DEFAULT_WORLD_THEMES: WorldThemeDef[] = [
   { id: 'theme.day', name: '☀️ Jour', i18nKey: 'theme.day', kind: 'day', active: true, schedule: { type: 'always' }, elements: DAY_ELEMENTS, createdAt: 0, updatedAt: 0 },
   { id: 'theme.night', name: '🌙 Nuit', i18nKey: 'theme.night', kind: 'night', active: true, schedule: { type: 'always' }, elements: NIGHT_ELEMENTS, createdAt: 0, updatedAt: 0 },
@@ -3254,7 +3266,7 @@ export async function getWorldThemeDefs(): Promise<WorldThemeDef[]> {
     // ajouté en base ne doit jamais faire disparaître "Jour"/"Nuit" du résultat.
     const merged: Record<string, WorldThemeDef> = {};
     for (const th of DEFAULT_WORLD_THEMES) merged[th.id] = th;
-    for (const th of Object.values(v)) merged[th.id] = th;
+    for (const th of Object.values(v)) merged[th.id] = { ...th, elements: { ...ELEMENTS_FALLBACK, ...th.elements } };
     return sortDefsByOrder(Object.values(merged));
   } catch (e) {
     console.warn('[worldThemes] catalog read failed, using defaults:', e);
@@ -3272,7 +3284,7 @@ export function subscribeWorldThemes(cb: (themes: WorldThemeDef[]) => void): () 
     if (!v || !Object.keys(v).length) { cb(DEFAULT_WORLD_THEMES); return; }
     const merged: Record<string, WorldThemeDef> = {};
     for (const th of DEFAULT_WORLD_THEMES) merged[th.id] = th;
-    for (const th of Object.values(v)) merged[th.id] = th;
+    for (const th of Object.values(v)) merged[th.id] = { ...th, elements: { ...ELEMENTS_FALLBACK, ...th.elements } };
     cb(sortDefsByOrder(Object.values(merged)));
   };
   onValue(r, handler);

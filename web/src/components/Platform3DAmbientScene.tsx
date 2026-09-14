@@ -118,13 +118,18 @@ function getMoonTexture(phase: MoonPhaseKey, luneRousse: boolean): THREE.CanvasT
 // (étoiles/nuages/pluie, TOUJOURS 360° via Starfield3D/Clouds3D/Rain3D ci-dessous, inchangé), pas
 // spécifiquement la lune/le soleil qui redeviennent ici de VRAIS objets célestes à position fixe,
 // comme demandé explicitement dans le message le plus récent de l'utilisateur.
-// Altitude élevée (y=18) et distance (~33 unités) très supérieures à celles des nuages (y=2.6-3.4,
-// rayon 7-9, voir Clouds3D) : la lune apparaît PLUS HAUTE dans le ciel et peut être occultée
-// naturellement par les nuages qui passent devant elle (profondeur réelle, depthWrite activé sur
-// le disque principal) — corrige aussi « elle ne devrait pas [...] s'enfoncer dans la terre » (une
-// altitude fixe très supérieure au relief ne peut plus jamais s'y confondre).
-const MOON_ANCHOR: [number, number, number] = [-16, 18, -27];
-const SUN_ANCHOR: [number, number, number] = [17, 16, -24];
+// 🔧 CORRECTIF (régression) : une première tentative avait placé l'ancre à très haute altitude/
+// distance (y=18, ~33 unités) pour garantir qu'elle ne s'enfonce jamais dans le relief — mais cela
+// la sortait quasi systématiquement du champ de vision par défaut (plus aucune lune/soleil visible,
+// y compris en se déplaçant), régression remontée par l'utilisateur : « je ne les vois plus du
+// tout, même en bougeant les vues de Synk ». Nouvelle ancre ramenée à hauteur/distance PROCHES de
+// celles utilisées par l'ancienne version qui suivait la caméra (~14 unités de distance, cf.
+// captures utilisateur de référence) — juste un peu AU-DESSUS du niveau des nuages (y=2.6-3.4, voir
+// Clouds3D) plutôt qu'au même niveau, pour que les nuages puissent continuer à défiler devant elle
+// (profondeur réelle, depthWrite activé sur le disque principal) sans qu'elle s'y confonde ni ne
+// s'enfonce dans le sol (altitude fixe toujours nettement supérieure au relief).
+const MOON_ANCHOR: [number, number, number] = [-6, 6.5, -12];
+const SUN_ANCHOR: [number, number, number] = [7, 6, -11];
 
 function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -136,11 +141,11 @@ function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   return (
     <group ref={groupRef} position={MOON_ANCHOR}>
       <mesh position={[0, 0, -0.02]}>
-        <circleGeometry args={[3.4, 28]} />
+        <circleGeometry args={[1.7, 28]} />
         <meshBasicMaterial color={phase.isLuneRousse ? '#f2c9a0' : '#bfdbfe'} transparent opacity={0.14} depthWrite={false} toneMapped={false} />
       </mesh>
       <mesh>
-        <circleGeometry args={[2.3, 32]} />
+        <circleGeometry args={[1.15, 32]} />
         <meshBasicMaterial map={texture} transparent toneMapped={false} depthWrite />
       </mesh>
     </group>
@@ -172,11 +177,11 @@ function Sun3D() {
   return (
     <group ref={groupRef} position={SUN_ANCHOR}>
       <mesh>
-        <circleGeometry args={[5.4, 28]} />
+        <circleGeometry args={[2.7, 28]} />
         <meshBasicMaterial map={tex} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
       </mesh>
       <mesh position={[0, 0, 0.01]}>
-        <circleGeometry args={[1.7, 24]} />
+        <circleGeometry args={[0.85, 24]} />
         <meshBasicMaterial color="#fff8dc" toneMapped={false} />
       </mesh>
     </group>
@@ -219,18 +224,25 @@ function Starfield3D() {
 function ShootingStar3D() {
   const groupRef = useRef<THREE.Group>(null);
   const state = useRef({ active: false, start: 0, nextAt: 2 + Math.random() * 6, from: new THREE.Vector3(), to: new THREE.Vector3() });
+  // 🔧 Trajectoire remontée plus HAUT et plus LOIN dans le ciel (demande utilisateur : « fait en
+  // sorte que les étoiles filantes passent au-dessus dans le ciel et au lointain ») : rayon/altitude
+  // alignés sur le fond du ciel (au-delà des nuages, radius 7-11, voir Clouds3D) plutôt que juste
+  // au-dessus de la tête du joueur comme précédemment (radius 6, y~3.2-4.5). Le déplacement reste
+  // surtout horizontal (léger delta Y) pour un arc qui traverse le ciel lointain au lieu de tomber
+  // vers le sol/le joueur.
   useFrame((s) => {
     const t = s.clock.elapsedTime;
     const st = state.current;
     if (!st.active && t > st.nextAt) {
       st.active = true; st.start = t;
       const angle = Math.random() * Math.PI * 2;
-      st.from.set(Math.cos(angle) * 6, 3.2 + Math.random() * 1.3, Math.sin(angle) * 5 - 9);
-      st.to.copy(st.from).add(new THREE.Vector3((Math.random() - 0.5) * 5, -2 - Math.random() * 1.2, (Math.random() - 0.5) * 5));
+      const radius = 13 + Math.random() * 6;
+      st.from.set(Math.cos(angle) * radius, 8.5 + Math.random() * 2.5, Math.sin(angle) * radius);
+      st.to.copy(st.from).add(new THREE.Vector3((Math.random() - 0.5) * 10 - Math.cos(angle) * 4, -1.2 - Math.random() * 0.8, (Math.random() - 0.5) * 10 - Math.sin(angle) * 4));
     }
     if (!groupRef.current) return;
     if (!st.active) { groupRef.current.visible = false; return; }
-    const elapsed = t - st.start, dur = 0.85;
+    const elapsed = t - st.start, dur = 1.1;
     if (elapsed > dur) {
       st.active = false; st.nextAt = t + 9 + Math.random() * 14;
       groupRef.current.visible = false;
@@ -662,34 +674,63 @@ function BoarHerd3D({ adminAudio }: { adminAudio: Record<AudioSourceKey, AudioSo
   );
 }
 
-// ─────────────────────────────── Sorcière volante sur balai (jour, sifflote) ───────────────────────────────
-function Witch3D({ adminAudio }: { adminAudio: Record<AudioSourceKey, AudioSourceSetting> }) {
+// ─────────────────────────────── Sorcière volante sur balai (passages périodiques, sifflote) ───────────────────────────────
+/**
+ * 🔧 Passages PÉRIODIQUES (au lieu d'un aller-retour continu toutes les ~34 s dans un petit
+ * périmètre proche du sol) — corrige la demande utilisateur : « as-tu ajouté la sorcière en 3D sur
+ * son balai car je ne la vois pas passer dans le ciel au lointain ? [...] fait la passer dans les
+ * nuages et devant la lune toutes les 10 minutes ». Réutilise `useAmbientSoundCycle` (même
+ * mécanisme que le hululement de hibou/cri de loup-garou) pour déclencher un survol toutes les
+ * `intervalSec` secondes (`WorldThemeElements.witchFlybyIntervalSec`, défaut 600 = 10 min,
+ * paramétrable par thème en Administration) : au déclenchement, la sorcière devient visible et
+ * traverse le ciel lointain en `FLIGHT_DURATION_SEC` secondes, à une altitude/profondeur proche de
+ * `MOON_ANCHOR`/`SUN_ANCHOR` (voir plus haut) — passant ainsi visiblement devant/derrière les
+ * nuages (`Clouds3D`) et à proximité immédiate de la lune/du soleil — puis redevient invisible
+ * jusqu'au prochain cycle. `playAmbientSound('witch', ...)` (sifflement) est déclenché par
+ * `useAmbientSoundCycle` au tout début de chaque survol.
+ */
+const WITCH_FLIGHT_DURATION_SEC = 14;
+function Witch3D({ adminAudio, intervalSec }: { adminAudio: Record<AudioSourceKey, AudioSourceSetting>; intervalSec: number }) {
   const groupRef = useRef<THREE.Group>(null);
   const robeRef = useRef<THREE.Mesh>(null);
   const seedOffset = useMemo(() => (hashSeed('witch') % 1000) / 95, []);
-  useAmbientSoundCycle('witch', 33, seedOffset, () => {}, adminAudio);
+  const flight = useRef({ active: false, start: 0 });
+  useAmbientSoundCycle('witch', Math.max(30, intervalSec), seedOffset, () => { flight.current.active = true; flight.current.start = -1; }, adminAudio);
   useFrame((state) => {
-    const t = state.clock.elapsedTime * 0.35;
-    const span = 12;
-    const x = ((t % span) - span / 2) * 0.8;
-    if (groupRef.current) {
-      groupRef.current.position.set(x, 2.6 + Math.sin(t * 2) * 0.3, -6 + Math.cos(t * 0.6) * 1.5);
-      groupRef.current.rotation.y = Math.PI / 2;
-      groupRef.current.rotation.z = 0.12 * Math.sin(t * 2);
-    }
-    if (robeRef.current) robeRef.current.rotation.x = 0.15 + Math.sin(state.clock.elapsedTime * 3) * 0.05;
+    const f = flight.current;
+    if (!f.active) { if (groupRef.current) groupRef.current.visible = false; return; }
+    if (f.start < 0) f.start = state.clock.elapsedTime;
+    const elapsed = state.clock.elapsedTime - f.start;
+    if (elapsed > WITCH_FLIGHT_DURATION_SEC) { f.active = false; if (groupRef.current) groupRef.current.visible = false; return; }
+    if (!groupRef.current) return;
+    groupRef.current.visible = true;
+    const p = elapsed / WITCH_FLIGHT_DURATION_SEC; // 0 → 1 sur toute la traversée
+    const span = 26; // largeur du balayage — traverse aussi bien MOON_ANCHOR.x (-6) que SUN_ANCHOR.x (7)
+    const x = -span / 2 + span * p;
+    groupRef.current.position.set(x, 6.4 + Math.sin(p * Math.PI) * 1.1, -11 + Math.sin(p * Math.PI * 2) * 1.4);
+    groupRef.current.rotation.y = Math.PI / 2;
+    groupRef.current.rotation.z = 0.12 * Math.sin(elapsed * 2);
+    if (robeRef.current) robeRef.current.rotation.x = 0.15 + Math.sin(elapsed * 3) * 0.05;
   });
   return (
-    <group ref={groupRef}>
+    // 🔧 Mise à l'échelle ×3.2 — corrige un bug de FOND (pas seulement de timing) : les proportions
+    // de la sorcière (rayons 0.02-0.34) étaient calibrées pour un survol proche façon chauve-souris/
+    // rapace (orbite à 2-7 unités de la caméra, voir Bat3D/Raptor3D plus haut), alors qu'elle est
+    // désormais positionnée à la distance de la lune/du soleil (~14-18 unités, voir MOON_ANCHOR/
+    // SUN_ANCHOR) : à cette distance son silhouette ne mesurait que quelques pixels à l'écran,
+    // strictement invisible en pratique (aggravé par sa robe bleu-nuit quasi identique à la couleur
+    // du ciel nocturne). `emissive` ajouté sur la robe/le chapeau pour qu'elle reste visible en
+    // silhouette même sans lumière directe (comme éclairée par la lune), au lieu de sombre-sur-sombre.
+    <group ref={groupRef} visible={false} scale={4.4}>
       {/* Balai */}
-      <mesh rotation={[0, 0, Math.PI / 2]} castShadow><cylinderGeometry args={[0.02, 0.02, 0.9, 6]} /><meshStandardMaterial color="#78350f" roughness={0.9} /></mesh>
-      <mesh position={[-0.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.09, 0.22, 8]} /><meshStandardMaterial color="#a16207" roughness={1} /></mesh>
+      <mesh rotation={[0, 0, Math.PI / 2]} castShadow><cylinderGeometry args={[0.02, 0.02, 0.9, 6]} /><meshStandardMaterial color="#a16207" roughness={0.9} /></mesh>
+      <mesh position={[-0.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.09, 0.22, 8]} /><meshStandardMaterial color="#ca8a04" roughness={1} /></mesh>
       {/* Corps assis à califourchon */}
-      <mesh ref={robeRef} position={[0.05, 0.14, 0]} castShadow><coneGeometry args={[0.16, 0.34, 8]} /><meshStandardMaterial color="#1e1b4b" roughness={0.85} /></mesh>
-      <mesh position={[0.05, 0.32, 0]} castShadow><sphereGeometry args={[0.1, 10, 8]} /><meshStandardMaterial color="#f2c9a0" roughness={0.7} /></mesh>
+      <mesh ref={robeRef} position={[0.05, 0.14, 0]} castShadow><coneGeometry args={[0.16, 0.34, 8]} /><meshStandardMaterial color="#3b0764" emissive="#3b0764" emissiveIntensity={0.55} roughness={0.85} /></mesh>
+      <mesh position={[0.05, 0.32, 0]} castShadow><sphereGeometry args={[0.1, 10, 8]} /><meshStandardMaterial color="#f2c9a0" emissive="#f2c9a0" emissiveIntensity={0.25} roughness={0.7} /></mesh>
       {/* Chapeau pointu à large bord */}
-      <mesh position={[0.05, 0.42, 0]}><cylinderGeometry args={[0.13, 0.13, 0.015, 12]} /><meshStandardMaterial color="#1c1917" roughness={0.9} /></mesh>
-      <mesh position={[0.05, 0.55, 0]}><coneGeometry args={[0.08, 0.24, 8]} /><meshStandardMaterial color="#292524" roughness={0.9} /></mesh>
+      <mesh position={[0.05, 0.42, 0]}><cylinderGeometry args={[0.13, 0.13, 0.015, 12]} /><meshStandardMaterial color="#44403c" emissive="#44403c" emissiveIntensity={0.4} roughness={0.9} /></mesh>
+      <mesh position={[0.05, 0.55, 0]}><coneGeometry args={[0.08, 0.24, 8]} /><meshStandardMaterial color="#57534e" emissive="#57534e" emissiveIntensity={0.4} roughness={0.9} /></mesh>
     </group>
   );
 }
@@ -726,7 +767,7 @@ export function Platform3DAmbientScene({ theme, moonPhase }: { isNight: boolean;
       {elements.raptorsEnabled && <RaptorsFlock3D adminAudio={adminAudio} />}
       {(elements.birds || elements.swallows) && <BirdsFlock3D adminAudio={adminAudio} />}
       {elements.boarHerdEnabled && <BoarHerd3D adminAudio={adminAudio} />}
-      {elements.witchEnabled && <Witch3D adminAudio={adminAudio} />}
+      {elements.witchEnabled && <Witch3D adminAudio={adminAudio} intervalSec={elements.witchFlybyIntervalSec ?? 600} />}
     </group>
   );
 }
