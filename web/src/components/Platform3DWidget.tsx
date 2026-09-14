@@ -1558,6 +1558,66 @@ interface SceneMarker {
   questI18nKey?: string;
 }
 
+/** Réglages de la caméra d'orbite (voir <OrbitControls> dans Scene()) — repoussés (demande
+ * utilisateur : « augmente encore le zoom [...] permet à Synk de lever la tête encore plus haut à
+ * la verticale [...] pour voir le toit des grands édifices [...] et le ciel/les étoiles au-dessus
+ * de sa tête ») bien au-delà des anciennes bornes (`minDistance=3, maxDistance=11,
+ * maxPolarAngle=1.35`, ce dernier limitant la vue à ~77° depuis le zénith, donc jamais assez haute
+ * pour dépasser l'horizontale) :
+ * - `CAMERA_MIN_DISTANCE=1.3` (zoom avant plus proche) et `CAMERA_MAX_DISTANCE=20` (zoom arrière
+ *   plus large) pour voir aussi bien de très près qu'un grand château dans son ensemble de loin
+ *   (vérifié : à distance max, les tours et toits du château entier tiennent dans le cadre).
+ * - Pivot de caméra (`CAMERA_TARGET`) relevé de `y=0.3` (bassin de Synk) à `y=0.85` (env. hauteur
+ *   des yeux/de la tête de Synk, voir SynkVoxel/SYNK_GROUND_OFFSET) : « lever la tête » pour
+ *   regarder le ciel part naturellement de la tête, pas des pieds.
+ * - `CAMERA_MAX_POLAR_ANGLE=2.4` (≈137°, contre 1.35≈77° avant) est un PLAFOND ABSOLU — la limite
+ *   RÉELLEMENT appliquée à chaque frame est recalculée dynamiquement par
+ *   `OrbitCameraLookUpLimiter` ci-dessous en fonction de la distance de zoom courante, pour ne
+ *   jamais laisser la caméra passer sous le sol (voir ce composant pour le détail du calcul) : plus
+ *   on est zoomé PRÈS de Synk, plus on peut lever la tête loin au-delà de l'horizontale (jusqu'à
+ *   ~128° à distance minimale) ; plus on est zoomé loin, plus l'inclinaison max se rapproche de
+ *   l'horizontale (~92-95° à distance maximale) — combiné au champ de vision de la caméra (45°),
+ *   cela suffit à voir le ciel/les étoiles et le sommet des grands édifices à toute distance de
+ *   zoom, sans jamais faire passer la caméra sous les dalles de terrain. */
+const CAMERA_TARGET: [number, number, number] = [0, 0.85, 0];
+const CAMERA_MIN_DISTANCE = 1.3;
+const CAMERA_MAX_DISTANCE = 20;
+const CAMERA_MAX_POLAR_ANGLE = 2.4;
+const CAMERA_GROUND_CLAMP_Y = 0.05;
+
+/** Voir le commentaire des constantes `CAMERA_*` ci-dessus. Empêche la caméra d'orbite de passer
+ * sous le sol (dalles de terrain `TerrainBlock`, boîtes 1×1×1 de y=-1 à y=0) quand l'utilisateur
+ * incline la vue au-delà de l'horizontale (regarder vers le haut) : la formule sphérique standard
+ * d'OrbitControls (`camera.y = target.y + distance·cos(angle)`) place mécaniquement la caméra SOUS
+ * le sol dès que l'angle dépasse un certain seuil qui DÉPEND de la distance de zoom courante — plus
+ * la distance est grande, plus tôt (en termes d'angle) ce seuil est franchi. Ce composant recalcule
+ * donc, à CHAQUE frame, l'angle polaire maximal qui garde `camera.y >= CAMERA_GROUND_CLAMP_Y` pour
+ * la distance courante (`acos((minY − target.y) / distance)`), et l'applique directement à
+ * `controls.maxPolarAngle` — comme le clamp interne d'OrbitControls (three.js) réapplique cette
+ * borne à chaque `update()`, la caméra ne peut alors JAMAIS transpercer le sol, quelle que soit la
+ * combinaison zoom/inclinaison choisie par le joueur, sans aucun à-coup ni téléportation (contrairement
+ * à un clamp brut de la position Y a posteriori, qui ferait s'effondrer la caméra visuellement tout
+ * près du pivot à angle extrême). Monté APRÈS `<OrbitControls ref={controlsRef}>` dans l'arbre JSX
+ * (même frame, sans dépendance d'ordre stricte : la borne s'applique dès la frame suivante). */
+function OrbitCameraLookUpLimiter({
+  controlsRef, target, minY = CAMERA_GROUND_CLAMP_Y, absoluteMax = CAMERA_MAX_POLAR_ANGLE,
+}: {
+  controlsRef: React.RefObject<{ maxPolarAngle: number } | null> | { current: any };
+  target: [number, number, number]; minY?: number; absoluteMax?: number;
+}) {
+  useFrame(({ camera }) => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const dx = camera.position.x - target[0];
+    const dy = camera.position.y - target[1];
+    const dz = camera.position.z - target[2];
+    const distance = Math.max(0.001, Math.sqrt(dx * dx + dy * dy + dz * dz));
+    const ratio = Math.max(-1, Math.min(1, (minY - target[1]) / distance));
+    controls.maxPolarAngle = Math.min(absoluteMax, Math.acos(ratio));
+  });
+  return null;
+}
+
 /** Contenu 3D de la scène (terrain + Synk + entités) — composant séparé pour pouvoir utiliser
  * `useFrame`/les hooks R3F, qui exigent d'être montés SOUS `<Canvas>`. Le clic sur une tuile route
  * vers la même interaction qu'en Plateforme 2D isométrique selon son décor (portail décoratif →
@@ -1602,6 +1662,11 @@ function Scene({
   wildlifeAudio?: Record<AudioSourceKey, AudioSourceSetting>;
   owlHootEnabled?: boolean; werewolfHowlEnabled?: boolean;
 }) {
+  // Voir OrbitCameraLookUpLimiter (déclaré plus haut) — référence l'instance d'OrbitControls pour
+  // recalculer sa borne `maxPolarAngle` à chaque frame en fonction du zoom courant. Type `any`
+  // volontairement large (le composant `OrbitControls` de drei expose la classe `OrbitControls` de
+  // `three-stdlib`, non réexportée ici) — seul `maxPolarAngle` est lu/modifié par le limiteur.
+  const orbitControlsRef = useRef<any>(null);
   const tiles = useMemo(() => {
     const out: { tile: Tile; wc: number; wr: number; x: number; z: number }[] = [];
     for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
@@ -1666,10 +1731,13 @@ function Scene({
         eyeBlinkEnabled={eyeBlinkEnabled} eyeBlinkIntervalSec={eyeBlinkIntervalSec}
       />
       <OrbitControls
+        ref={orbitControlsRef}
         enablePan={false} enableDamping dampingFactor={0.12}
-        minDistance={3} maxDistance={11} minPolarAngle={0.25} maxPolarAngle={1.35}
-        target={[0, 0.3, 0]}
+        minDistance={CAMERA_MIN_DISTANCE} maxDistance={CAMERA_MAX_DISTANCE}
+        minPolarAngle={0.25} maxPolarAngle={CAMERA_MAX_POLAR_ANGLE}
+        target={CAMERA_TARGET}
       />
+      <OrbitCameraLookUpLimiter controlsRef={orbitControlsRef} target={CAMERA_TARGET} />
     </>
   );
 }

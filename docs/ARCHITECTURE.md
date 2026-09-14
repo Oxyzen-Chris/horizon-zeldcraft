@@ -2133,3 +2133,89 @@ prioritaire sur l'amas ambiant) ; mécaniques de jeu dépendant de `terrain==='w
 restant peuplés de la même façon, seule leur distribution spatiale et leurs plages de valeurs ont
 évolué ; multiplicateur `scale` configurable côté Administration pour `prop:hut`/`prop:castle`
 toujours fonctionnel et appliqué en plus de `HUT_SCALE`/`CASTLE_SCALE`.
+
+## 🔭 Zoom élargi et caméra « tête levée » dans la Plateforme 3D
+
+**Régression utilisateur** : « augmente encore le zoom pour voir de près ou voir de loin, notamment
+les grands édifices comme les châteaux dont on ne peut plus voir le sommet même en utilisant les
+caméras et les vues » et « permets à Synk et au joueur de lever la tête encore plus haut à la
+verticale [...] pour voir au-dessus de lui [...] et aussi voir le toit des grands édifices [...] et
+le ciel et les étoiles au-dessus de sa tête » — le joueur pouvait déjà regarder le sol à la verticale
+(vue plongeante) mais pas l'inverse (vue en contre-plongée/vers le ciel), et le château agrandi par
+le correctif précédent (« Proportions des bâtiments ») dépassait désormais le cadre de la caméra une
+fois zoomée à fond.
+
+**Cause racine (zoom)** : `<OrbitControls>` (`Scene()` dans `Platform3DWidget.tsx`) était configuré
+avec `minDistance={3} maxDistance={11}` — une plage bien trop étroite pour un château de `≈6,6`
+unités de haut (voir correctif précédent) vu à `maxDistance=11`, dont les tourelles/le toit
+sortaient du champ de vision vertical (FOV 45°) dès que la caméra n'était pas assez reculée.
+
+**Cause racine (tête levée)** : `maxPolarAngle={1.35}` (rad, ≈77,4°) empêchait même d'atteindre
+l'horizontale (90°/`π/2`), a fortiori de regarder vers le haut — l'angle polaire d'OrbitControls
+étant mesuré depuis l'axe +Y (0 = caméra au zénith au-dessus de la cible, `π/2` = caméra à
+l'horizontale de la cible, `π` = caméra sous la cible en train de regarder vers le haut). Une simple
+augmentation statique de cette borne se heurte cependant à un second problème géométrique : avec un
+pivot de caméra bas (`target.y=0,3`, quasi au ras du sol) et une distance de zoom fixe, tout angle
+polaire dépassant nettement 90° fait mécaniquement passer `caméra.y = target.y + distance·cos(angle)`
+sous 0 — la caméra plonge alors sous le sol, à l'intérieur des tuiles de terrain solides (`boxGeometry`
+`[1,1,1]`), un artefact visuel confirmé lors d'un premier essai naïf (voir ci-dessous).
+
+**Premier essai (rejeté)** : élévation statique de `maxPolarAngle` à 2,55 rad + un correctif *a
+posteriori* de la position Y de la caméra (`OrbitCameraGroundGuard`, clampant `caméra.position.y`
+après coup et rappelant `caméra.lookAt(cible)`). Testé au clavier/souris via Playwright : le zoom
+élargi fonctionnait bien (château entier visible en dézoomant), mais le glissement de souris vers le
+haut provoquait, passé un certain angle, un effondrement visuel de la caméra dans le modèle de Synk
+ou un tronc d'arbre proche (vue quasi uniforme marron/dégradée) au lieu du ciel attendu — car en ne
+corrigeant que la coordonnée Y, la coordonnée horizontale (`distance·sin(angle)`) continuait de
+tendre vers 0 à mesure que l'angle approchait 180°, ramenant la caméra tout près du pivot bas (donc
+au ras de Synk) plutôt que de préserver une vue reculée et levée.
+
+**Correctif retenu** — `Platform3DWidget.tsx`, `Scene()` :
+- Constantes `CAMERA_TARGET=[0, 0.85, 0]` (pivot relevé à hauteur des yeux de Synk, au lieu de
+  `[0, 0.3, 0]` proche du sol), `CAMERA_MIN_DISTANCE=1.3` (zoom rapproché, contre `3` avant),
+  `CAMERA_MAX_DISTANCE=20` (zoom large, contre `11` avant — un château de `≈6,6` unités de haut
+  tient alors intégralement dans le FOV 45° même dézoomé au maximum), `CAMERA_MAX_POLAR_ANGLE=2.4`
+  rad (≈137°, plafond absolu), `CAMERA_GROUND_CLAMP_Y=0.05` (garde-fou géométrique : altitude
+  minimale jamais franchie par la caméra).
+- Remplacement d'`OrbitCameraGroundGuard` par `OrbitCameraLookUpLimiter` : au lieu de corriger la
+  position de la caméra après coup, ce composant recalcule à **chaque image** la borne
+  `controls.maxPolarAngle` en fonction de la distance caméra-cible **courante** :
+  `maxPolarAngle = min(CAMERA_MAX_POLAR_ANGLE, acos((CAMERA_GROUND_CLAMP_Y − cible.y) / distance))`
+  (ratio préalablement borné à `[-1, 1]`). Le mécanisme interne d'OrbitControls (qui re-clampe son
+  angle polaire (`phi`) par rapport à `minPolarAngle`/`maxPolarAngle` à chaque appel d'`update()`)
+  empêche alors nativement et progressivement la caméra de descendre sous le sol, sans jamais avoir
+  besoin de la repositionner brutalement après coup — supprimant l'artefact d'effondrement du
+  premier essai.
+- Compromis assumé (imposé par la géométrie, pas un choix arbitraire) : plus la caméra est zoomée en
+  arrière, moins l'angle de tête levée disponible est grand — proche de Synk (distance `1,3`), l'angle
+  polaire max atteint `≈128°` (forte contre-plongée, ciel/toits largement visibles) ; loin (distance
+  `20`, nécessaire pour voir un château entier), il redescend à `≈92-95°` (à peine au-dessus de
+  l'horizontale). Compromis jugé acceptable : le zoom élargi résout déjà « voir le sommet d'un
+  château » sans avoir besoin d'un angle extrême à cette distance, la tête levée profitant surtout à
+  la vue rapprochée.
+- `orbitControlsRef` (`useRef<any>(null)`, typé de façon permissive pour contourner l'incompatibilité
+  du type de `ref` exposé par `<OrbitControls>` de `@react-three/drei`, issu de `three-stdlib` et non
+  directement importable ici) partagé entre `<OrbitControls ref={orbitControlsRef} .../>` et
+  `<OrbitCameraLookUpLimiter controlsRef={orbitControlsRef} target={CAMERA_TARGET} />`.
+
+**Vérifié (Playwright)** : connexion « Jeu anonyme », widget Plateforme 3D maximisé —
+1. Vue par défaut inchangée visuellement (distance initiale `≈6,1`, toujours dans la nouvelle plage
+   `1,3-20`, aucune rupture de cadrage).
+2. Dézoom maximal (25 crans de molette) : château entier visible avec ses trois tourelles et leurs
+   toits coniques, plus la sorcière au loin — confirmant la résolution du « sommet du château coupé ».
+3. Zoom maximal (40 crans) : plan rapproché sur un objet du décor (tronc d'arbre), comportement
+   normal d'un zoom avant très serré, aucune anomalie.
+4. Glissement de souris vers le haut à distance rapprochée, répété 6 fois : vue en contre-plongée
+   progressive montrant nuages/étoiles au-dessus du décor, **aucun effondrement/artefact** (contre
+   l'essai précédent) ; capture dédiée en zone dégagée montrant simultanément le visage de Synk, une
+   tourelle du château, des nuages, la lune et des étoiles dans un cadrage cohérent.
+5. Glissement de souris vers le bas (8 fois) : vue plongeante au sol toujours pleinement
+   fonctionnelle, comportement antérieur non régressé.
+6. 0 erreur console/page sur l'ensemble des interactions.
+
+**Zéro régression confirmée** : `tsc --noEmit` propre ; `UnderwaterScene()` (caméra de plongée
+distincte, `target=[pos.x,-1,pos.y]`, `minDistance={2} maxDistance={9}`) non touchée ; mécaniques de
+déplacement au clavier, interactions avec PNJ/dragons/objets déposés, et les correctifs
+lune/soleil/sorcière/hibou/loup-garou des sections précédentes (position fixe hors rotation caméra,
+profondeur derrière le décor, visibilité par défaut) intégralement conservés — seuls les bornes de
+zoom, la hauteur du pivot de la caméra et le plafond dynamique de l'angle polaire ont été modifiés.
