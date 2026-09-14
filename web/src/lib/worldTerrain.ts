@@ -109,6 +109,51 @@ function poiCap(px: number, py: number, salt: number, min: number, max: number):
   return min + r * (max - min);
 }
 
+/** Taille (en tuiles) de la grille grossière servant à semer les GRANDS clusters d'eau/rocher
+ * "ambiants" (sans aucun POI admin à proximité) — voir `ambientClusterAt` ci-dessous. */
+const AMBIENT_CLUSTER_CELL = 20;
+
+interface AmbientCluster { falloff: number; radius: number }
+
+/** Cherche, autour de (wc, wr), le plus proche cluster d'eau OU de rocher "ambiant" (aucun POI admin
+ * à proximité) parmi ceux semés sur une grille grossière de cellules `AMBIENT_CLUSTER_CELL` tuiles :
+ * chaque cellule grossière a ~16% de chance d'accueillir un blob (centre jitté à l'intérieur de la
+ * cellule, rayon 5 à 20 tuiles soit un DIAMÈTRE de 10 à 40 tuiles). `salt` distingue le calque eau
+ * (500) du calque rocher (600) pour qu'ils ne se superposent pas systématiquement. Un léger bruit
+ * est ajouté à la distance testée pour éviter un contour parfaitement circulaire (littoral/relief
+ * plus organique). Remplace l'ancien tirage indépendant tuile par tuile (`hashRand(wc,wr,salt) <
+ * seuil` partout sur la carte), qui ne produisait que des points d'eau/rocher isolés d'1-2 cases —
+ * corrige la demande utilisateur « les montagnes/lacs/étangs [...] doivent être plus grand [...]
+ * un groupe de 10x10 [...] ou 40x40 pour les plus grands » : recherche dans la cellule courante +
+ * les 8 voisines (un blob peut déborder de sa cellule d'origine). Reste 100% déterministe (mêmes
+ * (wc, wr) → même résultat) et n'affecte JAMAIS une tuile déjà biaisée par un vrai POI admin (voir
+ * appel conditionnel dans `worldTileAt` ci-dessous, uniquement dans la branche "sans biais"). */
+function ambientClusterAt(wc: number, wr: number, salt: number): AmbientCluster | null {
+  const cellSize = AMBIENT_CLUSTER_CELL;
+  const originCx = Math.floor(wc / cellSize);
+  const originCy = Math.floor(wr / cellSize);
+  let best: AmbientCluster | null = null;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const cx = originCx + dx, cy = originCy + dy;
+      if (hashRand(cx, cy, salt) > 0.16) continue; // cellule grossière sans blob de ce type
+      const jx = hashRand(cx, cy, salt + 1000);
+      const jy = hashRand(cx, cy, salt + 2000);
+      const centerX = cx * cellSize + jx * cellSize;
+      const centerY = cy * cellSize + jy * cellSize;
+      const sizeRoll = hashRand(cx, cy, salt + 3000);
+      const radius = 5 + sizeRoll * 15; // rayon 5-20 tuiles → diamètre 10-40 tuiles
+      const noise = (hashRand(wc, wr, salt + 4000) - 0.5) * 3; // bord légèrement irrégulier
+      const d = Math.hypot(centerX - wc, centerY - wr) + noise;
+      if (d > radius) continue;
+      const ratio = Math.max(0, d / radius);
+      const falloff = 1 - ratio;
+      if (!best || falloff > best.falloff) best = { falloff, radius };
+    }
+  }
+  return best;
+}
+
 /** Terrain déterministe d'une cellule absolue (wc, wr) de la mapmonde, biaisé par le POI-décor le
  * PLUS « central » (au sens de sa distance rapportée à SON PROPRE rayon d'influence — voir
  * POI_RADIUS_BY_TYPE) — ainsi un lac/une montagne/un sentier de la mapmonde apparaît bien À SA VRAIE
@@ -144,6 +189,12 @@ export function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: n
 
   let terrain: Terrain = 'grass';
   const r0 = hashRand(wc, wr, 1);
+  // Clusters d'eau/rocher "ambiants" (aucun POI admin à proximité, voir ambientClusterAt) — calculés
+  // AVANT le if/else ci-dessous pour être réutilisés tels quels dans le calcul d'altitude/profondeur
+  // plus bas (falloff/rayon), sans re-tirage. Uniquement consultés dans la branche "sans biais" :
+  // ne peuvent JAMAIS remplacer un terrain déjà décidé par un vrai POI admin (lac/montagne/plage/…).
+  const ambientWaterCluster = !bias ? ambientClusterAt(wc, wr, 500) : null;
+  const ambientRockCluster = (!bias && !ambientWaterCluster) ? ambientClusterAt(wc, wr, 600) : null;
   if (islandBias) {
     // Cœur d'île en prairie, cerné d'un anneau de plage littorale (jamais d'eau/rocher DANS le
     // rayon d'une île — la mer/l'océan environnante prend le relais dès qu'on en sort, via le POI
@@ -153,25 +204,32 @@ export function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: n
   else if (sandBias && r0 < 0.35) terrain = 'sand';
   else if (rockBias && r0 < 0.35) terrain = 'rock';
   else if (pathBias && r0 < 0.5) terrain = 'path';
-  else if (r0 < 0.04) terrain = 'water'; // petit point d'eau ambiant même hors biais
-  else if (r0 < 0.07) terrain = 'rock';  // petit affleurement montagneux/rocheux ambiant même hors biais
+  else if (ambientWaterCluster) terrain = 'water'; // grand plan d'eau naturel (mare/étang/lac), 10 à 40 tuiles de diamètre
+  else if (ambientRockCluster) terrain = 'rock';   // grand relief naturel (colline/petite chaîne rocheuse), 10 à 40 tuiles de diamètre
 
   // ─── Altitude (dalles 'rock') — chaîne de montagnes irrégulière culminant jusqu'à
-  // ALTITUDE_MAX_M au cœur d'un biais 'mountain'/'cave' ; sans biais, simple colline/relief
-  // rocheux ambiant de faible altitude (jamais de neige, voir seuil dans GameCanvas2D).
+  // ALTITUDE_MAX_M au cœur d'un biais 'mountain'/'cave' ; sans biais mais dans un grand cluster
+  // ambiant (voir ambientClusterAt), relief modéré dont le pic croît avec la taille du cluster (un
+  // grand massif culmine plus haut qu'une simple butte) ; repli résiduel sinon (cas marginal,
+  // ne devrait plus se produire en pratique puisque tout 'rock' passe par l'une des deux branches).
   let altitudeM: number | undefined;
   if (terrain === 'rock') {
     if (rockBias && winner) {
       const peakCap = poiCap(winner.x, winner.y, 31, 1800, ALTITUDE_MAX_M);
       const jitter = (hashRand(wc, wr, 32) - 0.5) * 300;
       altitudeM = Math.max(150, Math.round(peakCap * bestFalloff + jitter));
+    } else if (ambientRockCluster) {
+      const peakCap = Math.min(2500, 300 + ambientRockCluster.radius * 90);
+      const jitter = (hashRand(wc, wr, 32) - 0.5) * 200;
+      altitudeM = Math.max(100, Math.round(peakCap * ambientRockCluster.falloff + jitter));
     } else {
-      altitudeM = Math.round(250 + hashRand(wc, wr, 32) * 500); // colline ambiante 250-750 m
+      altitudeM = Math.round(250 + hashRand(wc, wr, 32) * 500); // repli résiduel (colline isolée)
     }
   }
 
   // ─── Profondeur (dalles 'water') — mers/océans profonds au centre de leur POI, lacs/étangs
-  // modérés, ruisseaux/chutes toujours peu profonds ; sans biais, petite flaque ambiante.
+  // modérés ; sans biais mais dans un grand cluster ambiant (voir ambientClusterAt), mare/étang/lac
+  // naturel dont la profondeur croît avec la taille du cluster ; repli résiduel sinon (cas marginal).
   let depthM: number | undefined;
   let waterKind: WaterKind | undefined;
   if (terrain === 'water') {
@@ -185,9 +243,17 @@ export function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: n
       const cap = poiCap(winner.x, winner.y, 33, capMax * 0.35, capMax);
       const jitter = (hashRand(wc, wr, 34) - 0.5) * 0.12 * capMax;
       depthM = Math.max(0.3, Math.round((cap * bestFalloff + jitter) * 10) / 10);
+    } else if (ambientWaterCluster) {
+      // Un cluster ≥12 tuiles de rayon (≥24 de diamètre) se lit comme un petit lac naturel, un plus
+      // petit comme une simple mare/étang — seuil purement cosmétique (icône/libellé), la mécanique
+      // de nage/oxygène ne dépend que de `terrain === 'water'`/`depthM`, jamais de `waterKind`.
+      waterKind = ambientWaterCluster.radius >= 12 ? 'lake' : 'pond';
+      const capMax = Math.min(10, 1 + ambientWaterCluster.radius * 0.45);
+      const jitter = (hashRand(wc, wr, 34) - 0.5) * 0.15 * capMax;
+      depthM = Math.max(0.3, Math.round((capMax * ambientWaterCluster.falloff + jitter) * 10) / 10);
     } else {
       waterKind = 'stream';
-      depthM = Math.round((0.5 + hashRand(wc, wr, 34) * 1.5) * 10) / 10; // flaque ambiante 0.5-2 m
+      depthM = Math.round((0.5 + hashRand(wc, wr, 34) * 1.5) * 10) / 10; // repli résiduel (flaque isolée)
     }
   }
 

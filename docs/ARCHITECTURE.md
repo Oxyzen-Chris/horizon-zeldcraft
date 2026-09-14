@@ -2055,3 +2055,81 @@ zoomer » (régression n°2) intégralement conservés — seule la profondeur (
 des ancres ont été recalculées (avec les rayons/l'échelle de la sorcière ajustés en proportion),
 sans toucher au mécanisme (`SkyFollowGroup`, billboard `lookAt`, test de profondeur standard) ;
 étoiles filantes, nuages, pluie, hibou/loup-garou/rapaces/oiseaux/sangliers non touchés.
+
+## 🏰 Proportions des bâtiments (hutte/château) et regroupement des étendues d'eau/montagnes en amas
+
+**Régression utilisateur** : « les maisons, les châteaux sont trop petits au regard de la taille de
+Synk » (capture à l'appui montrant une hutte à peine plus haute que Synk et un château dont la porte
+est minuscule) ; « cela s'applique également aux montagnes ou aux mers, océans, étangs, lacs qui
+doivent être plus grands et représenter [...] un groupe de 10x10 carrés ou 10x20 carrés, ou 20x20
+carrés ou 40x40 carrés pour les plus grands » (au lieu d'une case isolée) — demande explicitement
+motivée par une future fonctionnalité (« Synk pourra rentrer dans une maison ou un château »).
+
+**Cause racine (bâtiments)** : dans `PropBlock()` (`Platform3DWidget.tsx`), la géométrie de la hutte
+(boîte `[1,1,1]` + toit conique, sommet à `y≈1,6`) et du château (boîte `[1.5,1.8,1.5]` + créneaux +
+tourelle + toit conique, sommet à `y≈3,3`) n'était comparée à aucune échelle de référence : rapportée
+à la hauteur réelle de Synk (`≈1,07` unité, du dessous des bottes au sommet des cheveux, voir
+`SynkVoxel`), la hutte ne culminait qu'à ~1,5-1,6× Synk et le château à ~3,1× Synk — bien trop petit
+pour des bâtiments habitables face à un personnage humanoïde.
+
+**Cause racine (eau/montagnes)** : `worldTileAt()` (`web/src/lib/worldTerrain.ts`, fonction
+déterministe partagée par les 3 widgets `Platform3DWidget`, `GameCanvas2D`, `WorldMapWidget`)
+attribuait le terrain d'eau/rocher « ambiant » (hors zone d'influence d'un POI lac/mer/montagne
+explicite) par un simple tirage aléatoire **indépendant par tuile** (`r0 < 0.04` pour l'eau,
+`r0 < 0.07` pour le rocher), sans aucune corrélation spatiale entre tuiles voisines — ce qui ne
+pouvait produire que des taches isolées de 1 à 2 cases, jamais de grands lacs ou massifs montagneux
+contigus.
+
+**Correctif (bâtiments)** — `Platform3DWidget.tsx` :
+- Ajout de constantes `HUT_SCALE=[1.3, 1.8, 1.3]` et `CASTLE_SCALE=[1.2, 2.0, 1.2]` : mise à
+  l'échelle **anisotrope** (hauteur `y` agrandie bien plus que l'emprise au sol `x`/`z`) appliquée
+  via un `<group scale={...}>` interne enveloppant la géométrie existante de la hutte/du château,
+  au-dessus du multiplicateur `scale` déjà configurable côté Administration
+  (`Platform3DObjectFlags.scale`, qui continue de s'appliquer par-dessus, inchangé).
+- Hauteur résultante : hutte `≈2,9` unités (`≈2,7×` Synk, contre `≈1,5×` avant), château `≈6,6`
+  unités (`≈6,2×` Synk, contre `≈3,1×` avant) — proportions réalistes d'un logis/d'une forteresse.
+- Choix délibéré de l'anisotropie (plutôt qu'une échelle uniforme) : l'emprise au sol ne grandit que
+  modestement (hutte `1,3×`, château `1,8×` de large) pour éviter tout chevauchement visuel avec le
+  décor des tuiles voisines (arbres/autres bâtiments), les tuiles étant espacées de 1 unité et leur
+  décor n'étant pas mutuellement contraint par la taille d'un bâtiment agrandi.
+- Ajout d'une porte/poterne (mesh sombre, non fonctionnelle — cosmétique seulement) dimensionnée
+  pour rester cohérente avec un futur passage de Synk (`≈1,4` unité de haut pour la hutte, `≈2,2`
+  pour le château), en préparation d'une entrée dans les bâtiments (non implémentée dans ce
+  correctif).
+
+**Correctif (eau/montagnes)** — `worldTerrain.ts` :
+- Nouvelle fonction `ambientClusterAt(wc, wr, salt)` : amas seedés sur une grille grossière de
+  `AMBIENT_CLUSTER_CELL=20` tuiles (probabilité de présence de 16 % par cellule grossière, salts
+  distincts `500`/`600` pour éviter que les amas d'eau et de rocher coïncident systématiquement),
+  centre du blob décalé aléatoirement dans la cellule, rayon aléatoire `5-20` tuiles (diamètre
+  `10-40` tuiles, conforme à la demande explicite), plus un bruit de `±1.5` unité sur le test de
+  distance pour un contour moins parfaitement circulaire (organique). Recherche étendue à la
+  cellule courante + ses 8 voisines pour couvrir les amas à cheval sur une frontière de cellule.
+- `worldTileAt()` : le tirage plat d'origine (`r0 < 0.04`/`0.07`) est remplacé par un test sur ces
+  amas — **uniquement lorsqu'aucun biais POI n'est actif** (`!bias`), donc sans toucher au
+  comportement déjà correct des lacs/mers/montagnes explicitement placés par l'administration
+  (qui utilisaient déjà un rayon d'influence, `POI_RADIUS_BY_TYPE`, jusqu'à 48 unités).
+- Altitude (rocher) et profondeur (eau) recalculées à partir du recul (`falloff`)/rayon de l'amas
+  pour une transition plus naturelle (rocher ambiant : 100-2500 m au pic ; eau ambiante :
+  profondeur 0,3-10 m, `waterKind` étiqueté `'pond'` ou `'lake'` selon un seuil de rayon de 12).
+- Correctif **partagé automatiquement** par les 3 widgets (2D, 3D, Mapmonde) sans modification
+  individuelle, `worldTileAt()` étant leur unique source de vérité pour le terrain.
+
+**Vérifié (Playwright + script statistique)** :
+- `tsc --noEmit` propre sur les deux fichiers modifiés.
+- Connexion « Jeu anonyme », widget Plateforme 3D maximisé, comparaison visuelle directe château/
+  hutte vs Synk à plusieurs distances de zoom : porte du château désormais nettement plus grande que
+  Synk, silhouette imposante conforme à la demande (contre une porte quasi invisible avant le
+  correctif).
+- Script Node (`tsx`) import direct de `worldTileAt()` sur une grille de test `200×200` tuiles :
+  détection de composantes connexes (flood-fill) confirmant des amas d'eau/rocher contigus allant
+  jusqu'à ~1467 tuiles (eau) et ~4729 tuiles (rocher) dans la fenêtre testée — équivalent à des blocs
+  bien au-delà de 40×40, alors que l'ancien tirage plat ne produisait que des taches de 1-2 tuiles.
+
+**Zéro régression confirmée** : `tsc --noEmit` propre ; comportement des tuiles POI-biaisées (lacs/
+mers/montagnes explicitement placés par l'Administration) totalement inchangé (`bias` toujours
+prioritaire sur l'amas ambiant) ; mécaniques de jeu dépendant de `terrain==='water'`/`'rock'` et de
+`depthM`/`altitudeM` (oxygène/nage, dégâts de chute, découverte de POI) non affectées, ces champs
+restant peuplés de la même façon, seule leur distribution spatiale et leurs plages de valeurs ont
+évolué ; multiplicateur `scale` configurable côté Administration pour `prop:hut`/`prop:castle`
+toujours fonctionnel et appliqué en plus de `HUT_SCALE`/`CASTLE_SCALE`.

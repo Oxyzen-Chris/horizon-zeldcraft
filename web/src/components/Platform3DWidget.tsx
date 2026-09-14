@@ -284,6 +284,22 @@ const PROP_COLOR: Record<string, string> = {
   tree: '#2f6b27', castle: '#8a8577', hut: '#7a5230', portal: '#7c3aed',
   bamboo: '#6fae3f', baobab: '#7a5b2e', palm: '#3f8a3a',
 };
+/** Multiplicateurs internes ANISOTROPES [x, y, z] appliqués aux silhouettes hutte/château (voir
+ * PropBlock ci-dessous), EN PLUS du `scale` réglable par l'admin (qui reste à 1 par défaut, voir
+ * DEFAULT_PLATFORM3D_OBJECT_FLAGS) — corrige le bug rapporté « les maisons, les châteaux sont trop
+ * petits au regard de la taille de Synk [...] il faut que les espaces et volumes soient cohérents
+ * [...] car [...] je te demanderai de coder pour permettre à Synk de rentrer dans une maison ou un
+ * château ». L'axe Y (hauteur) est BEAUCOUP plus étiré que X/Z (emprise au sol) — un bâtiment
+ * réaliste gagne surtout en hauteur, et limiter la croissance de l'emprise au sol évite qu'une
+ * hutte/un château empiète trop sur les dalles voisines (arbre/autre bâtisse pouvant déjà s'y
+ * trouver, voir worldTerrain.ts::worldTileAt) et ne les chevauche visuellement. Avec
+ * HUT_SCALE=[1.3,1.8,1.3], la hutte culmine à ~2,9 unités (~2,7x Synk, ~1,1 unité, voir SynkVoxel/
+ * SYNK_GROUND_OFFSET) et sa porte fait ~1,4 unité de haut ; avec CASTLE_SCALE=[1.2,2.0,1.2], le
+ * donjon culmine à ~6,6 unités (~6,2x Synk) et sa poterne ~2,2 unités de haut — proportions
+ * réalistes d'un logis/d'une forteresse fortifiée SANS changer la logique de collision actuelle
+ * (1 dalle = 1 obstacle, voir worldTerrain.ts::isObstacleAt), qui reste une étape ultérieure. */
+const HUT_SCALE: [number, number, number] = [1.3, 1.8, 1.3];
+const CASTLE_SCALE: [number, number, number] = [1.2, 2.0, 1.2];
 function PropBlock({ kind, x, topY, z, scale = 1, onClick }: { kind: NonNullable<Tile['prop']>; x: number; topY: number; z: number; scale?: number; onClick: () => void }) {
   const color = PROP_COLOR[kind] ?? '#2f6b27';
   if (kind === 'portal') {
@@ -302,25 +318,41 @@ function PropBlock({ kind, x, topY, z, scale = 1, onClick }: { kind: NonNullable
   }
   if (kind === 'castle') {
     // Donjon : socle de pierre + créneaux + tourelle centrale coiffée d'un toit conique — silhouette
-    // clairement plus imposante qu'une simple hutte (bâtiment fortifié).
+    // clairement plus imposante qu'une simple hutte (bâtiment fortifié). Enveloppe interne mise à
+    // l'échelle ×CASTLE_SCALE (voir plus haut) : donjon culminant à ~6,6 unités (~6,2x Synk) au lieu
+    // de l'ancien ~3,3 (à peine 3x Synk) — corrige « les châteaux sont trop petits ». Poterne (bois
+    // sombre) ajoutée sur la façade, dimensionnée nettement plus grande que Synk (~2,2 unités de
+    // haut) pour préparer une future entrée dans le bâtiment sans rien changer à la collision
+    // actuelle (1 dalle = 1 obstacle, voir worldTerrain.ts::isObstacleAt).
     return (
       <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, 0.9, 0]} castShadow><boxGeometry args={[1.5, 1.8, 1.5]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
-        {[[-0.68, -0.68], [0.68, -0.68], [-0.68, 0.68], [0.68, 0.68]].map(([mx, mz], i) => (
-          <mesh key={i} position={[mx, 1.9, mz]} castShadow><boxGeometry args={[0.28, 0.3, 0.28]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
-        ))}
-        <mesh position={[0, 2.2, 0]} castShadow><cylinderGeometry args={[0.5, 0.55, 0.9, 10]} /><meshStandardMaterial color="#6b6f76" roughness={0.85} /></mesh>
-        <mesh position={[0, 2.95, 0]} castShadow><coneGeometry args={[0.62, 0.7, 10]} /><meshStandardMaterial color="#5b2b3a" roughness={0.7} /></mesh>
+        <group scale={CASTLE_SCALE}>
+          <mesh position={[0, 0.9, 0]} castShadow><boxGeometry args={[1.5, 1.8, 1.5]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
+          {[[-0.68, -0.68], [0.68, -0.68], [-0.68, 0.68], [0.68, 0.68]].map(([mx, mz], i) => (
+            <mesh key={i} position={[mx, 1.9, mz]} castShadow><boxGeometry args={[0.28, 0.3, 0.28]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
+          ))}
+          <mesh position={[0, 2.2, 0]} castShadow><cylinderGeometry args={[0.5, 0.55, 0.9, 10]} /><meshStandardMaterial color="#6b6f76" roughness={0.85} /></mesh>
+          <mesh position={[0, 2.95, 0]} castShadow><coneGeometry args={[0.62, 0.7, 10]} /><meshStandardMaterial color="#5b2b3a" roughness={0.7} /></mesh>
+          <mesh position={[0, 0.55, 0.76]} castShadow><boxGeometry args={[0.55, 1.1, 0.08]} /><meshStandardMaterial color="#241a12" roughness={0.95} /></mesh>
+        </group>
       </group>
     );
   }
   if (kind === 'hut') {
     // Chaumière : socle bois/torchis + toit de chaume en pente (cône), cheminée en pierre.
+    // Enveloppe interne mise à l'échelle ×HUT_SCALE (voir plus haut) : hutte culminant à ~2,9 unités
+    // (~2,7x Synk) au lieu de l'ancien ~1,6 (à peine 1,5x Synk) — corrige « les maisons sont trop
+    // petites ». Porte (bois sombre) ajoutée sur la façade, dimensionnée nettement plus grande que
+    // Synk (~1,4 unité de haut) pour préparer une future entrée dans le bâtiment sans rien changer à
+    // la collision actuelle (1 dalle = 1 obstacle, voir worldTerrain.ts::isObstacleAt).
     return (
       <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[1, 1, 1]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
-        <mesh position={[0, 1.25, 0]} rotation={[0, Math.PI / 4, 0]} castShadow><coneGeometry args={[0.85, 0.7, 4]} /><meshStandardMaterial color="#3f2c1a" roughness={0.9} /></mesh>
-        <mesh position={[0.32, 1.55, 0.1]}><cylinderGeometry args={[0.08, 0.09, 0.4, 6]} /><meshStandardMaterial color="#78716c" roughness={0.9} /></mesh>
+        <group scale={HUT_SCALE}>
+          <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[1, 1, 1]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
+          <mesh position={[0, 1.25, 0]} rotation={[0, Math.PI / 4, 0]} castShadow><coneGeometry args={[0.85, 0.7, 4]} /><meshStandardMaterial color="#3f2c1a" roughness={0.9} /></mesh>
+          <mesh position={[0.32, 1.55, 0.1]}><cylinderGeometry args={[0.08, 0.09, 0.4, 6]} /><meshStandardMaterial color="#78716c" roughness={0.9} /></mesh>
+          <mesh position={[0, 0.39, 0.51]} castShadow><boxGeometry args={[0.42, 0.78, 0.08]} /><meshStandardMaterial color="#2a1a0f" roughness={0.95} /></mesh>
+        </group>
       </group>
     );
   }
