@@ -3196,8 +3196,22 @@ export interface WorldThemeElements {
   sun: boolean;                   // ☀️ Soleil visible (jour)
   moon: boolean;                  // 🌙 Lune + phases visibles (nuit)
   stars: boolean;                 // ✨ Ciel étoilé (nuit)
+  starAltitude: number;           // ✨ Altitude de base des étoiles (unités 3D, voir Starfield3D) —
+                                   // abaissée par rapport à la version d'origine pour rester visible
+                                   // sans devoir trop dézoomer/lever la caméra. Défaut 9 (contre 14
+                                   // auparavant), chaque étoile varie ensuite aléatoirement au-dessus.
+  starCount: number;              // ✨ Nombre d'étoiles du ciel (voir Starfield3D). Défaut 400 (contre
+                                   // 320 auparavant — "un peu plus mais ciel naturel, pas chargé").
   shootingStarsEnabled: boolean;  // 🌠 Étoiles filantes occasionnelles (nuit)
   clouds: boolean;                // ☁️ Nuages
+  cloudAltitude: number;          // ☁️ Altitude de base des nuages (unités 3D, voir Clouds3D) — abaissée
+                                   // un peu par rapport à la version d'origine mais toujours nettement
+                                   // au-dessus du toit des châteaux (≈6,6 unités, voir "Proportions des
+                                   // bâtiments" dans ARCHITECTURE.md) pour rester réaliste sans jamais
+                                   // les toucher. Chaque nuage varie légèrement autour de cette base
+                                   // (voir Clouds3D). Défaut 11 (contre 15-18 auparavant).
+  cloudCount: number;             // ☁️ Nombre de nuages répartis à 360° autour de Synk (voir Clouds3D).
+                                   // Défaut 11 (contre 8 auparavant — "un peu plus mais ciel dégagé").
   rainChancePct: number;          // 🌧️ % de chance de pluie passagère (indépendant de la météo on-chain)
   birds: boolean;                 // 🐦 Oiseaux (jour)
   swallows: boolean;              // 🐦‍⬛ Hirondelles (jour)
@@ -3232,13 +3246,15 @@ export interface WorldThemeDef {
 }
 
 const DAY_ELEMENTS: WorldThemeElements = {
-  sun: true, moon: false, stars: false, shootingStarsEnabled: false, clouds: true, rainChancePct: 6,
+  sun: true, moon: false, stars: false, starAltitude: 9, starCount: 400, shootingStarsEnabled: false,
+  clouds: true, cloudAltitude: 11, cloudCount: 11, rainChancePct: 6,
   birds: true, swallows: true, raptorsEnabled: true, boarHerdEnabled: true, witchEnabled: true,
   witchFlybyIntervalSec: 600,
   batsEnabled: false, owlHootEnabled: false, werewolfHowlEnabled: false, ambientEventIntervalSec: 45,
 };
 const NIGHT_ELEMENTS: WorldThemeElements = {
-  sun: false, moon: true, stars: true, shootingStarsEnabled: true, clouds: true, rainChancePct: 4,
+  sun: false, moon: true, stars: true, starAltitude: 9, starCount: 400, shootingStarsEnabled: true,
+  clouds: true, cloudAltitude: 11, cloudCount: 11, rainChancePct: 4,
   birds: false, swallows: false, raptorsEnabled: false, boarHerdEnabled: false, witchEnabled: true,
   witchFlybyIntervalSec: 600,
   batsEnabled: true, owlHootEnabled: true, werewolfHowlEnabled: true, ambientEventIntervalSec: 40,
@@ -3248,7 +3264,9 @@ const NIGHT_ELEMENTS: WorldThemeElements = {
 // ajout) : fusionnées "en creux" (seulement les clés ABSENTES du thème lu en base) avec les valeurs
 // lues depuis Firebase dans getWorldThemeDefs()/subscribeWorldThemes() ci-dessous, pour ne JAMAIS
 // faire planter un thème existant faute de champ manquant — voir witchFlybyIntervalSec plus haut.
-const ELEMENTS_FALLBACK: Partial<WorldThemeElements> = { witchFlybyIntervalSec: 600 };
+const ELEMENTS_FALLBACK: Partial<WorldThemeElements> = {
+  witchFlybyIntervalSec: 600, cloudAltitude: 11, cloudCount: 11, starAltitude: 9, starCount: 400,
+};
 export const DEFAULT_WORLD_THEMES: WorldThemeDef[] = [
   { id: 'theme.day', name: '☀️ Jour', i18nKey: 'theme.day', kind: 'day', active: true, schedule: { type: 'always' }, elements: DAY_ELEMENTS, createdAt: 0, updatedAt: 0 },
   { id: 'theme.night', name: '🌙 Nuit', i18nKey: 'theme.night', kind: 'night', active: true, schedule: { type: 'always' }, elements: NIGHT_ELEMENTS, createdAt: 0, updatedAt: 0 },

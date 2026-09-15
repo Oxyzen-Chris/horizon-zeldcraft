@@ -2284,3 +2284,65 @@ intégralement conservés — seule la référence de translation (caméra → f
 échelles ont changé ; `Rain3D` et la faune terrestre/volante (hibou/loup-garou/rapaces/oiseaux/
 sangliers, gérés séparément via `lib/roamingActors.ts`) non affectés ; correctif caméra zoom/tête
 levée de la section précédente non modifié.
+
+## ☁️ Réglage fin post-régression #4 : nuages/étoiles paramétrables, ciel bleu de jour, sorcière redimensionnée
+
+**Demande utilisateur** (suite à la validation de la régression #4 ci-dessus) : abaisser légèrement
+l'altitude des nuages (sans toucher le toit des châteaux), ajouter un peu plus de nuages (ciel qui
+« doit rester dégagé »), rendre l'altitude/le nombre de nuages paramétrables dans le menu
+Administration, abaisser légèrement l'altitude des étoiles et en ajouter un peu plus (paramétrable),
+donner au thème Jour un ciel bleu horizon légèrement dégradé (au lieu du fond sombre du conteneur,
+identique jour/nuit jusqu'ici), et réduire la taille de la sorcière volante (rapprochée de celle de
+Synk).
+
+**`WorldThemeElements` (`lib/gameState.ts`)** — 4 nouveaux champs numériques, suivant exactement le
+même schéma que `rainChancePct`/`witchFlybyIntervalSec` (valeurs par thème, fusionnées « en creux »
+via `ELEMENTS_FALLBACK` pour les thèmes déjà enregistrés en base sans ces champs) :
+- `cloudAltitude` (défaut **11**, contre 15-18 auparavant) et `cloudCount` (défaut **11**, contre 8) ;
+- `starAltitude` (défaut **9**, contre 14) et `starCount` (défaut **400**, contre 320).
+
+Seule l'**altitude** (Y) de `Clouds3D`/`Starfield3D` a été abaissée — le **rayon horizontal** (X/Z,
+44-60 pour les nuages, 42-64 pour les étoiles) reste strictement inchangé. Ce découplage est
+intentionnel : la marge de sécurité anti-incrustation de la régression #4 (`SKY_SAFE_MIN_DISTANCE=40`)
+est une distance radiale 3D (`√(x²+y²+z²)`), or le décor le plus proche (portée max ≈9,9 unités) et le
+plus haut (toit de château ≈6,6 unités, voir « Proportions des bâtiments » plus haut) sont tous deux
+largement dépassés dès que le rayon horizontal seul atteint 40+ — abaisser l'altitude sans toucher au
+rayon ne peut donc jamais réintroduire le bug d'incrustation de la régression #4.
+
+**Administration** (`WorldThemesAdminPanel.tsx`) : 4 nouveaux champs numériques (☁️ Altitude/Nombre de
+nuages, ✨ Altitude/Nombre d'étoiles) ajoutés à côté des réglages existants (pluie, intervalle
+d'ambiance, passage de la sorcière), mêmes clés i18n (`admin.worldThemes.cloudAltitude`/`cloudCount`/
+`starAltitude`/`starCount`, FR/EN/ES/PT) que le reste du panneau.
+
+**Ciel bleu de jour** (`Platform3DAmbientScene.tsx::SkyBackdrop`, nouveau composant) : jusqu'ici AUCUN
+fond n'était posé par la scène 3D — le widget laissait transparaître le fond sombre du conteneur DOM
+(`bg-slate-950`, `Platform3DWidget.tsx`), identique de jour comme de nuit, d'où un ciel toujours
+sombre même en thème Jour. `SkyBackdrop` pose `scene.background` directement : une texture canvas
+(dégradé vertical `#3f83c9` zénith → `#7ec3ed` médian → `#d9f0fb` horizon, cache mémoïsé
+`daySkyTextureCache`) côté jour, et `null` côté nuit — restaurant EXACTEMENT le fond sombre déjà
+validé du conteneur (zéro régression sur le rendu nocturne). `Platform3DAmbientScene` reçoit
+désormais effectivement sa prop `isNight` (déclarée dans le type depuis l'origine mais jamais
+consommée) pour piloter ce composant.
+
+**Sorcière (`Witch3D`)** : échelle ramenée de `×22,8` à `×9` (hauteur ≈6 unités au lieu de ≈15, soit
+environ la moitié du diamètre visuel de la lune/du soleil plutôt que le double) — silhouette lointaine
+plausible plutôt que géante, tout en restant clairement identifiable à sa distance de survol
+(~65-70 unités, inchangée : balayage/profondeur non retouchés, seule l'échelle a changé).
+
+**Vérifié (Playwright)** : connexion « Jeu anonyme », widget Plateforme 3D maximisé —
+1. Thème Jour (par défaut à l'heure du test) : ciel bleu horizon dégradé visible par défaut, au
+   dézoom, et en vue orbitée à 360° (jamais de retour au fond sombre) ; nuage visible nettement
+   au-dessus des tours du château sans jamais toucher leur toit, à plusieurs angles de caméra
+   (dézoom maximal + orbite complète).
+2. Thème Nuit (horloge forcée à 23h via `Date` surchargée) : fond sombre du conteneur inchangé
+   (aucune régression), lune toujours correctement positionnée derrière les arbres/le château,
+   étoiles visibles plus nombreuses et plus basses sans avoir à lever excessivement la caméra, nuage
+   nocturne également bien positionné au-dessus du château.
+3. `npx tsc --noEmit` propre.
+4. 0 erreur console/page sur l'ensemble des scénarios testés.
+
+**Zéro régression confirmée** : régressions #1-#4 (position fixe hors rotation caméra, visibilité par
+défaut, profondeur derrière le décor, marge de sécurité radiale) intégralement conservées — seuls
+l'altitude (Y) des nuages/étoiles, leur nombre, l'échelle de la sorcière et le fond de scène en thème
+Jour ont changé ; `Moon3D`/`Sun3D`/`ShootingStar3D`/`Rain3D` et la faune terrestre/volante non
+affectés ; correctif caméra zoom/tête levée non modifié.

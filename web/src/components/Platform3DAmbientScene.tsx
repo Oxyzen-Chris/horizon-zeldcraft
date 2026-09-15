@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { MoonPhaseInfo, MoonPhaseKey, WorldThemeDef, AudioSourceSetting, AudioSourceKey } from '@/lib/gameState';
 import { playAmbientSound, useAdminAudioSettings } from '@/lib/audio';
@@ -229,7 +229,7 @@ function Sun3D() {
 }
 
 // ─────────────────────────────── Ciel étoilé + étoile filante ───────────────────────────────
-function Starfield3D() {
+function Starfield3D({ altitude, count }: { altitude: number; count: number }) {
   const pointsRef = useRef<THREE.Points>(null);
   const positions = useMemo(() => {
     // Distribution sur 360° d'azimut autour de l'origine (au lieu d'une boîte orientée uniquement
@@ -241,17 +241,19 @@ function Starfield3D() {
     // intrinsèquement assez loin de l'origine pour rester toujours plus profondes que le décor et
     // la caméra, quel que soit le zoom/l'angle d'orbite (au lieu de ~6-16 unités, qui pouvait finir
     // plus proche de la caméra que le décor une fois le zoom élargi à 20).
-    const count = 320;
+    // 🔧 Ajustement admin (`WorldThemeElements.starAltitude`/`starCount`) : SEULE l'altitude (Y) est
+    // paramétrable/abaissée — le rayon horizontal (X/Z, 42-64) reste inchangé afin de préserver la
+    // marge de sécurité radiale (`sqrt(x²+y²+z²) ≥ SKY_SAFE_MIN_DISTANCE`), voir ARCHITECTURE.md.
     const pos = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const radius = 42 + Math.random() * 22;
       pos[i * 3 + 0] = Math.cos(angle) * radius;
-      pos[i * 3 + 1] = 14 + Math.random() * 24;
+      pos[i * 3 + 1] = altitude + Math.random() * 24;
       pos[i * 3 + 2] = Math.sin(angle) * radius;
     }
     return pos;
-  }, []);
+  }, [altitude, count]);
   useFrame((state) => {
     const mat = pointsRef.current?.material as THREE.PointsMaterial | undefined;
     if (mat) mat.opacity = 0.6 + Math.sin(state.clock.elapsedTime * 0.6) * 0.18;
@@ -338,17 +340,19 @@ function Cloud3D({ seed, x0, z0, y }: { seed: number; x0: number; z0: number; y:
     </group>
   );
 }
-function Clouds3D() {
-  // 8 nuages répartis sur 360° d'azimut (au lieu de 4 uniquement face à la caméra par défaut) —
+function Clouds3D({ altitude, count }: { altitude: number; count: number }) {
+  // N nuages répartis sur 360° d'azimut (au lieu de 4 uniquement face à la caméra par défaut) —
   // corrige le même bug que Starfield3D/Rain3D ci-dessus/dessous : le ciel se vidait au dézoom/à la
-  // rotation. 🔧 Régression #4 : rayon/altitude repoussés au-delà de `SKY_SAFE_MIN_DISTANCE` (voir
+  // rotation. 🔧 Régression #4 : rayon repoussé au-delà de `SKY_SAFE_MIN_DISTANCE` (voir
   // `SkyFollowGroup`) et mis à l'échelle (×4,2, voir `Cloud3D`) pour rester toujours derrière le
   // décor tout en restant visuellement lisibles à cette distance accrue. `x0`/`z0` fixent l'azimut
-  // de dérive de chaque nuage (voir Cloud3D).
-  return <>{[0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
-    const angle = (i / 8) * Math.PI * 2;
+  // de dérive de chaque nuage (voir Cloud3D). 🔧 Ajustement admin (`cloudAltitude`/`cloudCount`) :
+  // SEULE l'altitude (Y, `altitude` + variation ±3) est paramétrable/abaissée — le rayon horizontal
+  // (44-60) reste inchangé pour préserver la marge de sécurité radiale (voir Starfield3D ci-dessus).
+  return <>{Array.from({ length: count }, (_, i) => i).map((i) => {
+    const angle = (i / count) * Math.PI * 2;
     const radius = 44 + (i % 3) * 8;
-    return <Cloud3D key={i} seed={i * 37 + 11} x0={Math.cos(angle) * radius} z0={Math.sin(angle) * radius} y={15 + (i % 2) * 3} />;
+    return <Cloud3D key={i} seed={i * 37 + 11} x0={Math.cos(angle) * radius} z0={Math.sin(angle) * radius} y={altitude + (i % 2) * 3} />;
   })}</>;
 }
 
@@ -765,13 +769,17 @@ function Witch3D({ adminAudio, intervalSec }: { adminAudio: Record<AudioSourceKe
     if (robeRef.current) robeRef.current.rotation.x = 0.15 + Math.sin(elapsed * 3) * 0.05;
   });
   return (
-    // 🔧 Mise à l'échelle ×5,3 (régression #3) puis ×22,8 (régression #4, ×4,3 supplémentaire — voir
-    // commentaire sur le balayage ci-dessus) pour suivre le recalibrage de MOON_ANCHOR/SUN_ANCHOR
-    // (distance repoussée de ~16 à ~65-67 unités, désormais fixe/absolue — voir SkyFollowGroup) :
-    // sans cette mise à l'échelle, sa silhouette serait, à cette distance, strictement invisible en
-    // pratique. `emissive` ajouté sur la robe/le chapeau pour qu'elle reste visible en silhouette
-    // même sans lumière directe (comme éclairée par la lune), au lieu de sombre-sur-sombre.
-    <group ref={groupRef} visible={false} scale={22.8}>
+    // 🔧 Mise à l'échelle ×5,3 (régression #3) puis ×22,8 (régression #4, ×4,3 supplémentaire) pour
+    // suivre le recalibrage de MOON_ANCHOR/SUN_ANCHOR (distance repoussée de ~16 à ~65-67 unités,
+    // désormais fixe/absolue — voir SkyFollowGroup) : sans cette mise à l'échelle, sa silhouette
+    // aurait été, à cette distance, strictement invisible en pratique. 🔧 Ajustement demandé
+    // ensuite : ×22,8 la rendait bien plus grande que Synk (hauteur ≈15 unités, contre ≈1,07 pour
+    // Synk) — ramenée à ×9 (hauteur ≈6 unités, environ la moitié du diamètre visuel de la lune/du
+    // soleil) pour rester une silhouette lointaine plausible plutôt qu'une géante, tout en restant
+    // clairement visible/identifiable à ~65-70 unités de distance (le point de vue du joueur étant
+    // toujours à l'origine). `emissive` ajouté sur la robe/le chapeau pour qu'elle reste visible en
+    // silhouette même sans lumière directe (comme éclairée par la lune), au lieu de sombre-sur-sombre.
+    <group ref={groupRef} visible={false} scale={9}>
       {/* Balai */}
       <mesh rotation={[0, 0, Math.PI / 2]} castShadow><cylinderGeometry args={[0.02, 0.02, 0.9, 6]} /><meshStandardMaterial color="#a16207" roughness={0.9} /></mesh>
       <mesh position={[-0.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.09, 0.22, 8]} /><meshStandardMaterial color="#ca8a04" roughness={1} /></mesh>
@@ -785,21 +793,62 @@ function Witch3D({ adminAudio, intervalSec }: { adminAudio: Record<AudioSourceKe
   );
 }
 
+// ─────────────────────────────── Fond de ciel (dégradé bleu horizon, thème jour) ───────────────
+let daySkyTextureCache: THREE.CanvasTexture | null = null;
+function getDaySkyTexture(): THREE.CanvasTexture {
+  if (daySkyTextureCache) return daySkyTextureCache;
+  const canvas = document.createElement('canvas');
+  canvas.width = 8; canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#3f83c9');    // bleu ciel plus soutenu vers le zénith (haut du cadre)
+  grad.addColorStop(0.55, '#7ec3ed'); // bleu ciel médian
+  grad.addColorStop(1, '#d9f0fb');    // bleu très clair/brumeux vers l'horizon (bas du cadre)
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 8, 256);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  daySkyTextureCache = tex;
+  return tex;
+}
+/**
+ * Fond de ciel jour/nuit — voir demande utilisateur « dans le thème jour, peux-tu mettre un ciel
+ * plutôt couleur bleu horizon légèrement dégradé dans les tons bleus pour simuler un ciel bleu
+ * d'une journée ensoleillée ». Jusqu'ici AUCUN fond n'était posé par la scène 3D côté thème jour
+ * (le widget "Plateforme 3D" laissait simplement transparaître le fond sombre du conteneur DOM,
+ * `bg-slate-950` — voir Platform3DWidget.tsx —, identique de jour comme de nuit, d'où le ciel
+ * toujours sombre même en plein "thème jour"). On pose ici `scene.background` : une texture 2D
+ * (rendue en plein cadre, indépendamment de la rotation de la caméra — un simple fond de ciel, pas
+ * un skybox environnant) dégradée bleu horizon côté jour, et `null` côté nuit pour restaurer
+ * EXACTEMENT le fond sombre du conteneur déjà validé (zéro régression sur le rendu nocturne).
+ */
+function SkyBackdrop({ isNight }: { isNight: boolean }) {
+  const { scene } = useThree();
+  useEffect(() => {
+    scene.background = isNight ? null : getDaySkyTexture();
+    return () => { scene.background = null; };
+  }, [isNight, scene]);
+  return null;
+}
+
 /** Composant racine — voir useWorldThemeAmbience() (isNight/theme/moonPhase, source unique de
  * vérité partagée avec WeatherPanel.tsx/WorldMapWidget.tsx). Rendu comme enfant direct de
  * `<Canvas>` (voir Platform3DWidget.tsx), PAS comme overlay DOM. */
-export function Platform3DAmbientScene({ theme, moonPhase }: { isNight: boolean; theme: WorldThemeDef | null; moonPhase: MoonPhaseInfo | null }) {
+export function Platform3DAmbientScene({ isNight, theme, moonPhase }: { isNight: boolean; theme: WorldThemeDef | null; moonPhase: MoonPhaseInfo | null }) {
   const adminAudio = useAdminAudioSettings();
   const elements = theme?.elements;
   if (!elements) return null;
   return (
     <group>
+      {/* Fond de ciel jour/nuit — voir SkyBackdrop ci-dessus (dégradé bleu horizon côté jour, fond
+          sombre du conteneur inchangé côté nuit). */}
+      <SkyBackdrop isNight={isNight} />
       {/* Éléments de "remplissage" du ciel — regroupés dans SkyFollowGroup (translation-only, voir
           plus haut) pour rester visibles quels que soient l'angle de vue et le zoom de la caméra. */}
       <SkyFollowGroup>
-        {elements.stars && <Starfield3D />}
+        {elements.stars && <Starfield3D altitude={elements.starAltitude ?? 9} count={elements.starCount ?? 400} />}
         {elements.shootingStarsEnabled && <ShootingStar3D />}
-        {elements.clouds && <Clouds3D />}
+        {elements.clouds && <Clouds3D altitude={elements.cloudAltitude ?? 11} count={elements.cloudCount ?? 11} />}
         {elements.rainChancePct > 0 && Math.random() * 100 < elements.rainChancePct && <Rain3D />}
         {/* Lune/soleil à position FIXE (voir MOON_ANCHOR/SUN_ANCHOR) rendus DANS SkyFollowGroup afin
             de translater avec Synk (mais jamais tourner avec la caméra) — voir commentaire détaillé

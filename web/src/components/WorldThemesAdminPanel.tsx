@@ -30,7 +30,8 @@ function blankCustomTheme(): WorldThemeDef {
     id: `theme.custom.${now}`, name: 'Nouveau thème', kind: 'custom', active: true, order: 1,
     schedule: { type: 'always' },
     elements: {
-      sun: false, moon: false, stars: false, shootingStarsEnabled: false, clouds: true, rainChancePct: 5,
+      sun: false, moon: false, stars: false, starAltitude: 9, starCount: 400, shootingStarsEnabled: false,
+      clouds: true, cloudAltitude: 11, cloudCount: 11, rainChancePct: 5,
       birds: false, swallows: false, raptorsEnabled: false, boarHerdEnabled: false, witchEnabled: false,
       witchFlybyIntervalSec: 600,
       batsEnabled: false, owlHootEnabled: false, werewolfHowlEnabled: false, ambientEventIntervalSec: 45,
@@ -272,6 +273,22 @@ export function WorldThemesAdminPanel() {
                 <label>🧙‍♀️ {t('admin.worldThemes.witchInterval')}
                   <input type="number" min={30} className="input w-20 ml-1" value={th.elements.witchFlybyIntervalSec ?? 600}
                     onChange={e => patchElements(th.id, { witchFlybyIntervalSec: Number(e.target.value) })} />
+                </label>
+                <label>☁️ {t('admin.worldThemes.cloudAltitude')}
+                  <input type="number" min={7} max={40} className="input w-20 ml-1" value={th.elements.cloudAltitude ?? 11}
+                    onChange={e => patchElements(th.id, { cloudAltitude: Number(e.target.value) })} />
+                </label>
+                <label>☁️ {t('admin.worldThemes.cloudCount')}
+                  <input type="number" min={0} max={40} className="input w-20 ml-1" value={th.elements.cloudCount ?? 11}
+                    onChange={e => patchElements(th.id, { cloudCount: Number(e.target.value) })} />
+                </label>
+                <label>✨ {t('admin.worldThemes.starAltitude')}
+                  <input type="number" min={4} max={40} className="input w-20 ml-1" value={th.elements.starAltitude ?? 9}
+                    onChange={e => patchElements(th.id, { starAltitude: Number(e.target.value) })} />
+                </label>
+                <label>✨ {t('admin.worldThemes.starCount')}
+                  <input type="number" min={0} max={1500} className="input w-20 ml-1" value={th.elements.starCount ?? 400}
+                    onChange={e => patchElements(th.id, { starCount: Number(e.target.value) })} />
                 </label>
               </div>
             </div>
