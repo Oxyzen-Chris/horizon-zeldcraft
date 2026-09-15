@@ -665,38 +665,53 @@ function BirdsFlock3D({ adminAudio }: { adminAudio: Record<AudioSourceKey, Audio
   return <>{flock.map((b, i) => <Bird3D key={i} {...b} />)}</>;
 }
 
-// ─────────────────────────────── Troupeau de sangliers + marcassins (marche au sol, jour) ───────────────────────────────
-function Boar3D({ x0, z0, scale, speedMul, color, phase }: { x0: number; z0: number; scale: number; speedMul: number; color: string; phase: number }) {
-  const groupRef = useRef<THREE.Group>(null);
+// ─────────────────────────────── Troupeau de sangliers + marcassins (marche au sol, VRAIE faune errante) ───────────────────────────────
+/**
+ * 🔧 Converti en VRAIE faune errante mapmonde, exactement comme Owl3D/Werewolf3D ci-dessus (voir
+ * lib/roamingActors.ts::WildlifeActorState 'boar', Platform3DWidget.tsx::MarkerBlock::isWildlife) —
+ * corrige le bug remonté par l'utilisateur : « le sanglier et les marcassins se déplacent en biais
+ * de côté et par translation en glissant et bougent avec les mouvements de Synk [...] je ne peux
+ * jamais les atteindre car ils glissent dans le décor ». L'ANCIENNE version (`BoarHerd3D`, retirée)
+ * avançait chaque sanglier par translation LOCALE directe (`position.x = ...`) à un offset FIXE
+ * proche de l'origine — recréant exactement le même bug d'« attache à Synk » déjà corrigé pour le
+ * hibou/loup-garou — ET orientait le modèle avec `rotation.y = ±π/2`, perpendiculaire à son
+ * déplacement réel sur l'axe X (un modèle bâti « tête vers +X » tourné de 90° présente son FLANC
+ * dans le sens de la marche, d'où le glissement en crabe observé). Le modèle est désormais bâti
+ * « tête vers +Z » (convention `FACING_ANGLE`/`down`=0, comme Owl3D/Werewolf3D/NpcVoxel) et n'a
+ * plus AUCUNE position/rotation interne : c'est le groupe parent (`MarkerBlock`) qui le positionne/
+ * l'oriente selon sa direction de marche RÉELLE (`facing`, calculée par le même moteur d'errance
+ * `advanceActor` que tous les autres PNJ/familiers/faune), garantissant une orientation TOUJOURS
+ * cohérente avec le déplacement effectif — et une position mapmonde réelle, donc atteignable.
+ * Affiche l'adulte + 2 marcassins en formation fixe juste derrière lui (purement cosmétique, ils
+ * partagent exactement la même position/orientation/vitesse que l'adulte — conserve l'effet visuel
+ * de « troupeau » sans dupliquer chaque marcassin en entité d'errance indépendante), chacun avec sa
+ * propre démarche à 4 pattes animée proportionnellement à `moving` (jamais figée à l'arrêt).
+ */
+function BoarUnit({ scale = 1, color = '#4a3728', phase = 0, moving }: { scale?: number; color?: string; phase?: number; moving?: boolean }) {
   const legFLRef = useRef<THREE.Group>(null);
   const legFRRef = useRef<THREE.Group>(null);
   const legBLRef = useRef<THREE.Group>(null);
   const legBRRef = useRef<THREE.Group>(null);
   useFrame((state) => {
-    const t = state.clock.elapsedTime * 0.5 * speedMul + phase;
-    const span = 11;
-    const x = ((t % span) - span / 2) + x0;
-    if (groupRef.current) {
-      groupRef.current.position.set(x, 0, z0);
-      groupRef.current.rotation.y = speedMul >= 0 ? Math.PI / 2 : -Math.PI / 2;
-    }
-    const swing = Math.sin(state.clock.elapsedTime * 7 * Math.abs(speedMul) + phase) * 0.45;
+    const walkFreq = 7, walkAmp = 0.45;
+    const swing = moving ? Math.sin(state.clock.elapsedTime * walkFreq + phase) * walkAmp : 0;
     if (legFLRef.current) legFLRef.current.rotation.x = swing;
     if (legBRRef.current) legBRRef.current.rotation.x = swing;
     if (legFRRef.current) legFRRef.current.rotation.x = -swing;
     if (legBLRef.current) legBLRef.current.rotation.x = -swing;
   });
   return (
-    <group ref={groupRef} scale={scale}>
+    <group scale={scale}>
       <mesh castShadow position={[0, 0.26, 0]}><sphereGeometry args={[0.22, 10, 8]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
-      <group position={[0.2, 0.28, 0]}>
+      {/* Tête — déportée vers +Z (avant du modèle, voir commentaire ci-dessus) */}
+      <group position={[0, 0.28, 0.2]}>
         <mesh castShadow><sphereGeometry args={[0.13, 8, 8]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
-        <mesh position={[0.1, -0.03, 0]} castShadow><coneGeometry args={[0.06, 0.14, 6]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
-        {[-0.045, 0.045].map((ez, i) => (
-          <mesh key={i} position={[0.14, -0.06, ez]} rotation={[0, 0, Math.PI / 2]}><coneGeometry args={[0.014, 0.05, 4]} /><meshStandardMaterial color="#e7e5e4" /></mesh>
+        <mesh position={[0, -0.03, 0.1]} castShadow><coneGeometry args={[0.06, 0.14, 6]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
+        {[-0.045, 0.045].map((ex, i) => (
+          <mesh key={i} position={[ex, -0.06, 0.14]} rotation={[Math.PI / 2, 0, 0]}><coneGeometry args={[0.014, 0.05, 4]} /><meshStandardMaterial color="#e7e5e4" /></mesh>
         ))}
-        {[-0.06, 0.06].map((ez, i) => (
-          <mesh key={i} position={[0.08, 0.06, ez]}><sphereGeometry args={[0.02, 6, 6]} /><meshStandardMaterial color="#1c1917" /></mesh>
+        {[-0.06, 0.06].map((ex, i) => (
+          <mesh key={i} position={[ex, 0.06, 0.08]}><sphereGeometry args={[0.02, 6, 6]} /><meshStandardMaterial color="#1c1917" /></mesh>
         ))}
       </group>
       {/* Crinière hérissée sur le dos */}
@@ -704,8 +719,8 @@ function Boar3D({ x0, z0, scale, speedMul, color, phase }: { x0: number; z0: num
         <mesh key={i} position={[ex, 0.44, 0]} rotation={[0, 0, 0.1 * i]}><coneGeometry args={[0.025, 0.09, 4]} /><meshStandardMaterial color="#292524" /></mesh>
       ))}
       {([
-        { ref: legFLRef, x: 0.13, z: 0.11 }, { ref: legFRRef, x: 0.13, z: -0.11 },
-        { ref: legBLRef, x: -0.13, z: 0.11 }, { ref: legBRRef, x: -0.13, z: -0.11 },
+        { ref: legFLRef, x: 0.11, z: 0.13 }, { ref: legFRRef, x: -0.11, z: 0.13 },
+        { ref: legBLRef, x: 0.11, z: -0.13 }, { ref: legBRRef, x: -0.11, z: -0.13 },
       ] as const).map((leg, i) => (
         <group key={i} ref={leg.ref} position={[leg.x, 0.16, leg.z]}>
           <mesh position={[0, -0.08, 0]} castShadow><cylinderGeometry args={[0.028, 0.032, 0.16, 6]} /><meshStandardMaterial color={color} roughness={0.85} /></mesh>
@@ -714,15 +729,17 @@ function Boar3D({ x0, z0, scale, speedMul, color, phase }: { x0: number; z0: num
     </group>
   );
 }
-function BoarHerd3D({ adminAudio }: { adminAudio: Record<AudioSourceKey, AudioSourceSetting> }) {
-  const seedOffset = useMemo(() => (hashSeed('boar') % 1000) / 105, []);
-  useAmbientSoundCycle('boar', 21, seedOffset, () => {}, adminAudio);
+export function Boar3D({ adminAudio, soundEnabled = true, seedKey, moving }: {
+  adminAudio: Record<AudioSourceKey, AudioSourceSetting>; soundEnabled?: boolean; seedKey?: string; moving?: boolean;
+}) {
+  const seedOffset = useMemo(() => (hashSeed(seedKey || 'boar') % 1000) / 105, [seedKey]);
+  useAmbientSoundCycle('boar', 21, seedOffset, () => {}, adminAudio, soundEnabled);
   return (
-    <>
-      <Boar3D x0={0} z0={-4.5} scale={1} speedMul={1} color="#4a3728" phase={0} />
-      <Boar3D x0={-0.9} z0={-4.8} scale={0.55} speedMul={1} color="#8a6d4f" phase={0.3} />
-      <Boar3D x0={-1.5} z0={-4.3} scale={0.5} speedMul={1} color="#8a6d4f" phase={0.6} />
-    </>
+    <group>
+      <BoarUnit scale={1} color="#4a3728" phase={0} moving={moving} />
+      <group position={[-0.32, 0, -0.28]}><BoarUnit scale={0.5} color="#8a6d4f" phase={1.4} moving={moving} /></group>
+      <group position={[0.3, 0, -0.32]}><BoarUnit scale={0.45} color="#8a6d4f" phase={2.6} moving={moving} /></group>
+    </group>
   );
 }
 
@@ -764,7 +781,16 @@ function Witch3D({ adminAudio, intervalSec }: { adminAudio: Record<AudioSourceKe
     const span = 112; // largeur du balayage — traverse aussi bien MOON_ANCHOR.x (-18) que SUN_ANCHOR.x (21)
     const x = -span / 2 + span * p;
     groupRef.current.position.set(x, 7 + Math.sin(p * Math.PI) * 4.7, -65 + Math.sin(p * Math.PI * 2) * 6);
-    groupRef.current.rotation.y = Math.PI / 2;
+    // 🔧 Corrige le bug remonté par l'utilisateur : « la sorcière sur son balai vole également en
+    // biais ou sur le côté et pas en avant ce qui n'est pas naturel ». L'angle fixe `Math.PI / 2`
+    // orientait le modèle (bâti tête/avant du balai vers +X local) perpendiculairement à son
+    // déplacement réel (essentiellement +X, avec une légère oscillation en Z, voir `z` ci-dessus) —
+    // recalculé ici comme le cap RÉEL instantané (dérivées de x(p)/z(p) par rapport à p), ce qui la
+    // fait naturellement "pencher"/tourner légèrement en suivant son léger slalom en Z tout en
+    // restant orientée vers l'avant de son déplacement, jamais de travers.
+    const dxdp = span; // x(p) est linéaire en p → dérivée constante
+    const dzdp = 6 * Math.PI * 2 * Math.cos(p * Math.PI * 2); // dérivée de -65 + sin(2πp)*6
+    groupRef.current.rotation.y = Math.atan2(-dzdp, dxdp);
     groupRef.current.rotation.z = 0.12 * Math.sin(elapsed * 2);
     if (robeRef.current) robeRef.current.rotation.x = 0.15 + Math.sin(elapsed * 3) * 0.05;
   });
@@ -856,16 +882,18 @@ export function Platform3DAmbientScene({ isNight, theme, moonPhase }: { isNight:
         {elements.moon && moonPhase && <Moon3D phase={moonPhase} />}
         {elements.sun && <Sun3D />}
       </SkyFollowGroup>
-      {/* Le hibou/loup-garou ne sont plus rendus ici : ce sont désormais de VRAIES entités errantes
-          du monde (voir lib/roamingActors.ts::ensureWildlifeSpawns), rendues par Platform3DWidget.
-          tsx::MarkerBlock au même titre qu'un PNJ/familier — corrige le bug « le loup garou et le
-          hibou me suivent quand je me déplace [...] je ne peux jamais les toucher ». Le réglage
-          Administration owlHootEnabled/werewolfHowlEnabled continue de gater UNIQUEMENT leur cycle
-          sonore (voir Owl3D/Werewolf3D::soundEnabled), jamais leur présence/déplacement. */}
+      {/* Le hibou/loup-garou/sanglier ne sont plus rendus ici : ce sont désormais de VRAIES entités
+          errantes du monde (voir lib/roamingActors.ts::ensureWildlifeSpawns), rendues par
+          Platform3DWidget.tsx::MarkerBlock au même titre qu'un PNJ/familier — corrige le bug « le
+          loup garou et le hibou me suivent quand je me déplace [...] je ne peux jamais les toucher »
+          (et, par extension, le même bug pour le troupeau de sangliers). Le réglage Administration
+          owlHootEnabled/werewolfHowlEnabled continue de gater UNIQUEMENT leur cycle sonore (voir
+          Owl3D/Werewolf3D::soundEnabled), jamais leur présence/déplacement — idem pour Boar3D. Le
+          champ de thème `boarHerdEnabled` n'est plus lu ici (remplacé par RepRules.wildlifeBoarCount,
+          voir RepRulesPanel.tsx) mais reste défini dans le schéma pour rétro-compatibilité. */}
       {elements.batsEnabled && <BatsSwarm3D adminAudio={adminAudio} />}
       {elements.raptorsEnabled && <RaptorsFlock3D adminAudio={adminAudio} />}
       {(elements.birds || elements.swallows) && <BirdsFlock3D adminAudio={adminAudio} />}
-      {elements.boarHerdEnabled && <BoarHerd3D adminAudio={adminAudio} />}
       {elements.witchEnabled && <Witch3D adminAudio={adminAudio} intervalSec={elements.witchFlybyIntervalSec ?? 600} />}
     </group>
   );

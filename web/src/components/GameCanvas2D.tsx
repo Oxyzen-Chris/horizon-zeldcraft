@@ -202,7 +202,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // commentaires détaillés, dans WorldMapWidget.tsx/Platform3DWidget.tsx.
   useEffect(() => {
     if (!rules) return;
-    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0);
+    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0, rules.wildlifeBoarCount ?? 8);
   }, [rules]);
 
   // Marqueur cliqué (PNJ/familier/trésor/quête/monde/hutte) alors que Synk est sur sa case ou une
@@ -1580,9 +1580,9 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
               key={`wildlife-${id}`}
               className="absolute -translate-x-1/2 flex flex-col items-center pointer-events-none transition-all"
               style={{ left: projX(col, row), top: projY(col, row) - 22, zIndex: col + row + 2, transitionDuration: `${getRoamStepMs()}ms` }}
-              title={t(w.kind === 'owl' ? 'canvas2d.owlLabel' : 'canvas2d.werewolfLabel')}
+              title={t(w.kind === 'owl' ? 'canvas2d.owlLabel' : w.kind === 'werewolf' ? 'canvas2d.werewolfLabel' : 'canvas2d.boarLabel')}
             >
-              <span className="text-xl">{w.kind === 'owl' ? '🦉' : '🐺'}</span>
+              <span className="text-xl">{w.kind === 'owl' ? '🦉' : w.kind === 'werewolf' ? '🐺' : '🐗'}</span>
             </div>
           ))}
           {/* PNJ "en approche" — matérialise la rencontre (pop-up NpcEncounterPopup ouvert) en le

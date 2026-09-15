@@ -1054,7 +1054,7 @@ export function RepRulesPanel() {
             onChange={e => setBool('wildlifeEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.wildlifeEnabled')}</span>
         </label>
-        <div className="grid md:grid-cols-2 gap-3 mb-3">
+        <div className="grid md:grid-cols-3 gap-3 mb-3">
           <label className="text-sm">
             <span className="text-slate-300">{t('admin.repRules.wildlifeOwlCount')}</span>
             <input type="number" className="input mt-1 w-full" min={0} max={50}
@@ -1066,6 +1066,12 @@ export function RepRulesPanel() {
             <input type="number" className="input mt-1 w-full" min={0} max={50}
               disabled={rules.wildlifeEnabled === false}
               value={rules.wildlifeWerewolfCount} onChange={e => set('wildlifeWerewolfCount', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.wildlifeBoarCount')}</span>
+            <input type="number" className="input mt-1 w-full" min={0} max={50}
+              disabled={rules.wildlifeEnabled === false}
+              value={rules.wildlifeBoarCount ?? 8} onChange={e => set('wildlifeBoarCount', e.target.value)} />
           </label>
         </div>
         <button type="button" className="btn-secondary text-xs" disabled={rules.wildlifeEnabled === false}

@@ -153,10 +153,11 @@ const LIVE_ACTOR_MARKER_IDS = new Set(['roaming.npc.live', 'roaming.dragon.live'
  * stable `encounter.extra.`), donc non énumérables dans LIVE_ACTOR_MARKER_IDS ci-dessus. Même
  * exemption que les acteurs "en direct" historiques : ces PNJ restent visibles quelle que soit
  * leur distance à Synk quand le "filtre intelligent" est actif. Idem pour la faune errante
- * (préfixe stable `owl-`/`werewolf-`, voir lib/roamingActors.ts::ensureWildlifeSpawns) : ce sont
- * elles aussi des entités EN DIRECT rares, que le "filtre intelligent" ne doit jamais masquer. */
+ * (préfixe stable `owl-`/`werewolf-`/`boar-`, voir lib/roamingActors.ts::ensureWildlifeSpawns) :
+ * ce sont elles aussi des entités EN DIRECT rares, que le "filtre intelligent" ne doit jamais
+ * masquer. */
 function isLiveActorMarkerId(id: string): boolean {
-  return LIVE_ACTOR_MARKER_IDS.has(id) || id.startsWith('encounter.extra.') || id.startsWith('owl-') || id.startsWith('werewolf-');
+  return LIVE_ACTOR_MARKER_IDS.has(id) || id.startsWith('encounter.extra.') || id.startsWith('owl-') || id.startsWith('werewolf-') || id.startsWith('boar-');
 }
 
 /** Prédicat de filtrage d'un marqueur — utilisé IDENTIQUEMENT par WorldMapWidget.tsx (rendu de la

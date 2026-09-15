@@ -204,8 +204,8 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   // lib/mapFilters.ts::MapFilterState.showWildlife) distinct de "Familiers".
   const wildlifeLiveMarkers = useMemo<MapMarker[]>(() => Object.entries(roamingActors.wildlife).map(([id, w]) => ({
     id, kind: 'wildlife' as const,
-    name: t(w.kind === 'owl' ? 'canvas2d.owlLabel' : 'canvas2d.werewolfLabel'),
-    icon: w.kind === 'owl' ? '🦉' : '🐺', x: w.x, y: w.y,
+    name: t(w.kind === 'owl' ? 'canvas2d.owlLabel' : w.kind === 'werewolf' ? 'canvas2d.werewolfLabel' : 'canvas2d.boarLabel'),
+    icon: w.kind === 'owl' ? '🦉' : w.kind === 'werewolf' ? '🐺' : '🐗', x: w.x, y: w.y,
   })), [roamingActors.wildlife, t]);
 
   // ─── PNJ "en approche" (rencontre sollicitée — quête/troc/combat, voir NpcEncounterPopup.tsx) ───
@@ -242,6 +242,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     if (m.id.startsWith('encounter.extra.')) return t('canvas2d.formerEncounterLabel');
     if (m.id.startsWith('owl-')) return t('canvas2d.owlLabel');
     if (m.id.startsWith('werewolf-')) return t('canvas2d.werewolfLabel');
+    if (m.id.startsWith('boar-')) return t('canvas2d.boarLabel');
     return t('canvas2d.npcLabel');
   }, [encounterNpc, t]);
   // Rayon de proximité (en cases mapmonde, échelle 0-100 — voir RepRules.npcProximityRadiusTiles,
@@ -322,7 +323,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   // "seed" de régénération n'ont changé (voir commentaire de la fonction).
   useEffect(() => {
     if (!rules) return;
-    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0);
+    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0, rules.wildlifeBoarCount ?? 8);
   }, [rules]);
   // Alimente lib/roamingActors.ts avec la position COURANTE de Synk sur la mapmonde — gèle
   // UNIQUEMENT les PNJ/dragons/familiers déjà à proximité, ne les fait JAMAIS suivre Synk.

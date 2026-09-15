@@ -2346,3 +2346,81 @@ défaut, profondeur derrière le décor, marge de sécurité radiale) intégrale
 l'altitude (Y) des nuages/étoiles, leur nombre, l'échelle de la sorcière et le fond de scène en thème
 Jour ont changé ; `Moon3D`/`Sun3D`/`ShootingStar3D`/`Rain3D` et la faune terrestre/volante non
 affectés ; correctif caméra zoom/tête levée non modifié.
+
+## 🐗 Régression #5 : sanglier/marcassins « collés » à Synk et déplacement en biais (crabe) + sorcière qui vole de travers
+
+**Demande utilisateur** : « le sanglier et les petits marcassins se déplacent mais en biais de côté
+et par translation en glissant et bougent avec les mouvements de Synk et du fait, je ne peux jamais
+les atteindre car ils glissent dans le décor [...] la sorcière sur son balai vole également en biais
+ou sur le côté et pas en avant ce qui n'est pas naturel ».
+
+**Cause racine (sanglier)** : exactement la même classe de bug que le hibou/loup-garou (voir
+Correctif 2 ci-dessus), non recorrigée à l'époque pour le troupeau de sangliers. `BoarHerd3D`/
+`Boar3D` (`Platform3DAmbientScene.tsx`) avançaient chaque sanglier par translation LOCALE directe
+(`groupRef.current.position.set(x, 0, z0)` avec `x` dérivé de `state.clock.elapsedTime`) à un offset
+proche de l'origine du repère de la scène — or ce repère est recentré sur Synk à CHAQUE rendu (le
+DÉCOR défile autour de lui, qui reste toujours à l'origine locale) : un sanglier ainsi positionné
+restait donc TOUJOURS au même endroit relatif à Synk, quel que soit l'endroit du monde où celui-ci se
+trouvait réellement — d'où l'effet « collé à Synk, inatteignable ». De plus, `groupRef.current.
+rotation.y = speedMul >= 0 ? Math.PI / 2 : -Math.PI / 2` orientait le modèle (bâti « tête vers +X »,
+donc en avançant sur l'axe X) PERPENDICULAIREMENT à son déplacement réel — un modèle tourné de 90°
+par rapport à sa trajectoire présente son FLANC dans le sens de la marche, produisant le glissement
+en crabe observé.
+
+**Correctif (sanglier)** : conversion en VRAIE faune errante mapmonde, à l'identique du hibou/loup-
+garou (voir Correctif 2) :
+- `lib/roamingActors.ts` : `WildlifeKind` étendu à `'owl' | 'werewolf' | 'boar'` ; `ensureWildlifeSpawns`
+  accepte désormais un 5ᵉ paramètre optionnel `boarCount` (rétro-compatible, défaut `0`) et peuple
+  `wildlife['boar-N']` avec le même mécanisme `randomWildlifeSpawn`/rencontre garantie pour l'index 0
+  que le hibou/loup-garou.
+- `lib/gameState.ts` : nouveau champ `RepRules.wildlifeBoarCount` (défaut **8**), à côté de
+  `wildlifeOwlCount`/`wildlifeWerewolfCount`.
+- `RepRulesPanel.tsx` : 3ᵉ champ numérique (🐗 Nombre de troupeaux de sangliers) ajouté à côté des
+  deux existants — même bouton « 🎲 Régénérer les positions » (`wildlifeSpawnSeed`) commun aux trois.
+- `Platform3DAmbientScene.tsx` : `Boar3D`/`BoarHerd3D` (position/rotation internes) **retirés** et
+  remplacés par un nouveau `Boar3D` **exporté**, composant d'animation pure (comme `Owl3D`/
+  `Werewolf3D`) sans AUCUNE position/rotation interne — reconstruit selon la convention « tête vers
+  +Z » (`FACING_ANGLE`/`down` = 0, la même que tous les autres PNJ/familiers/faune) au lieu de
+  « tête vers +X » : toutes les coordonnées locales ont été permutées (X↔Z) en conservant la symétrie
+  gauche/droite du modèle (aucun changement visuel de forme, seulement d'orientation de référence).
+  Affiche l'adulte + 2 marcassins miniatures en formation fixe juste derrière lui (cosmétique, ils
+  partagent exactement la même position/orientation que l'adulte — conserve l'effet « troupeau » sans
+  faire de chaque marcassin une entité d'errance séparée), chacun avec sa propre démarche à 4 pattes
+  au trot diagonal, amplitude **proportionnelle à `moving`** (nulle à l'arrêt, comme le loup-garou).
+- `Platform3DWidget.tsx::MarkerBlock` : branche `isWildlife` étendue (`id.startsWith('boar-')` →
+  `Boar3D`), positionnement/orientation intégralement délégués au groupe parent (`facingAngle` calculé
+  depuis la direction de marche RÉELLE, moteur `advanceActor` commun à tous les PNJ/faune).
+- `GameCanvas2D.tsx`/`WorldMapWidget.tsx` : icône `🐗`/libellé « Troupeau de sangliers » (i18n
+  `canvas2d.boarLabel`, FR/EN/ES/PT) ajoutés aux ternaires existants (owl/werewolf) ; `lib/mapFilters.
+  ts::isLiveActorMarkerId` complété avec le préfixe `boar-` (sans ce correctif, le troupeau aurait pu
+  être masqué à tort par le « filtre intelligent » de la Mapmonde — même exemption que le hibou/loup-
+  garou). Le filtre "Faune" existant (`MapFilterState.showWildlife`) couvre déjà tout `kind:
+  'wildlife'` sans distinction de sous-type : aucun changement nécessaire côté filtre lui-même.
+- Ancien champ de thème `WorldThemeElements.boarHerdEnabled` : plus lu par `Platform3DAmbientScene`
+  (remplacé par `RepRules.wildlifeBoarCount`) mais conservé dans le schéma/panneau Administration pour
+  rétro-compatibilité (aucune migration de données nécessaire).
+
+**Cause racine (sorcière) et correctif** : `Witch3D` fixait `rotation.y = Math.PI / 2` en dur, quel que
+soit l'instant du survol — alors que son déplacement réel suit `x(p) = -span/2 + span·p` (dérivée
+constante, cap ≈ +X) et `z(p) = -65 + sin(2πp)·6` (dérivée oscillante). Remplacé par un cap RÉEL
+calculé à chaque frame via `rotation.y = Math.atan2(-dz/dp, dx/dp)` (dérivées analytiques des deux
+formules paramétriques) — la fait voler naturellement orientée vers l'avant de sa trajectoire, avec un
+léger virage/inclinaison suivant son slalom en Z, au lieu d'une orientation fixe perpendiculaire à son
+déplacement.
+
+**Vérifié (Playwright)** : connexion « Jeu anonyme » (compte Démo), widget Plateforme 3D ouvert,
+Mapmonde dézoomée au maximum — les 8 troupeaux de sangliers par défaut (`wildlifeBoarCount`)
+apparaissent bien comme marqueurs `🐗`/« Troupeau de sangliers » répartis sur l'ENSEMBLE de la
+Mapmonde (jamais regroupés près de Synk comme l'ancien décor fixe) ; un loup-garou rencontré à
+proximité immédiate de Synk confirme que le moteur de faune errante reste pleinement fonctionnel après
+l'ajout du 3ᵉ type ; déplacement prolongé de Synk (marche + nage) dans le widget 3D sans jamais
+« traîner » un sanglier ou une sorcière dans son sillage ; 0 erreur console/page sur l'ensemble des
+scénarios ; `npx tsc --noEmit` propre.
+
+**Zéro régression confirmée** : hibou/loup-garou (Correctif 2) strictement inchangés dans leur
+comportement (seule la branche de sélection de composant dans `MarkerBlock` a été étendue d'un
+ternaire à deux branches à un ternaire à trois, sans toucher aux deux branches existantes) ; lune/
+soleil/étoiles/nuages/ciel de jour (régressions #1-#4 et réglage fin ci-dessus) non modifiés ; sorcière
+: seule la formule de `rotation.y` change, ni son échelle, ni son intervalle de passage
+(`witchFlybyIntervalSec`), ni sa trajectoire (x/y/z) ni son sifflement (`useAmbientSoundCycle`) ne sont
+affectés.

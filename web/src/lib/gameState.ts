@@ -4723,6 +4723,12 @@ export interface RepRules {
                                         // false (aucun hibou/loup-garou dans aucun widget)
   wildlifeOwlCount: number;            // défaut 13 — nombre total de hiboux errants sur la mapmonde
   wildlifeWerewolfCount: number;       // défaut 12 — nombre total de loups-garous errants
+  // 🔧 Troupeau(x) de sangliers + marcassins : converti en VRAIE faune errante (même correctif que
+  // hibou/loup-garou ci-dessus) pour corriger le bug « ils se déplacent en biais de côté [...]
+  // bougent avec les mouvements de Synk [...] je ne peux jamais les atteindre car ils glissent dans
+  // le décor » (voir Platform3DAmbientScene.tsx::Boar3D, lib/roamingActors.ts::WildlifeKind 'boar').
+  wildlifeBoarCount: number;           // défaut 8 — nombre total de troupeaux de sangliers errants
+                                        // (chaque point d'apparition affiche 1 adulte + marcassins)
   wildlifeSpawnSeed: number;           // défaut 0 — simple compteur incrémenté par le bouton
                                         // Administration « 🎲 Regénérer les positions » : force un
                                         // nouveau tirage aléatoire de toutes les positions de faune
@@ -4972,6 +4978,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   wildlifeEnabled: true,
   wildlifeOwlCount: 13,
   wildlifeWerewolfCount: 12,
+  wildlifeBoarCount: 8,
   wildlifeSpawnSeed: 0,
   envStatusPopupsOnTop: true,
   dayStartHour: 7,

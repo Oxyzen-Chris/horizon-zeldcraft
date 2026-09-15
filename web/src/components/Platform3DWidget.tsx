@@ -32,7 +32,7 @@ import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
-import { Platform3DAmbientScene, Owl3D, Werewolf3D } from './Platform3DAmbientScene';
+import { Platform3DAmbientScene, Owl3D, Werewolf3D, Boar3D } from './Platform3DAmbientScene';
 import { useAdminAudioSettings } from '@/lib/audio';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 
@@ -1195,20 +1195,23 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     );
   }
   if (isWildlife) {
-    // Hibou/loup-garou errant — voir isWildlife plus haut. `markerId` est directement l'id
+    // Hibou/loup-garou/sanglier errant — voir isWildlife plus haut. `markerId` est directement l'id
     // d'errance (voir lib/roamingActors.ts::ensureWildlifeSpawns, préfixe stable `owl-`/
-    // `werewolf-`), pas besoin d'une identité catalogue distincte pour choisir le bon modèle 3D.
-    // `Owl3D`/`Werewolf3D` (voir Platform3DAmbientScene.tsx) n'ont plus de position interne fixe
-    // depuis leur conversion en entités mapmonde : ce groupe (position/orientation gérées comme
-    // tout PNJ/familier errant ci-dessus) est désormais leur SEULE source de placement.
-    const isOwl = (markerId ?? '').startsWith('owl-');
+    // `werewolf-`/`boar-`), pas besoin d'une identité catalogue distincte pour choisir le bon modèle
+    // 3D. `Owl3D`/`Werewolf3D`/`Boar3D` (voir Platform3DAmbientScene.tsx) n'ont plus de position
+    // interne fixe depuis leur conversion en entités mapmonde : ce groupe (position/orientation
+    // gérées comme tout PNJ/familier errant ci-dessus) est désormais leur SEULE source de placement.
+    const id = markerId ?? '';
+    const wildlifeKind = id.startsWith('owl-') ? 'owl' : id.startsWith('werewolf-') ? 'werewolf' : 'boar';
     return (
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}>
-          {isOwl
+          {wildlifeKind === 'owl'
             ? <Owl3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} soundEnabled={owlHootEnabled !== false} seedKey={markerId} moving={!!moving} />
-            : <Werewolf3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} soundEnabled={werewolfHowlEnabled !== false} seedKey={markerId} moving={!!moving} />}
+            : wildlifeKind === 'werewolf'
+            ? <Werewolf3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} soundEnabled={werewolfHowlEnabled !== false} seedKey={markerId} moving={!!moving} />
+            : <Boar3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} seedKey={markerId} moving={!!moving} />}
         </group>
       </group>
     );
@@ -1888,7 +1891,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // commentaires détaillés, dans GameCanvas2D.tsx/WorldMapWidget.tsx.
   useEffect(() => {
     if (!rules) return;
-    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0);
+    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0, rules.wildlifeBoarCount ?? 8);
   }, [rules]);
   // Réglages audio admin (voir lib/audio.ts) — appelés UNE SEULE FOIS ici (composant NON-R3F) et
   // transmis en prop à `<Scene>` → `<MarkerBlock>` pour le hibou/loup-garou errant, plutôt que de
@@ -2086,8 +2089,9 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     // quand je me déplace [...] fait en sorte qu'ils soient positionnés aléatoirement [...] et se
     // déplacent aussi dans la Plateforme 3D ».
     const wildlifeMarkers: MapMarker[] = Object.entries(roamingActors.wildlife).map(([id, w]) => ({
-      id, kind: 'wildlife', name: w.kind === 'owl' ? t('canvas2d.owlLabel') : t('canvas2d.werewolfLabel'),
-      icon: w.kind === 'owl' ? '🦉' : '🐺', x: w.x, y: w.y,
+      id, kind: 'wildlife',
+      name: w.kind === 'owl' ? t('canvas2d.owlLabel') : w.kind === 'werewolf' ? t('canvas2d.werewolfLabel') : t('canvas2d.boarLabel'),
+      icon: w.kind === 'owl' ? '🦉' : w.kind === 'werewolf' ? '🐺' : '🐗', x: w.x, y: w.y,
     }));
     const wildlifeFacing = new Map<string, { facing: SynkDirection; moving: boolean }>();
     for (const [id, w] of Object.entries(roamingActors.wildlife)) wildlifeFacing.set(id, { facing: w.facing, moving: w.moving });

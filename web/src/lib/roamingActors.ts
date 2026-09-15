@@ -139,8 +139,14 @@ export interface ExtraRoamingActor {
  * deviennent donc de VRAIES entités mapmonde (coordonnées 0-100, comme `npc`/`dragon`/`familiars`
  * ci-dessus), qui errent avec le même moteur `advanceActor`/`stepActors`, sont localisées sur le
  * widget "Mapmonde" (voir WorldMapWidget.tsx) et dont le nombre est paramétrable en Administration
- * (voir RepRules.wildlifeOwlCount/wildlifeWerewolfCount, RepRulesPanel.tsx). */
-export type WildlifeKind = 'owl' | 'werewolf';
+ * (voir RepRules.wildlifeOwlCount/wildlifeWerewolfCount/wildlifeBoarCount, RepRulesPanel.tsx).
+ * 🔧 `'boar'` (sanglier + marcassins, troupeau) ajouté par analogie EXACTE pour corriger le même
+ * bug remonté séparément par l'utilisateur pour le troupeau de sangliers dans Platform3DAmbientScene.
+ * tsx (`Boar3D`/`BoarHerd3D` y étaient positionnés par translation LOCALE directe, glués à Synk et
+ * orientés perpendiculairement à leur déplacement réel — « ils se déplacent en biais de côté [...]
+ * je ne peux jamais les atteindre car ils glissent dans le décor »). Un point d'apparition `'boar'`
+ * représente tout le petit troupeau (1 adulte + marcassins rendus en formation fixe, voir Boar3D). */
+export type WildlifeKind = 'owl' | 'werewolf' | 'boar';
 export interface WildlifeActorState extends RoamingActorPos { facing: SynkDirection; moving: boolean; kind: WildlifeKind }
 
 export interface RoamingActorsState {
@@ -571,23 +577,29 @@ function randomWildlifeSpawn(guaranteed: boolean): RoamingActorPos {
 let lastWildlifeEnabled: boolean | null = null;
 let lastWildlifeOwlCount = -1;
 let lastWildlifeWerewolfCount = -1;
+let lastWildlifeBoarCount = -1;
 let lastWildlifeSeedVersion = -1;
 
-/** (Re)génère la faune errante (hibou(x)/loup-garou(s)) — voir WildlifeActorState/RepRules.wildlife*
- * (RepRulesPanel.tsx). Idempotent : n'effectue RIEN si `enabled`/`owlCount`/`werewolfCount`/
- * `seedVersion` sont IDENTIQUES au dernier appel ayant réellement régénéré la faune (permet un
- * appel sans risque depuis les 3 widgets à chaque montage/changement de RepRules). `seedVersion`
- * (voir RepRules.wildlifeSpawnSeed) est un simple compteur : l'incrémenter (bouton Administration)
- * force une régénération avec de NOUVELLES positions aléatoires même si les comptages n'ont pas
- * changé. `enabled=false` vide entièrement `wildlife` (aucune faune affichée dans aucun widget) sans
- * pour autant perdre les compteurs suivis ci-dessus (réactiver restaure le même comptage). */
-export function ensureWildlifeSpawns(enabled: boolean, owlCount: number, werewolfCount: number, seedVersion: number): void {
+/** (Re)génère la faune errante (hibou(x)/loup-garou(s)/troupeau(x) de sangliers) — voir
+ * WildlifeActorState/RepRules.wildlife* (RepRulesPanel.tsx). Idempotent : n'effectue RIEN si
+ * `enabled`/`owlCount`/`werewolfCount`/`boarCount`/`seedVersion` sont IDENTIQUES au dernier appel
+ * ayant réellement régénéré la faune (permet un appel sans risque depuis les 3 widgets à chaque
+ * montage/changement de RepRules). `seedVersion` (voir RepRules.wildlifeSpawnSeed) est un simple
+ * compteur : l'incrémenter (bouton Administration) force une régénération avec de NOUVELLES
+ * positions aléatoires même si les comptages n'ont pas changé. `enabled=false` vide entièrement
+ * `wildlife` (aucune faune affichée dans aucun widget) sans pour autant perdre les compteurs suivis
+ * ci-dessus (réactiver restaure le même comptage). `boarCount` par défaut à 0 (paramètre optionnel)
+ * pour rester rétro-compatible avec d'éventuels appelants non mis à jour. */
+export function ensureWildlifeSpawns(enabled: boolean, owlCount: number, werewolfCount: number, seedVersion: number, boarCount = 0): void {
   const safeOwl = Math.max(0, Math.round(owlCount));
   const safeWere = Math.max(0, Math.round(werewolfCount));
-  if (enabled === lastWildlifeEnabled && safeOwl === lastWildlifeOwlCount && safeWere === lastWildlifeWerewolfCount && seedVersion === lastWildlifeSeedVersion) {
+  const safeBoar = Math.max(0, Math.round(boarCount));
+  if (enabled === lastWildlifeEnabled && safeOwl === lastWildlifeOwlCount && safeWere === lastWildlifeWerewolfCount
+    && safeBoar === lastWildlifeBoarCount && seedVersion === lastWildlifeSeedVersion) {
     return; // rien n'a réellement changé — évite de re-tirer aléatoirement à chaque montage de widget
   }
-  lastWildlifeEnabled = enabled; lastWildlifeOwlCount = safeOwl; lastWildlifeWerewolfCount = safeWere; lastWildlifeSeedVersion = seedVersion;
+  lastWildlifeEnabled = enabled; lastWildlifeOwlCount = safeOwl; lastWildlifeWerewolfCount = safeWere;
+  lastWildlifeBoarCount = safeBoar; lastWildlifeSeedVersion = seedVersion;
   wildlifeMotions.clear();
   const wildlife: Record<string, WildlifeActorState> = {};
   if (enabled) {
@@ -600,6 +612,11 @@ export function ensureWildlifeSpawns(enabled: boolean, owlCount: number, werewol
       const pos = randomWildlifeSpawn(i === 0);
       wildlife[`werewolf-${i}`] = { ...pos, facing: 'down', moving: false, kind: 'werewolf' };
       wildlifeMotions.set(`werewolf-${i}`, { dx: 0, dy: 0, holdTicks: 0 });
+    }
+    for (let i = 0; i < safeBoar; i++) {
+      const pos = randomWildlifeSpawn(i === 0);
+      wildlife[`boar-${i}`] = { ...pos, facing: 'down', moving: false, kind: 'boar' };
+      wildlifeMotions.set(`boar-${i}`, { dx: 0, dy: 0, holdTicks: 0 });
     }
   }
   state = { ...state, wildlife };
