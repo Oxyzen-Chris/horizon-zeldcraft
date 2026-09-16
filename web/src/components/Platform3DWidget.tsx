@@ -1142,7 +1142,6 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // — remplace le gemme octaédrique générique par une forme reconnaissable de rouleau de quête.
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef} rotation={[0, 0, Math.PI / 2]}>
           <mesh castShadow><cylinderGeometry args={[0.13, 0.13, 0.34, 12]} /><meshStandardMaterial color="#e8d9ad" roughness={0.85} /></mesh>
           <mesh position={[0, 0.17, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.13, 0.018, 6, 12]} /><meshStandardMaterial color="#8a6a45" roughness={0.7} /></mesh>
@@ -1176,7 +1175,6 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     const dragonRotationY = facingAngle - Math.PI / 2;
     return (
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef} scale={scale} rotation={[0, dragonRotationY, 0]}><DragonMarker color={dragonColor} walking={!!moving} seed={markerId ?? name ?? ''} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec} /></group>
       </group>
     );
@@ -1189,7 +1187,6 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     const appearance = npcAppearance(markerId ?? '', name ?? '');
     return (
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}><NpcVoxel appearance={appearance} walking={!!moving} /></group>
       </group>
     );
@@ -1205,7 +1202,6 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     const wildlifeKind = id.startsWith('owl-') ? 'owl' : id.startsWith('werewolf-') ? 'werewolf' : 'boar';
     return (
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}>
           {wildlifeKind === 'owl'
             ? <Owl3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} soundEnabled={owlHootEnabled !== false} seedKey={markerId} moving={!!moving} />
@@ -1224,7 +1220,6 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     const category = treasureCategory(markerId ?? '', name ?? '');
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef}><TreasureIcon category={category} /></group>
       </group>
     );
@@ -1235,7 +1230,6 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // isolé (pas posé sur une dalle) pour représenter l'accès à un monde entier.
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef}>
           <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
             <torusGeometry args={[0.28, 0.06, 10, 20]} />
@@ -1253,7 +1247,6 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // Silhouette sombre et cornue, menaçante — boss narratif unique (voir ZorghonEncounterState).
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#1c1917" /></mesh>
         <group ref={bobRef}>
           <mesh castShadow><cylinderGeometry args={[0.16, 0.24, 0.5, 8]} /><meshStandardMaterial color="#1f1b24" roughness={0.7} /></mesh>
           <mesh position={[0, 0.32, 0]} castShadow><sphereGeometry args={[0.16, 10, 8]} /><meshStandardMaterial color="#2e2436" roughness={0.6} /></mesh>
@@ -1269,7 +1262,6 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // Silhouette liée (captif·ve à délivrer) — corps assis + tête + lien de corde autour du torse.
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
         <group ref={bobRef}>
           <mesh position={[0, -0.1, 0]} castShadow><cylinderGeometry args={[0.15, 0.18, 0.3, 8]} /><meshStandardMaterial color="#94a3b8" roughness={0.8} /></mesh>
           <mesh position={[0, 0.14, 0]} castShadow><sphereGeometry args={[0.13, 10, 8]} /><meshStandardMaterial color="#e8c39e" /></mesh>
@@ -1280,7 +1272,6 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   }
   return (
     <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-      <mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial color="#334155" /></mesh>
       <group ref={bobRef}>
         <mesh>
           <octahedronGeometry args={[0.22, 0]} />

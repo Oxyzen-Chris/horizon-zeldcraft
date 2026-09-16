@@ -154,6 +154,8 @@
   "changelog.ambient3d.body": "Lua (8 fases), sol, estrelas cadentes, nuvens, chuva, coruja, lobisomem, morcegos, aves de rapina, pássaros, vara de javalis, bruxa voadora: agora são objetos 3D reais na Plataforma 3D (já não ícones planos). Novo widget «Áudio» para ajustar ou silenciar o som de cada criatura, totalmente configurável na Administração.",
   "changelog.wildlifeBoarWitch.title": "Vara de javalis e bruxa: movimento corrigido",
   "changelog.wildlifeBoarWitch.body": "A vara de javalis agora vagueia livremente por todo o Mapa-múndi, tal como a coruja e o lobisomem (já não segue Synk e finalmente pode ser alcançada), com um andar natural voltado para a frente. A bruxa voadora agora também voa de frente para a sua trajetória em vez de deslizar de lado.",
+  "changelog.waterPedestalFix.title": "Removida a laje escura flutuante sobre a água",
+  "changelog.waterPedestalFix.body": "PNJ, dragões, fauna (coruja, lobisomem, javali) e objetos/tesouros já não mostram uma pequena laje escura a flutuar sobre a água quando estão sobre ela — um pedestal decorativo herdado, invisível em terra firme, foi removido.",
   "changelog.dayNight.title": "Ciclo dia/noite e temas ambientes",
   "changelog.dayNight.body": "A Plataforma 3D, o Mapa do Mundo e um novo widget «Clima» agora seguem a hora real: sol/lua (com as suas fases), céu estrelado, nuvens, chuva passageira, aves de rapina, bruxa, morcegos... Totalmente configurável na Administração (temas Dia/Noite integrados + temas personalizados programáveis).",
   "changelog.leaderboard.title": "Classificação corrigida",

@@ -2424,3 +2424,47 @@ soleil/étoiles/nuages/ciel de jour (régressions #1-#4 et réglage fin ci-dessu
 : seule la formule de `rotation.y` change, ni son échelle, ni son intervalle de passage
 (`witchFlybyIntervalSec`), ni sa trajectoire (x/y/z) ni son sifflement (`useAmbientSoundCycle`) ne sont
 affectés.
+
+## 🟦 Régression #6 : dalle noire flottante sous chaque objet/créature au-dessus de l'eau
+
+**Demande utilisateur** : « il y a sous chaque objet qui se déplace (hibou, sangliers, marcassin,
+dragons, etc...) ou même statique, une dalle noire qui est visible lorsque l'objet passe au-dessus de
+l'eau [...] cela perturbe et alourdit l'expérience utilisateur ».
+
+**Cause racine** : `MarkerBlock` (`Platform3DWidget.tsx`) faisait systématiquement précéder CHAQUE
+type de marqueur (PNJ, familier/dragon, faune errante, trésor/objet déposé, quête, portail de monde,
+Zorghon, captif·ve, marqueur générique — 9 branches au total) d'un petit socle décoratif fixe :
+`<mesh position={[0, -0.42, 0]}><boxGeometry args={[0.5, 0.16, 0.5]} /><meshStandardMaterial
+color="#334155" /></mesh>` (couleur `#1c1917` pour Zorghon). Une dalle de terrain classique
+(`TerrainBlock`, herbe/roche) occupe l'espace Y de -1 à 0 : ce socle (Y de -0.5 à -0.34) reste donc
+ENTIÈREMENT enfoui/invisible sous la surface du sol, sans aucun effet visuel — un vestige de code mort
+en pratique sur toute tuile non-aquatique. Une dalle d'eau (`TerrainBlock`, cas `tile.terrain ===
+'water'`), en revanche, est volontairement RECULÉE en profondeur pour simuler un niveau d'eau
+(`y = -0.62 - depthNorm * 0.3`, soit une surface toujours ≤ -0.5) — alors que le groupe racine du
+marqueur reste, lui, positionné à Y=0 comme sur terre ferme (aucune logique de flottaison/enfoncement
+pour ces marqueurs, à la différence de Synk qui gère spécifiquement la nage). Le socle, fixe à Y
+∈ [-0.5, -0.34], se retrouve donc mécaniquement AU-DESSUS de la surface de l'eau recueillie dès qu'un
+marqueur est positionné sur une tuile aquatique — exactement la « dalle noire flottante » remontée par
+l'utilisateur.
+
+**Correctif** : suppression pure et simple de ce socle dans les 9 branches de `MarkerBlock`
+concernées (PNJ, familier, faune errante, trésor/objet déposé, quête, portail de monde, Zorghon,
+captif·ve, marqueur générique) — puisqu'il n'apportait STRICTEMENT aucun rendu visible sur terre (déjà
+enfoui) et ne servait à rien d'autre (ni ombre portée — aucun `castShadow`/`receiveShadow` — ni
+hit-test dédié, le `onClick` étant porté par le `<group>` parent et non par ce mesh), le retirer ne
+change RIEN à l'affichage sur toute tuile non-aquatique et élimine intégralement l'artefact sur l'eau.
+
+**Vérifié (Playwright)** : `npx tsc --noEmit` propre après suppression des 9 occurrences ; connexion
+« Jeu anonyme » (compte Démo), widget Plateforme 3D ouvert en plein écran, zoom/dézoom et orbite
+caméra sur plusieurs zones du monde (dont un point d'eau visible à proximité du château de spawn) —
+0 erreur console/page ; scène (herbe, arbres, château, portails, oiseaux/chauves-souris, PNJ) rendue
+à l'identique de l'état pré-correctif, aucune régression visuelle observée sur les tuiles non-
+aquatiques.
+
+**Zéro régression confirmée** : aucune des 9 branches de `MarkerBlock` n'a été modifiée au-delà de la
+suppression de cette unique ligne de socle ; positionnement/orientation/animation de chaque type de
+marqueur (PNJ, familier, faune, trésor, quête, portail, Zorghon, captif·ve) intégralement inchangés ;
+le rendu du sol lui-même (`TerrainBlock`, dalles d'eau/herbe/roche) non modifié ; la gestion dédiée de
+la nage de Synk (`swimming`, dalle d'eau sous ses pieds) — mécanisme distinct, non touché — continue de
+fonctionner comme avant.
+

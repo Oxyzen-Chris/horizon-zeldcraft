@@ -304,6 +304,8 @@
   "changelog.ambient3d.body": "Lune (8 phases), soleil, étoiles filantes, nuages, pluie, hibou, loup-garou, chauves-souris, rapaces, oiseaux, sanglier(eaux), sorcière volante : désormais de vrais objets 3D dans la Plateforme 3D (et non plus des icônes plates). Nouveau widget « Audio » pour régler ou couper le son de chaque créature, entièrement paramétrable en Administration.",
   "changelog.wildlifeBoarWitch.title": "Sangliers/marcassins et sorcière : déplacements corrigés",
   "changelog.wildlifeBoarWitch.body": "Le troupeau de sangliers erre désormais librement sur toute la Mapmonde comme le hibou et le loup-garou (il ne suit plus Synk et peut enfin être approché/atteint), avec une démarche naturelle orientée vers l'avant. La sorcière volante vole aussi désormais face à sa trajectoire au lieu de glisser de travers.",
+  "changelog.waterPedestalFix.title": "Suppression de la dalle noire flottante sur l'eau",
+  "changelog.waterPedestalFix.body": "Les PNJ, dragons, faune (hibou, loup-garou, sanglier) et objets/trésors n'affichent plus de petite dalle sombre flottant au-dessus de l'eau lorsqu'ils s'y trouvent — un socle décoratif hérité, invisible sur la terre ferme, a été retiré.",
   "changelog.dayNight.title": "Cycle jour/nuit et thèmes d'ambiance",
   "changelog.dayNight.body": "La Plateforme 3D, la Mapmonde et un nouveau widget « Météo » suivent désormais l'heure réelle : soleil/lune (avec ses phases), ciel étoilé, nuages, pluie passagère, rapaces, sorcière, chauve-souris... Entièrement paramétrable en Administration (thèmes Jour/Nuit + thèmes personnalisés programmables).",
   "changelog.leaderboard.title": "Classement des joueurs corrigé",
