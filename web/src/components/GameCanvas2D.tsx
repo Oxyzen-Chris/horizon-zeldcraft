@@ -19,7 +19,7 @@ import {
 } from '@/lib/worldTerrain';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
-import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
 import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, setInteractingActorId, getRoamStepMs, type ExtraRoamingActor } from '@/lib/roamingActors';
@@ -367,9 +367,10 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const npcApproach = useNpcApproach();
 
   useEffect(() => {
-    const savedSize = localStorage.getItem(SIZE_KEY);
+    const savedSize = readScoped(SIZE_KEY, address);
     if (savedSize) { try { setSize(JSON.parse(savedSize)); } catch { /* ignore */ } }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
 
   // Tous les marqueurs de la mapmonde (une fois) — décor pour le biais de terrain local (voir
   // worldTileAt) ET affichage direct dans la fenêtre de la caméra (voir rendu plus bas).
@@ -1214,7 +1215,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const onResizePointerUp = () => {
     if (!resizing) return;
     setResizing(false);
-    localStorage.setItem(SIZE_KEY, JSON.stringify(size));
+    localStorage.setItem(scopedKey(SIZE_KEY, address), JSON.stringify(size));
   };
 
   // Éléments d'interface de la mécanique Oxygène — rendus dans les DEUX branches (widget replié ou

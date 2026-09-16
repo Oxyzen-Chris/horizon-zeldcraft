@@ -14,7 +14,7 @@ import {
 } from '@/lib/gameState';
 import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
-import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { EnvStatusPopupLayer } from './EnvStatusPopupLayer';
 import {
@@ -295,9 +295,10 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   useEffect(() => { seasonRef.current = season; }, [season]);
 
   useEffect(() => {
-    const savedSize = localStorage.getItem(SIZE_KEY);
+    const savedSize = readScoped(SIZE_KEY, address);
     if (savedSize) { try { setSize(JSON.parse(savedSize)); } catch { /* ignore */ } }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
 
   useEffect(() => {
     getMapPoiDefs(DEFAULT_MAP_ID).then(setPois).catch(() => {});
@@ -464,7 +465,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   const onResizePointerUp = () => {
     if (!resizing) return;
     setResizing(false);
-    localStorage.setItem(SIZE_KEY, JSON.stringify(size));
+    localStorage.setItem(scopedKey(SIZE_KEY, address), JSON.stringify(size));
   };
 
   // ─── Déplacement libre de Synk (clic sur la carte) ───

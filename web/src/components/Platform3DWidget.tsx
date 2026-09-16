@@ -22,7 +22,7 @@ import {
 import { STAGE_NAMES } from '@/lib/contract';
 import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
-import { useDraggableWidget } from '@/lib/useDraggableWidget';
+import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns } from '@/lib/roamingActors';
@@ -2552,9 +2552,10 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   const [resizing, setResizing] = useState(false);
   const resizeStart = useRef<{ x: number; y: number; w: number; h: number }>({ x: 0, y: 0, w: 0, h: 0 });
   useEffect(() => {
-    const saved = localStorage.getItem(SIZE_KEY);
+    const saved = readScoped(SIZE_KEY, address);
     if (saved) { try { setSize(JSON.parse(saved)); } catch { /* ignore */ } }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
   const onResizePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     setResizing(true);
@@ -2572,7 +2573,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   const onResizePointerUp = () => {
     if (!resizing) return;
     setResizing(false);
-    localStorage.setItem(SIZE_KEY, JSON.stringify(size));
+    localStorage.setItem(scopedKey(SIZE_KEY, address), JSON.stringify(size));
   };
 
   const fullscreenRef = useRef<HTMLDivElement | null>(null);

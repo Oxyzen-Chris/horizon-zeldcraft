@@ -18,6 +18,39 @@ const MOVE_THRESHOLD = 6;
 const VIEWPORT_MARGIN = 56;
 
 /**
+ * Clé localStorage "scopée" par joueur (demande utilisateur : « sauvegarder [la position des
+ * widgets] en fonction de chaque utilisateur pour customiser [...] l'expérience utilisateur
+ * lorsqu'il reprend sa session ») — un même navigateur/appareil peut voir se succéder plusieurs
+ * comptes (portefeuille crypto A puis B, ou Démo puis portefeuille réel) ; sans ce suffixe, TOUS
+ * partageaient auparavant la même disposition de fenêtres (clé `posKey`/`collapsedKey` brute,
+ * globale au navigateur). `address` provient de `useEffectiveAccount()` (adresse réelle OU adresse
+ * virtuelle Démo/Fiat stable, voir effectiveAccount.tsx) : chaque compte — crypto ou non — a donc
+ * bien SA PROPRE disposition mémorisée, restaurée automatiquement à la reprise de sa session.
+ * Volontairement un stockage 100% local (pas de synchronisation entre appareils) : la disposition
+ * des fenêtres est une préférence d'affichage propre à CET écran/navigateur (résolution, taille de
+ * fenêtre) — la resynchroniser entre appareils de tailles différentes serait d'ailleurs
+ * contre-productif (une position pensée pour un écran large déborderait sur un petit écran).
+ * Exportée : également utilisée directement par les 3 widgets redimensionnables gérant leur
+ * propre `SIZE_KEY` en dehors de ce hook (Platform3DWidget/GameCanvas2D/WorldMapWidget), pour que
+ * la TAILLE mémorisée d'une fenêtre soit elle aussi propre à chaque joueur, comme sa position.
+ */
+export function scopedKey(base: string, address?: string): string {
+  return address ? `${base}::${address.toLowerCase()}` : base;
+}
+
+/** Lit `scopedKey(base, address)` avec repli sur l'ancienne clé globale non-scopée `base` si la
+ * clé par-joueur n'existe pas encore — préserve à l'identique la disposition déjà mémorisée par les
+ * joueurs existants (aucune réinitialisation surprise lors du déploiement de ce correctif), tout en
+ * faisant en sorte que chaque compte reçoive ensuite bien sa propre clé dès la prochaine
+ * sauvegarde (glissement, bascule réduit/déplié, recentrage — voir plus bas). */
+export function readScoped(base: string, address?: string): string | null {
+  if (typeof window === 'undefined') return null;
+  const scoped = localStorage.getItem(scopedKey(base, address));
+  if (scoped != null) return scoped;
+  return localStorage.getItem(base);
+}
+
+/**
  * Clampe une position dans le viewport. `size` — quand connu (mesure réelle du widget affiché,
  * via `getBoundingClientRect()`) — remplace la marge fixe `VIEWPORT_MARGIN` par la vraie
  * largeur/hauteur du widget, pour que TOUT son cadre (pas seulement son coin haut-gauche) reste
@@ -110,16 +143,16 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
 
   useEffect(() => {
     if (collapsedKey) {
-      setCollapsed((localStorage.getItem(collapsedKey) ?? (defaultCollapsed ? '1' : '0')) === '1');
+      setCollapsed((readScoped(collapsedKey, address) ?? (defaultCollapsed ? '1' : '0')) === '1');
     }
-    const saved = localStorage.getItem(posKey);
+    const saved = readScoped(posKey, address);
     if (saved) {
       try { setPos(clampToViewport(JSON.parse(saved))); } catch { /* ignore */ }
     } else if (typeof window !== 'undefined') {
       setPos(defaultPos());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [address]);
 
   /** Re-clampe `pos` d'après la taille RÉELLEMENT affichée (icône réduite ou fenêtre dépliée),
    * mesurée via `elRef`. Complète le clamp "à l'aveugle" (marge fixe) fait au montage ci-dessus :
@@ -133,7 +166,7 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
       if (!prev) return prev;
       const clamped = clampToViewport(prev, { w: rect.width, h: rect.height });
       if (clamped.x === prev.x && clamped.y === prev.y) return prev;
-      localStorage.setItem(posKey, JSON.stringify(clamped));
+      localStorage.setItem(scopedKey(posKey, addressRef.current), JSON.stringify(clamped));
       return clamped;
     });
   }, [posKey]);
@@ -187,7 +220,7 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
     userToggledRef.current = true;
     setCollapsed(prev => {
       const next = !prev;
-      if (collapsedKey) localStorage.setItem(collapsedKey, next ? '1' : '0');
+      if (collapsedKey) localStorage.setItem(scopedKey(collapsedKey, addressRef.current), next ? '1' : '0');
       return next;
     });
   }, [collapsedKey]);
@@ -238,7 +271,7 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
     setPos(current => {
-      if (current) localStorage.setItem(posKey, JSON.stringify(current));
+      if (current) localStorage.setItem(scopedKey(posKey, addressRef.current), JSON.stringify(current));
       return current;
     });
   }, [posKey]);
@@ -262,7 +295,7 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
       y: Math.max(0, Math.round((window.innerHeight - h) / 2)),
     };
     setPos(next);
-    localStorage.setItem(posKey, JSON.stringify(next));
+    localStorage.setItem(scopedKey(posKey, addressRef.current), JSON.stringify(next));
     setMenuPos(null);
   }, [posKey]);
 

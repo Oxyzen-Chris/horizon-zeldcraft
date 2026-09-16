@@ -2468,3 +2468,68 @@ le rendu du sol lui-même (`TerrainBlock`, dalles d'eau/herbe/roche) non modifi�
 la nage de Synk (`swimming`, dalle d'eau sous ses pieds) — mécanisme distinct, non touché — continue de
 fonctionner comme avant.
 
+## 🧲 Disposition des fenêtres/widgets ancrée et mémorisée par joueur
+
+**Demande utilisateur** : « ancrer et sauvegarder la position des widgets sur l'écran pour conserver
+leur position à chaque nouvelle ouverture de session de jeu [...] en fonction de chaque utilisateur
+[...] Ancrer ne veut pas dire figer, le joueur doit toujours pouvoir déplacer ses widgets ». Objectif :
+éviter de retrouver ses fenêtres dispersées à chaque reprise de partie, sans jamais empêcher de les
+redéplacer librement.
+
+**État avant correctif** : la position (`pos`) et l'état réduit/déplié (`collapsed`) de chacune des 17
+fenêtres flottantes du jeu (StatsWidget, InventoryWidget, EquipmentWidget, Platform3DWidget,
+GameCanvas2D, WorldMapWidget, WeatherPanel, AudioWidget, HelpWidget, DiceRollWidget,
+KingdomQuestsWidget, ProgressWidget, QuestsZeldaCraftWidget, ShopWidget, TeamChatWidget,
+WalletTopupWidget, ainsi que les widgets personnalisés admin via `CustomWidgetsRenderer.tsx`) étaient
+**déjà** persistées en `localStorage` par le hook partagé `useDraggableWidget()`
+(`lib/useDraggableWidget.ts`) — mais sous une clé **globale au navigateur**, identique pour tout le
+monde (ex. `zc.statsWidgetPos`). Un même navigateur/appareil enchaînant plusieurs comptes (portefeuille
+A puis B, ou compte Démo puis portefeuille réel) voyait donc TOUS ces comptes partager exactement la
+même disposition — pas de personnalisation par joueur.
+
+**Correctif — clé `localStorage` « scopée » par joueur** : ajout de deux fonctions exportées dans
+`useDraggableWidget.ts` :
+- `scopedKey(base, address)` → `` `${base}::${address.toLowerCase()}` `` si une adresse est connue,
+  sinon `base` inchangé ;
+- `readScoped(base, address)` → lit d'abord la clé scopée, et si elle n'existe pas encore, **retombe
+  sur l'ancienne clé globale non-scopée** — mécanisme de migration garantissant qu'aucun joueur
+  existant ne voit sa disposition actuelle réinitialisée après déploiement (elle est simplement
+  « copiée » vers sa propre clé dès la prochaine sauvegarde).
+
+`address` provient de `useEffectiveAccount()` (`lib/effectiveAccount.tsx`), qui fournit une adresse
+stable aussi bien pour un portefeuille crypto réel que pour une session Démo/Fiat (adresse virtuelle
+déterministe dérivée de l'UID Firebase) — **tous** les comptes, pas seulement les portefeuilles
+crypto, bénéficient donc d'une disposition propre.
+
+Tous les points d'écriture du hook (glissement terminé, bascule réduit/déplié, recentrage clic-droit,
+re-clampage au redimensionnement) écrivent désormais via `scopedKey(..., addressRef.current)` ; l'effet
+de chargement initial dépend de `[address]` et utilise `readScoped()`. Les 3 widgets gérant leur
+propre état de taille de fenêtre en dehors du hook partagé (`Platform3DWidget.tsx` — `SIZE_KEY =
+'zc.platform3dWidgetSize'`, `GameCanvas2D.tsx` — `'zc.iso2dWidgetSize'`, `WorldMapWidget.tsx` —
+`'zc.mapWidgetSize'`) reçoivent le même traitement, `scopedKey`/`readScoped` étant exportées pour
+réutilisation.
+
+**Volontairement 100% local (pas de synchronisation entre appareils)** : la disposition des fenêtres
+est une préférence d'affichage propre à un écran/navigateur donné (résolution, taille de fenêtre) —
+la resynchroniser entre appareils de tailles différentes via Firebase serait contre-productif (une
+disposition pensée pour un écran large déborderait sur un petit écran). « À chaque nouvelle ouverture
+de session de jeu » est donc interprété comme « sur ce même appareil/navigateur », ce qui correspond
+à la lecture la plus naturelle de la demande.
+
+**Vérifié (Playwright)** : `npx tsc --noEmit` propre. Scénario 1 (persistance) : connexion Démo
+anonyme, widget Statistiques glissé vers une position distinctive, `localStorage` confirmé contenant
+la clé scopée `zc.statsWidgetPos::0x...`, rechargement de page → icône restaurée exactement à la
+position sauvegardée. Scénario 2 (isolation par compte, même stockage navigateur) : après avoir
+déplacé le widget pour le compte A, simulation d'un changement de compte (adresse `zc.effectiveSession`
+remplacée par une seconde adresse factice, sans toucher à la clé scopée du compte A) puis rechargement
+→ le widget apparaît à sa position PAR DÉFAUT (aucune contamination depuis le compte A) ; restauration
+de l'adresse du compte A puis nouveau rechargement → le widget réapparaît exactement à sa position
+personnalisée d'origine. 0 erreur console/page dans les deux scénarios.
+
+**Zéro régression confirmée** : la clé de repli (`readScoped`) préserve à l'identique la disposition
+déjà mémorisée par tout joueur existant (aucune réinitialisation surprise au déploiement) ; identité et
+tableaux de dépendances des callbacks (`reclampToRenderedSize`, `onPointerUp`, `resetPosition`,
+`toggleCollapsed`) inchangés hors l'ajout du scoping (toujours basés sur `addressRef.current`, un ref,
+pas une dépendance React) ; comportement de glissement/réduction/recentrage/menu-contextuel des 17
+widgets strictement identique, seule la clé `localStorage` sous-jacente change.
+
