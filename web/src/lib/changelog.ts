@@ -13,6 +13,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  { date: '2026-10-02', icon: '🧹', titleKey: 'changelog.witchSunOcclusion.title', bodyKey: 'changelog.witchSunOcclusion.body' },
   { date: '2026-10-01', icon: '🧲', titleKey: 'changelog.widgetLayoutPersist.title', bodyKey: 'changelog.widgetLayoutPersist.body' },
   { date: '2026-09-30', icon: '🟦', titleKey: 'changelog.waterPedestalFix.title', bodyKey: 'changelog.waterPedestalFix.body' },
   { date: '2026-09-29', icon: '🐗', titleKey: 'changelog.wildlifeBoarWitch.title', bodyKey: 'changelog.wildlifeBoarWitch.body' },

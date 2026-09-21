@@ -169,7 +169,24 @@ function getMoonTexture(phase: MoonPhaseKey, luneRousse: boolean): THREE.CanvasT
 // rayons agrandis dans la même proportion (voir Moon3D/Sun3D ci-dessous) pour conserver une taille
 // apparente cohérente à l'écran.
 const MOON_ANCHOR: [number, number, number] = [-18, 7, -67];
-const SUN_ANCHOR: [number, number, number] = [21, 8, -63];
+// 🔧 Demande utilisateur : « en journée, il faudrait que la sorcière sur son balai passe devant le
+// soleil et derrière les nuages ». Cause : `SUN_ANCHOR` (distance ≈66,9 depuis l'origine) était plus
+// PROCHE de la caméra que la sorcière lors de son passage devant lui (distance ≈74-78 au moment où
+// sa trajectoire croise l'azimut du soleil, voir `Witch3D`) — le test de profondeur WebGL faisait
+// donc logiquement gagner le soleil (plus proche) sur la sorcière (plus lointaine), qui disparaissait
+// derrière lui au lieu de passer devant. La lune, elle, fonctionnait déjà correctement par pur hasard
+// géométrique : `MOON_ANCHOR` est plus ÉLOIGNÉ (distance ≈69,7) que la sorcière à l'azimut de la lune
+// (distance ≈63,5 à ce moment de sa trajectoire), donc toujours plus proche qu'elle → la sorcière
+// occulte naturellement la lune. Correctif : `SUN_ANCHOR` repoussé à une distance ≈92,4 (>86,1, le
+// maximum atteint par la sorcière sur l'ENSEMBLE de sa trajectoire, avec marge) tout en conservant
+// exactement la même direction (mêmes proportions x/y/z) qu'avant — le soleil reste donc au même
+// endroit apparent du ciel, simplement plus loin, avec ses rayons agrandis dans la même proportion
+// (voir `Sun3D` ci-dessous) pour conserver une taille apparente inchangée à l'écran. La sorcière est
+// ainsi TOUJOURS plus proche de la caméra que le soleil, quel que soit le point de sa trajectoire,
+// et passe donc systématiquement devant lui — comme déjà pour la lune. Les nuages (`Clouds3D`,
+// rayon 44-60 depuis l'origine, donc toujours plus proches que la sorcière ≥63,5) continuent, eux,
+// de toujours passer devant elle (« derrière les nuages »), inchangé par ce correctif.
+const SUN_ANCHOR: [number, number, number] = [29, 11, -87];
 
 function Moon3D({ phase }: { phase: MoonPhaseInfo }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -212,16 +229,18 @@ function Sun3D() {
   const groupRef = useRef<THREE.Group>(null);
   const tex = useMemo(getSunGlowTexture, []);
   // Même position FIXE (SUN_ANCHOR, voir commentaire détaillé sur MOON_ANCHOR ci-dessus) — seule
-  // l'orientation billboard est mise à jour chaque frame, jamais la position.
+  // l'orientation billboard est mise à jour chaque frame, jamais la position. Rayons agrandis
+  // ×1,375 (13,8→19, 4,3→5,9) pour suivre l'éloignement de SUN_ANCHOR (×1,375, voir ci-dessus) et
+  // conserver une taille apparente à l'écran inchangée.
   useFrame(({ camera }) => { groupRef.current?.lookAt(camera.position); });
   return (
     <group ref={groupRef} position={SUN_ANCHOR}>
       <mesh>
-        <circleGeometry args={[13.8, 28]} />
+        <circleGeometry args={[19, 28]} />
         <meshBasicMaterial map={tex} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
       </mesh>
       <mesh position={[0, 0, 0.01]}>
-        <circleGeometry args={[4.3, 24]} />
+        <circleGeometry args={[5.9, 24]} />
         <meshBasicMaterial color="#fff8dc" toneMapped={false} />
       </mesh>
     </group>

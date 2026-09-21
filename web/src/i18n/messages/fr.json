@@ -304,6 +304,8 @@
   "changelog.ambient3d.body": "Lune (8 phases), soleil, étoiles filantes, nuages, pluie, hibou, loup-garou, chauves-souris, rapaces, oiseaux, sanglier(eaux), sorcière volante : désormais de vrais objets 3D dans la Plateforme 3D (et non plus des icônes plates). Nouveau widget « Audio » pour régler ou couper le son de chaque créature, entièrement paramétrable en Administration.",
   "changelog.wildlifeBoarWitch.title": "Sangliers/marcassins et sorcière : déplacements corrigés",
   "changelog.wildlifeBoarWitch.body": "Le troupeau de sangliers erre désormais librement sur toute la Mapmonde comme le hibou et le loup-garou (il ne suit plus Synk et peut enfin être approché/atteint), avec une démarche naturelle orientée vers l'avant. La sorcière volante vole aussi désormais face à sa trajectoire au lieu de glisser de travers.",
+  "changelog.witchSunOcclusion.title": "Sorcière volante : passe devant le soleil en journée",
+  "changelog.witchSunOcclusion.body": "En thème « Jour », la sorcière sur son balai passe désormais correctement devant le soleil (et toujours derrière les nuages), comme c'était déjà le cas devant la lune la nuit. Corrigé en éloignant le soleil dans le ciel pour rester cohérent avec la distance de survol de la sorcière.",
   "changelog.widgetLayoutPersist.title": "Position des fenêtres mémorisée par joueur",
   "changelog.widgetLayoutPersist.body": "La position, la taille et l'état réduit/déplié de chaque widget flottant sont désormais sauvegardés séparément pour chaque compte et restaurés automatiquement à la reprise de la partie — tu peux toujours les déplacer librement, rien n'est figé.",
   "changelog.waterPedestalFix.title": "Suppression de la dalle noire flottante sur l'eau",

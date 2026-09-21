@@ -154,6 +154,8 @@
   "changelog.ambient3d.body": "Moon (8 phases), sun, shooting stars, clouds, rain, owl, werewolf, bats, raptors, birds, boar herd, flying witch: now real 3D objects in the 3D Platform (no longer flat icons). New \"Audio\" widget to adjust or mute each creature's sound, fully configurable in Administration.",
   "changelog.wildlifeBoarWitch.title": "Boar herd & witch: movement fixed",
   "changelog.wildlifeBoarWitch.body": "The boar herd now roams freely across the whole Worldmap just like the owl and the werewolf (it no longer follows Synk and can finally be approached/reached), with a natural forward-facing walk. The flying witch now also faces her direction of travel instead of sliding sideways.",
+  "changelog.witchSunOcclusion.title": "Flying witch: now passes in front of the sun by day",
+  "changelog.witchSunOcclusion.body": "In the \"Day\" theme, the broom-flying witch now correctly passes in front of the sun (and still behind the clouds), matching her already-correct behavior in front of the moon at night. Fixed by pushing the sun farther into the sky to stay consistent with the witch's flyby distance.",
   "changelog.widgetLayoutPersist.title": "Window layout saved per player",
   "changelog.widgetLayoutPersist.body": "The position, size and collapsed/expanded state of every floating widget are now saved separately for each account and restored automatically when you resume playing — you can still move them freely, nothing is locked.",
   "changelog.waterPedestalFix.title": "Removed the floating dark slab over water",

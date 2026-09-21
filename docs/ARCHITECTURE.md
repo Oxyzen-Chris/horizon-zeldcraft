@@ -2533,3 +2533,58 @@ tableaux de dépendances des callbacks (`reclampToRenderedSize`, `onPointerUp`, 
 pas une dépendance React) ; comportement de glissement/réduction/recentrage/menu-contextuel des 17
 widgets strictement identique, seule la clé `localStorage` sous-jacente change.
 
+## 🌤️ Sorcière volante : passe désormais devant le soleil en journée (comme déjà devant la lune la nuit)
+
+**Demande utilisateur** : « En journée, il faudrait que la sorcière sur son balai passe devant le
+soleil et derrière les nuages. La nuit, la sorcière sur son balai passe bien à priori devant la lune
+et derrière les nuages, mais vérifie tout de même avec Playwright ! ».
+
+**Cause racine** : l'occlusion des astres/de la sorcière (`Platform3DAmbientScene.tsx`) repose
+uniquement sur la profondeur WebGL standard (aucun `depthTest`/`renderOrder` manuel) — l'objet le
+plus PROCHE de la caméra masque l'objet le plus LOINTAIN, la distance à l'origine servant de proxy
+fiable (la caméra orbite dans un rayon ≤ `CAMERA_MAX_DISTANCE` = 20 autour de l'origine, très petit
+face aux 60-90+ unités séparant ces éléments de ciel). Le survol de la sorcière (`Witch3D`) suit une
+trajectoire fixe : `x(p) = -56+112·p`, `y(p) = 7+4,7·sin(πp)`, `z(p) = -65+6·sin(2πp)` pour `p∈[0,1]`
+sur 14 secondes — sa distance à l'origine varie entre ≈63,4 (croisement avec l'azimut de la lune) et
+≈86,1 (aux extrémités du survol, vérifié empiriquement, voir ci-dessous). Avant ce correctif,
+`SUN_ANCHOR = [21, 8, -63]` (distance ≈66,9) était plus PROCHE de la caméra que la sorcière à son
+croisement avec l'azimut du soleil (≈74,4) : le soleil (plus proche) masquait donc à tort la sorcière
+(plus lointaine) — l'inverse du comportement demandé. `MOON_ANCHOR` (distance ≈69,7), lui, était déjà
+plus loin que la sorcière à son propre croisement (≈63,4) : le comportement nocturne était donc correct
+par pure coïncidence géométrique, non par conception — cette asymétrie entre les deux ancres était la
+véritable cause du bug, spécifique au thème jour.
+
+**Correctif** : `SUN_ANCHOR` repoussé ×1,375 dans la même direction (même azimut/élévation apparents),
+de `[21, 8, -63]` (distance ≈66,9) à `[29, 11, -87]` (distance ≈92,4) — désormais strictement
+supérieure à la distance MAXIMALE de la sorcière sur l'intégralité de son survol (≈86,1, marge
+incluse), garantissant qu'elle passe devant le soleil non seulement au point de croisement mais à
+TOUT instant du survol. Rayons du disque solaire (`Sun3D`) agrandis dans la même proportion (halo
+13,8→19, disque intérieur 4,3→5,9) pour conserver une taille apparente à l'écran inchangée malgré
+l'éloignement. `MOON_ANCHOR` et tous les autres éléments de ciel (étoiles, nuages, pluie, chauves-
+souris, rapaces, oiseaux) n'ont pas été touchés — le comportement nocturne, déjà correct, reste
+strictement inchangé.
+
+**Vérifié (Playwright)** : `npx tsc --noEmit` propre. Une instrumentation temporaire (retirée après
+vérification) a enregistré, image par image, la distance réelle (`position.length()`) du groupe
+`Witch3D` sur l'intégralité de son survol de 14s, aussi bien en thème jour qu'en thème nuit (date
+système simulée via un `Date`/`Date.now()` surchargé par `page.addInitScript`, en laissant volontairement
+`requestAnimationFrame`/`performance.now()` réels — contrairement à `page.clock`, qui aurait figé
+l'animation temps-réel de la sorcière). Résultat mesuré : distance minimale ≈63,37, maximale ≈86,08,
+identique dans les deux thèmes (la trajectoire ne dépend pas du thème) — confirmant empiriquement que
+la sorcière reste, sur tout son parcours, plus proche de l'origine que la nouvelle distance du soleil
+(≈92,36) et donc toujours rendue devant lui ; au point de croisement avec l'azimut lunaire, sa distance
+mesurée (≈63,37) reste inférieure à celle de la lune (≈69,73), confirmant qu'elle continue de passer
+devant la lune la nuit, sans régression. 0 erreur console/page dans les deux scénarios (jour/nuit).
+Vérification visuelle complémentaire : connexion Démo anonyme, widget Plateforme 3D en plein écran,
+caméra orientée précisément vers l'azimut du soleil (calculé analytiquement) — le soleil apparaît
+correctement dans le cadre, derrière les nuages passant devant lui comme attendu (comportement déjà
+correct, non affecté par ce correctif, car les nuages restent toujours plus proches de l'origine que
+la sorcière et le soleil).
+
+**Zéro régression confirmée** : seuls `SUN_ANCHOR` et les rayons du disque de `Sun3D` ont été modifiés
+dans `Platform3DAmbientScene.tsx` ; `MOON_ANCHOR`, `Moon3D`, `Witch3D` (trajectoire, animation, cap),
+`Clouds3D`, `Starfield3D` et tous les autres éléments d'ambiance (pluie, hibou, loup-garou, chauves-
+souris, rapaces, oiseaux, sangliers/marcassins) restent inchangés ; le fond de ciel bleu horizon du
+thème jour et le comportement d'occlusion « sorcière derrière les nuages » (jour comme nuit) ne
+dépendaient pas de la distance du soleil et ne sont donc pas affectés.
+
