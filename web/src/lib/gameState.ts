@@ -4414,6 +4414,20 @@ export interface RepRules {
   movementWalkStepMs: number;          // Intervalle (ms) entre deux pas en maintien "marche" (défaut 220)
   movementRunStepMs: number;           // Intervalle (ms) entre deux pas en maintien "course" (défaut 110)
   movementRunHoldThresholdMs: number;  // Durée de maintien (ms) avant de passer en course (défaut 1500)
+  // ─── Boussole & recentrage automatique — Plateforme 3D (voir Platform3DWidget.tsx) — répond à la
+  // demande utilisateur « place [...] une boussole translucide Nord, Est, Sud, Ouest [...] Ajoute un
+  // bouton qui permettra [...] de faire revenir l'orientation/direction de Synk par défaut à sa
+  // position d'origine vers le Nord [...] De même si Synk reste sans activité [...] pendant 6
+  // secondes [...] réoriente Synk automatiquement vers [...] le Nord en faisant glisser doucement la
+  // caméra ». Ce recentrage est une action EXPLICITE et ponctuelle (bouton ou minuterie d'inactivité),
+  // strictement découplée de la résolution du déplacement (dx/dy reste toujours en repère MONDE FIXE,
+  // voir le commentaire historique dans dispatchMove ci-dessous) — elle ne réintroduit donc PAS la
+  // boucle de rétroaction caméra↔déplacement qui avait motivé le verrouillage de la caméra
+  // (« la caméra [...] reste 100% libre [...] sans plus jamais être repositionnée automatiquement par
+  // le code ») : ce verrou concernait la résolution CONTINUE de la direction de marche à partir de
+  // l'angle de caméra, non une réinitialisation d'azimut ponctuelle et explicitement demandée.
+  platform3dCompassIdleRecenterSec: number; // défaut 6 — délai d'inactivité (aucun déplacement réel de
+                                        // Synk) avant le recentrage automatique vers le Nord
   // ─── Collision avec les POI "obstacles" (voir worldTerrain.ts::OBSTACLE_POI_TYPES et
   // GameCanvas2D.tsx/Platform3DWidget.tsx::move()) — bloque UNIQUEMENT le déplacement incrémental
   // au clavier/pavé directionnel/souris maintenue vers une case portant un POI structurel (hutte,
@@ -4898,6 +4912,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   movementWalkStepMs: 220,
   movementRunStepMs: 110,
   movementRunHoldThresholdMs: 1500,
+  platform3dCompassIdleRecenterSec: 6,
   poiObstacleCollisionEnabled: true,
   platform3dEquipmentRenderEnabled: true,
   platform3dJumpEnabled: true,

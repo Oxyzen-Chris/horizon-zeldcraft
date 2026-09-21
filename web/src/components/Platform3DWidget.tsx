@@ -115,6 +115,17 @@ const FACING_ANGLE: Record<SynkDirection, number> = {
   up: Math.PI, 'up-right': (3 * Math.PI) / 4, right: Math.PI / 2, 'down-right': Math.PI / 4,
 };
 
+/** Angle (degrés écran, sens horaire depuis le haut) de l'aiguille de la boussole HTML/CSS pour
+ * chaque direction affichée — voir la boussole N/E/S/O du composant parent (demande utilisateur
+ * « place [...] une boussole translucide Nord, Est, Sud, Ouest [...] qui permet de savoir dans
+ * quelle direction s'oriente/se dirige Synk »). Indépendant de FACING_ANGLE (radians 3D du modèle) :
+ * ici Nord=haut de la rose des vents=0°, Est=90°, Sud=180°, Ouest=270°, remplis à 45° pour les
+ * diagonales — cohérent avec le repère MONDE FIXE de `dispatchMove` (Haut=Nord, Droite=Est, etc.).
+ */
+const COMPASS_NEEDLE_DEG: Record<SynkDirection, number> = {
+  up: 0, 'up-right': 45, right: 90, 'down-right': 135, down: 180, 'down-left': 225, left: 270, 'up-left': 315,
+};
+
 /** Déduit la direction de marche à 8 valeurs à partir d'un delta (dx,dy) — copie fidèle de
  * GameCanvas2D.tsx::directionFromDelta (non exportée là-bas) pour rester cohérent visuellement
  * entre les deux plateformes. */
@@ -1294,10 +1305,18 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
  * avec la mécanique Oxygène/Fatigue déjà pilotée par GameCanvas2D.tsx (celui-ci reste l'unique
  * moteur de décroissance/récupération — ce composant n'est qu'une vue supplémentaire, aucune
  * nouvelle mécanique n'est introduite ici, zéro risque de double-décompte). */
-function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equipment, equipmentRenderEnabled, standY, fullySubmerged, eyeBlinkEnabled, eyeBlinkIntervalSec }: {
+function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equipment, equipmentRenderEnabled, standY, fullySubmerged, eyeBlinkEnabled, eyeBlinkIntervalSec, recentering, onRecenterComplete }: {
   stage: number; walking: boolean; running: boolean; swimming: boolean; jumpTrigger: number; facing: SynkDirection;
   equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
   standY?: number; fullySubmerged?: boolean; eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
+  /** Boussole & recentrage — voir RepRules.platform3dCompassIdleRecenterSec et le composant parent
+   * (bouton « Nord » / minuterie d'inactivité). Quand `recentering` est vrai, la rotation Y du
+   * modèle est interpolée en douceur vers le Nord au lieu de suivre instantanément `facing` (voir
+   * useFrame ci-dessous) ; `onRecenterComplete` est appelé une seule fois la cible atteinte, pour
+   * que le composant parent fixe `facing='up'` (cohérent avec l'angle visuel final) et coupe
+   * `recentering`. Optionnels : `undefined`/`false` reproduit exactement le comportement historique
+   * (rotation instantanée liée à `facing`), utilisé tel quel par `UnderwaterScene` sans changement. */
+  recentering?: boolean; onRecenterComplete?: () => void;
 }) {
   const bobRef = useRef<THREE.Group>(null);
   const jumpRef = useRef<THREE.Group>(null);
@@ -1317,9 +1336,16 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
   const blinkStateRef = useRef({ nextBlinkAt: 0, blinking: false, blinkStart: 0 });
   const groundRef = useRef<THREE.Group>(null);
   const groundYRef = useRef((standY ?? 0) + SYNK_GROUND_OFFSET);
+  // ─── Rotation Y du modèle — voir `recentering`/`onRecenterComplete` ci-dessus. `rotYRef` porte
+  // l'angle COURANT réellement appliqué (piloté à 100% par useFrame ci-dessous désormais, plus par
+  // la prop JSX `rotation` — évite tout conflit entre une ré-application déclarative instantanée de
+  // `facing` et une interpolation impérative en cours) ; `recenterDoneRef` évite d'appeler
+  // `onRecenterComplete` à répétition tant que le parent n'a pas repassé `recentering` à `false`.
+  const rotYRef = useRef(FACING_ANGLE[facing] ?? 0);
+  const recenterDoneRef = useRef(false);
   useEffect(() => { if (jumpTrigger > 0) jumpStartRef.current = Date.now(); }, [jumpTrigger]);
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
     const cadence = running ? 14 : 8;
     // Suivi lissé du relief : Synk s'élève/descend en douceur vers la hauteur de la dalle courante
@@ -1331,6 +1357,27 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
       const target = fullySubmerged ? base - 1.3 : swimming ? base - 0.45 : base + SYNK_GROUND_OFFSET;
       groundYRef.current += (target - groundYRef.current) * 0.16;
       groundRef.current.position.y = groundYRef.current;
+    }
+    // ─── Rotation Y — voir `recentering`/`onRecenterComplete` ci-dessus. Comportement historique
+    // inchangé (rotation instantanée = FACING_ANGLE[facing]) tant que `recentering` n'est pas actif ;
+    // sinon interpolation en douceur vers le Nord (FACING_ANGLE.up) par le plus court chemin
+    // angulaire (évite tout survol > 180°), puis notification unique au parent à l'arrivée.
+    {
+      const targetAngle = recentering ? FACING_ANGLE.up : (FACING_ANGLE[facing] ?? 0);
+      if (recentering) {
+        let diff = (targetAngle - rotYRef.current + Math.PI) % (Math.PI * 2) - Math.PI;
+        if (diff < -Math.PI) diff += Math.PI * 2;
+        if (Math.abs(diff) < 0.01) {
+          rotYRef.current = targetAngle;
+          if (!recenterDoneRef.current) { recenterDoneRef.current = true; onRecenterComplete?.(); }
+        } else {
+          rotYRef.current += diff * Math.min(1, delta * 5);
+        }
+      } else {
+        recenterDoneRef.current = false;
+        rotYRef.current = targetAngle;
+      }
+      if (groundRef.current) groundRef.current.rotation.y = rotYRef.current;
     }
     if (bobRef.current) {
       if (walking && !swimming) bobRef.current.position.y = Math.abs(Math.sin(t * cadence)) * (running ? 0.11 : 0.08);
@@ -1384,7 +1431,6 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
   });
 
   const color = STAGE_COLOR_3D[STAGE_NAMES[stage] || 'egg'] ?? '#22823a';
-  const angle = FACING_ANGLE[facing] ?? 0;
   const eq = equipmentRenderEnabled ? equipment : {};
   const weapon = eq.weapon, offhand = eq.offhand, arrows = eq.arrows, head = eq.head;
   const amulet = eq.amulet, legsEq = eq.legs, feetEq = eq.feet, belt = eq.belt, handsEq = eq.hands;
@@ -1392,7 +1438,9 @@ function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equ
   const skin = '#f2c99d', hairColor = '#3b2412', pantsDefault = '#334155', bootDefault = '#5b3a1e';
 
   return (
-    <group ref={groundRef} rotation={[0, angle, 0]}>
+    // Rotation Y désormais 100% impérative (voir rotYRef/useFrame ci-dessus) : NE PAS ré-ajouter de
+    // prop `rotation` déclarative ici, elle écraserait l'interpolation de recentrage à chaque rendu.
+    <group ref={groundRef}>
       <group ref={jumpRef}>
       <group ref={bobRef}>
         {/* ─── Tête : visage (yeux/nez/bouche/oreilles) + cheveux OU casque si équipé ─── */}
@@ -1622,7 +1670,7 @@ function Scene({
   equipment, equipmentRenderEnabled, standY, onTileClick, onPortalTileClick, onHutTileClick, onMarkerClick,
   onExtraQuestClick,
   eyeBlinkEnabled, eyeBlinkIntervalSec, objectFlags, fireBreathEnabled, fireBreathIntervalSec,
-  wildlifeAudio, owlHootEnabled, werewolfHowlEnabled,
+  wildlifeAudio, owlHootEnabled, werewolfHowlEnabled, orbitControlsRef, recentering, onRecenterComplete,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
@@ -1655,12 +1703,14 @@ function Scene({
    * elle-même (celle-ci est désormais une vraie entité mapmonde, visible quel que soit le thème). */
   wildlifeAudio?: Record<AudioSourceKey, AudioSourceSetting>;
   owlHootEnabled?: boolean; werewolfHowlEnabled?: boolean;
+  /** Boussole & recentrage (voir composant parent non-R3F et SynkVoxel ci-dessus) — `orbitControlsRef`
+   * est désormais créé et possédé par le composant PARENT (comme `cameraRef`/`CameraBridge`) afin que
+   * le bouton « Nord » et la minuterie d'inactivité (tous deux hors `<Canvas>`) puissent appeler
+   * `orbitControlsRef.current.setAzimuthalAngle(0)` — remplace l'ancien `useRef` local, sans changer
+   * le fonctionnement interne d'OrbitCameraLookUpLimiter (toujours alimenté par la même ref). */
+  orbitControlsRef: React.MutableRefObject<any>;
+  recentering?: boolean; onRecenterComplete?: () => void;
 }) {
-  // Voir OrbitCameraLookUpLimiter (déclaré plus haut) — référence l'instance d'OrbitControls pour
-  // recalculer sa borne `maxPolarAngle` à chaque frame en fonction du zoom courant. Type `any`
-  // volontairement large (le composant `OrbitControls` de drei expose la classe `OrbitControls` de
-  // `three-stdlib`, non réexportée ici) — seul `maxPolarAngle` est lu/modifié par le limiteur.
-  const orbitControlsRef = useRef<any>(null);
   const tiles = useMemo(() => {
     const out: { tile: Tile; wc: number; wr: number; x: number; z: number }[] = [];
     for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
@@ -1723,6 +1773,7 @@ function Scene({
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
         facing={facing} equipment={equipment} equipmentRenderEnabled={equipmentRenderEnabled} standY={standY}
         eyeBlinkEnabled={eyeBlinkEnabled} eyeBlinkIntervalSec={eyeBlinkIntervalSec}
+        recentering={recentering} onRecenterComplete={onRecenterComplete}
       />
       <OrbitControls
         ref={orbitControlsRef}
@@ -2158,6 +2209,56 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   const [jumpTrigger, setJumpTrigger] = useState(0);
   const walkStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ─── Boussole & recentrage Nord (voir RepRules.platform3dCompassIdleRecenterSec, FACING_ANGLE/
+  // COMPASS_NEEDLE_DEG plus haut, SynkVoxel::recentering/onRecenterComplete) — répond à la demande
+  // utilisateur « place [...] une boussole translucide [...] Ajoute un bouton qui permettra [...] de
+  // faire revenir l'orientation/direction de Synk [...] vers le Nord [...] De même si Synk reste
+  // sans activité [...] pendant 6 secondes [...] réoriente Synk automatiquement [...] en faisant
+  // glisser doucement la caméra ». `orbitControlsRef` est créé ICI (comme `cameraRef`/`CameraBridge`
+  // plus bas) car le bouton et la minuterie vivent HORS `<Canvas>`, dans ce composant — passé en
+  // prop à `<Scene>` qui l'attache à `<OrbitControls>` (remplace son ancien `useRef` local).
+  //
+  // 🔒 Ce recentrage EXPLICITE et PONCTUEL (un seul appel à `setAzimuthalAngle(0)` par déclenchement,
+  // laissé au damping natif d'OrbitControls pour l'interpolation douce — voir dispatchMove ci-dessous
+  // pour le commentaire historique complet) NE réintroduit PAS la boucle de rétroaction caméra↔
+  // déplacement qui a motivé le verrou « la caméra [...] reste 100% libre [...] sans plus jamais être
+  // repositionnée automatiquement par le code » : ce verrou visait la résolution CONTINUE de la
+  // direction de marche à partir de l'angle de caméra (`rotateInputByCameraYaw`), qui reste
+  // strictement inchangée (dx/dy en repère MONDE FIXE) et n'est influencée ni par ce recentrage ni
+  // par l'orbite manuelle de la caméra.
+  const orbitControlsRef = useRef<any>(null);
+  const [recentering, setRecentering] = useState(false);
+  const lastMoveAtRef = useRef(Date.now());
+  const idleRecenteredRef = useRef(false);
+  const triggerRecenter = useCallback(() => {
+    orbitControlsRef.current?.setAzimuthalAngle?.(0);
+    lastMoveAtRef.current = Date.now();
+    setRecentering(true);
+  }, []);
+  // Appelé par SynkVoxel une fois l'interpolation de rotation terminée — fixe `facing` à 'up' pour
+  // que l'état déclaratif reste cohérent avec l'angle visuel final (voir SynkVoxel::useFrame :
+  // aucun « saut » possible puisque la cible EST déjà FACING_ANGLE.up).
+  const handleRecenterComplete = useCallback(() => {
+    setFacing('up');
+    setRecentering(false);
+  }, []);
+  // Minuterie d'inactivité : déclenche le recentrage automatique après
+  // `platform3dCompassIdleRecenterSec` secondes (défaut 6) sans déplacement RÉEL de Synk (voir
+  // `lastMoveAtRef`, remis à jour dans `move()` ci-dessous) — ne se déclenche qu'une fois par
+  // période d'inactivité (`idleRecenteredRef`), désarmée dès que Synk bouge à nouveau. Inactive tant
+  // que le widget est réduit/désactivé ou en mode sous-marin (compas propre à la vue de surface).
+  useEffect(() => {
+    if (collapsed || !enabled || underwaterMode) return;
+    const id = setInterval(() => {
+      const idleSec = Math.max(1, rules?.platform3dCompassIdleRecenterSec ?? 6);
+      if (!idleRecenteredRef.current && Date.now() - lastMoveAtRef.current >= idleSec * 1000) {
+        idleRecenteredRef.current = true;
+        triggerRecenter();
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [collapsed, enabled, underwaterMode, rules?.platform3dCompassIdleRecenterSec, triggerRecenter]);
+
   // ─── Dégâts de chute/escalade (voir RepRules.platform3dFallDamageMinCubes/platform3dFallDeathCubes)
   // `fallDamagePopup` = pop-up temporaire (dégâts mineurs, auto-masqué). `fallDeath` = compte à
   // rebours de la « chute mortelle » (bloque le déplacement comme un évanouissement, voir isFainting
@@ -2261,6 +2362,12 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
 
   const move = useCallback((dx: number, dy: number) => {
     if (isFainting || fallDeath) return; // Synk évanoui (noyade/épuisement) ou en chute mortelle : déplacement bloqué
+    // Boussole/recentrage (voir ci-dessus) : tout déplacement RÉEL réarme la minuterie d'inactivité
+    // et interrompt immédiatement un recentrage éventuellement en cours (SynkVoxel reprend alors la
+    // rotation instantanée normale liée à `facing`, voir son useFrame).
+    lastMoveAtRef.current = Date.now();
+    idleRecenteredRef.current = false;
+    setRecentering(false);
     const dir = directionFromDelta(dx, dy);
     if (dir) {
       setFacing(dir);
@@ -2757,6 +2864,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
                 wildlifeAudio={wildlifeAudio}
                 owlHootEnabled={worldAmbience.theme?.elements?.owlHootEnabled}
                 werewolfHowlEnabled={worldAmbience.theme?.elements?.werewolfHowlEnabled}
+                orbitControlsRef={orbitControlsRef} recentering={recentering} onRecenterComplete={handleRecenterComplete}
               />
             </>
           )}
@@ -2801,6 +2909,34 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           {swimming ? '🏊 ' + t('game.platform3d.swimming') : isRunning ? '🏃 ' + t('game.platform3d.running') : '🚶 ' + t('game.platform3d.walking')}
           {player && <span className="ml-2">💨 {Math.round(player.oxygen ?? 100)}% · 🔋 {Math.round(player.fatigue ?? 100)}%</span>}
         </div>
+        )}
+        {/* ─── Boussole N/E/S/O translucide + bouton de recentrage vers le Nord (voir demande
+            utilisateur et RepRules.platform3dCompassIdleRecenterSec) — rose des vents FIXE (le Nord
+            reste toujours en haut, elle NE tourne PAS avec l'orbite de la caméra : seule l'aiguille
+            pivote, selon `COMPASS_NEEDLE_DEG[facing]`), placée dans le coin libre en haut à droite de
+            la vue 3D. Masquée en mode sous-marin (le monde immergé a son propre repère/caméra bornée
+            à un petit rayon d'exploration, voir UnderwaterScene — un cap Nord/Sud n'y a pas de sens). */}
+        {!underwaterMode && (
+          <div className="absolute top-1.5 right-1.5 z-10 flex flex-col items-center gap-1">
+            <div
+              className="relative w-14 h-14 rounded-full bg-slate-900/60 border border-lime-400/60 backdrop-blur-sm pointer-events-none"
+              title={t('game.platform3d.compass.title')}
+            >
+              <span className="absolute inset-x-0 top-0.5 text-center text-[9px] font-bold text-lime-200">{t('game.platform3d.compass.n')}</span>
+              <span className="absolute inset-x-0 bottom-0.5 text-center text-[9px] font-bold text-lime-200/70">{t('game.platform3d.compass.s')}</span>
+              <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[9px] font-bold text-lime-200/70">{t('game.platform3d.compass.w')}</span>
+              <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] font-bold text-lime-200/70">{t('game.platform3d.compass.e')}</span>
+              <div
+                className="absolute left-1/2 top-1/2 w-1 h-5 -ml-0.5 -mt-5 origin-bottom rounded-full bg-gradient-to-t from-rose-600/40 to-rose-400"
+                style={{ transform: `rotate(${COMPASS_NEEDLE_DEG[facing]}deg)`, transformOrigin: '50% 100%' }}
+              />
+            </div>
+            <button
+              className="pointer-events-auto text-[10px] leading-none bg-slate-900/70 hover:bg-slate-800 border border-lime-500/60 text-lime-200 rounded px-2 py-1 shadow"
+              onClick={triggerRecenter}
+              title={t('game.platform3d.compass.resetTitle')}
+            >🧭 {t('game.platform3d.compass.resetButton')}</button>
+          </div>
         )}
         {islandBlockedMsg && (
           <div className="absolute top-8 left-1.5 right-1.5 bg-amber-900/90 text-amber-100 text-[11px] rounded px-2 py-1 text-center">

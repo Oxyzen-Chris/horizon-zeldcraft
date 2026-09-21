@@ -619,6 +619,11 @@ export function RepRulesPanel() {
             <input type="number" min="0" className="input mt-1 w-full"
               value={rules.movementRunHoldThresholdMs} onChange={e => set('movementRunHoldThresholdMs', e.target.value)} />
           </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.platform3dCompassIdleRecenterSec')}</span>
+            <input type="number" min="1" className="input mt-1 w-full"
+              value={rules.platform3dCompassIdleRecenterSec ?? 6} onChange={e => set('platform3dCompassIdleRecenterSec', e.target.value)} />
+          </label>
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={rules.poiObstacleCollisionEnabled !== false}

@@ -2588,3 +2588,111 @@ souris, rapaces, oiseaux, sangliers/marcassins) restent inchangés ; le fond de 
 thème jour et le comportement d'occlusion « sorcière derrière les nuages » (jour comme nuit) ne
 dépendaient pas de la distance du soleil et ne sont donc pas affectés.
 
+## 🧭 Boussole N/E/S/O + recentrage automatique de Synk et de la caméra vers le Nord (Plateforme 3D)
+
+**Demande utilisateur** : « place dans un coin une boussole translucide Nord, Est, Sud, Ouest qui
+permet de savoir dans quelle direction s'oriente/se dirige Synk sachant que par défaut, Synk est
+orienté vers le Nord. Ajoute un bouton qui permettra s'il est actionné de faire revenir
+l'orientation/direction de Synk par défaut à sa position d'origine vers le Nord et donc également la
+vue du joueur. De même si Synk reste sans activité, sans rien faire, sans bouger pendant 6 secondes
+(rend le paramétrable dans le menu Administration), réoriente Synk automatiquement vers son
+orientation et donc la vue du joueur par défaut, vers le Nord en faisant glisser doucement la caméra
+de Synk et son orientation vers le Nord. »
+
+**Repère monde confirmé (rappel)** : le déplacement de Synk (`dispatchMove`/`move`/`moveUnderwater`,
+`Platform3DWidget.tsx`) est en repère MONDE FIXE depuis un correctif antérieur documenté plus haut —
+Haut = Nord (`facing:'up'`, angle `FACING_ANGLE.up = π`, monde -Z), Bas = Sud (`down`, angle `0`,
+monde +Z), Gauche = Ouest (`left`, angle `-π/2`, monde -X), Droite = Est (`right`, angle `π/2`, monde
++X), diagonales aux 45°/135°/225°/315° restants. La caméra par défaut (`position:[0,3.2,5.6]`,
+`target:[0,0.85,0]`) regarde donc bien vers le Nord, azimut `0`.
+
+**Conception** :
+- **Boussole** : rose des vents HTML/CSS FIXE (le Nord reste toujours en haut, elle ne tourne PAS
+  avec l'orbite de la caméra — seule son aiguille pivote), rendue en overlay non-R3F dans le coin
+  supérieur droit du widget (précédemment libre). Une nouvelle table `COMPASS_NEEDLE_DEG` (distincte
+  de `FACING_ANGLE`, qui reste en radians 3D) associe chaque `SynkDirection` à un angle CSS en degrés
+  (Nord=0°, Est=90°, Sud=180°, Ouest=270°, diagonales à 45°/135°/225°/315°), cohérent avec le repère
+  monde fixe ci-dessus.
+- **Bouton de recentrage** (« 🧭 Nord ») sous la boussole : déclenche `triggerRecenter()`, qui (1)
+  appelle **une seule fois** `orbitControlsRef.current.setAzimuthalAngle(0)` — comme
+  `enableDamping`/`dampingFactor={0.12}` est déjà actif et que le wrapper `<OrbitControls>` de `drei`
+  appelle `controls.update()` à chaque frame, three.js fait alors glisser la caméra en douceur vers
+  l'azimut 0 tout SEUL, sans code d'interpolation manuel — et (2) active `recentering=true`, qui
+  demande à `SynkVoxel` d'interpoler sa rotation Y vers le Nord (voir ci-dessous) plutôt que de la
+  laisser instantanément liée à `facing`. Seul l'azimut (lacet) de la caméra est réinitialisé — son
+  angle polaire (inclinaison) et son zoom restent inchangés, l'utilisateur n'ayant demandé qu'une
+  réorientation, pas une remise à zéro complète de la vue.
+- **`orbitControlsRef` déplacé** du composant `Scene` (interne à `<Canvas>`) vers le composant PARENT
+  non-R3F (comme `cameraRef`/`CameraBridge`, déjà utilisé pour le glisser-déposer d'objets) et transmis
+  en prop à `Scene`, afin que le bouton et la minuterie d'inactivité (tous deux hors `<Canvas>`)
+  puissent appeler `setAzimuthalAngle` dessus.
+- **Rotation Y de `SynkVoxel` rendue 100% impérative** : l'ancienne prop JSX déclarative
+  `rotation={[0, FACING_ANGLE[facing], 0]}` est retirée (elle aurait écrasé toute interpolation en
+  cours à chaque rendu) et remplacée par une mutation directe de `groundRef.current.rotation.y` dans
+  le `useFrame` existant, piloté par un nouveau ref `rotYRef` : hors recentrage, le comportement
+  historique (rotation INSTANTANÉE = angle de `facing`) est reproduit à l'identique frame par frame ;
+  pendant un recentrage, l'angle interpole en douceur vers `FACING_ANGLE.up` par le plus court chemin
+  angulaire (delta replié dans `[-π, π]`, vitesse `diff × min(1, delta×5)`), puis appelle
+  `onRecenterComplete()` une seule fois la cible atteinte (le composant parent fixe alors
+  `facing='up'`, cohérent avec l'angle visuel final — aucun « saut » possible car `π`/`-π` produisent
+  la même orientation visuelle). `recentering`/`onRecenterComplete` sont optionnels : `undefined`
+  reproduit exactement l'ancien comportement, utilisé tel quel par `UnderwaterScene` (non concernée —
+  voir ci-dessous) sans aucun changement.
+- **Minuterie d'inactivité** : `lastMoveAtRef` (horodatage du dernier déplacement RÉEL de Synk, mis à
+  jour en tête de `move()`) comparé toutes les 500 ms à `platform3dCompassIdleRecenterSec` (nouveau
+  champ `RepRules`, défaut 6, voir plus bas) ; `idleRecenteredRef` garantit un seul déclenchement par
+  période d'inactivité (désarmé dès que Synk bouge réellement). La minuterie n'est active que sur la
+  vue de surface (widget non réduit/désactivé, hors mode sous-marin — voir portée ci-dessous).
+- **Interruption propre** : tout déplacement réel de Synk (`move()`) remet immédiatement
+  `recentering` à `false` en plus de réarmer la minuterie — `SynkVoxel` reprend alors, dès la frame
+  suivante, la rotation instantanée normale liée à la nouvelle `facing`, sans à-coup ni conflit avec
+  une interpolation abandonnée en plein vol.
+- **Portée volontairement limitée à la vue de surface** : le monde sous-marin (`UnderwaterScene`) a
+  sa propre caméra/cible (recentrée sur la position de nage, rayon d'exploration borné) où un cap
+  Nord/Sud n'a pas de sens — la boussole, le bouton et la minuterie sont donc masqués/inactifs en mode
+  sous-marin (`!underwaterMode`), et `UnderwaterScene`/son `<SynkVoxel>` ne reçoivent pas les nouvelles
+  props (comportement strictement inchangé pour cette vue).
+
+**🔒 Non-régression vis-à-vis du verrou caméra existant** : un commentaire historique du fichier
+documente qu'après cinq tentatives ratées de rendre le déplacement « relatif à la caméra » (boucle de
+rétroaction caméra↔direction), la caméra a été volontairement rendue « 100% libre à orbiter/zoomer à
+la souris, sans plus jamais être repositionnée automatiquement par le code ». Ce recentrage
+n'enfreint PAS ce verrou : il s'agit d'une action EXPLICITE et PONCTUELLE (un clic utilisateur ou un
+seuil d'inactivité paramétré), un unique appel à `setAzimuthalAngle(0)` totalement DÉCOUPLÉ de la
+résolution du déplacement (`dispatchMove`/`move`/`moveUnderwater` restent strictement en repère
+MONDE FIXE, ni lus ni modifiés par ce nouveau code) — pas une coupure CONTINUE recalculant l'angle de
+caméra à partir de la direction de marche (la cause du bug historique). Un commentaire renvoyant à
+cette analyse a été ajouté dans `gameState.ts` et `Platform3DWidget.tsx`.
+
+**Nouveau réglage Administration** : `RepRules.platform3dCompassIdleRecenterSec` (défaut `6`),
+ajouté dans la section « 🏃 Cadence de déplacement & course » de `RepRulesPanel.tsx` (aux côtés de
+`movementRunHoldThresholdMs`, dont il partage la portée « mouvement/inactivité de Synk »), traduit
+dans les 4 langues (`admin.repRules.platform3dCompassIdleRecenterSec`).
+
+**Vérifié (Playwright)** : `npx tsc --noEmit` et `npm run build` propres (0 erreur). Script jetable —
+connexion Démo anonyme, ouverture du widget Plateforme 3D :
+1. Aiguille initiale à 180° (Sud), cohérente avec l'état initial `facing='down'` du composant.
+2. Déplacement clavier vers l'Est (flèche droite maintenue) → aiguille à 90° (Est), capture d'écran
+   confirmant visuellement la boussole et le pointage correct.
+3. Clic sur le bouton « 🧭 Nord » → aiguille instantanément revenue à 0° (Nord).
+4. Nouveau déplacement vers l'Est (90°) puis 7,5 secondes d'inactivité (> 6 s par défaut) → aiguille
+   automatiquement revenue à 0° (Nord) sans aucune interaction, confirmant le recentrage automatique.
+5. Test complémentaire : orbite manuelle de la caméra (glissé-souris ~220 px), capture d'écran
+   confirmant un changement d'angle de vue net, puis clic sur « 🧭 Nord » → capture d'écran après
+   ~1,4 s montrant la vue **exactement revenue** à l'angle par défaut (même arbres/mare/décor que la
+   toute première capture), confirmant le glissement en douceur de `setAzimuthalAngle(0)` porté par
+   le damping natif d'OrbitControls.
+6. Test d'interruption : nouvelle orbite manuelle, clic sur « 🧭 Nord », puis appui immédiat (150 ms
+   plus tard, en plein vol de l'interpolation) sur une touche de déplacement réel → aucune erreur
+   console, aucun blocage visuel, Synk reprend une rotation normale liée à sa nouvelle direction.
+7. **0 erreur console/page** sur l'intégralité des 7 scénarios ci-dessus.
+
+**Zéro régression confirmée** : seuls `Platform3DWidget.tsx` (nouvelle table `COMPASS_NEEDLE_DEG`,
+`SynkVoxel`/`Scene`/composant parent), `gameState.ts` (nouveau champ `RepRules` + valeur par défaut)
+et `RepRulesPanel.tsx` (nouveau champ admin) ont été modifiés ; `FACING_ANGLE`, `directionFromDelta`,
+`dispatchMove`/`move`/`moveUnderwater` (résolution du déplacement) restent strictement inchangés ;
+`UnderwaterScene` et son `<SynkVoxel>` ne reçoivent pas les nouvelles props et conservent leur
+comportement exact ; le clignement des yeux, le bob de marche/nage, le balancement bras/jambes et le
+saut de `SynkVoxel` (autres animations du même `useFrame`) ne sont pas affectés ; `MarkerBlock`
+(PNJ/dragons/familiers errants, qui partage `FACING_ANGLE` mais pas `SynkVoxel`) est totalement
+inchangé.
