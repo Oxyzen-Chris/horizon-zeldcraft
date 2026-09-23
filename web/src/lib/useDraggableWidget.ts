@@ -141,35 +141,59 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
   const addressRef = useRef<string | undefined>(undefined);
   useEffect(() => { addressRef.current = address; }, [address]);
 
+  /**
+   * Position CANONIQUE ("vraie" position voulue par le joueur, celle qui doit être mémorisée et
+   * restaurée) — DÉCOUPLÉE de `pos` (la position réellement RENDUE à l'écran, voir `pos` ci-
+   * dessous). Corrige un bug remonté : rétrécir la fenêtre du navigateur (ou juste passer par une
+   * résolution/orientation plus petite) faisait glisser les widgets vers le bord de l'écran ET
+   * PERSISTAIT cette position rétrécie en localStorage (l'ancien `reclampToRenderedSize` appelait
+   * `localStorage.setItem` à chaque `resize`) — ré-agrandir ensuite la fenêtre ne restaurait donc
+   * JAMAIS la disposition d'origine, alors que le joueur ne l'avait jamais lui-même déplacée.
+   * Désormais : `canonicalPosRef` ne change QUE sur une action explicite du joueur (glisser une
+   * fenêtre jusqu'à `onPointerUp`, ou "🎯 Recentrer" du menu contextuel) — c'est CETTE valeur qui
+   * est lue/écrite en localStorage. `pos` (l'état React, utilisé pour `style={{ left, top }}`) est
+   * lui recalculé à CHAQUE rendu pertinent (chargement, redimensionnement de fenêtre, bascule
+   * réduit/déplié) comme `clampToViewport(canonicalPosRef.current, tailleRéelle)` — un simple
+   * ajustement VISUEL et TEMPORAIRE pour rester atteignable si le viewport actuel est trop petit,
+   * qui ne touche jamais à la valeur mémorisée. Élargir à nouveau la fenêtre fait donc réapparaître
+   * le widget exactement là où le joueur l'avait laissé.
+   */
+  const canonicalPosRef = useRef<Pos | null>(null);
+
   useEffect(() => {
     if (collapsedKey) {
       setCollapsed((readScoped(collapsedKey, address) ?? (defaultCollapsed ? '1' : '0')) === '1');
     }
     const saved = readScoped(posKey, address);
     if (saved) {
-      try { setPos(clampToViewport(JSON.parse(saved))); } catch { /* ignore */ }
+      try {
+        const parsed = JSON.parse(saved) as Pos;
+        canonicalPosRef.current = parsed;
+        setPos(clampToViewport(parsed));
+      } catch { /* ignore */ }
     } else if (typeof window !== 'undefined') {
-      setPos(defaultPos());
+      const d = defaultPos();
+      canonicalPosRef.current = d;
+      setPos(d);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
 
-  /** Re-clampe `pos` d'après la taille RÉELLEMENT affichée (icône réduite ou fenêtre dépliée),
-   * mesurée via `elRef`. Complète le clamp "à l'aveugle" (marge fixe) fait au montage ci-dessus :
-   * corrige le bug où une position valable pour l'icône réduite (~56px) fait déborder la fenêtre
-   * une fois dépliée (bien plus grande), ce qui ajoutait un ascenseur de page inattendu — ces
-   * widgets `position: fixed` doivent rester strictement indépendants du scroll de la page. */
+  /** Recalcule `pos` (affichage) d'après la position CANONIQUE mémorisée et la taille RÉELLEMENT
+   * affichée (icône réduite ou fenêtre dépliée, mesurée via `elRef`) pour la CONTENIR dans le
+   * viewport ACTUEL — sans jamais modifier `canonicalPosRef` ni le localStorage (voir commentaire
+   * ci-dessus). Couvre à la fois : une position valable pour l'icône réduite (~56px) qui déborderait
+   * une fois la fenêtre dépliée (bien plus grande), et un viewport devenu trop petit (fenêtre du
+   * navigateur rétrécie) pour la position d'origine — dans les deux cas un simple ajustement
+   * d'affichage, réversible dès que la taille/le viewport le permet à nouveau. */
   const reclampToRenderedSize = useCallback(() => {
+    const base = canonicalPosRef.current;
+    if (!base) return;
     const rect = elRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0 || rect.height === 0) return;
-    setPos(prev => {
-      if (!prev) return prev;
-      const clamped = clampToViewport(prev, { w: rect.width, h: rect.height });
-      if (clamped.x === prev.x && clamped.y === prev.y) return prev;
-      localStorage.setItem(scopedKey(posKey, addressRef.current), JSON.stringify(clamped));
-      return clamped;
-    });
-  }, [posKey]);
+    const size = rect && rect.width > 0 && rect.height > 0 ? { w: rect.width, h: rect.height } : undefined;
+    const clamped = clampToViewport(base, size);
+    setPos(prev => (prev && prev.x === clamped.x && prev.y === clamped.y) ? prev : clamped);
+  }, []);
 
   // Re-clampe juste après chaque bascule réduit/déplié (une fois le DOM à jour, donc la taille
   // réelle mesurable) — couvre à la fois l'ouverture (icône → fenêtre, peut déborder en bas/droite)
@@ -264,14 +288,23 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
     if (!movedRef.current && (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD)) {
       movedRef.current = true;
     }
-    setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
+    const next = { x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y };
+    // Un glissement EXPLICITE du joueur redéfinit immédiatement la position canonique (pas
+    // seulement à `onPointerUp`) : un redimensionnement de fenêtre survenant EN PLEIN glissement
+    // (cas limite) doit re-clamper autour de la position déjà en train d'être déplacée, pas de
+    // l'ancienne position pré-glissement.
+    canonicalPosRef.current = next;
+    setPos(next);
   }, []);
 
   const onPointerUp = useCallback(() => {
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
     setPos(current => {
-      if (current) localStorage.setItem(scopedKey(posKey, addressRef.current), JSON.stringify(current));
+      if (current) {
+        canonicalPosRef.current = current;
+        localStorage.setItem(scopedKey(posKey, addressRef.current), JSON.stringify(current));
+      }
       return current;
     });
   }, [posKey]);
@@ -294,6 +327,7 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
       x: Math.max(0, Math.round((window.innerWidth - w) / 2)),
       y: Math.max(0, Math.round((window.innerHeight - h) / 2)),
     };
+    canonicalPosRef.current = next;
     setPos(next);
     localStorage.setItem(scopedKey(posKey, addressRef.current), JSON.stringify(next));
     setMenuPos(null);

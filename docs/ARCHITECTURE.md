@@ -2696,3 +2696,124 @@ comportement exact ; le clignement des yeux, le bob de marche/nage, le balanceme
 saut de `SynkVoxel` (autres animations du même `useFrame`) ne sont pas affectés ; `MarkerBlock`
 (PNJ/dragons/familiers errants, qui partage `FACING_ANGLE` mais pas `SynkVoxel`) est totalement
 inchangé.
+
+## 🪟 Correctif : empilement (z-index) et position des fenêtres widget flottantes
+
+### Demande
+
+Deux bugs distincts remontés par le joueur sur les fenêtres widget flottantes (Dés, Chat
+d'équipe, Équipement de Synk, Statistiques, Plateforme 3D, Mapmonde, etc.) :
+
+1. **Superposition/focus** : cliquer ou déplacer une fenêtre déjà active la faisait parfois
+   passer SOUS les autres fenêtres, obligeant à re-cliquer sur chacune des autres puis sur la
+   fenêtre voulue pour la refaire apparaître au premier plan.
+2. **Position perdue au redimensionnement du navigateur** : rétrécir la fenêtre du navigateur
+   (ex. Edge) faisait glisser les widgets en bordure d'écran, et — contrairement à la demande
+   précédente de sauvegarde de position par joueur (voir section « Position des fenêtres
+   mémorisée par joueur » ci-dessous) — cette position rétrécie était mémorisée, si bien que
+   ré-agrandir la fenêtre du navigateur ne restaurait JAMAIS la disposition d'origine.
+
+### Bug 1 — empilement (`windowZOrder.ts`)
+
+**Cause racine identifiée** : l'ancienne implémentation utilisait un compteur global
+`sharedTopZ`, incrémenté à chaque `bringToFront()` et **plafonné à `MAX_Z = 89`** (pour ne
+jamais dépasser le z-index des pop-up plein écran — rencontre PNJ, repos en hutte, etc., à
+z-[90] et au-delà). Une fois le plafond atteint, le compteur revenait juste après `BASE_Z` et
+**repartait à zéro** : deux fenêtres distinctes pouvaient alors se voir attribuer le **même**
+z-index (ou un widget jamais retouché récemment recevoir malgré tout un z-index supérieur à
+celui de la fenêtre réellement active), auquel cas l'ordre d'affichage retombe sur l'ordre du
+DOM (le dernier widget monté dans l'arbre React gagne, indépendamment du clic du joueur). Avec
+16 widgets natifs (et potentiellement d'autres widgets personnalisés créés par l'admin) et un
+plafond de seulement 50 valeurs (40-89), ce rebouclage survenait au bout d'à peine ~50
+clics/glissers cumulés sur l'ensemble des widgets d'une partie — largement atteignable en
+quelques minutes de jeu normal, ce qui explique la fréquence du bug remonté.
+
+**Correctif** : remplacement du compteur global plafonné par une **pile partagée** (`stack`,
+du plus ancien/arrière au plus récent/premier plan) qui ne connaît **aucun plafond
+numérique**. Le z-index affiché de chaque fenêtre est recalculé à chaque changement comme
+`BASE_Z + rang_dans_la_pile`, où le rang est toujours un entier **compact et unique** parmi les
+fenêtres actuellement montées (0, 1, 2, … sans trou ni doublon) :
+
+- `bringToFront()` déplace simplement l'identifiant de la fenêtre en tête de pile.
+- Démonter un widget (fermeture définitive, changement de page) le retire de la pile, ce qui
+  recompacte automatiquement le rang des autres.
+- Un petit système pub/sub (`listeners`, portée module) notifie **toutes** les fenêtres
+  montées à chaque changement de la pile, pour qu'elles recalculent leur rang (et donc leur
+  z-index affiché) — nécessaire car amener une fenêtre au premier plan, ou en démonter une
+  autre, peut décaler le rang de fenêtres qui n'ont elles-mêmes reçu aucune interaction.
+- `Math.min(BASE_Z + rang, MAX_Z)` reste un garde-fou de sécurité : le nombre de fenêtres
+  flottantes réellement montées en même temps restant très inférieur à 50, ce plafond n'est en
+  pratique jamais atteint — mais protège malgré tout contre un cas extrême (des dizaines de
+  widgets personnalisés ouverts simultanément) en empêchant définitivement tout dépassement du
+  z-index des pop-up plein écran.
+
+`handleWidgetPointerDownCapture()` (le garde-fou empêchant le bouton "✕" de déclencher
+`bringToFront()`) est inchangé — il fonctionne à l'identique avec la nouvelle implémentation de
+`bringToFront`.
+
+### Bug 2 — position au redimensionnement (`useDraggableWidget.ts`)
+
+**Cause racine identifiée** : la position affichée (`pos`, état React utilisé pour
+`style={{ left, top }}`) et la position **mémorisée** en `localStorage` étaient **la même
+valeur** — l'ancien `reclampToRenderedSize()` (appelé aussi bien après une bascule
+réduit/déplié qu'à chaque évènement `resize` de la fenêtre du navigateur) recalculait un clamp
+« dans les limites du viewport ACTUEL » puis **persistait immédiatement** ce résultat clampé
+dans `localStorage`. Rétrécir la fenêtre du navigateur déclenchait donc un clamp (légitime,
+pour garder le widget atteignable), mais celui-ci écrasait définitivement la position d'origine
+— ré-agrandir la fenêtre ensuite ne pouvait plus jamais la restaurer, puisqu'elle n'existait
+tout simplement plus nulle part.
+
+**Correctif** : découplage strict de deux notions désormais distinctes :
+
+- **`canonicalPosRef`** (un `ref`, pas un state) — la position **canonique**, "vraie" position
+  voulue par le joueur. Ne change QUE sur une action explicite du joueur : glisser une fenêtre
+  (mis à jour en direct pendant `onPointerMove`, confirmé à `onPointerUp`) ou "🎯 Recentrer" du
+  menu contextuel (clic droit). C'est cette seule valeur qui est lue/écrite en `localStorage`.
+- **`pos`** (état React, utilisé pour le rendu) — recalculé à chaque évènement pertinent
+  (montage, bascule réduit/déplié, redimensionnement de la fenêtre du navigateur) comme
+  `clampToViewport(canonicalPosRef.current, tailleRéellementAffichée)` — un simple ajustement
+  **visuel et temporaire** pour rester atteignable si le viewport actuel est trop petit, qui ne
+  touche **jamais** `canonicalPosRef` ni `localStorage`.
+
+Concrètement : rétrécir la fenêtre du navigateur continue de clamper visuellement le widget
+pour qu'il reste atteignable (aucune régression sur ce point), mais sans jamais perdre la
+position d'origine — ré-agrandir la fenêtre (immédiatement, ou même après avoir totalement
+fermé/rouvert le jeu entre-temps, la valeur canonique étant en `localStorage`) fait toujours
+réapparaître le widget exactement là où le joueur l'avait laissé.
+
+### Vérification (Playwright)
+
+Serveur de développement lancé localement (`npm run dev`, port 3000), scripts jetables dans
+`web/pw-tmp/` (supprimés après usage), 0 erreur console/page sur l'ensemble des scénarios :
+
+1. **Empilement sans collision** : 3 fenêtres dépliées (Dés, Chat d'équipe, Statistiques),
+   **70 cycles** de `bringToFront()` alternés (bien au-delà des ~50 clics qui faisaient
+   auparavant reboucler l'ancien compteur) — à chaque cycle, la fenêtre cliquée obtient
+   **systématiquement** le z-index maximal parmi les fenêtres ouvertes. 0 échec sur 70 cycles.
+2. **Clamp visuel sans perte de position** : widget glissé à une position précise dans un
+   viewport 1600×900, viewport rétréci à 500×400 (forçant un clamp visuel réel et vérifié dans
+   les limites), puis restauré à 1600×900 — le widget réapparaît **exactement** à la position
+   glissée d'origine (tolérance 2px), alors que `localStorage` n'a, à aucun moment, contenu
+   autre chose que cette position d'origine.
+3. **Redimensionnement + rechargement complet de session** : widget positionné, fenêtre du
+   navigateur rétrécie (960×640), **page entièrement rechargée** pendant que la fenêtre est
+   encore petite (simulant fermeture/réouverture du jeu), puis fenêtre ré-agrandie à 1600×900 —
+   le widget revient très exactement à la position d'origine fixée par le joueur avant tout
+   redimensionnement.
+
+### Non-régression
+
+- `handleWidgetPointerDownCapture`, le garde-fou "✕", le suivi `trackWidgetUsage` (Intelligence
+  IA GamePlay), le menu contextuel (clic droit → Recentrer), la sauvegarde scoping par compte
+  (`scopedKey`/`readScoped`) et la persistance de l'état réduit/déplié sont tous inchangés.
+- Les 16 widgets flottants (StatsWidget, EquipmentWidget, InventoryWidget, DiceRollWidget,
+  TeamChatWidget, ShopWidget, WalletTopupWidget, WorldMapWidget, GameCanvas2D,
+  Platform3DWidget, KingdomQuestsWidget, QuestsZeldaCraftWidget, HelpWidget, ProgressWidget,
+  WeatherPanel, AudioWidget) et `CustomWidgetsRenderer` consomment ces deux hooks sans aucune
+  modification de leur propre code — le correctif est entièrement centralisé dans
+  `windowZOrder.ts` et `useDraggableWidget.ts`.
+- Aucun composant ne s'appuyait sur `setPos` renvoyé par le hook en dehors de ce fichier
+  (vérifié par recherche globale) : aucun risque de contournement du nouveau mécanisme
+  canonique/clampé.
+- `npx tsc --noEmit` et `npm run build` : 0 erreur (seuls les avertissements pré-existants,
+  sans rapport, sur les connecteurs wallet MetaMask/tempo).
