@@ -5,7 +5,7 @@ import {
   getRepRules, setRepRules, updateRepRulesFields, DEFAULT_REP_RULES, DEFAULT_PLATFORM3D_OBJECT_FLAGS, PLATFORM3D_OBJECT_KINDS,
   type RepRules, type Platform3DObjectKind, type Platform3DObjectFlags,
 } from '@/lib/gameState';
-import { useI18n } from '@/lib/i18n';
+import { useI18n, SUPPORTED_LOCALES, CURRENCY_BY_LOCALE, type Locale } from '@/lib/i18n';
 
 /**
  * Barème de reconnaissance appliqué aux rencontres PNJ — paramétrable owner.
@@ -41,6 +41,18 @@ export function RepRulesPanel() {
   /** Interrupteurs on/off (ex. fatigueEnabled) — valeur booléenne conservée telle quelle. */
   const setBool = (k: keyof RepRules, v: boolean) => {
     setRules(prev => ({ ...prev, [k]: v }));
+  };
+
+  /** Langue par défaut à l'ouverture du jeu (RepRules.defaultLocale) — chaîne vide = pas de
+   * forçage admin (repli sur la détection navigateur puis 'fr', voir i18n.tsx). */
+  const setDefaultLocale = (v: string) => {
+    setRules(prev => ({ ...prev, defaultLocale: (v || undefined) as RepRules['defaultLocale'] }));
+  };
+
+  /** Devise affichée pour une langue donnée (RepRules.currencyByLocale) — fusionnée par-dessus
+   * CURRENCY_BY_LOCALE (défauts codés en dur) côté client, voir i18n.tsx::I18nProvider. */
+  const setCurrencyForLocale = (loc: Locale, v: string) => {
+    setRules(prev => ({ ...prev, currencyByLocale: { ...(prev.currencyByLocale ?? {}), [loc]: v } }));
   };
 
   /** Interrupteur à SAUVEGARDE INSTANTANÉE (écriture partielle Firebase immédiate, sans attendre
@@ -974,6 +986,38 @@ export function RepRulesPanel() {
           <span className="text-slate-300">{t('admin.repRules.fiatSimulationMode')}</span>
         </label>
         <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.fiatSimulationModeHint')}</p>
+        <label className="flex items-center gap-2 text-sm mt-3">
+          <input type="checkbox" checked={rules.fiatTopupDemoModeEnabled === true}
+            disabled={rules.fiatPaymentEnabled === false}
+            onChange={e => setBool('fiatTopupDemoModeEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.fiatTopupDemoModeEnabled')}</span>
+        </label>
+        <p className="text-xs text-amber-400/80 mt-1">{t('admin.repRules.fiatTopupDemoModeEnabledHint')}</p>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🌐 {t('admin.repRules.localeTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.localeDescription')}</p>
+        <label className="text-sm block mb-3">
+          <span className="text-slate-300 block mb-1">{t('admin.repRules.defaultLocale')}</span>
+          <select className="input" value={rules.defaultLocale ?? ''} onChange={e => setDefaultLocale(e.target.value)}>
+            <option value="">{t('admin.repRules.defaultLocaleAuto')}</option>
+            {SUPPORTED_LOCALES.map(l => (
+              <option key={l} value={l}>{l.toUpperCase()}</option>
+            ))}
+          </select>
+          <span className="text-xs text-slate-400 block mt-1">{t('admin.repRules.defaultLocaleHint')}</span>
+        </label>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          {SUPPORTED_LOCALES.map(l => (
+            <label key={l} className="text-sm">
+              <span className="text-slate-300 block mb-1">{l.toUpperCase()}</span>
+              <input type="text" className="input w-full" maxLength={3}
+                value={rules.currencyByLocale?.[l] ?? CURRENCY_BY_LOCALE[l]}
+                onChange={e => setCurrencyForLocale(l, e.target.value)} />
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500 mt-2">{t('admin.repRules.currencyByLocaleHint')}</p>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">🧙 {t('admin.repRules.npcTreasureTitle')}</h3>

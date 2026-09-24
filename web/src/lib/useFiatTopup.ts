@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useChainId } from 'wagmi';
+import { useEffectiveAccount } from './effectiveAccount';
 import {
   applyEffect, logTx, getFiatTopupPresets, DEFAULT_FIAT_TOPUP_PRESETS, getRepRules,
   type FiatTopupPreset, type RepRules,
@@ -22,6 +23,7 @@ export type FiatProvider = 'card' | 'paypal' | 'apple_pay' | 'google_pay';
 
 export function useFiatTopup(address: string | undefined) {
   const chainId = useChainId();
+  const { accountType } = useEffectiveAccount();
   const [presets, setPresets] = useState<FiatTopupPreset[]>(DEFAULT_FIAT_TOPUP_PRESETS);
   const [rules, setRules] = useState<RepRules | null>(null);
   const [isBuying, setIsBuying] = useState(false);
@@ -37,10 +39,18 @@ export function useFiatTopup(address: string | undefined) {
     google_pay: rules.fiatMethodGooglePayEnabled,
   } : { card: true, paypal: true, apple_pay: true, google_pay: true };
 
+  /** Bug corrigé : un compte Démo/Fiat (sans vrai portefeuille crypto) pouvait créditer son
+   * portefeuille de jeu à volonté via ces boutons (`fiatSimulationMode` créditait toujours, sans
+   * jamais être réellement vérifié ci-dessous) — voir RepRules.fiatTopupDemoModeEnabled. Bloqué par
+   * défaut (`false`) tant que l'admin n'a pas explicitement activé ce réglage, une fois le vrai
+   * mécanisme de paiement (Stripe Checkout) mis en place. Un vrai portefeuille crypto connecté
+   * (`accountType === 'wallet'`) n'est jamais concerné : comportement 100% inchangé pour lui. */
+  const blockedForDemoAccount = accountType !== 'wallet' && rules != null && rules.fiatTopupDemoModeEnabled !== true;
+
   /** Simule (ou, plus tard, déclenche un vrai Stripe Checkout) un paiement fiat, puis crédite
    * immédiatement le portefeuille de jeu — jamais d'appel on-chain, aucun gas requis. */
   const buy = async (preset: FiatTopupPreset, provider: FiatProvider) => {
-    if (!address || isBuying) return;
+    if (!address || isBuying || blockedForDemoAccount) return;
     setIsBuying(true);
     try {
       // Mode simulation : "paiement" instantané, pas de round-trip réseau réel vers Stripe/PayPal.
@@ -63,5 +73,5 @@ export function useFiatTopup(address: string | undefined) {
     }
   };
 
-  return { presets, rules, enabledProviders, isBuying, feedback, buy };
+  return { presets, rules, enabledProviders, isBuying, feedback, buy, blockedForDemoAccount };
 }

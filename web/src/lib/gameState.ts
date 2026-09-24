@@ -126,7 +126,7 @@ export interface PlayerState {
   // langue de la page d'accueil, voir i18n.tsx::Locale) — utilisée pour localiser les emails
   // transactionnels (bienvenue, rapports, annonces). Absente = 'fr' par défaut (voir
   // web/src/lib/email/templates.ts). Jamais réécrite ensuite (même logique que uid/email/accountType).
-  lang?: 'fr' | 'en' | 'es' | 'pt';
+  lang?: 'fr' | 'en' | 'es' | 'pt' | 'us';
   // Programmation d'un envoi automatique de rapport de progression par email (voir
   // Administration §"Statistiques par joueur" et docs/EMAIL_NOTIFICATIONS.md). Le job cron
   // (web/src/app/api/email/cron-reports/route.ts) parcourt tous les joueurs ayant `enabled: true`
@@ -364,7 +364,7 @@ export const RKEY = (id: string) => id.toLowerCase().replace(/[.#$[\]]/g, '_');
 export async function getOrCreatePlayer(
   address: string,
   displayName?: string,
-  opts?: { accountType?: 'demo' | 'fiat'; initialWallet?: number; uid?: string; email?: string; authMethod?: 'google' | 'email'; lang?: 'fr' | 'en' | 'es' | 'pt' },
+  opts?: { accountType?: 'demo' | 'fiat'; initialWallet?: number; uid?: string; email?: string; authMethod?: 'google' | 'email'; lang?: 'fr' | 'en' | 'es' | 'pt' | 'us' },
 ): Promise<PlayerState> {
   const db = getFirebaseDb();
   if (!db) throw new Error('Firebase non configuré');
@@ -3462,7 +3462,7 @@ export interface PlayerListEntry {
   label: string;
   accountType?: 'wallet' | 'demo' | 'fiat';
   email?: string;
-  lang?: 'fr' | 'en' | 'es' | 'pt';
+  lang?: 'fr' | 'en' | 'es' | 'pt' | 'us';
   authMethod?: 'google' | 'email';
   uid?: string;
 }
@@ -4629,6 +4629,35 @@ export interface RepRules {
   // paiement externe. Passer à `false` dès que de vraies clés Stripe seront configurées côté
   // serveur (web/src/app/api/payments/*) pour basculer sur un vrai Stripe Checkout Session.
   fiatSimulationMode: boolean;         // défaut true
+  // Bug remonté : en mode simulation (ci-dessus), les comptes Démo/Fiat (sans vrai portefeuille
+  // crypto) pouvaient créditer leur portefeuille de jeu à volonté en cliquant sur les boutons de
+  // paiement fiat (CB/PayPal/Apple Pay/Google Pay) du widget "Rechargement du portefeuille" — la
+  // simulation créditait INSTANTANÉMENT sans jamais vérifier `fiatSimulationMode` ni le type de
+  // compte (voir useFiatTopup.ts::buy). Tant qu'aucun vrai paiement Stripe n'est câblé côté
+  // serveur, ce mécanisme reste un exploit trivial en libre-service pour tout compte Démo/Fiat.
+  // Ce nouvel interrupteur (défaut `false`, désactivé) bloque spécifiquement ce cas : boutons de
+  // paiement fiat visibles mais désactivés (grisés, avec message explicatif) pour tout compte
+  // `accountType !== 'wallet'` tant qu'il reste à `false`. Un vrai portefeuille crypto connecté
+  // n'est JAMAIS concerné par cet interrupteur (peut toujours payer par carte en plus de l'ETH,
+  // comportement inchangé) — seul le cas "Démo"/"Jouer sans portefeuille" est concerné. À activer
+  // uniquement une fois le mécanisme de paiement définitif (vrai Stripe Checkout) mis en place.
+  fiatTopupDemoModeEnabled: boolean;   // défaut false
+
+  // ─── Langue & devise (voir web/src/lib/i18n.tsx) ───
+  // Langue par défaut appliquée à l'ouverture du jeu (page d'accueil ET menu Administration)
+  // lorsqu'aucune préférence n'est déjà enregistrée dans le navigateur (localStorage) ET que la
+  // détection automatique depuis les paramètres locaux du poste (navigator.language, voir
+  // i18n.tsx::detectBrowserLocale) n'a donné aucune correspondance parmi les langues supportées.
+  // `undefined`/absent = pas de forçage admin, on retombe sur 'fr' (comportement historique).
+  // L'utilisateur peut toujours changer de langue à tout moment via le sélecteur (LanguageSwitcher)
+  // — ce réglage ne fait que définir la langue proposée au tout premier chargement.
+  defaultLocale?: 'fr' | 'en' | 'es' | 'pt' | 'us';
+  // Devise affichée pour chaque langue (symbole libre, ex "€", "$", "£") — fusionnée par-dessus
+  // `CURRENCY_BY_LOCALE` (valeurs par défaut, voir i18n.tsx) sans devoir redéployer le code pour
+  // changer un symbole. Les clés absentes ici gardent la valeur par défaut du code. Ajouté suite à
+  // la création de la langue "us" (🇺🇸 anglais américain, $) distincte de "en" (🇬🇧 anglais, €) —
+  // permet à l'admin d'ajuster la devise par langue/pays sans intervention développeur.
+  currencyByLocale?: Partial<Record<'fr' | 'en' | 'es' | 'pt' | 'us', string>>;
 
   // ─── Emails transactionnels & annonces (voir docs/EMAIL_NOTIFICATIONS.md) ───
   // Interrupteur général de l'envoi d'e-mails réels — nécessite RESEND_API_KEY côté serveur
@@ -4973,6 +5002,9 @@ export const DEFAULT_REP_RULES: RepRules = {
   fiatMethodApplePayEnabled: true,
   fiatMethodGooglePayEnabled: true,
   fiatSimulationMode: true,
+  fiatTopupDemoModeEnabled: false,
+  // defaultLocale absent = pas de forçage (détection navigateur puis repli 'fr'), voir type ci-dessus.
+  currencyByLocale: {},
   emailNotificationsEnabled: true,
   welcomeEmailEnabled: true,
   emailBannerImageUrl: '',

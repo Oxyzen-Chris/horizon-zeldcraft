@@ -12,7 +12,7 @@
  * d'émojis (cohérent avec le reste de l'UI du jeu, très émoji-driven) sert de repli.
  */
 
-export type EmailLocale = 'fr' | 'en' | 'es' | 'pt';
+export type EmailLocale = 'fr' | 'en' | 'es' | 'pt' | 'us';
 
 const STR: Record<EmailLocale, Record<string, string>> = {
   fr: {
@@ -40,6 +40,33 @@ const STR: Record<EmailLocale, Record<string, string>> = {
     footerUnsub: 'Tu reçois cet e-mail car tu possèdes un compte sur Horizon ZeldCraft.',
   },
   en: {
+    welcomeSubject: 'Welcome to Horizon ZeldCraft, {name}! 🗡️',
+    welcomeHeading: 'Welcome, adventurer!',
+    welcomeBody: 'Your account has been created. Synk, your companion, is already waiting for you in the Lands of ZeldCraft — feed it, explore, fight, and grow your bond day after day!',
+    welcomeCta: 'Join the game',
+    reportSubject: 'Your Horizon ZeldCraft progress report 📜',
+    reportHeading: 'Your progress report',
+    reportIntro: 'Here is where your adventure stands:',
+    reportLevel: 'Level', reportXp: 'XP', reportStage: 'Stage', reportWallet: 'Coins',
+    reportQuests: 'Quests solved', reportNpcs: 'NPCs met', reportPlaytime: 'Total playtime',
+    reportCta: 'Resume the adventure',
+    broadcastSubject: 'Message from the Horizon ZeldCraft team 📢',
+    broadcastHeading: 'A message from the team',
+    pwResetSubject: 'Your Horizon ZeldCraft password has been reset 🔑',
+    pwResetHeading: 'New password',
+    pwResetIntro: 'At the game administrator\'s request, your password has been reset. Here is your new password:',
+    pwResetHint: 'We recommend changing it yourself at your next login ("Reset password" button next to your address in-game).',
+    pwResetCta: 'Sign in',
+    pwChangedSubject: 'Your Horizon ZeldCraft password has been changed 🔒',
+    pwChangedHeading: 'Password changed',
+    pwChangedBody: 'Your password was just changed successfully. If you did not make this change, please contact the game administrator immediately.',
+    footer: 'Horizon ZeldCraft — a magical companion to grow every day.',
+    footerUnsub: 'You are receiving this email because you have an account on Horizon ZeldCraft.',
+  },
+  // "us" (anglais américain, 🇺🇸 $) réutilise mot pour mot les textes "en" (🇬🇧 anglais, €) — les
+  // deux langues ne diffèrent que par la devise affichée dans le jeu (voir i18n.tsx), jamais
+  // mentionnée dans ces gabarits d'e-mail transactionnels.
+  us: {
     welcomeSubject: 'Welcome to Horizon ZeldCraft, {name}! 🗡️',
     welcomeHeading: 'Welcome, adventurer!',
     welcomeBody: 'Your account has been created. Synk, your companion, is already waiting for you in the Lands of ZeldCraft — feed it, explore, fight, and grow your bond day after day!',
@@ -176,6 +203,7 @@ export function buildWelcomeEmail(opts: { locale: EmailLocale; email: string; ba
 const STAGE_LABEL: Record<EmailLocale, Record<string, string>> = {
   fr: { egg: 'Œuf', hatched: 'Éclos', juvenile: 'Juvénile', adult: 'Adulte', ancient: 'Ancien' },
   en: { egg: 'Egg', hatched: 'Hatched', juvenile: 'Juvenile', adult: 'Adult', ancient: 'Ancient' },
+  us: { egg: 'Egg', hatched: 'Hatched', juvenile: 'Juvenile', adult: 'Adult', ancient: 'Ancient' },
   es: { egg: 'Huevo', hatched: 'Eclosionado', juvenile: 'Juvenil', adult: 'Adulto', ancient: 'Ancestral' },
   pt: { egg: 'Ovo', hatched: 'Eclodido', juvenile: 'Juvenil', adult: 'Adulto', ancient: 'Ancestral' },
 };

@@ -2817,3 +2817,145 @@ Serveur de développement lancé localement (`npm run dev`, port 3000), scripts 
   canonique/clampé.
 - `npx tsc --noEmit` et `npm run build` : 0 erreur (seuls les avertissements pré-existants,
   sans rapport, sur les connecteurs wallet MetaMask/tempo).
+
+## 🌐 Widget « Communauté » traduit, nouvelle langue 🇺🇸 US ($) avec auto-détection, blocage du paiement fiat en mode Démo
+
+### Demande
+
+Trois correctifs distincts :
+1. Le widget bundlé « 📯 Communauté Horizon ZeldCraft » restait toujours affiché en français,
+   quelle que soit la langue sélectionnée.
+2. Ajouter une nouvelle langue « US » (anglais américain, $ au lieu de €), avec détection
+   automatique de la langue par défaut selon les paramètres locaux du poste de travail (tout en
+   laissant le joueur changer de langue à tout moment), et rendre paramétrable dans le menu
+   Administration la devise par langue ainsi que la langue par défaut au lancement du jeu.
+3. Empêcher les comptes Démo/Paiement (sans portefeuille crypto) de créditer leur portefeuille de
+   jeu gratuitement en cliquant sur les boutons de paiement fiat simulés (CB/PayPal/Apple
+   Pay/Google Pay) du widget « Rechargement du portefeuille », tant que le mécanisme de paiement
+   définitif n'est pas configuré.
+
+### 1 — Traduction du widget « Communauté »
+
+**Cause racine** : `DEFAULT_CUSTOM_WIDGETS[0]` (`id: 'widget.default.community'`,
+`gameState.ts`) est un widget bundlé livré avec le jeu, mais techniquement stocké dans le même
+modèle `CustomWidgetDef` que les widgets **librement créés par l'admin** (`CustomWidgetsAdminPanel`
+→ Firebase) — un modèle **volontairement mono-langue** (texte brut admin, comme
+`ChatScript`/`DEFAULT_CHAT_SCRIPTS`), puisqu'un administrateur ne peut pas raisonnablement fournir
+une traduction dans 5 langues pour un contenu qu'il tape librement. Le widget « Communauté »,
+bien qu'utilisant ce même modèle de données, fait pourtant partie intégrante de l'UI du jeu (livré
+par défaut, jamais modifié par l'admin en pratique) et doit donc être traduit comme le reste.
+
+**Correctif** (`CustomWidgetsRenderer.tsx`) : ajout d'une table `BUILTIN_WIDGET_I18N` associant
+`def.id` → clés i18n (`title`/`content`/`buttons[]`), utilisée par `SingleCustomWidget` pour
+résoudre `title`/`content`/`buttonLabel(btn, i)` via `t()` **si et seulement si** l'id du widget
+figure dans la table — tout autre id (donc tout widget réellement créé par l'admin) continue
+d'afficher son texte brut stocké tel quel, comportement 100% inchangé. Seul
+`widget.default.community` y figure pour l'instant (clés `widgets.community.title/content/
+followButton`, traduites dans les 5 langues). Ce mécanisme est réutilisable pour tout futur widget
+bundlé par défaut sans jamais affecter les widgets admin.
+
+### 2 — Nouvelle langue 🇺🇸 US ($), devise/langue par défaut admin-configurables, auto-détection
+
+**`web/src/lib/i18n.tsx`** :
+- `dicts = { fr, en, es, pt, us }` (nouveau fichier `web/src/i18n/messages/us.json`, copie de
+  `en.json` — l'anglais américain et l'anglais partagent le même texte d'UI, seule la devise
+  diffère). `Locale` (= `keyof typeof dicts`) inclut donc désormais `'us'` partout où il est
+  utilisé (email templates, `PlayerState.lang`, `RepRules`, etc. — voir plus bas).
+- `CURRENCY_BY_LOCALE` corrigé : `fr/en/es/pt: '€'`, `us: '$'` — corrige une incohérence
+  préexistante où `en` (drapeau 🇬🇧) affichait déjà `$` malgré son drapeau anglais/UK ; c'est
+  désormais la nouvelle langue `us` (drapeau 🇺🇸) qui porte le dollar.
+- `detectBrowserLocale()` (nouveau) : lit `navigator.languages`/`navigator.language` côté client
+  et mappe vers une locale supportée (`fr-FR`→`fr`, `en-US`→`us`, `en-GB`/`en`→`en`, `es-*`→`es`,
+  `pt-*`→`pt`). Renvoie `null` si aucune correspondance.
+- `I18nProvider` — ordre de priorité pour la langue au premier chargement :
+  1. Préférence sauvegardée (`localStorage.getItem('locale')`, comportement historique inchangé) ;
+  2. Sinon détection navigateur (`detectBrowserLocale()`) ;
+  3. Sinon `RepRules.defaultLocale` (nouveau réglage admin, voir ci-dessous), appliqué **seulement**
+     si ni 1 ni 2 n'ont déjà fixé explicitement la langue (`localeExplicitRef`) ;
+  4. Repli final : `'fr'` (valeur initiale du state, comportement historique inchangé).
+  Le joueur peut à tout moment changer de langue via `setLocale()` (sélecteur), qui marque
+  toujours la langue comme explicite et la persiste dans `localStorage` — l'auto-détection et le
+  défaut admin ne s'appliquent donc jamais après un choix manuel, aujourd'hui ou lors d'une future
+  session.
+- `currency` exposé par le contexte = `RepRules.currencyByLocale?.[locale] || CURRENCY_BY_LOCALE[locale]`
+  — recalculé en temps réel via `subscribeRepRules` (écoute Firebase), donc tout changement admin
+  de devise s'applique immédiatement sans reload à toute la session en cours.
+- `SUPPORTED_LOCALES` exporté (`Object.keys(dicts)`) pour construire dynamiquement les listes de
+  langues dans les composants (sélecteur, panneau admin) sans dupliquer la liste littérale.
+
+**`RepRules` (`gameState.ts`)** — 2 nouveaux champs optionnels :
+- `defaultLocale?: 'fr' | 'en' | 'es' | 'pt' | 'us'` — langue par défaut à l'ouverture du jeu
+  (priorité 3 ci-dessus), `undefined` par défaut (pas de forçage).
+- `currencyByLocale?: Partial<Record<Locale, string>>` — surcharge par langue du symbole de
+  devise, fusionnée par-dessus `CURRENCY_BY_LOCALE` ; `{}` par défaut (aucune surcharge).
+
+**Menu Administration** (`RepRulesPanel.tsx`, section « 🌐 Langue & devise », sous « 💳 Fiat ») :
+un menu déroulant pour `defaultLocale` (option « 🌍 Automatique » = pas de forçage, ou une des 5
+langues) et 5 champs texte (un par langue de `SUPPORTED_LOCALES`) pour éditer `currencyByLocale`,
+pré-remplis avec la valeur par défaut `CURRENCY_BY_LOCALE[locale]` tant qu'aucune surcharge n'a été
+enregistrée.
+
+**`LanguageSwitcher.tsx`** : ajout de l'entrée `us: '🇺🇸 US'` — apparaît dans le sélecteur de langue
+partout où il est utilisé (page d'accueil, jeu, Administration, un seul composant partagé).
+
+**Propagation e-mails transactionnels** (`web/src/lib/email/templates.ts`) : `EmailLocale` et
+`PlayerState.lang` incluent désormais `'us'`. Les textes des gabarits d'e-mail (`STR.us`,
+`STAGE_LABEL.us`) sont une copie exacte de `STR.en`/`STAGE_LABEL.en` — ces gabarits ne mentionnent
+jamais de montant/devise, donc aucune traduction distincte n'est nécessaire entre `en` et `us`.
+
+**Portée volontairement exclue** : les libellés de prix des presets de paiement fiat
+(`FiatTopupPreset.priceLabel`, ex. `"4,99 €"`) restent du texte libre édité par l'admin
+(`FiatTopupPresetsPanel.tsx`, inchangé) — ils ne varient pas automatiquement selon la langue/devise
+active. Seul le symbole `currency` dynamique (déjà utilisé par `TopupPresetsPanel`/`WalletPanel`/
+`WalletTopupWidget` pour les presets de rechargement **on-chain**, `p.fiat` + `{currency}`) reflète
+`us`/`$` immédiatement — comportement préexistant, simplement étendu à la nouvelle langue.
+
+### 3 — Blocage du paiement fiat gratuit pour les comptes Démo/Paiement
+
+**Cause racine** : `useFiatTopup.ts::buy()` créditait **toujours** instantanément le portefeuille
+de jeu dès qu'un preset était cliqué, quel que soit le type de compte (`wallet`/`demo`/`fiat`) — le
+réglage `RepRules.fiatSimulationMode` existait déjà dans le schéma/l'UI admin mais n'était en
+réalité **jamais lu** dans `buy()` (interrupteur décoratif). Un compte Démo/Paiement (sans
+portefeuille crypto réel) pouvait donc s'auto-créditer des coins à volonté, gratuitement, en
+boucle, via les boutons CB/PayPal/Apple Pay/Google Pay du widget « Rechargement du portefeuille ».
+Le rechargement **on-chain** (vrai ETH), lui, était déjà correctement réservé aux comptes
+`accountType === 'wallet'` (`WalletTopupWidget.tsx`) — seul le chemin fiat simulé n'était pas
+protégé.
+
+**Correctif** :
+- Nouveau champ `RepRules.fiatTopupDemoModeEnabled: boolean` (défaut `false` = bloqué).
+- `useFiatTopup.ts` : lit `accountType` via `useEffectiveAccount()`, calcule
+  `blockedForDemoAccount = accountType !== 'wallet' && rules.fiatTopupDemoModeEnabled !== true`, et
+  fait un no-op dans `buy()` si `blockedForDemoAccount` — un vrai portefeuille crypto connecté
+  n'est jamais concerné par ce blocage.
+- `FiatTopupPanel.tsx` (composant partagé par `WalletTopupWidget.tsx`/`WalletPanel.tsx`) : les
+  boutons de preset restent **visibles** mais `disabled` quand bloqué, avec un message d'avertissement
+  explicite (`game.walletTopup.fiatDemoBlockedHint`) sous les boutons.
+- `RepRulesPanel.tsx` (section « 💳 Fiat ») : nouvelle case à cocher pour activer
+  `fiatTopupDemoModeEnabled` une fois le mécanisme de paiement définitif (vrai Stripe Checkout,
+  voir `fiatSimulationMode`) mis en place.
+
+### Vérification (Playwright)
+
+Serveur de développement lancé localement (`npm run dev`, port 3001 — 3000 occupé), scripts
+jetables dans `web/pw-tmp/` (supprimés après usage), 0 erreur console/page :
+- Sélecteur de langue affiche bien `🇫🇷 FR / 🇬🇧 EN / 🇪🇸 ES / 🇵🇹 PT / 🇺🇸 US` sur la page d'accueil ;
+  sélection de `us` persistée dans `localStorage`.
+- Entrée en mode Démo anonyme (`/game`) : bulle du widget « Communauté » affiche bien le titre
+  traduit dans son attribut `title` puis dans le contenu déplié, vérifié dans les 4 langues
+  FR/EN/ES/PT (`📯 Communauté Horizon ZeldCraft` / `📯 Horizon ZeldCraft Community` /
+  `📯 Comunidad Horizon ZeldCraft` / `📯 Comunidade Horizon ZeldCraft`).
+- En session Démo, les 4 boutons de preset fiat (widget « Rechargement du portefeuille ») sont
+  bien tous rendus `disabled` par défaut, avec le message d'avertissement affiché.
+- `npx tsc --noEmit` et `npm run build` : 0 erreur (seuls les avertissements pré-existants, sans
+  rapport, sur les connecteurs wallet MetaMask/tempo).
+
+### Non-régression
+
+- Aucun widget admin réellement créé via `CustomWidgetsAdminPanel` n'est affecté par
+  `BUILTIN_WIDGET_I18N` (table indexée par id exact, absente = comportement 100% inchangé).
+- Les 4 langues historiques (fr/en/es/pt) conservent tout leur contenu déjà traduit ; `en` change
+  uniquement de devise (`$` → `€`), la nouvelle langue `us` reprenant l'ancien rôle « anglais + $ ».
+- Les portefeuilles crypto connectés (`accountType === 'wallet'`) ne sont impactés par aucun des 3
+  correctifs (paiement fiat carte toujours disponible en plus de l'ETH on-chain, inchangé).
+

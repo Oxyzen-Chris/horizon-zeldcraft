@@ -16,7 +16,7 @@ const PROVIDER_ICON: Record<FiatProvider, string> = {
 
 export function FiatTopupPanel({ address }: { address: string | undefined }) {
   const { t } = useI18n();
-  const { presets, enabledProviders, isBuying, feedback, buy } = useFiatTopup(address);
+  const { presets, enabledProviders, isBuying, feedback, buy, blockedForDemoAccount } = useFiatTopup(address);
   const [provider, setProvider] = useState<FiatProvider>('card');
 
   const providers = (['card', 'paypal', 'apple_pay', 'google_pay'] as FiatProvider[])
@@ -46,8 +46,8 @@ export function FiatTopupPanel({ address }: { address: string | undefined }) {
         {presets.map((p) => (
           <button
             key={p.priceLabel}
-            className="bg-slate-800 hover:bg-slate-700 border border-emerald-500/40 rounded p-2 text-center transition disabled:opacity-50"
-            disabled={isBuying}
+            className="bg-slate-800 hover:bg-slate-700 border border-emerald-500/40 rounded p-2 text-center transition disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={isBuying || blockedForDemoAccount}
             onClick={() => buy(p, provider)}
           >
             <p className="text-sm font-bold text-emerald-400">{p.priceLabel}</p>
@@ -57,6 +57,12 @@ export function FiatTopupPanel({ address }: { address: string | undefined }) {
       </div>
       {isBuying && <p className="text-xs text-cyan-400 mt-2 text-center">⏳ {t('game.walletTopup.processing')}</p>}
       {feedback && <p className="text-xs text-emerald-400 mt-2 text-center">{feedback}</p>}
+      {/* Bug corrigé : les comptes Démo/Fiat pouvaient créditer leur portefeuille à volonté via
+          ces boutons (voir RepRules.fiatTopupDemoModeEnabled, défaut désactivé) — boutons visibles
+          mais désactivés + message explicatif tant que l'admin n'a pas activé ce réglage. */}
+      {blockedForDemoAccount && (
+        <p className="text-[10px] text-amber-400/90 mt-2 text-center">⚠️ {t('game.walletTopup.fiatDemoBlockedHint')}</p>
+      )}
     </div>
   );
 }

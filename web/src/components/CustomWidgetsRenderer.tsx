@@ -6,6 +6,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
+import { useI18n } from '@/lib/i18n';
 
 interface Pos { x: number; y: number }
 
@@ -16,9 +17,33 @@ function animationClass(a?: string): string {
   return '';
 }
 
+/**
+ * Bug corrigé : contrairement aux widgets créés librement par l'admin (toujours mono-langue,
+ * texte brut stocké tel quel en base — voir `CustomWidgetDef.title/content` et
+ * `CustomWidgetButton.label`), les widgets LIVRÉS PAR DÉFAUT avec le jeu (voir
+ * `DEFAULT_CUSTOM_WIDGETS` dans gameState.ts, ex. "📯 Communauté Horizon ZeldCraft") font partie
+ * intégrante de l'interface et doivent donc être traduits comme le reste de l'UI — ils
+ * s'affichaient pourtant toujours en français quelle que soit la langue sélectionnée. Cette table
+ * associe chaque id de widget bundlé à ses clés i18n (titre/contenu/libellés de boutons, dans le
+ * même ordre que `def.buttons`) ; tout id absent de cette table (donc tout widget réellement créé
+ * par l'admin) continue d'afficher son texte brut tel que stocké, comportement 100% inchangé.
+ */
+const BUILTIN_WIDGET_I18N: Record<string, { title: string; content: string; buttons: string[] }> = {
+  'widget.default.community': {
+    title: 'widgets.community.title',
+    content: 'widgets.community.content',
+    buttons: ['widgets.community.followButton'],
+  },
+};
+
 /** Une instance flottante/déplaçable/réductible d'un widget personnalisé (position et état réduit
  * persistés séparément par widget via `def.id`). */
 function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; index: number; address: string }) {
+  const { t } = useI18n();
+  const builtinI18n = BUILTIN_WIDGET_I18N[def.id];
+  const title = builtinI18n ? t(builtinI18n.title) : def.title;
+  const content = builtinI18n ? t(builtinI18n.content) : def.content;
+  const buttonLabel = (btn: CustomWidgetButton, i: number) => builtinI18n?.buttons[i] ? t(builtinI18n.buttons[i]) : btn.label;
   const posKey = `zc.customWidget.${def.id}.pos`;
   const collapsedKey = `zc.customWidget.${def.id}.collapsed`;
   const { z, bringToFront } = useWindowZIndex();
@@ -72,7 +97,7 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onClick={onToggleClick}
           onContextMenu={onContextMenu}
-          title={def.title}
+          title={title}
         >{def.icon ?? '🧩'}</button>
         <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       </>
@@ -91,16 +116,16 @@ function SingleCustomWidget({ def, index, address }: { def: CustomWidgetDef; ind
         className="flex items-center justify-between px-3 py-2 bg-purple-900/30 rounded-t-xl cursor-move"
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       >
-        <span className="text-sm font-semibold truncate">{def.icon ?? '🧩'} {def.title}</span>
+        <span className="text-sm font-semibold truncate">{def.icon ?? '🧩'} {title}</span>
         <button className="text-xs opacity-70 hover:opacity-100 shrink-0" data-widget-close onClick={toggleCollapsed}>✕</button>
       </div>
       <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       <div className="p-3 text-xs space-y-2">
-        <p className="text-slate-300 whitespace-pre-wrap">{def.content}</p>
+        <p className="text-slate-300 whitespace-pre-wrap">{content}</p>
         <div className="flex flex-col gap-1.5">
           {def.buttons.map((b, i) => (
             <button key={i} className="btn-secondary text-xs w-full disabled:opacity-40" disabled={busy} onClick={() => runButton(b)}>
-              {b.label}
+              {buttonLabel(b, i)}
             </button>
           ))}
         </div>

@@ -29,7 +29,7 @@ import { buildWelcomeEmail, buildPlayerReportEmail, buildBroadcastEmail, buildPa
 
 export const runtime = 'nodejs';
 
-const VALID_LOCALES: EmailLocale[] = ['fr', 'en', 'es', 'pt'];
+const VALID_LOCALES: EmailLocale[] = ['fr', 'en', 'es', 'pt', 'us'];
 function safeLocale(l: unknown): EmailLocale {
   return VALID_LOCALES.includes(l as EmailLocale) ? (l as EmailLocale) : 'fr';
 }

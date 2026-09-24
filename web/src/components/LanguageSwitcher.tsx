@@ -2,7 +2,7 @@
 
 import { useI18n, Locale } from '@/lib/i18n';
 
-const LABELS: Record<Locale, string> = { fr: '🇫🇷 FR', en: '🇬🇧 EN', es: '🇪🇸 ES', pt: '🇵🇹 PT' };
+const LABELS: Record<Locale, string> = { fr: '🇫🇷 FR', en: '🇬🇧 EN', es: '🇪🇸 ES', pt: '🇵🇹 PT', us: '🇺🇸 US' };
 
 export function LanguageSwitcher() {
   const { locale, setLocale, t } = useI18n();
