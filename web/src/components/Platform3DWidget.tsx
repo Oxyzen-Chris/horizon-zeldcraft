@@ -1080,23 +1080,34 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     g.position.x = fromRef.current.x + (x - fromRef.current.x) * progress;
     g.position.z = fromRef.current.z + (z - fromRef.current.z) * progress;
   });
-  // Relevage anti-enterrement (PNJ/familier UNIQUEMENT) : le pied le plus bas de `NpcVoxel`/
-  // `DragonMarker` (en unités NON mises à l'échelle) s'enfonce proportionnellement à `scale` — à
-  // scale=1 (PNJ) le résultat est déjà correct (jambes visibles juste au-dessus du socle), mais à
-  // scale=2.4 (familier/dragon, `marker:familiar`) l'amplification pousse les pattes largement sous
-  // le socle (`y=-0.42`), les rendant invisibles (« les jambes des familiers/dragons sont enterrées
-  // dans le sol »). Comme `scale` n'agit QUE sur les enfants du groupe (`<DragonMarker>`/
-  // `<NpcVoxel>`) et jamais sur la position du groupe lui-même, on compense ici en ajoutant un
-  // relevage égal à l'enfoncement SUPPLÉMENTAIRE induit par `scale` au-delà de 1× — nul par
-  // construction quand `scale===1` (donc AUCUNE régression sur le rendu PNJ existant, déjà validé),
-  // et proportionnel sinon pour que le bas des pattes reste au même niveau visuel qu'à l'échelle 1×
-  // quel que soit le réglage admin (« 🧱 Objets & décor 3D »).
+  // Relevage anti-enterrement (PNJ/familier/faune UNIQUEMENT) : le pied le plus bas de `NpcVoxel`/
+  // `DragonMarker`/`Owl3D`/`Werewolf3D`/`Boar3D` (en unités NON mises à l'échelle) s'enfonce
+  // proportionnellement à `scale`. Bug remonté par l'utilisateur (« les jambes du PNJ sont enterrées
+  // dans le sol, contrairement à Synk ») : à `scale=1` (PNJ, défaut), l'ancienne formule
+  // `groundAnchorUnscaled * (scale - 1)` s'annulait à ZÉRO — le seul relevage restant était le petit
+  // flottement (« bob ») partagé avec les objets EN LÉVITATION (`bobAmplitude≈0.15`), très
+  // insuffisant pour compenser un enfoncement de jambes de `0.39` (un PNJ vivant posé au sol n'a
+  // donc jamais été correctement calé, seuls les familiers agrandis `scale=2.4` recevaient un
+  // relevage partiel). Un personnage VIVANT (PNJ/familier/faune) qui MARCHE sur le sol ne doit par
+  // ailleurs jamais léviter/flotter comme un parchemin de quête ou un trésor magique — on lui
+  // applique donc désormais un calage FIXE (aucune oscillation sinusoïdale), exactement comme Synk
+  // (`SYNK_GROUND_OFFSET`, jamais animé en Y hors de son propre rebond de marche interne) :
+  //   groundLift = groundAnchorUnscaled * scale
+  // Cela replace TOUJOURS le bas des pattes exactement au niveau du sol (`y≈0`), quelle que soit
+  // l'échelle admin (« 🧱 Objets & décor 3D »), sans jamais les faire flotter au-dessus. Les
+  // marqueurs EN LÉVITATION (quête/trésor/monde/zorghon/captif/gemme de repli) conservent EXACTEMENT
+  // leur ancien comportement (`bobAmplitude` + oscillation), `groundAnchorUnscaled` valant `0` pour
+  // eux — zéro régression sur leur rendu.
+  const isLivingCharacter = isNpc || isFamiliar || isWildlife;
   const groundAnchorUnscaled = isFamiliar ? 0.27 : (isNpc || isWildlife) ? 0.39 : 0;
   useFrame((state) => {
     const obj = bobRef.current;
     if (!obj || !floating) return;
-    const groundLift = groundAnchorUnscaled * (scale - 1);
-    obj.position.y = bobAmplitude + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06 + groundLift;
+    if (isLivingCharacter) {
+      obj.position.y = groundAnchorUnscaled * scale;
+    } else {
+      obj.position.y = bobAmplitude + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06;
+    }
     if (spinning) obj.rotation.y += isQuest ? 0.006 : 0.01;
   });
   // Orientation du PNJ/Dragon errant selon sa direction de marche courante (voir FACING_ANGLE,

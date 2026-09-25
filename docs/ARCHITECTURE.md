@@ -2959,3 +2959,68 @@ jetables dans `web/pw-tmp/` (supprimés après usage), 0 erreur console/page :
 - Les portefeuilles crypto connectés (`accountType === 'wallet'`) ne sont impactés par aucun des 3
   correctifs (paiement fiat carte toujours disponible en plus de l'ETH on-chain, inchangé).
 
+## PNJ (et familiers/faune) : jambes/pattes enfoncées dans le sol (widget 3D)
+
+**Symptôme signalé** : un PNJ debout à côté de Synk dans le widget « Plateforme 3D » affichait les
+jambes/bottes visiblement enfoncées dans la dalle de terrain (capture d'écran fournie), alors que
+Synk restait toujours correctement posé sur le sol au même endroit.
+
+**Cause racine** (`Platform3DWidget.tsx::MarkerBlock`) : le mécanisme de « relevage anti-
+enterrement » introduit lors du correctif précédent (voir section ci-dessus « 🔒 Pattes de dragon/
+familier enterrées dans le sol ») ne compensait que l'enfoncement **supplémentaire** induit par une
+échelle (`scale`) supérieure à `1×` :
+
+```
+groundLift = groundAnchorUnscaled * (scale - 1)   // ← ancienne formule
+```
+
+Cette formule s'annule à `scale = 1` — le réglage par défaut des PNJ (`marker:npc`, voir « PNJ de
+la taille de Synk ») — ce qui laissait alors le seul petit flottement (« bob ») partagé avec les
+marqueurs **en lévitation** (parchemin de quête, trésor, portail…) comme unique relevage, très
+insuffisant : le bas des bottes de `NpcVoxel` descend à `y≈-0.39` en coordonnées locales alors que
+la dalle de terrain occupe `y∈[-1,0]` (sommet à `y=0`) — un PNJ à l'échelle par défaut n'a donc
+**jamais** été correctement calé, seuls les familiers/dragons agrandis (`scale=2.4`) recevaient un
+relevage partiel (lui-même légèrement insuffisant, `groundAnchorUnscaled * (scale - 1)` au lieu de
+`groundAnchorUnscaled * scale`).
+
+**Correctif** : un personnage **vivant** (PNJ, familier/dragon, faune errante — hibou/loup-garou/
+sanglier) qui se tient/marche sur le sol ne doit jamais léviter comme un objet magique. La formule
+est donc scindée en deux chemins dans le même `useFrame` :
+
+```ts
+const isLivingCharacter = isNpc || isFamiliar || isWildlife;
+if (isLivingCharacter) {
+  obj.position.y = groundAnchorUnscaled * scale;   // calage FIXE, aucune oscillation
+} else {
+  obj.position.y = bobAmplitude + Math.sin(...) * 0.06; // objets en lévitation, inchangé
+}
+```
+
+- Pour un personnage vivant, le relevage compense désormais **l'intégralité** de l'enfoncement
+  géométrique (et non plus seulement le surplus au-delà de `1×`), quelle que soit l'échelle réglée
+  dans « 🧱 Objets & décor 3D » — le bas des jambes/pattes est systématiquement replacé exactement
+  au niveau du sol (`y≈0`), sans jamais flotter au-dessus.
+- Les marqueurs en lévitation (`isQuest`/`isTreasure`/`isWorld`/`isZorghon`/`isCaptive`/gemme de
+  repli, `groundAnchorUnscaled = 0` pour eux) conservent EXACTEMENT leur ancien comportement
+  (`bobAmplitude` + oscillation sinusoïdale) — zéro régression sur leur rendu.
+- `spinning` (rotation continue façon toupie, déjà exclue pour PNJ/familier/faune depuis le
+  correctif précédent) reste inchangé.
+
+**Vérification (Playwright)** : serveur de développement local (port 3001), connexion Démo
+anonyme, comparaison AVANT/APRÈS par `git stash` du fichier modifié (même session anonyme, même
+disposition déterministe des PNJ/familiers du catalogue) :
+- AVANT : le PNJ le plus proche du spawn affichait le bas du buste et à peine le haut des bottes
+  visibles au-dessus du sol, jambes majoritairement fondues dans la dalle/l'ombre portée.
+- APRÈS : le même PNJ affiche l'intégralité des jambes/bottes au-dessus du sol, avec une ombre
+  portée nette juste sous les pieds — comportement désormais identique à Synk.
+- Le familier/dragon rencontré à proximité affiche également des pattes visibles et correctement
+  posées au sol (aucune régression du correctif précédent).
+- 0 erreur console/page relevée sur l'ensemble du parcours (connexion, ouverture Plateforme 3D,
+  déplacements). `npx tsc --noEmit` et `npm run build` : 0 erreur (seuls les avertissements
+  pré-existants, sans rapport, sur les connecteurs wallet MetaMask/tempo).
+
+**Non-régression** : la faune errante (hibou/loup-garou/sanglier) et les objets en lévitation
+(quêtes, trésors, portails, Zorghon, captifs) n'ont subi aucun changement de comportement — seule
+la branche `isLivingCharacter` a été introduite, les autres marqueurs continuent d'exécuter
+exactement le code précédent.
+
