@@ -277,6 +277,41 @@ function isTileBlockedForRoaming(wc: number, wr: number): boolean {
   return isObstacleAt(wc, wr, worldPois, tile);
 }
 
+/** 🏰 Rayon d'emprise au sol (échelle mapmonde, 1 case = 1 unité) des props dont la silhouette 3D
+ * déborde visuellement sur les cases VOISINES — voir Platform3DWidget.tsx::PropBlock
+ * (CASTLE_SCALE≈[1.2,2.0,1.2] sur un boxGeometry [1.5,1.8,1.5] ⇒ demi-largeur rendue ≈0,9 case,
+ * tourelles d'angle ≈0,98 ; HUT_SCALE≈[1.3,1.8,1.3] sur un boxGeometry [1,1,1] ⇒ demi-largeur ≈0,65
+ * case) — alors que le modèle de collision historique (`FAUNA_OBSTACLE_PROPS` ci-dessus) ne bloquait
+ * QUE la case exacte du prop (« 1 dalle = 1 obstacle »). Corrige le bug rapporté : « les hiboux comme
+ * les sangliers ou les marcassins continuent à traverser les chateaux ou mur » — un acteur passant
+ * par une case VOISINE d'un château pouvait visuellement couper à travers son mur/sa tourelle sans
+ * jamais entrer sur la case du château elle-même (jusqu'ici seule case jugée « obstacle »). Valeurs
+ * légèrement inférieures à la demi-largeur réelle du modèle pour rester cohérent avec la marge déjà
+ * appliquée à `ACTOR_COLLISION_RADIUS` plus haut, sans bloquer par erreur une case simplement
+ * adjacente en diagonale qui ne chevauche pas réellement la silhouette rendue. */
+const PROP_FOOTPRINT_RADIUS: Partial<Record<Exclude<PropKind, null>, number>> = { castle: 0.95, hut: 0.68 };
+
+/** Renvoie `true` si (x,y) — coordonnées RÉELLES et non arrondies, même principe que
+ * `isBlockedBySynkProximity` ci-dessous — se trouve à moins du rayon d'emprise au sol (voir
+ * `PROP_FOOTPRINT_RADIUS` ci-dessus) du CENTRE d'une case voisine portant un château/une hutte, MÊME
+ * si la case candidate elle-même n'est PAS la case du prop. Ne parcourt qu'un voisinage 3×3 autour de
+ * la case arrondie la plus proche (tous les rayons d'emprise restent < 1 case, aucun prop plus
+ * éloigné ne peut donc jamais chevaucher). Toujours `false` si `obstacleAvoidanceEnabled` est
+ * désactivé en Administration, comme pour `isTileBlockedForRoaming` (zéro régression possible). */
+function isNearBlockingPropFootprint(x: number, y: number): boolean {
+  if (!obstacleAvoidanceEnabled) return false;
+  const baseWc = Math.round(x), baseWr = Math.round(y);
+  for (let dwr = -1; dwr <= 1; dwr++) {
+    for (let dwc = -1; dwc <= 1; dwc++) {
+      const wc = baseWc + dwc, wr = baseWr + dwr;
+      const tile = worldTileAt(wc, wr, worldPois);
+      const radius = tile.prop ? PROP_FOOTPRINT_RADIUS[tile.prop] : undefined;
+      if (radius !== undefined && Math.hypot(x - wc, y - wr) < radius) return true;
+    }
+  }
+  return false;
+}
+
 // ─── Évitement mutuel entre acteurs vivants (PNJ/dragon/familiers/faune) ET avec Synk lui-même —
 // voir RepRules.roamActorCollisionEnabled/advanceActor ci-dessous. Répond à la demande utilisateur :
 // « deux familiers entre eux ne doivent pas se traverser mais se contourner, que cela soit des
@@ -312,13 +347,16 @@ let liveActorPositions: { id: string; x: number; y: number }[] = [];
 /** Renvoie `true` si la position PRÉCISE (x,y, non arrondie — voir `ACTOR_COLLISION_RADIUS`
  * ci-dessus sur l'intérêt de rester en coordonnées réelles plutôt qu'en cases entières ici) se
  * trouve à moins de `ACTOR_COLLISION_RADIUS` d'un AUTRE acteur errant vivant (voir
- * `liveActorPositions` ci-dessus, `selfId` exclu) ou de Synk (dernière position connue, voir
- * `synkPos`/`reportSynkPositionForFreeze`) — toujours `false` si `actorCollisionAvoidanceEnabled`
- * est désactivé en Administration (comportement historique restauré à l'identique, zéro régression
- * possible). */
+ * `liveActorPositions` ci-dessus, `selfId` exclu) — toujours `false` si
+ * `actorCollisionAvoidanceEnabled` est désactivé en Administration (comportement historique
+ * restauré à l'identique, zéro régression possible). Synk est traité À PART (voir
+ * `isBlockedBySynkProximity` ci-dessous) : contrairement à un AUTRE acteur (qui reste immobile ou
+ * bouge lentement, un contournement actif via `findDetourDirection` reste crédible), Synk est
+ * piloté par le JOUEUR et peut donc bouger de façon continue et imprévisible — un contournement
+ * actif dirigé contre sa position à CHAQUE tick créait un effet de « poursuite »/orbite autour de
+ * lui (voir commentaire de `isBlockedBySynkProximity`). */
 function isTileBlockedByOtherActor(x: number, y: number, selfId: string): boolean {
   if (!actorCollisionAvoidanceEnabled) return false;
-  if (synkPos && Math.hypot(x - synkPos.x, y - synkPos.y) < ACTOR_COLLISION_RADIUS) return true;
   for (const other of liveActorPositions) {
     if (other.id === selfId) continue;
     if (Math.hypot(x - other.x, y - other.y) < ACTOR_COLLISION_RADIUS) return true;
@@ -326,17 +364,45 @@ function isTileBlockedByOtherActor(x: number, y: number, selfId: string): boolea
   return false;
 }
 
-/** Combine l'évitement d'obstacles de terrain (`isTileBlockedForRoaming`, qui raisonne en CASE
- * ENTIÈRE, voir `worldTileAt`) ET l'évitement mutuel entre acteurs vivants/Synk
- * (`isTileBlockedByOtherActor`, qui raisonne en coordonnées RÉELLES non arrondies, voir
- * `ACTOR_COLLISION_RADIUS`) — SEUL point d'appel utilisé par `advanceActor`/`findDetourDirection`
- * ci-dessous, afin qu'un acteur cherche systématiquement à contourner l'un OU l'autre type de
- * blocage de la même manière (aucune différence de traitement visible entre « case eau/montagne/
- * prop » et « acteur/Synk à proximité immédiate »). `x`/`y` : coordonnées RÉELLES (non arrondies)
- * de la case candidate — l'arrondi nécessaire à `isTileBlockedForRoaming` est fait ICI, en interne. */
-function isTileBlockedForActor(x: number, y: number, selfId: string): boolean {
-  return isTileBlockedForRoaming(Math.round(x), Math.round(y)) || isTileBlockedByOtherActor(x, y, selfId);
+/** Renvoie `true` si (x,y) se trouve à moins de `ACTOR_COLLISION_RADIUS` de Synk (voir `synkPos`/
+ * `reportSynkPositionForFreeze`) — toujours `false` si `actorCollisionAvoidanceEnabled` est
+ * désactivé. 🔧 Régression corrigée : demande utilisateur — « quand je bouge Synk à proximité de
+ * sangliers et Marcassin, j'ai l'impression que les sangliers ou marcassins bougent, se déplacent
+ * et se translatent latéralement en se calquant sur les mouvements de Synk ». Cause racine : dans
+ * l'immense majorité des cas, le GEL DE PROXIMITÉ (voir `proximityFreezeEnabled`/
+ * `proximityFreezeTiles`, largement plus grand que `ACTOR_COLLISION_RADIUS`) immobilise déjà
+ * complètement un acteur bien AVANT que Synk ne puisse jamais réellement le chevaucher — ce contrôle
+ * ne s'appliquait donc en pratique QUE dans le cas marginal où le délai de grâce
+ * (`proximityFreezeResumeSec`) est écoulé alors que Synk reste toujours à proximité (l'acteur
+ * reprend alors sa marche normale SANS se re-geler). Dans ce cas précis, traiter Synk exactement
+ * comme un autre acteur (contournement actif via `findDetourDirection`, voir ci-dessus) le faisait
+ * chercher, À CHAQUE tick, une direction libre AUTOUR de la position COURANTE de Synk — qui elle-même
+ * se déplace en continu sous le contrôle du joueur : le résultat observable était un acteur qui
+ * semblait suivre/orbiter la position de Synk pas à pas, recréant l'ANCIEN bug (déjà corrigé) du
+ * sanglier « aimanté »/« collé » à Synk. Voir `advanceActor` ci-dessous : ce contrôle NE déclenche
+ * plus de contournement actif, seulement un arrêt immobile ce tick (exactement le traitement déjà
+ * réservé au cas « cerné »), qui n'entretient aucune boucle de poursuite. */
+function isBlockedBySynkProximity(x: number, y: number): boolean {
+  if (!actorCollisionAvoidanceEnabled) return false;
+  return !!synkPos && Math.hypot(x - synkPos.x, y - synkPos.y) < ACTOR_COLLISION_RADIUS;
 }
+
+/** Combine l'évitement d'obstacles de terrain (`isTileBlockedForRoaming`, qui raisonne en CASE
+ * ENTIÈRE, voir `worldTileAt`), l'emprise au sol débordante des gros props (`isNearBlockingPropFootprint`,
+ * qui raisonne en coordonnées RÉELLES pour capter le débordement visuel sur les cases voisines, voir
+ * `PROP_FOOTPRINT_RADIUS`) ET l'évitement mutuel entre acteurs vivants (`isTileBlockedByOtherActor`,
+ * qui raisonne également en coordonnées RÉELLES non arrondies, voir `ACTOR_COLLISION_RADIUS`) —
+ * SEUL point d'appel utilisé par `findDetourDirection` (recherche d'une direction de REMPLACEMENT)
+ * ci-dessous. Synk est délibérément EXCLU d'ici (voir `isBlockedBySynkProximity` ci-dessus) :
+ * `advanceActor` l'interroge séparément et ne déclenche JAMAIS de contournement actif contre Synk,
+ * uniquement un arrêt immobile. `x`/`y` : coordonnées RÉELLES (non arrondies) de la case candidate —
+ * l'arrondi nécessaire à `isTileBlockedForRoaming` est fait ICI, en interne. */
+function isTileBlockedForActor(x: number, y: number, selfId: string): boolean {
+  return isTileBlockedForRoaming(Math.round(x), Math.round(y))
+    || isNearBlockingPropFootprint(x, y)
+    || isTileBlockedByOtherActor(x, y, selfId);
+}
+
 
 /** Cherche une direction DE REMPLACEMENT (autre que celle qui vient d'échouer) menant à une case
  * franchissable et dans les limites du mapmonde — ordre aléatoire pour ne jamais privilégier
@@ -473,9 +539,11 @@ function distanceToSynk(pos: RoamingActorPos): number {
  * sans interaction du joueur avec CET acteur précis (`interactingActorId`), il reprend sa marche
  * même si Synk reste à proximité — corrige l'aglutination de PNJ signalée par l'utilisateur.
  * 🔒 Évitement mutuel entre acteurs (voir `isTileBlockedForActor`/`liveActorPositions` ci-dessus) :
- * une case cible actuellement occupée par un AUTRE acteur vivant ou par Synk est traitée exactement
- * comme un obstacle de terrain — un contournement immédiat est tenté (`findDetourDirection`)
- * plutôt que de superposer deux acteurs sur la même case. */
+ * une case cible actuellement occupée par un AUTRE acteur vivant est traitée exactement comme un
+ * obstacle de terrain — un contournement immédiat est tenté (`findDetourDirection`) plutôt que de
+ * superposer deux acteurs sur la même case. Synk, lui, est traité À PART (voir
+ * `isBlockedBySynkProximity` ci-dessus) : jamais de contournement actif contre lui, uniquement un
+ * arrêt immobile ce tick (évite l'effet de poursuite/orbite, voir commentaire détaillé plus haut). */
 function advanceActor(pos: RoamingActorPos, motion: ActorMotion, id: string): {
   pos: RoamingActorPos; motion: ActorMotion; moving: boolean; facing: SynkDirection | null;
 } {
@@ -501,18 +569,38 @@ function advanceActor(pos: RoamingActorPos, motion: ActorMotion, id: string): {
     dx = dir.dx; dy = dir.dy;
     holdTicks = randomHoldTicks(dx === 0 && dy === 0);
   }
-  let nx = pos.x, ny = pos.y, blockedByEdge = false, blockedByObstacle = false;
+  let nx = pos.x, ny = pos.y, blockedByEdge = false, blockedByObstacle = false, blockedBySynk = false;
   if (dx !== 0 || dy !== 0) {
     const rawX = pos.x + dx, rawY = pos.y + dy;
     const cx = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawX));
     const cy = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawY));
     blockedByEdge = cx !== rawX || cy !== rawY;
-    blockedByObstacle = !blockedByEdge && isTileBlockedForActor(cx, cy, id);
-    if (blockedByObstacle) {
+    // 🔒 Proximité de Synk (voir isBlockedBySynkProximity ci-dessus) : traitée AVANT et
+    // SÉPARÉMENT du reste — provoque un arrêt immobile ce tick, JAMAIS de contournement actif
+    // (`findDetourDirection`), afin de ne pas recréer l'effet de « poursuite »/orbite autour de
+    // Synk documenté ci-dessus (Synk bouge en continu sous contrôle du joueur, contrairement à un
+    // obstacle de terrain ou à un autre acteur errant, tous deux quasi immobiles à l'échelle d'un
+    // tick). Le gel de proximité (voir plus haut) empêche déjà ce cas dans l'immense majorité des
+    // situations réelles : ceci ne s'applique qu'au cas marginal résiduel (délai de grâce écoulé,
+    // Synk toujours à proximité).
+    // ⚠️ Corrige un résidu découvert lors de la vérification du correctif d'emprise au sol des
+    // châteaux/huttes (voir isNearBlockingPropFootprint ci-dessus) : `blockedBySynk`/
+    // `blockedByObstacle` étaient auparavant conditionnés à `!blockedByEdge`, ce qui SAUTAIT
+    // ENTIÈREMENT la vérification d'obstacle/Synk dès que (cx,cy) correspondait à une case bridée
+    // en bord de mapmonde — un château/une hutte situйe pile sur cette bordure pouvait alors être
+    // traversé(e) sans le moindre contrôle. (cx,cy) reste une case CANDIDATE valide même bridée :
+    // elle DOIT être vérifiée exactement comme n'importe quelle autre case cible.
+    blockedBySynk = isBlockedBySynkProximity(cx, cy);
+    blockedByObstacle = !blockedBySynk && isTileBlockedForActor(cx, cy, id);
+    if (blockedBySynk) {
+      nx = pos.x; ny = pos.y;
+      holdTicks = 0; // force un NOUVEAU tirage de direction au prochain tick (voir commentaire ci-dessus)
+    } else if (blockedByObstacle) {
       // Case cible eau/rocher/prop solide/POI obstacle (voir isTileBlockedForRoaming) OU occupée
-      // par un autre acteur vivant/Synk (voir isTileBlockedByOtherActor) : au lieu de s'arrêter net,
-      // tente IMMÉDIATEMENT une direction de contournement (voir findDetourDirection) pour un
-      // mouvement fluide et crédible plutôt qu'un temps mort visible ou une superposition visuelle.
+      // par un AUTRE acteur vivant (voir isTileBlockedByOtherActor, Synk exclu — voir ci-dessus) :
+      // au lieu de s'arrêter net, tente IMMÉDIATEMENT une direction de contournement (voir
+      // findDetourDirection) pour un mouvement fluide et crédible plutôt qu'un temps mort visible
+      // ou une superposition visuelle.
       const detour = findDetourDirection(pos, dx, dy, id);
       if (detour) {
         dx = detour.dx; dy = detour.dy;
@@ -529,10 +617,11 @@ function advanceActor(pos: RoamingActorPos, motion: ActorMotion, id: string): {
     }
   }
   holdTicks -= 1;
-  // Bord de mapmonde atteint OU entièrement cerné par des obstacles : force le choix d'une
-  // nouvelle direction au prochain tick plutôt que de rester à pousser contre le mur/l'obstacle
-  // jusqu'à épuisement du maintien courant.
-  if (blockedByEdge || (blockedByObstacle && nx === pos.x && ny === pos.y)) holdTicks = 0;
+  // Bord de mapmonde atteint, entièrement cerné par des obstacles/un autre acteur, OU bloqué par la
+  // proximité de Synk (voir `blockedBySynk` ci-dessus) : force le choix d'une nouvelle direction au
+  // prochain tick plutôt que de rester à pousser contre le mur/l'obstacle/Synk jusqu'à épuisement du
+  // maintien courant.
+  if (blockedByEdge || blockedBySynk || (blockedByObstacle && nx === pos.x && ny === pos.y)) holdTicks = 0;
   const moving = dx !== 0 || dy !== 0;
   return { pos: { x: nx, y: ny }, motion: { dx, dy, holdTicks }, moving, facing: moving ? directionFromDelta(dx, dy) : null };
 }
@@ -798,23 +887,32 @@ function randomWildlifeSpawn(guaranteed: boolean): RoamingActorPos {
   return { x: ROAM_MARGIN + Math.random() * (WORLD_SIZE - 2 * ROAM_MARGIN), y: ROAM_MARGIN + Math.random() * (WORLD_SIZE - 2 * ROAM_MARGIN) };
 }
 
-/** Variante de `randomWildlifeSpawn` ci-dessus qui évite en plus de faire apparaître deux individus
- * quasi superposés dès le départ (voir `ACTOR_COLLISION_RADIUS`) — corrige un résidu observé lors
- * de la vérification Playwright de l'évitement mutuel entre acteurs (voir `advanceActor`/
- * `isTileBlockedForActor` ci-dessus) : ce dernier empêche un acteur de se DÉPLACER vers la case
- * d'un autre, mais ne peut évidemment rien faire si DEUX individus démarrent déjà quasi au même
- * endroit par pur hasard (tirage indépendant) — ils restent alors visuellement superposés tant
- * qu'aucun des deux ne bouge suffisamment pour s'écarter. Un nombre borné de nouveaux tirages
- * (`MAX_SPAWN_ATTEMPTS`) suffit à rendre cette collision de spawn statistiquement négligeable, sans
- * jamais bloquer la génération (le dernier tirage est accepté tel quel si vraiment aucune case
- * suffisamment isolée n'a pu être trouvée — cas extrême, ne devrait jamais se produire en pratique
- * avec le nombre d'individus configurés par défaut). */
+/** Variante de `randomWildlifeSpawn` ci-dessus qui évite en plus :
+ * — de faire apparaître deux individus quasi superposés dès le départ (voir `ACTOR_COLLISION_RADIUS`)
+ *   — corrige un résidu observé lors de la vérification Playwright de l'évitement mutuel entre
+ *   acteurs (voir `advanceActor`/`isTileBlockedForActor` ci-dessus) : ce dernier empêche un acteur
+ *   de se DÉPLACER vers la case d'un autre, mais ne peut évidemment rien faire si DEUX individus
+ *   démarrent déjà quasi au même endroit par pur hasard (tirage indépendant) ;
+ * — 🏰 de faire apparaître un individu directement DANS l'eau/un rocher/un arbre/l'emprise au sol
+ *   d'un château/d'une hutte (voir `isTileBlockedForRoaming`/`isNearBlockingPropFootprint`
+ *   ci-dessus) — trouvé lors de la vérification (test `unit-castle-footprint.ts`) du correctif «
+ *   les hiboux/sangliers/marcassins continuent à traverser les châteaux/murs » : le correctif de
+ *   MOUVEMENT empêche bien un acteur DÉJÀ en terrain valide de pénétrer un obstacle, mais ne
+ *   pouvait rien faire si le tirage aléatoire de spawn plaçait directement l'individu SUR/DANS un
+ *   obstacle dès la génération (le spawn ne consultait jusqu'ici que la collision acteur-acteur
+ *   ci-dessus, jamais le terrain).
+ * Dans les deux cas, un nombre borné de nouveaux tirages (`MAX_SPAWN_ATTEMPTS`) suffit à rendre ces
+ * cas statistiquement négligeables, sans jamais bloquer la génération (le dernier tirage est
+ * accepté tel quel si vraiment aucune case valide n'a pu être trouvée — cas extrême, ne devrait
+ * jamais se produire en pratique avec le nombre d'individus configurés par défaut). */
 function randomWildlifeSpawnAvoidingOverlap(guaranteed: boolean, alreadyPlaced: RoamingActorPos[]): RoamingActorPos {
   const MAX_SPAWN_ATTEMPTS = 12;
   let candidate = randomWildlifeSpawn(guaranteed);
   for (let attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt++) {
     const tooClose = alreadyPlaced.some((p) => Math.hypot(candidate.x - p.x, candidate.y - p.y) < ACTOR_COLLISION_RADIUS);
-    if (!tooClose) return candidate;
+    const onObstacle = isTileBlockedForRoaming(Math.round(candidate.x), Math.round(candidate.y))
+      || isNearBlockingPropFootprint(candidate.x, candidate.y);
+    if (!tooClose && !onObstacle) return candidate;
     candidate = randomWildlifeSpawn(guaranteed);
   }
   return candidate;

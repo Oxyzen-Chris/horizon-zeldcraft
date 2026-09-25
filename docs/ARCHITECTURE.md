@@ -3316,3 +3316,94 @@ inchangés — seul un DEUXIÈME critère de blocage (acteur/Synk à proximité 
 au même point d'appel `isTileBlockedForActor`, avec son propre réglage Administration
 INDÉPENDANT (`roamActorCollisionEnabled`), désactivable sans affecter l'évitement de terrain.
 
+### 🏰 Régression #7 : la faune traverse toujours les murs de château/hutte + sanglier/marcassin de nouveau « aimanté » à Synk
+
+**Symptômes signalés** (captures d'écran à l'appui) : (1) hiboux, sangliers et marcassins
+continuaient à visuellement traverser les murs/tourelles d'un château ou d'une hutte malgré le
+correctif d'évitement d'obstacles ci-dessus ; (2) en déplaçant Synk à proximité d'un sanglier ou
+d'un marcassin, ce dernier semblait de nouveau « se translater latéralement en se calquant sur les
+mouvements de Synk » — un symptôme identique à l'ancienne Régression #5, en principe déjà réglée.
+L'utilisateur demandait de vérifier si d'autres familiers (loup-garou, dragon, autres PNJ)
+présentaient les mêmes défauts.
+
+**Cause racine n°1 (mur traversé) — décalage silhouette 3D / collision** : `isTileBlockedForRoaming`
+ne bloque qu'UNE SEULE case entière par prop (`FAUNA_OBSTACLE_PROPS` inclut `'castle'`/`'hut'`),
+alors que le rendu 3D du château (`Platform3DWidget.tsx::PropBlock`, `CASTLE_SCALE≈[1.2,2.0,1.2]`
+sur un `boxGeometry [1.5,1.8,1.5]`) déborde visuellement d'environ `0,4`-`0,5` unité sur CHAQUE
+case voisine (tourelles d'angle comprises) ; la hutte (`HUT_SCALE≈[1.3,1.8,1.3]` sur
+`[1,1,1]`) déborde d'environ `0,3` unité. Un acteur dont la position réelle (avec sa décimale de
+spawn conservée, voir Régression précédente) le fait passer tout près de la limite d'une case
+voisine pouvait ainsi se retrouver visuellement à l'intérieur du mur, alors que la case qu'il
+occupait n'était, au sens strict de la collision, PAS celle du château.
+
+**Cause racine n°2 (sanglier « aimanté ») — la faune peut visualiser un mouvement corrélé à Synk
+même après le correctif d'évitement mutuel** : ce dernier (voir section précédente) traite Synk
+EXACTEMENT comme un autre acteur vivant vis-à-vis de `isTileBlockedByOtherActor` — un contournement
+actif (`findDetourDirection`) est tenté dès qu'une case candidate est trop proche de la position
+COURANTE de Synk. Le gel de proximité (`proximityFreezeTiles=2`, largement supérieur à
+`ACTOR_COLLISION_RADIUS=0,85`) empêche cette situation dans l'immense majorité des cas — SAUF dans
+le cas marginal où le délai de grâce (`proximityFreezeResumeSec`, 6 s par défaut) s'écoule alors que
+Synk reste à proximité (l'acteur reprend alors sa marche SANS se regeler, voir mécanisme
+« anti-agglutination » d'une session antérieure). Dans ce cas précis, `findDetourDirection` cherche
+à chaque tick une direction non bloquée par la position ACTUELLE de Synk ; comme Synk continue de
+bouger sous contrôle du joueur, ce recalcul permanent fait apparaître un mouvement de l'acteur
+visuellement corrélé/orbitant autour de Synk — recréant par un chemin de code différent le symptôme
+de l'ancienne Régression #5 (déjà réglée pour le cas du glissement en biais, mais pas pour cette
+interaction spécifique avec le nouveau code d'évitement mutuel).
+
+**Reproduction fiable** : le déplacement clavier de Synk étant bloqué par de vrais obstacles à
+proximité du point d'apparition (rendant une reproduction Playwright dans le navigateur peu
+fiable), la régression a été isolée et confirmée via un test unitaire autonome (`npx tsx`)
+importateur direct de `lib/roamingActors.ts` (sans React/Three.js/navigateur) : un sanglier est
+généré, puis une position de Synk factice décrit un petit cercle FIXE (rayon 1,3, entre
+`ACTOR_COLLISION_RADIUS` et `proximityFreezeTiles`) autour de la position INITIALE du sanglier ;
+AVANT correctif, la position du sanglier suit presque case pour case la rotation de Synk une fois
+le délai de grâce écoulé.
+
+**Correctifs** (`lib/roamingActors.ts`, seul point d'implémentation partagé par les 3 widgets) :
+- **Emprise au sol des gros props** — nouvelle `PROP_FOOTPRINT_RADIUS` (`castle: 0.95`,
+  `hut: 0.68`, dérivés des demi-largeurs réelles des maillages 3D) et nouvelle fonction
+  `isNearBlockingPropFootprint(x, y)` : vérifie, en coordonnées RÉELLES non arrondies, la distance
+  au centre de CHAQUE case château/hutte d'un voisinage 3×3 (et non plus la seule case exacte
+  arrondie) — appelée par `isTileBlockedForActor` en plus de `isTileBlockedForRoaming`.
+- **Anti-spawn dans un obstacle** — `randomWildlifeSpawnAvoidingOverlap` rejette désormais aussi
+  (en plus du chevauchement entre acteurs déjà géré) tout tirage qui tomberait sur une case bloquée
+  par le terrain OU par la nouvelle emprise au sol ci-dessus, avec le même nombre de tentatives que
+  le contrôle anti-chevauchement existant.
+- **Bord de mapmonde ne court-circuite plus le contrôle d'obstacle** — trouvé lors de la
+  vérification du correctif ci-dessus : quand une case candidate est bridée en bordure de
+  mapmonde (`blockedByEdge`), le code acceptait auparavant cette case SANS jamais vérifier
+  obstacle/Synk dessus (un château situé pile sur la bordure pouvait donc être traversé
+  librement) ; les vérifications d'obstacle/Synk s'appliquent désormais À LA CASE BRIDÉE
+  elle-même, exactement comme pour toute autre case candidate.
+- **Synk n'est plus contourné activement, seulement évité par arrêt** — `isTileBlockedByOtherActor`
+  ne considère plus que les AUTRES acteurs vivants (le contournement actif entre acteurs reste
+  inchangé) ; une nouvelle fonction dédiée `isBlockedBySynkProximity(x, y)` gère Synk séparément.
+  `advanceActor()` vérifie ce blocage AVANT et INDÉPENDAMMENT du blocage par obstacle/autre acteur :
+  si la case candidate est trop proche de Synk, l'acteur s'arrête simplement sur place ce tick
+  (nouveau tirage de direction forcé au tick suivant) — AUCUN contournement actif n'est tenté
+  contre Synk, ce qui supprime la boucle de rétroaction responsable de l'effet d'orbite/poursuite,
+  tout en empêchant toujours tout chevauchement réel avec Synk.
+
+**Vérification** :
+- Test unitaire (`npx tsx`, cercle fixe autour de la position initiale) : le sanglier ne suit plus
+  la rotation de Synk — son mouvement redevient un déplacement globalement aléatoire, avec arrêts
+  ponctuels lorsqu'il est effectivement bloqué par Synk, sans corrélation systématique à l'angle du
+  cercle.
+- Test unitaire dédié (`unit-castle-footprint.ts`) : génération d'une faune nombreuse (hiboux/
+  loups-garous/sangliers) sur une mapmonde synthétique dense en châteaux/huttes, échantillonnage de
+  la distance entre chaque individu et le centre de chaque case château/hutte sur 400 ticks —
+  **0 violation** de l'emprise au sol sur 8 exécutions consécutives (contre plusieurs centaines de
+  violations avant le correctif de bord de mapmonde/spawn).
+- `npx tsc --noEmit` et `npm run build` : 0 erreur avant/après ces correctifs.
+- Vérification Playwright (fumée) : ouverture de session Démo, widget Plateforme 3D, aucune erreur
+  console/page, rendu visuel inchangé (aucune régression de l'apparence du monde/de la faune).
+
+**Non-régression** : le contournement actif entre DEUX acteurs vivants (hors Synk) reste totalement
+inchangé (`isTileBlockedByOtherActor` sans Synk, `findDetourDirection` toujours utilisé dans ce
+cas) ; le gel de proximité, la persistance des PNJ de rencontre et le calage au sol de la faune
+restent des mécanismes séparés et inchangés ; les réglages Administration
+`roamObstacleAvoidanceEnabled`/`roamActorCollisionEnabled`/`roamProximityFreezeEnabled` conservent
+exactement le même comportement qu'auparavant lorsqu'ils sont désactivés (chaque correctif
+ci-dessus reste dans le périmètre du mécanisme qu'il complète, sans nouveau réglage requis).
+
