@@ -4766,6 +4766,20 @@ export interface RepRules {
                                         // tente une direction alternative (contournement) plutôt que
                                         // de s'arrêter net — `false` restaure l'ancien comportement
                                         // (traversée libre, aucune régression possible si désactivé)
+  roamActorCollisionEnabled: boolean;   // défaut true — répond à la demande utilisateur « deux
+                                        // familiers entre eux ne doivent pas se traverser mais se
+                                        // contourner, que cela soit des familiers entre eux, des PNJ
+                                        // avec des familiers, des PNJ ou des familiers avec SYNK, des
+                                        // PNJ entre PNJ [...] ne doivent pas traverser Synk mais le
+                                        // contourner ». Quand activé, lib/roamingActors.ts::
+                                        // advanceActor() traite la case COURANTE de TOUT autre acteur
+                                        // errant vivant (PNJ/dragon/extra/familier/faune) ainsi que la
+                                        // dernière position connue de Synk comme temporairement
+                                        // infranchissable, et tente une direction de contournement
+                                        // (même mécanisme que roamObstacleAvoidanceEnabled ci-dessus)
+                                        // plutôt que de superposer deux acteurs sur la même case —
+                                        // `false` restaure l'ancien comportement (chevauchement
+                                        // possible, aucune régression si désactivé)
 
   // ─── Faune sauvage errante : hibou(x)/loup-garou(s) (voir lib/roamingActors.ts::WildlifeActorState/
   // ensureWildlifeSpawns) — répond à la demande utilisateur « le loup garou et le hibou me suivent
@@ -5037,6 +5051,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   roamProximityFreezeTiles: 2,
   roamProximityFreezeResumeSec: 6,
   roamObstacleAvoidanceEnabled: true,
+  roamActorCollisionEnabled: true,
   wildlifeEnabled: true,
   wildlifeOwlCount: 13,
   wildlifeWerewolfCount: 12,

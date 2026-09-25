@@ -318,6 +318,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
       proximityFreezeResumeSec: rules.roamProximityFreezeResumeSec,
       obstacleAvoidanceEnabled: rules.roamObstacleAvoidanceEnabled,
+      actorCollisionAvoidanceEnabled: rules.roamActorCollisionEnabled,
     });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous, voir RepRules.wildlife*/lib/roamingActors.ts::

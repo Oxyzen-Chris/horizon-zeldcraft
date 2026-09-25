@@ -277,13 +277,74 @@ function isTileBlockedForRoaming(wc: number, wr: number): boolean {
   return isObstacleAt(wc, wr, worldPois, tile);
 }
 
+// ─── Évitement mutuel entre acteurs vivants (PNJ/dragon/familiers/faune) ET avec Synk lui-même —
+// voir RepRules.roamActorCollisionEnabled/advanceActor ci-dessous. Répond à la demande utilisateur :
+// « deux familiers entre eux ne doivent pas se traverser mais se contourner, que cela soit des
+// familiers entre eux, des PNJ avec des familiers, des PNJ ou des familiers avec SYNK, des PNJ
+// entre PNJ [...] ne doivent pas se traverser ou même traverser Synk mais doivent être contourner
+// comme c'est le cas quand un PNJ [...] rencontre un obstacle [...] les hiboux comme les dragons ne
+// doivent pas traverser les chateaux, huttes mais les contourner et ne doivent pas non plus
+// traverser Synk mais le contourner ». Réutilise EXACTEMENT le même mécanisme de contournement
+// immédiat (findDetourDirection) que pour les obstacles de terrain ci-dessus, avec un réglage
+// Administration DISTINCT (`roamActorCollisionEnabled`) pour pouvoir désactiver l'un sans l'autre.
+let actorCollisionAvoidanceEnabled = true;
+/** Distance (échelle mapmonde 0-100, identique à `WORLD_SIZE`) en deçà de laquelle deux acteurs
+ * (ou un acteur et Synk) sont considérés en collision — volontairement LÉGÈREMENT inférieure à 1
+ * case entière (contrairement à l'évitement d'obstacles de terrain, qui lui raisonne en cases
+ * entières via `Math.round`) car certains acteurs (faune errante via `randomWildlifeSpawn`,
+ * familiers dont la position catalogue d'origine, voir `ensureRoamingIdentities`) démarrent à des
+ * coordonnées AVEC décimales et la conservent tout au long de leur errance (chaque pas ±1 entier
+ * préserve la partie décimale d'origine) — un simple arrondi à la case entière la plus proche
+ * laissait donc passer des chevauchements visuels francs entre deux acteurs aux décimales
+ * différentes (ex. 16.2 et 16.8 arrondissent à des cases DIFFÉRENTES tout en étant à une distance
+ * réelle de 0,6 case, quasiment superposés visuellement) — corrigé en comparant la distance
+ * EUCLIDIENNE réelle plutôt que l'égalité de case arrondie. */
+const ACTOR_COLLISION_RADIUS = 0.85;
+/** Position COURANTE (avant le tick en cours) de chaque acteur errant vivant — reconstituée en tout
+ * début de `stepActors()` (voir ci-dessous), AVANT que le moindre acteur n'ait bougé ce tick.
+ * Permet à `advanceActor` de savoir où se trouvent tous les AUTRES acteurs (hors lui-même, exclu
+ * via `selfId`, le même id que celui déjà utilisé pour le gel de proximité) sans devoir attendre la
+ * fin du tick — les nouvelles positions ne sont commises dans `state` qu'une fois TOUS les acteurs
+ * avancés (voir stepActors), donc ce cliché figé en début de tick reste la seule source fiable
+ * pendant le calcul. */
+let liveActorPositions: { id: string; x: number; y: number }[] = [];
+
+/** Renvoie `true` si la position PRÉCISE (x,y, non arrondie — voir `ACTOR_COLLISION_RADIUS`
+ * ci-dessus sur l'intérêt de rester en coordonnées réelles plutôt qu'en cases entières ici) se
+ * trouve à moins de `ACTOR_COLLISION_RADIUS` d'un AUTRE acteur errant vivant (voir
+ * `liveActorPositions` ci-dessus, `selfId` exclu) ou de Synk (dernière position connue, voir
+ * `synkPos`/`reportSynkPositionForFreeze`) — toujours `false` si `actorCollisionAvoidanceEnabled`
+ * est désactivé en Administration (comportement historique restauré à l'identique, zéro régression
+ * possible). */
+function isTileBlockedByOtherActor(x: number, y: number, selfId: string): boolean {
+  if (!actorCollisionAvoidanceEnabled) return false;
+  if (synkPos && Math.hypot(x - synkPos.x, y - synkPos.y) < ACTOR_COLLISION_RADIUS) return true;
+  for (const other of liveActorPositions) {
+    if (other.id === selfId) continue;
+    if (Math.hypot(x - other.x, y - other.y) < ACTOR_COLLISION_RADIUS) return true;
+  }
+  return false;
+}
+
+/** Combine l'évitement d'obstacles de terrain (`isTileBlockedForRoaming`, qui raisonne en CASE
+ * ENTIÈRE, voir `worldTileAt`) ET l'évitement mutuel entre acteurs vivants/Synk
+ * (`isTileBlockedByOtherActor`, qui raisonne en coordonnées RÉELLES non arrondies, voir
+ * `ACTOR_COLLISION_RADIUS`) — SEUL point d'appel utilisé par `advanceActor`/`findDetourDirection`
+ * ci-dessous, afin qu'un acteur cherche systématiquement à contourner l'un OU l'autre type de
+ * blocage de la même manière (aucune différence de traitement visible entre « case eau/montagne/
+ * prop » et « acteur/Synk à proximité immédiate »). `x`/`y` : coordonnées RÉELLES (non arrondies)
+ * de la case candidate — l'arrondi nécessaire à `isTileBlockedForRoaming` est fait ICI, en interne. */
+function isTileBlockedForActor(x: number, y: number, selfId: string): boolean {
+  return isTileBlockedForRoaming(Math.round(x), Math.round(y)) || isTileBlockedByOtherActor(x, y, selfId);
+}
+
 /** Cherche une direction DE REMPLACEMENT (autre que celle qui vient d'échouer) menant à une case
  * franchissable et dans les limites du mapmonde — ordre aléatoire pour ne jamais privilégier
  * systématiquement la même direction de contournement (démarche crédible, voir commentaire
  * d'en-tête). Renvoie `null` si AUCUNE des 7 autres directions ne convient (acteur cerné, cas rare :
  * il reste alors immobile ce tick et retire un nouveau tirage complet au prochain, voir
  * advanceActor). */
-function findDetourDirection(pos: RoamingActorPos, excludeDx: number, excludeDy: number): { dx: number; dy: number } | null {
+function findDetourDirection(pos: RoamingActorPos, excludeDx: number, excludeDy: number, selfId: string): { dx: number; dy: number } | null {
   const candidates = DIRECTIONS.filter((d) => !(d.dx === excludeDx && d.dy === excludeDy));
   for (let i = candidates.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -294,7 +355,7 @@ function findDetourDirection(pos: RoamingActorPos, excludeDx: number, excludeDy:
     const cx = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawX));
     const cy = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawY));
     if (cx !== rawX || cy !== rawY) continue; // bord de mapmonde, exclu aussi du contournement
-    if (isTileBlockedForRoaming(Math.round(cx), Math.round(cy))) continue;
+    if (isTileBlockedForActor(cx, cy, selfId)) continue;
     return d;
   }
   return null;
@@ -410,7 +471,11 @@ function distanceToSynk(pos: RoamingActorPos): number {
  * progression ou de tirer immédiatement une nouvelle direction aléatoire. Le gel n'est TOUTEFOIS
  * plus permanent (voir `proximityFreezeResumeSec`/`freezeStartedAt` ci-dessus) : passé ce délai
  * sans interaction du joueur avec CET acteur précis (`interactingActorId`), il reprend sa marche
- * même si Synk reste à proximité — corrige l'aglutination de PNJ signalée par l'utilisateur. */
+ * même si Synk reste à proximité — corrige l'aglutination de PNJ signalée par l'utilisateur.
+ * 🔒 Évitement mutuel entre acteurs (voir `isTileBlockedForActor`/`liveActorPositions` ci-dessus) :
+ * une case cible actuellement occupée par un AUTRE acteur vivant ou par Synk est traitée exactement
+ * comme un obstacle de terrain — un contournement immédiat est tenté (`findDetourDirection`)
+ * plutôt que de superposer deux acteurs sur la même case. */
 function advanceActor(pos: RoamingActorPos, motion: ActorMotion, id: string): {
   pos: RoamingActorPos; motion: ActorMotion; moving: boolean; facing: SynkDirection | null;
 } {
@@ -442,12 +507,13 @@ function advanceActor(pos: RoamingActorPos, motion: ActorMotion, id: string): {
     const cx = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawX));
     const cy = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawY));
     blockedByEdge = cx !== rawX || cy !== rawY;
-    blockedByObstacle = !blockedByEdge && isTileBlockedForRoaming(Math.round(cx), Math.round(cy));
+    blockedByObstacle = !blockedByEdge && isTileBlockedForActor(cx, cy, id);
     if (blockedByObstacle) {
-      // Case cible eau/rocher/prop solide/POI obstacle (voir isTileBlockedForRoaming) : au lieu de
-      // s'arrêter net contre l'obstacle, tente IMMÉDIATEMENT une direction de contournement (voir
-      // findDetourDirection) pour un mouvement fluide et crédible plutôt qu'un temps mort visible.
-      const detour = findDetourDirection(pos, dx, dy);
+      // Case cible eau/rocher/prop solide/POI obstacle (voir isTileBlockedForRoaming) OU occupée
+      // par un autre acteur vivant/Synk (voir isTileBlockedByOtherActor) : au lieu de s'arrêter net,
+      // tente IMMÉDIATEMENT une direction de contournement (voir findDetourDirection) pour un
+      // mouvement fluide et crédible plutôt qu'un temps mort visible ou une superposition visuelle.
+      const detour = findDetourDirection(pos, dx, dy, id);
       if (detour) {
         dx = detour.dx; dy = detour.dy;
         nx = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, pos.x + dx));
@@ -471,16 +537,86 @@ function advanceActor(pos: RoamingActorPos, motion: ActorMotion, id: string): {
   return { pos: { x: nx, y: ny }, motion: { dx, dy, holdTicks }, moving, facing: moving ? directionFromDelta(dx, dy) : null };
 }
 
+type AdvanceResult = ReturnType<typeof advanceActor>;
+
+/** Corrige rétroactivement une collision SIMULTANÉE entre deux acteurs qui, chacun de leur côté,
+ * se dirigeaient l'un vers l'autre au cours du MÊME tick — cas que `isTileBlockedForActor` ne peut
+ * PAS anticiper en amont puisqu'il ne connaît que la position PRÉ-tick de l'autre (voir
+ * `liveActorPositions`), pas son mouvement EN COURS de calcul au même instant. Sans cette passe,
+ * deux acteurs suffisamment proches et avançant l'un vers l'autre pouvaient ponctuellement se
+ * retrouver visuellement superposés le temps d'un seul tick avant de naturellement s'écarter au
+ * suivant — corrige ce résidu observé lors de la vérification Playwright de l'évitement mutuel
+ * entre acteurs (voir commentaire d'en-tête de `ACTOR_COLLISION_RADIUS`/`isTileBlockedByOtherActor`
+ * ci-dessus). Parcourt toutes les paires de résultats FRAÎCHEMENT calculés (position APRÈS
+ * mouvement) dans `resultById` ; si deux finissent à moins de `ACTOR_COLLISION_RADIUS` l'une de
+ * l'autre, la SECONDE de la paire (ordre de calcul stable : npc, dragon, extras, familiers, faune)
+ * voit son mouvement annulé pour CE tick (reste à sa position PRÉCÉDENTE, `holdTicks: 0` pour
+ * forcer un nouveau tirage de direction au prochain tick) — exactement le même traitement que le
+ * cas « cerné » déjà géré dans `advanceActor`, jamais de superposition visuelle même transitoire. */
+function resolveSimultaneousCollisions(
+  resultById: Map<string, AdvanceResult>,
+  prevPosById: Map<string, RoamingActorPos>,
+  prevMotionById: Map<string, ActorMotion>,
+): void {
+  if (!actorCollisionAvoidanceEnabled) return;
+  const ids = Array.from(resultById.keys());
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const idA = ids[i], idB = ids[j];
+      const rA = resultById.get(idA)!, rB = resultById.get(idB)!;
+      const dist = Math.hypot(rA.pos.x - rB.pos.x, rA.pos.y - rB.pos.y);
+      if (dist < ACTOR_COLLISION_RADIUS) {
+        const prevPos = prevPosById.get(idB)!;
+        const prevMotion = prevMotionById.get(idB)!;
+        resultById.set(idB, { pos: prevPos, motion: { ...prevMotion, holdTicks: 0 }, moving: false, facing: null });
+      }
+    }
+  }
+}
+
 function stepActors(): void {
-  const npcResult = advanceActor(state.npc, npcMotion, state.npcMarkerId ?? 'main-npc');
-  const dragonResult = advanceActor(state.dragon, dragonMotion, state.dragonMarkerId ?? 'main-dragon');
+  // Cliché des positions COURANTES (avant tout mouvement de ce tick) de TOUS les acteurs errants
+  // vivants — voir `liveActorPositions`/`isTileBlockedByOtherActor` ci-dessus. Doit être reconstitué
+  // en tout début de tick, AVANT le premier `advanceActor()`, afin que chaque acteur (y compris les
+  // tout premiers avancés ci-dessous) dispose de la position de TOUS les autres, lui y compris pour
+  // l'instant (exclu ensuite via son propre `selfId` dans isTileBlockedByOtherActor).
+  liveActorPositions = [
+    { id: state.npcMarkerId ?? 'main-npc', x: state.npc.x, y: state.npc.y },
+    { id: state.dragonMarkerId ?? 'main-dragon', x: state.dragon.x, y: state.dragon.y },
+    ...state.extras.map((e) => ({ id: e.id, x: e.x, y: e.y })),
+    ...Object.entries(state.familiars).map(([id, f]) => ({ id, x: f.x, y: f.y })),
+    ...Object.entries(state.wildlife).map(([id, w]) => ({ id, x: w.x, y: w.y })),
+  ];
+  // Calcule le résultat de TOUS les acteurs (npc, dragon, extras, familiers, faune) AVANT de
+  // commettre quoi que ce soit dans `state` — permet la passe de correction rétroactive
+  // `resolveSimultaneousCollisions` ci-dessus, qui a besoin de connaître la position calculée de
+  // TOUS les autres acteurs (et leur position/motion PRÉCÉDENTes en cas de correction nécessaire).
+  const resultById = new Map<string, AdvanceResult>();
+  const prevPosById = new Map<string, RoamingActorPos>();
+  const prevMotionById = new Map<string, ActorMotion>();
+  function computeAndTrack(id: string, pos: RoamingActorPos, motion: ActorMotion): void {
+    prevPosById.set(id, pos);
+    prevMotionById.set(id, motion);
+    resultById.set(id, advanceActor(pos, motion, id));
+  }
+  const npcId = state.npcMarkerId ?? 'main-npc';
+  const dragonId = state.dragonMarkerId ?? 'main-dragon';
+  computeAndTrack(npcId, state.npc, npcMotion);
+  computeAndTrack(dragonId, state.dragon, dragonMotion);
+  for (const e of state.extras) computeAndTrack(e.id, { x: e.x, y: e.y }, extraMotions.get(e.id) ?? { dx: 0, dy: 0, holdTicks: 0 });
+  for (const [id, cur] of Object.entries(state.familiars)) computeAndTrack(id, { x: cur.x, y: cur.y }, familiarMotions.get(id) ?? { dx: 0, dy: 0, holdTicks: 0 });
+  for (const [id, cur] of Object.entries(state.wildlife)) computeAndTrack(id, { x: cur.x, y: cur.y }, wildlifeMotions.get(id) ?? { dx: 0, dy: 0, holdTicks: 0 });
+
+  resolveSimultaneousCollisions(resultById, prevPosById, prevMotionById);
+
+  const npcResult = resultById.get(npcId)!;
+  const dragonResult = resultById.get(dragonId)!;
   npcMotion = npcResult.motion;
   dragonMotion = dragonResult.motion;
   // Fait avancer chaque PNJ de rencontre persisté (voir ExtraRoamingActor) exactement comme npc/
   // dragon ci-dessus — même moteur d'errance, même cadence (STEP_MS), position/motion indépendantes.
   const extras = state.extras.map((e) => {
-    const motion = extraMotions.get(e.id) ?? { dx: 0, dy: 0, holdTicks: 0 };
-    const result = advanceActor({ x: e.x, y: e.y }, motion, e.id);
+    const result = resultById.get(e.id)!;
     extraMotions.set(e.id, result.motion);
     return { ...e, x: result.pos.x, y: result.pos.y, facing: result.facing ?? e.facing, moving: result.moving };
   });
@@ -493,8 +629,7 @@ function stepActors(): void {
     familiars = { ...state.familiars };
     for (const id of familiarIds) {
       const cur = state.familiars[id];
-      const motion = familiarMotions.get(id) ?? { dx: 0, dy: 0, holdTicks: 0 };
-      const result = advanceActor({ x: cur.x, y: cur.y }, motion, id);
+      const result = resultById.get(id)!;
       familiarMotions.set(id, result.motion);
       familiars[id] = { x: result.pos.x, y: result.pos.y, facing: result.facing ?? cur.facing, moving: result.moving };
     }
@@ -508,8 +643,7 @@ function stepActors(): void {
     wildlife = { ...state.wildlife };
     for (const id of wildlifeIds) {
       const cur = state.wildlife[id];
-      const motion = wildlifeMotions.get(id) ?? { dx: 0, dy: 0, holdTicks: 0 };
-      const result = advanceActor({ x: cur.x, y: cur.y }, motion, id);
+      const result = resultById.get(id)!;
       wildlifeMotions.set(id, result.motion);
       wildlife[id] = { x: result.pos.x, y: result.pos.y, facing: result.facing ?? cur.facing, moving: result.moving, kind: cur.kind };
     }
@@ -553,7 +687,7 @@ export function getRoamStepMs(): number { return stepMs; }
 export function configureRoaming(cfg: {
   stepMs?: number; pauseMinSec?: number; pauseMaxSec?: number;
   proximityFreezeEnabled?: boolean; proximityFreezeTiles?: number; proximityFreezeResumeSec?: number;
-  obstacleAvoidanceEnabled?: boolean;
+  obstacleAvoidanceEnabled?: boolean; actorCollisionAvoidanceEnabled?: boolean;
 }): void {
   if (typeof cfg.stepMs === 'number' && cfg.stepMs > 0 && cfg.stepMs !== stepMs) {
     stepMs = cfg.stepMs;
@@ -565,6 +699,7 @@ export function configureRoaming(cfg: {
   if (typeof cfg.proximityFreezeTiles === 'number' && cfg.proximityFreezeTiles >= 0) proximityFreezeTiles = cfg.proximityFreezeTiles;
   if (typeof cfg.proximityFreezeResumeSec === 'number' && cfg.proximityFreezeResumeSec >= 0) proximityFreezeResumeSec = cfg.proximityFreezeResumeSec;
   if (typeof cfg.obstacleAvoidanceEnabled === 'boolean') obstacleAvoidanceEnabled = cfg.obstacleAvoidanceEnabled;
+  if (typeof cfg.actorCollisionAvoidanceEnabled === 'boolean') actorCollisionAvoidanceEnabled = cfg.actorCollisionAvoidanceEnabled;
 }
 
 /** Rapporte le catalogue de POI COURANT (même forme que `poiPoints` dans GameCanvas2D.tsx/
@@ -663,6 +798,28 @@ function randomWildlifeSpawn(guaranteed: boolean): RoamingActorPos {
   return { x: ROAM_MARGIN + Math.random() * (WORLD_SIZE - 2 * ROAM_MARGIN), y: ROAM_MARGIN + Math.random() * (WORLD_SIZE - 2 * ROAM_MARGIN) };
 }
 
+/** Variante de `randomWildlifeSpawn` ci-dessus qui évite en plus de faire apparaître deux individus
+ * quasi superposés dès le départ (voir `ACTOR_COLLISION_RADIUS`) — corrige un résidu observé lors
+ * de la vérification Playwright de l'évitement mutuel entre acteurs (voir `advanceActor`/
+ * `isTileBlockedForActor` ci-dessus) : ce dernier empêche un acteur de se DÉPLACER vers la case
+ * d'un autre, mais ne peut évidemment rien faire si DEUX individus démarrent déjà quasi au même
+ * endroit par pur hasard (tirage indépendant) — ils restent alors visuellement superposés tant
+ * qu'aucun des deux ne bouge suffisamment pour s'écarter. Un nombre borné de nouveaux tirages
+ * (`MAX_SPAWN_ATTEMPTS`) suffit à rendre cette collision de spawn statistiquement négligeable, sans
+ * jamais bloquer la génération (le dernier tirage est accepté tel quel si vraiment aucune case
+ * suffisamment isolée n'a pu être trouvée — cas extrême, ne devrait jamais se produire en pratique
+ * avec le nombre d'individus configurés par défaut). */
+function randomWildlifeSpawnAvoidingOverlap(guaranteed: boolean, alreadyPlaced: RoamingActorPos[]): RoamingActorPos {
+  const MAX_SPAWN_ATTEMPTS = 12;
+  let candidate = randomWildlifeSpawn(guaranteed);
+  for (let attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt++) {
+    const tooClose = alreadyPlaced.some((p) => Math.hypot(candidate.x - p.x, candidate.y - p.y) < ACTOR_COLLISION_RADIUS);
+    if (!tooClose) return candidate;
+    candidate = randomWildlifeSpawn(guaranteed);
+  }
+  return candidate;
+}
+
 // Derniers paramètres appliqués (voir ensureWildlifeSpawns) — évite de régénérer TOUTES les
 // positions à chaque appel (un appel a lieu depuis chacun des 3 widgets à leur montage) : seule une
 // VRAIE variation d'un des 4 paramètres (dont `seedVersion`, incrémenté par le bouton Administration
@@ -695,21 +852,33 @@ export function ensureWildlifeSpawns(enabled: boolean, owlCount: number, werewol
   lastWildlifeBoarCount = safeBoar; lastWildlifeSeedVersion = seedVersion;
   wildlifeMotions.clear();
   const wildlife: Record<string, WildlifeActorState> = {};
+  // Positions DÉJÀ placées lors de cette régénération — alimente `randomWildlifeSpawnAvoidingOverlap`
+  // ci-dessus pour éviter que deux individus (voire trois...) apparaissent quasi superposés par pur
+  // hasard (voir commentaire de cette fonction). Inclut aussi npc/dragon/familiers déjà en place afin
+  // qu'un nouvel individu de faune n'apparaisse pas non plus directement sur l'un d'entre eux.
+  const alreadyPlaced: RoamingActorPos[] = [
+    state.npc, state.dragon,
+    ...state.extras.map((e) => ({ x: e.x, y: e.y })),
+    ...Object.values(state.familiars).map((f) => ({ x: f.x, y: f.y })),
+  ];
   if (enabled) {
     for (let i = 0; i < safeOwl; i++) {
-      const pos = randomWildlifeSpawn(i === 0);
+      const pos = randomWildlifeSpawnAvoidingOverlap(i === 0, alreadyPlaced);
       wildlife[`owl-${i}`] = { ...pos, facing: 'down', moving: false, kind: 'owl' };
       wildlifeMotions.set(`owl-${i}`, { dx: 0, dy: 0, holdTicks: 0 });
+      alreadyPlaced.push(pos);
     }
     for (let i = 0; i < safeWere; i++) {
-      const pos = randomWildlifeSpawn(i === 0);
+      const pos = randomWildlifeSpawnAvoidingOverlap(i === 0, alreadyPlaced);
       wildlife[`werewolf-${i}`] = { ...pos, facing: 'down', moving: false, kind: 'werewolf' };
       wildlifeMotions.set(`werewolf-${i}`, { dx: 0, dy: 0, holdTicks: 0 });
+      alreadyPlaced.push(pos);
     }
     for (let i = 0; i < safeBoar; i++) {
-      const pos = randomWildlifeSpawn(i === 0);
+      const pos = randomWildlifeSpawnAvoidingOverlap(i === 0, alreadyPlaced);
       wildlife[`boar-${i}`] = { ...pos, facing: 'down', moving: false, kind: 'boar' };
       wildlifeMotions.set(`boar-${i}`, { dx: 0, dy: 0, holdTicks: 0 });
+      alreadyPlaced.push(pos);
     }
   }
   state = { ...state, wildlife };

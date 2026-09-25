@@ -3238,3 +3238,81 @@ monde/zorghon/captif/gemme de repli) restent hors de `isLivingCharacter`, donc t
 inchangés. `spinning` (rotation continue façon toupie) reste exclu pour la faune comme avant
 (`!isNpc && !isFamiliar && !isWildlife`, inchangé).
 
+### 🔒 Évitement mutuel entre acteurs errants (PNJ ↔ familiers ↔ faune ↔ Synk) — plus aucun chevauchement visuel
+
+**Demande utilisateur** : « deux familiers entre eux ne doivent pas se traverser mais se
+contourner, que cela soit des familiers entre eux, des PNJ avec des familiers, des PNJ ou des
+familiers avec SYNK, des PNJ entre PNJ [...] ne doivent pas se traverser ou même traverser Synk
+mais doivent être contourner comme c'est le cas quand un PNJ [...] rencontre un obstacle [...] les
+hiboux comme les dragons ne doivent pas traverser les chateaux, huttes mais les contourner et ne
+doivent pas non plus traverser Synk mais le contourner ». Complète directement le correctif
+d'évitement d'obstacles de terrain ci-dessus (eau/montagnes/props) en ajoutant un DEUXIÈME type de
+« case bloquée » : la position d'un AUTRE acteur vivant ou de Synk lui-même.
+
+**Toujours un SEUL point d'implémentation** (`lib/roamingActors.ts`), réutilisé automatiquement par
+les 3 widgets (2D, 3D, Mapmonde) :
+
+- `ACTOR_COLLISION_RADIUS = 0.85` (échelle mapmonde 0-100, comme `WORLD_SIZE`) — distance en deçà
+  de laquelle deux acteurs (ou un acteur et Synk) sont considérés en collision. Volontairement
+  exprimée en distance EUCLIDIENNE réelle (`Math.hypot`) plutôt qu'en égalité de case arrondie
+  (contrairement à l'évitement de terrain, qui lui raisonne en cases entières) : certains acteurs
+  (faune errante via `randomWildlifeSpawn`, familiers positionnés à la coordonnée catalogue
+  d'origine) démarrent à des coordonnées AVEC décimales et les conservent tout au long de leur
+  errance (chaque pas ±1 entier préserve la partie décimale d'origine) — un simple arrondi à la
+  case entière la plus proche aurait laissé passer des chevauchements visuels francs entre deux
+  acteurs aux décimales différentes.
+- `isTileBlockedByOtherActor(x, y, selfId)` (nouvelle fonction interne) — vrai si `(x,y)` (position
+  RÉELLE candidate, non arrondie) se trouve à moins de `ACTOR_COLLISION_RADIUS` de la dernière
+  position connue de Synk (`synkPos`, déjà rapportée en continu par les 3 widgets via
+  `reportSynkPositionForFreeze`) OU de tout AUTRE acteur vivant actuellement en jeu
+  (`liveActorPositions`, un cliché des positions de TOUS les acteurs — npc/dragon/extras/
+  familiers/faune — reconstitué en tout début de chaque tick de `stepActors()`, AVANT tout
+  mouvement). NO-OP transparent (renvoie toujours `false`) si
+  `RepRules.roamActorCollisionEnabled === false`.
+- `isTileBlockedForActor(x, y, selfId)` — combine l'évitement de terrain (`isTileBlockedForRoaming`,
+  qui arrondit `(x,y)` en interne pour interroger la case entière) ET l'évitement mutuel entre
+  acteurs (`isTileBlockedByOtherActor`, qui reste en coordonnées réelles) : SEUL point d'appel
+  utilisé par `advanceActor()`/`findDetourDirection()`, qui traitent donc les deux types de
+  blocage de façon strictement identique (même recherche de direction de contournement).
+- **Résolution rétroactive des collisions SIMULTANÉES** (`resolveSimultaneousCollisions`) : le
+  contrôle ci-dessus, effectué AVANT le déplacement de chaque acteur, ne peut pas anticiper le cas
+  où DEUX acteurs se dirigent l'un vers l'autre au cours du MÊME tick (chacun ne connaît que la
+  position PRÉ-tick de l'autre). `stepActors()` calcule donc désormais le résultat de TOUS les
+  acteurs (npc, dragon, extras, familiers, faune) AVANT de rien committer dans `state`, puis
+  compare chaque paire de positions FRAÎCHEMENT calculées : si deux acteurs finissent à moins de
+  `ACTOR_COLLISION_RADIUS` l'un de l'autre, le déplacement du SECOND de la paire (ordre de calcul
+  stable) est annulé pour ce tick (reste à sa position précédente, nouveau tirage de direction
+  forcé au tick suivant) — plus aucune superposition visuelle, même transitoire d'un seul tick.
+- **Anti-collision dès le SPAWN de la faune** (`randomWildlifeSpawnAvoidingOverlap`) : la
+  vérification ci-dessus empêche un acteur de se DÉPLACER vers la case d'un autre, mais ne peut
+  rien faire si deux individus démarrent déjà quasi superposés par pur hasard (tirage indépendant
+  via `randomWildlifeSpawn`). `ensureWildlifeSpawns()` retire désormais (jusqu'à 12 tentatives) un
+  nouveau tirage tant que la position candidate reste à moins de `ACTOR_COLLISION_RADIUS` de tout
+  acteur DÉJÀ placé lors de cette régénération (faune déjà générée + npc/dragon/familiers/extras
+  existants) — rend ce résidu statistiquement négligeable dès l'apparition.
+
+**Administration** (`RepRulesPanel.tsx`, section « 🚶 Déplacement des PNJ/Familiers errants ») :
+nouvelle case à cocher `roamActorCollisionEnabled` (`RepRules`, défaut `true`) juste sous
+`roamObstacleAvoidanceEnabled` — permet de désactiver entièrement l'évitement mutuel entre
+acteurs si besoin (retour immédiat au chevauchement libre, sans redéploiement, réglage
+INDÉPENDANT de l'évitement d'obstacles de terrain).
+
+**Vérification (Playwright)** : session anonyme, widget Plateforme 3D ouvert, 30 échantillons
+espacés de 1,2 s des attributs `data-synk-pos`/`data-roaming-npc`/`data-roaming-dragon`/
+`data-roaming-familiars`/`data-roaming-wildlife` — jusqu'à 27 090 paires acteur/acteur et
+acteur/Synk vérifiées par exécution (distance réelle, seuil `< 1` unité mapmonde). Résultats sur
+plusieurs exécutions successives : **0 chevauchement avec Synk** à chaque fois ; chevauchements
+entre acteurs ramenés de plusieurs dizaines à 0-1 résidu par exécution (contre plusieurs dizaines
+avant l'ajout de la résolution rétroactive et de l'anti-collision au spawn), le résidu occasionnel
+restant se situant tout juste à la limite de l'arrondi de case (~0,87 unité, soit quasiment la
+limite de non-collision `ACTOR_COLLISION_RADIUS=0,85`) plutôt qu'un chevauchement franc. 0 erreur
+console/page relevée sur l'ensemble des exécutions. `npx tsc --noEmit` et `npm run build` : 0
+erreur avant/après ce correctif.
+
+**Non-régression** : l'évitement d'obstacles de terrain (`roamObstacleAvoidanceEnabled`), le gel de
+proximité (`roamProximityFreezeEnabled`), la persistance des PNJ de rencontre (`extras`) et le
+calage au sol de la faune (voir section précédente) restent des mécanismes STRICTEMENT séparés et
+inchangés — seul un DEUXIÈME critère de blocage (acteur/Synk à proximité immédiate) a été ajouté
+au même point d'appel `isTileBlockedForActor`, avec son propre réglage Administration
+INDÉPENDANT (`roamActorCollisionEnabled`), désactivable sans affecter l'évitement de terrain.
+

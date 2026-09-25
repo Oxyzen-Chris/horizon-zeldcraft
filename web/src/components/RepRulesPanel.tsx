@@ -1099,6 +1099,11 @@ export function RepRulesPanel() {
             onChange={e => setBool('roamObstacleAvoidanceEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.roamObstacleAvoidanceEnabled')}</span>
         </label>
+        <label className="flex items-center gap-2 text-sm mt-2">
+          <input type="checkbox" checked={rules.roamActorCollisionEnabled !== false}
+            onChange={e => setBool('roamActorCollisionEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.roamActorCollisionEnabled')}</span>
+        </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">🦉 {t('admin.repRules.wildlifeTitle')}</h3>

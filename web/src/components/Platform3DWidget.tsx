@@ -1971,6 +1971,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
       proximityFreezeResumeSec: rules.roamProximityFreezeResumeSec,
       obstacleAvoidanceEnabled: rules.roamObstacleAvoidanceEnabled,
+      actorCollisionAvoidanceEnabled: rules.roamActorCollisionEnabled,
     });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous) — voir le même appel, avec les mêmes
