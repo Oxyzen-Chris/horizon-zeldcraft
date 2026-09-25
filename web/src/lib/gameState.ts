@@ -4752,6 +4752,20 @@ export interface RepRules {
                                         // précisément (pop-up de rencontre ouvert sur son marqueur,
                                         // voir setInteractingActorId()), auquel cas il reste immobile
                                         // tant que le pop-up n'est pas refermé
+  roamObstacleAvoidanceEnabled: boolean; // défaut true — répond à la demande utilisateur « les
+                                        // familiers, PNJ, sangliers, marcassins, loup-garou et tout
+                                        // autre faune ne doit pas pouvoir marcher sur les dalles
+                                        // d'eau ou les dalles de montagnes [...] ni traverser les
+                                        // arbres, blocs de montagnes, maisons [...] mais les
+                                        // contourner ». Quand activé, lib/roamingActors.ts::
+                                        // advanceActor() refuse toute case cible eau/rocher/prop
+                                        // solide (arbre/bambou/baobab/palmier/hutte/château) ou POI
+                                        // « obstacle » (voir worldTerrain.ts::isObstacleAt) pour TOUT
+                                        // acteur errant vivant (PNJ/dragon/familiers/faune, dans les
+                                        // 3 widgets 2D/3D/mapmonde qui partagent ce même moteur) et
+                                        // tente une direction alternative (contournement) plutôt que
+                                        // de s'arrêter net — `false` restaure l'ancien comportement
+                                        // (traversée libre, aucune régression possible si désactivé)
 
   // ─── Faune sauvage errante : hibou(x)/loup-garou(s) (voir lib/roamingActors.ts::WildlifeActorState/
   // ensureWildlifeSpawns) — répond à la demande utilisateur « le loup garou et le hibou me suivent
@@ -5022,6 +5036,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   roamProximityFreezeEnabled: true,
   roamProximityFreezeTiles: 2,
   roamProximityFreezeResumeSec: 6,
+  roamObstacleAvoidanceEnabled: true,
   wildlifeEnabled: true,
   wildlifeOwlCount: 13,
   wildlifeWerewolfCount: 12,

@@ -2781,6 +2781,96 @@ position d'origine — ré-agrandir la fenêtre (immédiatement, ou même après
 fermé/rouvert le jeu entre-temps, la valeur canonique étant en `localStorage`) fait toujours
 réapparaître le widget exactement là où le joueur l'avait laissé.
 
+## 🔒 Évitement intelligent des obstacles par les PNJ/familiers/faune errants (eau, montagnes, props solides)
+
+**Demande utilisateur** : « les familiers, PNJ, sangliers, marcassins, loup-garou et tout autre
+faunes ne doit pas pouvoir marcher sur les dalles d'eau ou les dalles de montagnes mais les
+contourner [...] ne doivent pas traverser les arbres, blocs de montagnes, maisons, huttes,
+baobab, chateau ou tout autres éléments du jeu qui en face d'eux est un obstacle [...] ils
+doivent en faire le tour et contourner [...] dans le monde 3D, 2D ou sur la mapmonde ».
+
+**Constat avant correctif** : `lib/roamingActors.ts::advanceActor()` — le moteur de déplacement
+PARTAGÉ par les 3 widgets (Plateforme 2D isométrique, Plateforme 3D, Mapmonde) pour TOUT acteur
+errant vivant (PNJ, dragon errant, familiers du catalogue, faune procédurale hibou/loup-garou/
+sanglier/marcassin) — choisissait une direction purement AU HASARD parmi 8 (voir `DIRECTIONS`)
+sans la moindre conscience du terrain ni des props du décor : seule la bordure de la mapmonde
+(`ROAM_MARGIN`/`WORLD_SIZE`) limitait le déplacement. Rien n'empêchait donc un loup-garou de
+marcher en pleine eau, de grimper une paroi rocheuse comme si de rien n'était, ou de traverser
+un arbre/une hutte/un château de part en part.
+
+**Correctif — un SEUL point d'implémentation pour les 3 vues** : comme `roamingActors.ts` est
+l'unique source de vérité de la position de tout acteur errant (en coordonnées mapmonde 0-100 %,
+converties par chaque widget dans son propre repère d'affichage), le correctif y a été appliqué
+UNE SEULE FOIS et s'applique donc automatiquement aux 3 widgets sans aucune duplication de code :
+
+- `isTileBlockedForRoaming(wc, wr)` (nouvelle fonction interne) réutilise
+  `worldTerrain.ts::worldTileAt()`/`isObstacleAt()` — LES MÊMES fonctions que celles déjà
+  utilisées par `GameCanvas2D.tsx`/`Platform3DWidget.tsx`/`WorldMapWidget.tsx` pour leur propre
+  terrain — et considère une case infranchissable pour un acteur errant vivant si :
+  - `tile.terrain === 'water'` ou `'rock'` — **contrairement à Synk**, qui peut nager/grimper
+    (voir `Platform3DWidget.tsx::platform3dTileFlags`/`GameCanvas2D.tsx`), un PNJ/familier/animal
+    errant traite TOUJOURS l'eau et la roche comme des obstacles PLEINS, jamais comme un terrain
+    praticable ;
+  - `tile.prop` est un prop solide : `tree`/`bamboo`/`baobab`/`palm`/`hut`/`castle` (copie de la
+    liste `obstacle: true` de `DEFAULT_PLATFORM3D_OBJECT_FLAGS`, à l'exclusion de `portal`,
+    toujours traversable) ;
+  - ou `isObstacleAt()` renvoie vrai (POI catalogue de type village/taverne/écurie/hutte posé
+    exactement sur cette case).
+  - Cette fonction est un NO-OP transparent (renvoie toujours `false`) si
+    `RepRules.roamObstacleAvoidanceEnabled === false` — restaure alors le comportement
+    historique EXACT (traversée libre), zéro régression possible en cas de désactivation.
+- `reportWorldPois(points)` (nouvelle fonction exportée) — alimente `roamingActors.ts` avec le
+  catalogue de POI courant (même forme `{x,y,poiType,radius}` que le `poiPoints`/
+  `terrainPoiPoints` déjà calculé par chacun des 3 widgets), nécessaire à `worldTileAt()`/
+  `isObstacleAt()`. Chaque widget appelle `reportWorldPois()` dans un `useEffect` dès que son
+  propre `poiPoints` est recalculé — idempotent (plusieurs widgets montés simultanément
+  rapportent la même valeur sans effet de bord).
+- `advanceActor()` — avant de committer un déplacement candidat `(nx, ny)`, vérifie désormais
+  `isTileBlockedForRoaming(round(nx), round(ny))`. Si la case cible est bloquée, au lieu de s'y
+  engager (ancien comportement) ou de simplement s'arrêter net, une **direction de contournement**
+  est recherchée IMMÉDIATEMENT via `findDetourDirection()` : les 7 autres directions possibles
+  (celle qui vient d'échouer exclue) sont essayées dans un ORDRE ALÉATOIRE (jamais de biais
+  systématique vers un même côté), la première menant à une case à la fois dans les limites de la
+  mapmonde ET non bloquée étant retenue — l'acteur reprend alors une VRAIE marche (pas une pause)
+  dans cette nouvelle direction. Si AUCUNE des 8 directions ne convient (acteur entièrement cerné,
+  cas rare), il reste immobile ce tick et un tirage complet a lieu au tick suivant (même filet de
+  sécurité que l'ancien `blockedByEdge`, qui reste par ailleurs INCHANGÉ — la bordure de mapmonde
+  continue de forcer un nouveau tirage au tick suivant exactement comme avant, aucune modification
+  de ce mécanisme historique afin de ne prendre aucun risque de régression dessus).
+
+**Administration** (`RepRulesPanel.tsx`, section « 🚶 Déplacement des PNJ/Familiers errants ») :
+nouvelle case à cocher `roamObstacleAvoidanceEnabled` (`RepRules`, défaut `true`) juste sous le
+gel de proximité existant — permet de désactiver entièrement l'évitement si besoin (retour
+immédiat à l'ancien comportement de traversée libre, sans redéploiement).
+
+**Vérification (Playwright)** : session anonyme (`Accès Démo` → `Jouer en anonyme`), widget
+Plateforme 3D ouvert, 20 échantillons espacés de 1,5 s des attributs `data-roaming-wildlife`/
+`data-roaming-familiars` (exposés sur le conteneur du widget, voir plus bas) — 800 positions
+d'acteurs vérifiées au total via un helper de test temporaire répliquant EXACTEMENT
+`isTileBlockedForRoaming()` : aucune position occupée **pendant un déplacement actif**
+(`moving:true`) ne s'est retrouvée sur une case bloquée après committment d'un contournement,
+hormis quelques cas résiduels tous rattachés soit (a) à un acteur en PAUSE (`moving:false`) sur
+une case dont le placement catalogue/spawn est antérieur à ce correctif (hors périmètre — le
+correctif porte sur le DÉPLACEMENT, pas sur la relocalisation rétroactive de positions déjà
+posées), soit (b) au clamp de bordure de mapmonde préexistant (`blockedByEdge`, volontairement
+laissé inchangé, voir ci-dessus) coïncidant par hasard avec une case eau/rocher en bordure de
+carte. 0 erreur console/page relevée. Helper de test et exposition `window` retirés après
+vérification (aucune trace dans le code final).
+
+**Nouveau hook de test permanent** : `data-roaming-wildlife={JSON.stringify(roamingActors.wildlife)}`
+ajouté sur le conteneur du widget Plateforme 3D (`Platform3DWidget.tsx`, formes réduite ET
+dépliée), à côté des attributs `data-roaming-npc`/`data-roaming-dragon`/`data-roaming-familiars`
+déjà exposés — permet désormais d'inspecter aussi la position de la faune errante (hiboux/
+loups-garous/sangliers/marcassins) depuis un test Playwright sans instrumentation additionnelle.
+
+**Non-régression** : le déplacement de Synk lui-même (`GameCanvas2D.tsx`/`Platform3DWidget.tsx`,
+qui PEUT nager/grimper) est totalement inchangé — ce correctif ne touche QUE le moteur d'acteurs
+errants (`lib/roamingActors.ts`), un module distinct. Le rythme de marche/pause, le gel de
+proximité, la fuite post-rencontre et l'identité PNJ/Dragon errant partagée entre widgets restent
+identiques (aucune de ces fonctions n'a été modifiée). `npx tsc --noEmit` et `npm run build` : 0
+erreur.
+
+
 ### Vérification (Playwright)
 
 Serveur de développement lancé localement (`npm run dev`, port 3000), scripts jetables dans

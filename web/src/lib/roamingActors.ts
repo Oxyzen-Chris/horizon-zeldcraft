@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { WORLD_SIZE } from './worldTerrain';
-import type { MapMarker, SynkDirection } from './gameState';
+import { WORLD_SIZE, worldTileAt, isObstacleAt, type PropKind } from './worldTerrain';
+import type { MapMarker, MapPoiType, SynkDirection } from './gameState';
 
 /**
  * Registre partagé (portée module, même technique que lib/mapFilters.ts et lib/platform3dActive.ts
@@ -239,6 +239,67 @@ let synkPos: RoamingActorPos | null = null;
  * de 1 — voir commentaire de `WALK_HOLD_MIN_SEC` ci-dessus sur l'intérêt de cette indirection. */
 function secToTicks(sec: number): number { return Math.max(1, Math.round((sec * 1000) / stepMs)); }
 
+// ─── Évitement intelligent des obstacles (eau/montagne/props solides) pour TOUT acteur errant
+// vivant (PNJ/dragon/familiers/faune) — voir RepRules.roamObstacleAvoidanceEnabled/advanceActor
+// ci-dessous. Répond à la demande utilisateur : « les familiers, PNJ, sangliers, marcassins,
+// loup-garou et tout autre faune ne doit pas pouvoir marcher sur les dalles d'eau ou les dalles de
+// montagnes mais les contourner [...] ne doivent pas traverser les arbres, blocs de montagnes,
+// maisons, huttes, baobab, chateau [...] ils doivent en faire le tour et contourner [...] dans le
+// monde 3D, 2D ou sur la mapmonde ». Contrairement à Synk (qui peut nager/grimper, voir
+// Platform3DWidget.tsx::platform3dTileFlags et GameCanvas2D.tsx), ces acteurs traitent eau ET
+// rocher comme des obstacles PLEINS, exactement comme les props solides déjà bloquants pour Synk.
+let obstacleAvoidanceEnabled = true;
+/** Dernier catalogue de POI connu (voir GameCanvas2D.tsx/Platform3DWidget.tsx/WorldMapWidget.tsx::
+ * `poiPoints` — même forme, réutilisée telle quelle par worldTileAt()/isObstacleAt()) — alimenté
+ * par `reportWorldPois` ci-dessous, appelé par les 3 widgets à chaque recalcul de leur propre
+ * `poiPoints` (leur `useMemo` dépend du catalogue chargé, qui ne change quasiment jamais en cours
+ * de partie). `[]` tant qu'aucun widget n'a encore rapporté de catalogue (aucun blocage lié aux
+ * POI de type village/taverne/écurie dans ce cas, seuls terrain/props restent vérifiés). */
+let worldPois: { x: number; y: number; poiType?: MapPoiType; radius?: number }[] = [];
+/** Props considérés comme des obstacles PLEINS pour un acteur errant vivant — copie fidèle des
+ * entrées `obstacle: true` de `DEFAULT_PLATFORM3D_OBJECT_FLAGS` (gameState.ts) pour les props
+ * (arbre/bambou/baobab/palmier/hutte/château), à l'exclusion de `portal` (toujours traversable,
+ * y compris pour Synk). Gardée ICI comme simple liste en dur (plutôt que de dépendre du registre
+ * Administration `Platform3DObjectFlags`, spécifique à la vue 3D) afin que ce module reste
+ * indépendant de tout composant React et s'applique IDENTIQUEMENT aux 3 widgets. */
+const FAUNA_OBSTACLE_PROPS: PropKind[] = ['tree', 'bamboo', 'baobab', 'palm', 'hut', 'castle'];
+
+/** Renvoie `true` si la case (wc,wr) est infranchissable pour un acteur errant vivant : eau,
+ * rocher/montagne, prop solide (voir FAUNA_OBSTACLE_PROPS) ou POI « obstacle » du catalogue (voir
+ * worldTerrain.ts::isObstacleAt, ex. village/taverne/écurie). Toujours `false` si
+ * `obstacleAvoidanceEnabled` est désactivé en Administration (comportement historique restauré à
+ * l'identique, zéro régression possible). */
+function isTileBlockedForRoaming(wc: number, wr: number): boolean {
+  if (!obstacleAvoidanceEnabled) return false;
+  const tile = worldTileAt(wc, wr, worldPois);
+  if (tile.terrain === 'water' || tile.terrain === 'rock') return true;
+  if (tile.prop && FAUNA_OBSTACLE_PROPS.includes(tile.prop)) return true;
+  return isObstacleAt(wc, wr, worldPois, tile);
+}
+
+/** Cherche une direction DE REMPLACEMENT (autre que celle qui vient d'échouer) menant à une case
+ * franchissable et dans les limites du mapmonde — ordre aléatoire pour ne jamais privilégier
+ * systématiquement la même direction de contournement (démarche crédible, voir commentaire
+ * d'en-tête). Renvoie `null` si AUCUNE des 7 autres directions ne convient (acteur cerné, cas rare :
+ * il reste alors immobile ce tick et retire un nouveau tirage complet au prochain, voir
+ * advanceActor). */
+function findDetourDirection(pos: RoamingActorPos, excludeDx: number, excludeDy: number): { dx: number; dy: number } | null {
+  const candidates = DIRECTIONS.filter((d) => !(d.dx === excludeDx && d.dy === excludeDy));
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+  for (const d of candidates) {
+    const rawX = pos.x + d.dx, rawY = pos.y + d.dy;
+    const cx = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawX));
+    const cy = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawY));
+    if (cx !== rawX || cy !== rawY) continue; // bord de mapmonde, exclu aussi du contournement
+    if (isTileBlockedForRoaming(Math.round(cx), Math.round(cy))) continue;
+    return d;
+  }
+  return null;
+}
+
 const DIRECTIONS: { dx: number; dy: number }[] = [
   { dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
   { dx: -1, dy: -1 }, { dx: 1, dy: -1 }, { dx: -1, dy: 1 }, { dx: 1, dy: 1 },
@@ -375,17 +436,37 @@ function advanceActor(pos: RoamingActorPos, motion: ActorMotion, id: string): {
     dx = dir.dx; dy = dir.dy;
     holdTicks = randomHoldTicks(dx === 0 && dy === 0);
   }
-  let nx = pos.x, ny = pos.y, blockedByEdge = false;
+  let nx = pos.x, ny = pos.y, blockedByEdge = false, blockedByObstacle = false;
   if (dx !== 0 || dy !== 0) {
     const rawX = pos.x + dx, rawY = pos.y + dy;
-    nx = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawX));
-    ny = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawY));
-    blockedByEdge = nx !== rawX || ny !== rawY;
+    const cx = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawX));
+    const cy = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, rawY));
+    blockedByEdge = cx !== rawX || cy !== rawY;
+    blockedByObstacle = !blockedByEdge && isTileBlockedForRoaming(Math.round(cx), Math.round(cy));
+    if (blockedByObstacle) {
+      // Case cible eau/rocher/prop solide/POI obstacle (voir isTileBlockedForRoaming) : au lieu de
+      // s'arrêter net contre l'obstacle, tente IMMÉDIATEMENT une direction de contournement (voir
+      // findDetourDirection) pour un mouvement fluide et crédible plutôt qu'un temps mort visible.
+      const detour = findDetourDirection(pos, dx, dy);
+      if (detour) {
+        dx = detour.dx; dy = detour.dy;
+        nx = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, pos.x + dx));
+        ny = Math.max(ROAM_MARGIN, Math.min(WORLD_SIZE - ROAM_MARGIN, pos.y + dy));
+        holdTicks = randomHoldTicks(false); // reprend une VRAIE marche (contournement), pas une pause
+      } else {
+        // Entièrement cerné (cas rare) : reste immobile ce tick, un nouveau tirage complet aura
+        // lieu au prochain (voir `if (blockedByEdge) holdTicks = 0` ci-dessous).
+        nx = pos.x; ny = pos.y;
+      }
+    } else {
+      nx = cx; ny = cy;
+    }
   }
   holdTicks -= 1;
-  // Bord de mapmonde atteint : force le choix d'une nouvelle direction au prochain tick plutôt que
-  // de rester à pousser contre le mur jusqu'à épuisement du maintien courant.
-  if (blockedByEdge) holdTicks = 0;
+  // Bord de mapmonde atteint OU entièrement cerné par des obstacles : force le choix d'une
+  // nouvelle direction au prochain tick plutôt que de rester à pousser contre le mur/l'obstacle
+  // jusqu'à épuisement du maintien courant.
+  if (blockedByEdge || (blockedByObstacle && nx === pos.x && ny === pos.y)) holdTicks = 0;
   const moving = dx !== 0 || dy !== 0;
   return { pos: { x: nx, y: ny }, motion: { dx, dy, holdTicks }, moving, facing: moving ? directionFromDelta(dx, dy) : null };
 }
@@ -472,6 +553,7 @@ export function getRoamStepMs(): number { return stepMs; }
 export function configureRoaming(cfg: {
   stepMs?: number; pauseMinSec?: number; pauseMaxSec?: number;
   proximityFreezeEnabled?: boolean; proximityFreezeTiles?: number; proximityFreezeResumeSec?: number;
+  obstacleAvoidanceEnabled?: boolean;
 }): void {
   if (typeof cfg.stepMs === 'number' && cfg.stepMs > 0 && cfg.stepMs !== stepMs) {
     stepMs = cfg.stepMs;
@@ -482,6 +564,17 @@ export function configureRoaming(cfg: {
   if (typeof cfg.proximityFreezeEnabled === 'boolean') proximityFreezeEnabled = cfg.proximityFreezeEnabled;
   if (typeof cfg.proximityFreezeTiles === 'number' && cfg.proximityFreezeTiles >= 0) proximityFreezeTiles = cfg.proximityFreezeTiles;
   if (typeof cfg.proximityFreezeResumeSec === 'number' && cfg.proximityFreezeResumeSec >= 0) proximityFreezeResumeSec = cfg.proximityFreezeResumeSec;
+  if (typeof cfg.obstacleAvoidanceEnabled === 'boolean') obstacleAvoidanceEnabled = cfg.obstacleAvoidanceEnabled;
+}
+
+/** Rapporte le catalogue de POI COURANT (même forme que `poiPoints` dans GameCanvas2D.tsx/
+ * Platform3DWidget.tsx/WorldMapWidget.tsx) — utilisé par `isTileBlockedForRoaming` ci-dessus pour
+ * résoudre `worldTileAt()`/`isObstacleAt()` EXACTEMENT comme le fait déjà chaque widget pour son
+ * propre usage (terrain/props/POI obstacles). Appelé par les 3 widgets à chaque recalcul de leur
+ * `poiPoints` (catalogue quasi jamais modifié en cours de partie) — idempotent, plusieurs widgets
+ * peuvent rapporter la même valeur sans effet de bord. */
+export function reportWorldPois(points: { x: number; y: number; poiType?: MapPoiType; radius?: number }[]): void {
+  worldPois = points;
 }
 
 /** À appeler par les widgets à chaque ouverture/fermeture d'un pop-up de rencontre/quête (voir

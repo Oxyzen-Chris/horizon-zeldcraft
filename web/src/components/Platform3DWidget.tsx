@@ -25,7 +25,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
@@ -1970,6 +1970,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
       proximityFreezeResumeSec: rules.roamProximityFreezeResumeSec,
+      obstacleAvoidanceEnabled: rules.roamObstacleAvoidanceEnabled,
     });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous) — voir le même appel, avec les mêmes
@@ -2050,6 +2051,11 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     () => markers.filter(m => m.kind === 'poi').map(m => ({ x: m.x, y: m.y, poiType: m.poiType, radius: m.radius })),
     [markers],
   );
+  // Alimente lib/roamingActors.ts en catalogue de POI (voir reportWorldPois) afin que
+  // isTileBlockedForRoaming() y résolve EXACTEMENT le même terrain/props/obstacles que ce widget
+  // pour Synk lui-même — voir le même appel, avec les mêmes commentaires détaillés, dans
+  // GameCanvas2D.tsx.
+  useEffect(() => { reportWorldPois(poiPoints); }, [poiPoints]);
   // Portes de monde du catalogue (kind:'world') — utilisées par onPortalTileClick3D pour attribuer
   // un monde déterministe aux portails décoratifs (🌀), exactement comme GameCanvas2D.tsx::worldMarkers.
   const worldMarkers = useMemo(() => markers.filter(m => m.kind === 'world'), [markers]);
@@ -2799,6 +2805,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           data-roaming-npc={`${roamingActors.npcMarkerId ?? ''},${roamingActors.npc.x},${roamingActors.npc.y}`}
           data-roaming-dragon={`${roamingActors.dragonMarkerId ?? ''},${roamingActors.dragon.x},${roamingActors.dragon.y}`}
           data-roaming-familiars={JSON.stringify(roamingActors.familiars)}
+          data-roaming-wildlife={JSON.stringify(roamingActors.wildlife)}
         >🧊</button>
         <WidgetContextMenu pos={menuPos} onClose={closeContextMenu} onRecenter={resetPosition} />
       </>
@@ -2840,6 +2847,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       data-roaming-npc={`${roamingActors.npcMarkerId ?? ''},${roamingActors.npc.x},${roamingActors.npc.y}`}
       data-roaming-dragon={`${roamingActors.dragonMarkerId ?? ''},${roamingActors.dragon.x},${roamingActors.dragon.y}`}
       data-roaming-familiars={JSON.stringify(roamingActors.familiars)}
+      data-roaming-wildlife={JSON.stringify(roamingActors.wildlife)}
     >
       <div
         className="flex items-center justify-between px-3 py-2 bg-lime-900/30 rounded-t-xl cursor-move"

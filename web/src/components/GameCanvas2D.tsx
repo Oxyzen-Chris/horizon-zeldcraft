@@ -22,7 +22,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, setInteractingActorId, getRoamStepMs, type ExtraRoamingActor } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, type ExtraRoamingActor } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -196,6 +196,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
       proximityFreezeResumeSec: rules.roamProximityFreezeResumeSec,
+      obstacleAvoidanceEnabled: rules.roamObstacleAvoidanceEnabled,
     });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous) — voir le même appel, avec les mêmes
@@ -326,6 +327,11 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     () => markers.filter(m => m.kind === 'poi').map(m => ({ x: m.x, y: m.y, poiType: m.poiType, radius: m.radius })),
     [markers],
   );
+  // Alimente lib/roamingActors.ts en catalogue de POI (voir reportWorldPois) afin que
+  // isTileBlockedForRoaming() y résolve EXACTEMENT le même terrain/props/obstacles que ce widget
+  // pour Synk lui-même (voir `poiPoints` ci-dessus) — un seul appel suffit (plusieurs widgets
+  // rapportant la même valeur n'ont aucun effet de bord, voir reportWorldPois).
+  useEffect(() => { reportWorldPois(poiPoints); }, [poiPoints]);
 
   // Position réelle de Synk sur la mapmonde (0-100%, source de vérité partagée avec
   // WorldMapWidget.tsx) et coin de la caméra isométrique (en cellules, 0-100 chacun).

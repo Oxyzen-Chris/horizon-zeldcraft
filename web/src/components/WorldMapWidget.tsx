@@ -29,7 +29,7 @@ import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
 import { WorldMapAmbientOverlay } from './WorldMapAmbientOverlay';
-import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, getRoamStepMs } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, getRoamStepMs } from '@/lib/roamingActors';
 import { useNpcApproach } from '@/lib/npcApproach';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
@@ -317,6 +317,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
       stepMs: rules.roamStepMs, pauseMinSec: rules.roamPauseMinSec, pauseMaxSec: rules.roamPauseMaxSec,
       proximityFreezeEnabled: rules.roamProximityFreezeEnabled, proximityFreezeTiles: rules.roamProximityFreezeTiles,
       proximityFreezeResumeSec: rules.roamProximityFreezeResumeSec,
+      obstacleAvoidanceEnabled: rules.roamObstacleAvoidanceEnabled,
     });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous, voir RepRules.wildlife*/lib/roamingActors.ts::
@@ -385,6 +386,10 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     () => pois.filter(p => p.active !== false).map(p => ({ x: p.x, y: p.y, poiType: p.type, radius: p.radius })),
     [pois],
   );
+  // Alimente lib/roamingActors.ts en catalogue de POI (voir reportWorldPois) afin que
+  // isTileBlockedForRoaming() y résolve EXACTEMENT le même terrain/props/obstacles que ce widget
+  // — voir le même appel, avec les mêmes commentaires détaillés, dans GameCanvas2D.tsx.
+  useEffect(() => { reportWorldPois(terrainPoiPoints); }, [terrainPoiPoints]);
   const TERRAIN_COLS = 48, TERRAIN_ROWS = 32;
   const terrainGrid = useMemo(() => {
     const grid: string[][] = [];
