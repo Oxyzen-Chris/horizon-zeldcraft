@@ -1080,26 +1080,36 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     g.position.x = fromRef.current.x + (x - fromRef.current.x) * progress;
     g.position.z = fromRef.current.z + (z - fromRef.current.z) * progress;
   });
-  // Relevage anti-enterrement (PNJ/familier/faune UNIQUEMENT) : le pied le plus bas de `NpcVoxel`/
-  // `DragonMarker`/`Owl3D`/`Werewolf3D`/`Boar3D` (en unités NON mises à l'échelle) s'enfonce
+  // Relevage anti-enterrement (PNJ/familier UNIQUEMENT — PAS la faune, voir plus bas) : le pied
+  // le plus bas de `NpcVoxel`/`DragonMarker` (en unités NON mises à l'échelle) s'enfonce
   // proportionnellement à `scale`. Bug remonté par l'utilisateur (« les jambes du PNJ sont enterrées
   // dans le sol, contrairement à Synk ») : à `scale=1` (PNJ, défaut), l'ancienne formule
   // `groundAnchorUnscaled * (scale - 1)` s'annulait à ZÉRO — le seul relevage restant était le petit
   // flottement (« bob ») partagé avec les objets EN LÉVITATION (`bobAmplitude≈0.15`), très
   // insuffisant pour compenser un enfoncement de jambes de `0.39` (un PNJ vivant posé au sol n'a
   // donc jamais été correctement calé, seuls les familiers agrandis `scale=2.4` recevaient un
-  // relevage partiel). Un personnage VIVANT (PNJ/familier/faune) qui MARCHE sur le sol ne doit par
+  // relevage partiel). Un personnage VIVANT (PNJ/familier) qui MARCHE sur le sol ne doit par
   // ailleurs jamais léviter/flotter comme un parchemin de quête ou un trésor magique — on lui
   // applique donc désormais un calage FIXE (aucune oscillation sinusoïdale), exactement comme Synk
   // (`SYNK_GROUND_OFFSET`, jamais animé en Y hors de son propre rebond de marche interne) :
   //   groundLift = groundAnchorUnscaled * scale
   // Cela replace TOUJOURS le bas des pattes exactement au niveau du sol (`y≈0`), quelle que soit
-  // l'échelle admin (« 🧱 Objets & décor 3D »), sans jamais les faire flotter au-dessus. Les
-  // marqueurs EN LÉVITATION (quête/trésor/monde/zorghon/captif/gemme de repli) conservent EXACTEMENT
-  // leur ancien comportement (`bobAmplitude` + oscillation), `groundAnchorUnscaled` valant `0` pour
-  // eux — zéro régression sur leur rendu.
-  const isLivingCharacter = isNpc || isFamiliar || isWildlife;
-  const groundAnchorUnscaled = isFamiliar ? 0.27 : (isNpc || isWildlife) ? 0.39 : 0;
+  // l'échelle admin (« 🧱 Objets & décor 3D »), sans jamais les faire flotter au-dessus.
+  // ⚠️ RÉGRESSION CORRIGÉE : la faune errante (`isWildlife`, `Owl3D`/`Werewolf3D`/`Boar3D`, voir
+  // Platform3DAmbientScene.tsx) a été retirée de ce mécanisme — ces 3 modèles n'ont RIEN à voir
+  // avec la géométrie de `NpcVoxel`/`DragonMarker` (le point le plus bas de leurs pattes est déjà
+  // proche de `y≈0`, chaque modèle gérant sa propre élévation en interne — ex. le hibou se pose
+  // sur son perchoir via son PROPRE `bodyRef.position.y`). Un premier correctif les avait à tort
+  // inclus dans le calage fixe `groundAnchorUnscaled(0.39) * scale`, les faisant flotter TRÈS haut
+  // au-dessus du sol (bug remonté par l'utilisateur : « le loup-garou est bien trop élevé par
+  // rapport à la surface de la terre »). La faune conserve désormais EXACTEMENT son comportement
+  // originel (avant tout correctif de cette session) : petit flottement `bobAmplitude`+sinus
+  // partagé avec les objets en lévitation, `groundAnchorUnscaled` valant implicitement `0` pour
+  // elle (jamais dans `isLivingCharacter` ci-dessous). Les marqueurs EN LÉVITATION (quête/trésor/
+  // monde/zorghon/captif/gemme de repli) conservent eux aussi EXACTEMENT leur ancien comportement
+  // (`bobAmplitude` + oscillation), `groundAnchorUnscaled` valant `0` pour eux — zéro régression.
+  const isLivingCharacter = isNpc || isFamiliar;
+  const groundAnchorUnscaled = isFamiliar ? 0.27 : isNpc ? 0.39 : 0;
   useFrame((state) => {
     const obj = bobRef.current;
     if (!obj || !floating) return;

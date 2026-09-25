@@ -3024,3 +3024,59 @@ disposition déterministe des PNJ/familiers du catalogue) :
 la branche `isLivingCharacter` a été introduite, les autres marqueurs continuent d'exécuter
 exactement le code précédent.
 
+## Régression : la faune errante (loup-garou/hibou/sanglier) flottait trop haut au-dessus du sol
+
+**Symptôme signalé** : après le correctif ci-dessus (« PNJ (et familiers/faune) : jambes/pattes
+enfoncées dans le sol »), l'utilisateur a signalé — capture d'écran à l'appui — que le loup-garou
+se tenait désormais bien trop **haut** au-dessus de la surface du terrain dans le widget
+« Plateforme 3D », un défaut inverse à celui corrigé (flottement au lieu d'enfoncement), jamais
+signalé avant ce correctif.
+
+**Cause racine** : le correctif précédent regroupait à tort la faune errante (`isWildlife`) dans la
+même branche `isLivingCharacter` que les PNJ/familiers, lui appliquant donc le même calage fixe
+`groundAnchorUnscaled * scale`. Or `groundAnchorUnscaled` (`0.39`) a été calculé **spécifiquement**
+à partir de la géométrie de `NpcVoxel`/`DragonMarker`, dont le bas des jambes/pattes descend à
+`y≈-0.39` en coordonnées locales. Les modèles dédiés de la faune (`Owl3D`/`Werewolf3D`/`Boar3D`,
+voir `Platform3DAmbientScene.tsx`) ont une géométrie totalement différente et bien moins profonde
+(pattes proches de `y≈0`, parfois `y≈-0.04` à `-0.06`) ; le hibou gère même sa propre élévation en
+interne (`bodyRef.position.y = 0.7` lorsqu'il est perché sur sa propre branche/perchoir rendue,
+qui suppose un groupe parent à `y=0` sans offset supplémentaire). Appliquer `0.39 * scale(1) = 0.39`
+à ces modèles déjà correctement positionnés les a donc fait léviter d'environ 0.39 unité — un
+décalage important et immédiatement visible, exactement le bug remonté par l'utilisateur.
+
+Ce défaut n'existait pas avant le tout premier correctif : avec l'ancienne formule
+`groundAnchorUnscaled * (scale - 1)`, la faune (dont l'échelle vaut toujours `1` par défaut — aucune
+entrée `Platform3DObjectFlags` de type `marker:wildlife` n'existe dans `gameState.ts` pour lui
+permettre un réglage admin) obtenait systématiquement `groundLift = X * (1 - 1) = 0`, un no-op
+permanent qui masquait le fait que `0.39` n'a jamais été une constante appropriée pour elle — le
+problème n'est devenu visible qu'en passant à la formule `* scale` directe.
+
+**Correctif** : retrait de `isWildlife` des deux mécanismes concernés :
+
+```ts
+const isLivingCharacter = isNpc || isFamiliar;                         // isWildlife retiré
+const groundAnchorUnscaled = isFamiliar ? 0.27 : isNpc ? 0.39 : 0;      // 0 pour la faune
+```
+
+La faune errante retombe donc dans la branche `else` (`bobAmplitude(0.15)` + oscillation
+sinusoïdale), reproduisant EXACTEMENT son comportement d'origine — celui d'avant ce tout premier
+correctif de calage au sol, jamais signalé comme buggé — tandis que PNJ/familiers conservent
+intégralement leur correctif de calage fixe.
+
+**Vérification (Playwright)** : plutôt que de tenter une comparaison visuelle capture-écran (la
+faune erre de façon non déterministe et n'apparaît pas nécessairement au même endroit d'une session
+à l'autre, contrairement aux PNJ du catalogue), la vérification a été faite par introspection
+directe du graphe de scène Three.js : un hook temporaire (`onCreated` du `<Canvas>` exposant
+`window.__debugScene`, et un `name` temporaire sur le groupe de faune) a permis de lire la position
+Y monde réelle de plusieurs individus (hibou, sanglier, loup-garou) rencontrés en marchant avec
+Synk. Résultat sur 6 relevés couvrant les 3 types : toutes les valeurs de Y se situent entre `0.09`
+et `0.21`, exactement la plage attendue (`bobAmplitude(0.15) ± 0.06` d'amplitude sinusoïdale) — y
+compris pour le loup-garou (`worldY≈0.207`), confirmant qu'il ne flotte plus à `0.39+`. Les deux
+hooks de debug ont été entièrement retirés après vérification (aucune trace dans le code final).
+`npx tsc --noEmit` : 0 erreur. 0 erreur console/page relevée durant toute la vérification.
+
+**Non-régression** : les PNJ et familiers/dragons conservent exactement le calage fixe du correctif
+précédent (`isLivingCharacter`/`groundAnchorUnscaled` inchangés pour eux) ; les objets en lévitation
+(quêtes, trésors, portails, Zorghon, captifs) n'ont subi aucun changement — seule la ligne
+d'inclusion de `isWildlife` a été retirée des deux mécanismes concernés.
+
