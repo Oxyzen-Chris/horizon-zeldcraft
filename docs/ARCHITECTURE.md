@@ -3080,3 +3080,71 @@ précédent (`isLivingCharacter`/`groundAnchorUnscaled` inchangés pour eux) ; l
 (quêtes, trésors, portails, Zorghon, captifs) n'ont subi aucun changement — seule la ligne
 d'inclusion de `isWildlife` a été retirée des deux mécanismes concernés.
 
+## La faune errante toujours flottante et rebondissante : calage fixe PAR SOUS-ESPÈCE
+
+**Symptôme signalé** : malgré le correctif ci-dessus, l'utilisateur a signalé (captures d'écran à
+l'appui) que le loup-garou, les sangliers et les marcassins ne touchaient toujours pas tout à fait
+le sol, ET que sangliers/marcassins « rebondissent sur place comme un objet de la quête » — un
+comportement jugé incohérent avec leur statut de créature vivante (« ils doivent être considérés
+comme des familiers, des PNJ »).
+
+**Cause racine** : le correctif précédent avait délibérément fait retomber `isWildlife` dans la
+branche `else` du `useFrame` (`obj.position.y = bobAmplitude(0.15) + Math.sin(...) * 0.06`), la
+même que les objets EN LÉVITATION (parchemin de quête, trésor, portail). Cette formule ne s'annule
+JAMAIS : son minimum vaut `0.15 - 0.06 = 0.09`, son maximum `0.15 + 0.06 = 0.21` — un personnage
+vivant posé dessus flotte donc TOUJOURS d'au moins `0.09` unité au-dessus du sol, avec en prime une
+oscillation sinusoïdale continue (le fameux « rebond »). Cette branche est adaptée à un objet
+magique qui lévite par nature, pas à un animal qui marche/se tient au sol — d'où le double défaut
+remonté par l'utilisateur, présent en réalité depuis TOUJOURS pour la faune (elle n'était simplement
+pas scrutée d'aussi près avant que les bugs plus visibles — glissement latéral, dalle noire sous les
+pieds, etc. — ne soient corrigés dans des sessions précédentes).
+
+**Correctif** : la faune errante rejoint enfin `isLivingCharacter` (comme PNJ/familier), avec un
+calage FIXE (aucune oscillation) calibré PAR SOUS-ESPÈCE à partir de sa propre géométrie plutôt que
+de réutiliser la constante `0.39` de `NpcVoxel` (erreur du tout premier correctif) :
+
+```ts
+const isLivingCharacter = isNpc || isFamiliar || isWildlife;                    // faune réintégrée
+const groundAnchorUnscaled = isFamiliar ? 0.27 : isNpc ? 0.39
+  : isWildlife ? (wildlifeKind === 'werewolf' ? 0.06 : 0) : 0;                   // 0.06 loup-garou, 0 hibou/sanglier
+```
+
+Analyse géométrique (`Platform3DAmbientScene.tsx`, coordonnées locales non mises à l'échelle,
+posture de repos `moving=false`) ayant mené à ces constantes :
+- **`Owl3D` → `0`** : le corps de l'oiseau (`bodyRef.position.y = 0.7` au repos) est déjà posé sur
+  son PROPRE perchoir en bois rendu à l'intérieur du même composant (`cylinderGeometry` de hauteur
+  `0.64` centrée en `y=0.32`, donc pied du perchoir exactement à `y=0`) — un calage supplémentaire
+  ferait léviter perchoir ET hibou ensemble, un non-sens visuel.
+- **`Werewolf3D` → `0.06`** : ses 4 pattes (cylindres inclinés) descendent, au repos, jusqu'à
+  `y≈-0.040` (pattes avant, `position.y=0.1`, `rotation.x=0.5`) et `y≈-0.058` (pattes arrière, le
+  point le plus bas, `position.y=0.08`, `rotation.x=-0.4`) — `0.06` replace la patte arrière tout
+  juste au niveau du sol ; les pattes avant, plus courtes, se retrouvent alors à peine `0.018` unité
+  au-dessus (écart minime, non perceptible en jeu, très inférieur à l'ancien flottement de
+  `0.09`-`0.21`).
+- **`Boar3D`/`BoarUnit` → `0`** (sanglier ET marcassins, même composant juste redimensionné via sa
+  prop `scale`) : le groupe de patte est positionné à `y=0.16`, la patte elle-même à `y=-0.08` en
+  son sein (cylindre de hauteur `0.16`, demi-hauteur `0.08`) → bas de patte `0.16 - 0.08 - 0.08 = 0`
+  EXACTEMENT, quel que soit le facteur `scale` du `BoarUnit` (un facteur multiplicatif de `0` reste
+  `0`) — aucun calage n'est donc nécessaire, la géométrie est déjà correcte par construction.
+
+**Vérification (Playwright)** : même technique d'introspection directe du graphe de scène Three.js
+que le correctif précédent (hooks temporaires `window.__debugScene` + `name` sur le groupe de
+faune, entièrement retirés après usage), mais cette fois en échantillonnant la position Y monde de
+CHAQUE individu rencontré à **24 reprises espacées dans le temps** (~1 seconde d'intervalle, tout en
+faisant marcher Synk) pour vérifier l'ABSENCE d'oscillation, pas seulement sa valeur instantanée :
+- `boar` (5 individus distincts croisés, sangliers et marcassins confondus) : `min = max = 0` sur
+  tous les échantillons — variation nulle, aucun rebond.
+- `owl` (3 individus distincts) : `min = max = 0` sur tous les échantillons.
+- `werewolf` (4 individus distincts) : `min = max = 0.06` sur tous les échantillons.
+- Capture d'écran de confirmation : le loup-garou affiche désormais ses 4 pattes visiblement en
+  contact avec le sol, avec une ombre portée nette juste sous les pattes (plus aucun espace visible
+  entre pattes et terrain), comportement désormais identique à un PNJ/familier.
+- `npx tsc --noEmit` : 0 erreur. 0 erreur console/page relevée durant toute la vérification.
+
+**Non-régression** : PNJ (`groundAnchorUnscaled=0.39`) et familiers/dragons
+(`groundAnchorUnscaled=0.27`) conservent une formule et des valeurs strictement inchangées ; seule
+la branche `isWildlife` du ternaire a été ajoutée. Les marqueurs en lévitation (quête/trésor/
+monde/zorghon/captif/gemme de repli) restent hors de `isLivingCharacter`, donc totalement
+inchangés. `spinning` (rotation continue façon toupie) reste exclu pour la faune comme avant
+(`!isNpc && !isFamiliar && !isWildlife`, inchangé).
+

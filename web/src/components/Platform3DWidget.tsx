@@ -1016,6 +1016,11 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
    * mapmonde ». Rendue exactement comme un PNJ/familier "vivant" (même interpolation de position/
    * démarche animée), sans anneau de sélection ni pédagogie de catalogue. */
   const isWildlife = kind === 'wildlife';
+  // Sous-espèce de faune (owl/werewolf/boar), déduite du préfixe stable de `markerId` (voir
+  // lib/roamingActors.ts::ensureWildlifeSpawns) — calculée ICI (et non plus seulement au moment du
+  // rendu ci-dessous) car le calage au sol (voir `groundAnchorUnscaled` plus bas) dépend désormais
+  // de la géométrie PROPRE à chaque sous-espèce, chacune ayant un point le plus bas différent.
+  const wildlifeKind: 'owl' | 'werewolf' | 'boar' = !isWildlife ? 'boar' : (markerId ?? '').startsWith('owl-') ? 'owl' : (markerId ?? '').startsWith('werewolf-') ? 'werewolf' : 'boar';
   const isTreasure = kind === 'treasure';
   // Objet déposé par un joueur (glisser-déposer depuis la besace — voir MapMarkerKind==='drop'/
   // lib/worldDrops.ts) : réutilise EXACTEMENT le même rendu que `isTreasure` ci-dessous (même
@@ -1080,36 +1085,54 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     g.position.x = fromRef.current.x + (x - fromRef.current.x) * progress;
     g.position.z = fromRef.current.z + (z - fromRef.current.z) * progress;
   });
-  // Relevage anti-enterrement (PNJ/familier UNIQUEMENT — PAS la faune, voir plus bas) : le pied
-  // le plus bas de `NpcVoxel`/`DragonMarker` (en unités NON mises à l'échelle) s'enfonce
-  // proportionnellement à `scale`. Bug remonté par l'utilisateur (« les jambes du PNJ sont enterrées
-  // dans le sol, contrairement à Synk ») : à `scale=1` (PNJ, défaut), l'ancienne formule
-  // `groundAnchorUnscaled * (scale - 1)` s'annulait à ZÉRO — le seul relevage restant était le petit
-  // flottement (« bob ») partagé avec les objets EN LÉVITATION (`bobAmplitude≈0.15`), très
+  // Relevage anti-enterrement/anti-lévitation (PNJ/familier/faune errante — TOUS les personnages
+  // VIVANTS posés au sol) : le point le plus bas de chaque modèle (en unités NON mises à l'échelle)
+  // s'enfonce/flotte selon sa PROPRE géométrie. Bug remonté par l'utilisateur (« les jambes du PNJ
+  // sont enterrées dans le sol, contrairement à Synk ») : à `scale=1` (PNJ, défaut), l'ancienne
+  // formule `groundAnchorUnscaled * (scale - 1)` s'annulait à ZÉRO — le seul relevage restant était
+  // le petit flottement (« bob ») partagé avec les objets EN LÉVITATION (`bobAmplitude≈0.15`), très
   // insuffisant pour compenser un enfoncement de jambes de `0.39` (un PNJ vivant posé au sol n'a
   // donc jamais été correctement calé, seuls les familiers agrandis `scale=2.4` recevaient un
-  // relevage partiel). Un personnage VIVANT (PNJ/familier) qui MARCHE sur le sol ne doit par
-  // ailleurs jamais léviter/flotter comme un parchemin de quête ou un trésor magique — on lui
-  // applique donc désormais un calage FIXE (aucune oscillation sinusoïdale), exactement comme Synk
-  // (`SYNK_GROUND_OFFSET`, jamais animé en Y hors de son propre rebond de marche interne) :
+  // relevage partiel). Un personnage VIVANT (PNJ/familier/faune) qui MARCHE/se tient sur le sol ne
+  // doit par ailleurs jamais léviter/flotter/rebondir comme un parchemin de quête ou un trésor
+  // magique — on lui applique donc un calage FIXE (aucune oscillation sinusoïdale), exactement comme
+  // Synk (`SYNK_GROUND_OFFSET`, jamais animé en Y hors de son propre rebond de marche interne) :
   //   groundLift = groundAnchorUnscaled * scale
   // Cela replace TOUJOURS le bas des pattes exactement au niveau du sol (`y≈0`), quelle que soit
   // l'échelle admin (« 🧱 Objets & décor 3D »), sans jamais les faire flotter au-dessus.
-  // ⚠️ RÉGRESSION CORRIGÉE : la faune errante (`isWildlife`, `Owl3D`/`Werewolf3D`/`Boar3D`, voir
-  // Platform3DAmbientScene.tsx) a été retirée de ce mécanisme — ces 3 modèles n'ont RIEN à voir
-  // avec la géométrie de `NpcVoxel`/`DragonMarker` (le point le plus bas de leurs pattes est déjà
-  // proche de `y≈0`, chaque modèle gérant sa propre élévation en interne — ex. le hibou se pose
-  // sur son perchoir via son PROPRE `bodyRef.position.y`). Un premier correctif les avait à tort
-  // inclus dans le calage fixe `groundAnchorUnscaled(0.39) * scale`, les faisant flotter TRÈS haut
-  // au-dessus du sol (bug remonté par l'utilisateur : « le loup-garou est bien trop élevé par
-  // rapport à la surface de la terre »). La faune conserve désormais EXACTEMENT son comportement
-  // originel (avant tout correctif de cette session) : petit flottement `bobAmplitude`+sinus
-  // partagé avec les objets en lévitation, `groundAnchorUnscaled` valant implicitement `0` pour
-  // elle (jamais dans `isLivingCharacter` ci-dessous). Les marqueurs EN LÉVITATION (quête/trésor/
-  // monde/zorghon/captif/gemme de repli) conservent eux aussi EXACTEMENT leur ancien comportement
-  // (`bobAmplitude` + oscillation), `groundAnchorUnscaled` valant `0` pour eux — zéro régression.
-  const isLivingCharacter = isNpc || isFamiliar;
-  const groundAnchorUnscaled = isFamiliar ? 0.27 : isNpc ? 0.39 : 0;
+  // ⚠️ DOUBLE RÉGRESSION CORRIGÉE SUR LA FAUNE ERRANTE (`isWildlife`, `Owl3D`/`Werewolf3D`/
+  // `Boar3D`, voir Platform3DAmbientScene.tsx) : un premier correctif l'avait à tort exclue de tout
+  // calage fixe, la laissant retomber dans la branche `bobAmplitude`+sinus des objets EN LÉVITATION
+  // — ce qui produisait à la fois (1) un flottement PERMANENT d'au moins `0.09` (le minimum de
+  // `bobAmplitude(0.15) - 0.06`, jamais nul) au-dessus du sol, ET (2) un rebond sinusoïdal visible
+  // « comme un objet de quête », alors que loup-garou/sanglier/marcassin sont des créatures vivantes
+  // qui doivent rester fixes au sol comme un PNJ/familier (bug remonté par l'utilisateur : « les
+  // sangliers et marcassins rebondissent sur place [...] ils doivent être considérés comme des
+  // familiers, des PNJ »). Un correctif ENCORE PLUS ANTÉRIEUR avait, lui, appliqué à tort la
+  // constante `0.39` (calibrée pour `NpcVoxel`) à la faune, la faisant flotter à ~0.39 unité
+  // au-dessus du sol (bug alors remonté : « le loup-garou est bien trop élevé »). La faune reçoit
+  // donc désormais elle aussi un calage FIXE (comme PNJ/familier, sans plus jamais léviter/
+  // rebondir), mais avec une constante `groundAnchorUnscaled` calibrée PAR SOUS-ESPÈCE (`owl`/
+  // `werewolf`/`boar`, voir `wildlifeKind` plus haut) à partir de SA PROPRE géométrie plutôt que de
+  // réutiliser celle de `NpcVoxel` :
+  // - `owl` → `0` : le hibou gère sa PROPRE élévation en interne (`bodyRef.position.y = 0.7`,
+  //   posé sur son perchoir en bois dont le pied est DÉJÀ à `y=0`) — un calage supplémentaire le
+  //   ferait léviter au-dessus de son propre perchoir, qui suivrait alors le bob comme s'il
+  //   s'agissait d'un objet magique.
+  // - `werewolf` → `0.06` : ses 4 pattes (voir `Werewolf3D`) descendent, au repos, jusqu'à
+  //   `y≈-0.040` (avant) et `y≈-0.058` (arrière, le point le plus bas) — `0.06` replace la patte la
+  //   plus profonde tout juste au niveau du sol (les pattes avant, plus courtes, restent alors à
+  //   peine 0,02 unité au-dessus, un écart minime et non perceptible, largement préférable au
+  //   flottement de 0,09 à 0,21 précédent).
+  // - `boar` (sanglier ET marcassins, même composant `BoarUnit` juste mis à l'échelle) → `0` : ses
+  //   4 pattes touchent DÉJÀ exactement `y=0` au repos par construction géométrique (`0,16 - 0,08 -
+  //   0,08 = 0`), aucun calage supplémentaire n'est nécessaire.
+  // Les marqueurs EN LÉVITATION (quête/trésor/monde/zorghon/captif/gemme de repli) conservent eux
+  // aussi EXACTEMENT leur ancien comportement (`bobAmplitude` + oscillation), `groundAnchorUnscaled`
+  // valant `0` pour eux — zéro régression.
+  const isLivingCharacter = isNpc || isFamiliar || isWildlife;
+  const groundAnchorUnscaled = isFamiliar ? 0.27 : isNpc ? 0.39
+    : isWildlife ? (wildlifeKind === 'werewolf' ? 0.06 : 0) : 0;
   useFrame((state) => {
     const obj = bobRef.current;
     if (!obj || !floating) return;
@@ -1224,14 +1247,13 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     );
   }
   if (isWildlife) {
-    // Hibou/loup-garou/sanglier errant — voir isWildlife plus haut. `markerId` est directement l'id
-    // d'errance (voir lib/roamingActors.ts::ensureWildlifeSpawns, préfixe stable `owl-`/
-    // `werewolf-`/`boar-`), pas besoin d'une identité catalogue distincte pour choisir le bon modèle
-    // 3D. `Owl3D`/`Werewolf3D`/`Boar3D` (voir Platform3DAmbientScene.tsx) n'ont plus de position
-    // interne fixe depuis leur conversion en entités mapmonde : ce groupe (position/orientation
-    // gérées comme tout PNJ/familier errant ci-dessus) est désormais leur SEULE source de placement.
-    const id = markerId ?? '';
-    const wildlifeKind = id.startsWith('owl-') ? 'owl' : id.startsWith('werewolf-') ? 'werewolf' : 'boar';
+    // Hibou/loup-garou/sanglier errant — voir isWildlife/wildlifeKind plus haut. `markerId` est
+    // directement l'id d'errance (voir lib/roamingActors.ts::ensureWildlifeSpawns, préfixe stable
+    // `owl-`/`werewolf-`/`boar-`), pas besoin d'une identité catalogue distincte pour choisir le
+    // bon modèle 3D. `Owl3D`/`Werewolf3D`/`Boar3D` (voir Platform3DAmbientScene.tsx) n'ont plus de
+    // position interne fixe depuis leur conversion en entités mapmonde : ce groupe (position/
+    // orientation gérées comme tout PNJ/familier errant ci-dessus) est désormais leur SEULE source
+    // de placement.
     return (
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}>

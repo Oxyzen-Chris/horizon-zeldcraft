@@ -526,6 +526,8 @@ C'est parfait pour la position de la lune et du soleil. Dans le widget "Platefor
 - Bug dans le widget Wallet top-up : Par défaut, je ne dois pas pouvoir créditer mon compte de coins du jeu en cliquant sur les boutons en € des pack pour la credit card, Applepay, Paypal, GooglePay tant que je n'ai pas configuré le mécanisme définitif et surtout il ne doit pas être activé par défaut (A rendre paramétrable dans le menu Administration si ce n'est pas déjà le cas : a vérifier) en mode démo ou en mode sans portefeuille. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 -----------------------------------------------------------------------------------------------------------------
 - Il y a un bug avec les PNJ qui ont les jambes en partie enfoncé dans le sol. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+- Il y a encore un écart, le loup-garou comme les sangliers et marcassins ne touchent pas tout a fait le sol : [📷 copilot-image-a1bb41.png] [📷copilot-image-14d3b6.png] . Et en plus, les sangliers et marcassins rebondissent sur place comme un objet de la quête hors il devrait pas puisqu'ils doivent être considérés comme des familiers, des pnj. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
 
 
 
