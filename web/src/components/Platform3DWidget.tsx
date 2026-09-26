@@ -3014,8 +3014,16 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             à un petit rayon d'exploration, voir UnderwaterScene — un cap Nord/Sud n'y a pas de sens). */}
         {!underwaterMode && (
           <div className="absolute top-1.5 right-1.5 z-10 flex flex-col items-center gap-1">
+            {/* `backdrop-blur-sm` volontairement RETIRÉ (voir signalement GPU + investigation du
+                commit d'origine, § Suite 2 de docs/ARCHITECTURE.md) : un flou de fond (`backdrop-
+                filter`) posé en permanence au-dessus d'un `<canvas>` WebGL qui rend en continu force
+                le compositeur à ré-échantillonner ce flou à chaque frame (60x/s), un coût de
+                compositing bien documenté et particulièrement pénalisant sur les GPU intégrés —
+                remplacé par un fond opaque légèrement plus sombre (`/80` au lieu de `/60`) pour
+                conserver la lisibilité et l'esprit « translucide » sans aucun recalcul de flou.
+                Purement cosmétique : aucun impact gameplay/fluidité, uniquement un allègement. */}
             <div
-              className="relative w-14 h-14 rounded-full bg-slate-900/60 border border-lime-400/60 backdrop-blur-sm pointer-events-none"
+              className="relative w-14 h-14 rounded-full bg-slate-900/80 border border-lime-400/60 pointer-events-none"
               title={t('game.platform3d.compass.title')}
             >
               <span className="absolute inset-x-0 top-0.5 text-center text-[9px] font-bold text-lime-200">{t('game.platform3d.compass.n')}</span>

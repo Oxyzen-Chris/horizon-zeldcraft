@@ -3535,4 +3535,59 @@ et corrigent un vrai gaspillage indépendant du choix de GPU) :
 pas affecté par le nouveau contrôle `frameloop` — celui-ci ne fait la différence QUE lorsque
 l'onglet est masqué, un état dans lequel le joueur ne peut de toute façon pas voir/jouer la scène.
 
+### ⚡ Suite 2 : GPU 0 toujours à 100% après la procédure Windows — vérification du réglage + investigation du commit d'origine du signalement
+
+**Nouveau signalement** (captures d'écran à l'appui) : après avoir suivi la procédure Windows
+ci-dessus et redémarré complètement le navigateur, le GPU 0 (Intel UHD) reste affiché à ~97% dans le
+Gestionnaire des tâches. Le joueur précise n'avoir vu apparaître ce symptôme qu'à partir du commit
+`2ee6e47` (boussole N/E/S/O).
+
+**⚠️ Constat important sur la capture d'écran fournie** : la capture des *Paramètres Windows →
+Système → Affichage → Graphismes* jointe au signalement montre, pour l'entrée
+`Microsoft Edge — msedge.exe`, une **« Préférence GPU » toujours réglée sur « Économie d'énergie
+(Intel(R) UHD Graphics) »**, et non « Performances élevées ». Ceci reste donc la cause la PLUS
+PROBABLE et la plus actionnable du symptôme rapporté (elle correspond exactement au motif GPU 0 ≈
+97-100% / GPU 1 ≈ 8-9% observé de façon constante) : **le réglage n'a probablement pas été
+enregistré comme « Performances élevées »**, ou une réinitialisation Windows/mise à jour du pilote
+graphique l'a fait revenir à sa valeur par défaut, ou un exécutable Edge différent (canal Beta/Dev/
+Canary, ou une deuxième installation) a été modifié par erreur. **Action recommandée avant toute
+autre piste** : rouvrir ce même écran, cliquer sur la ligne « Préférence GPU » sous `msedge.exe`,
+choisir explicitement « **Performances élevées** » dans le menu déroulant (pas seulement l'ouvrir),
+puis fermer complètement puis rouvrir le navigateur.
+
+**Investigation du code au commit `2ee6e47`** (comme demandé, sans rien modifier qui puisse altérer
+la fluidité ou la stratégie de jeu) : revue complète du diff de ce commit à la recherche d'un coût de
+rendu réellement nouveau et continu.
+- La rotation Y de `SynkVoxel` devenue impérative (`groundRef.current.rotation.y = ...` dans
+  `useFrame`, à chaque frame) n'introduit **rien de nouveau** : le suivi du relief
+  (`groundRef.current.position.y = ...`) modifiait déjà la même transformation à chaque frame
+  *avant* ce commit — la charge de recalcul de matrice pour cet objet était donc déjà continue.
+- Le minuteur d'inactivité (`setInterval(..., 500)`) est un simple minuteur JS, coût négligeable,
+  aucun rendu ni recalcul 3D associé.
+- **Élément réellement nouveau et potentiellement significatif** : ce commit introduit le **premier
+  et unique `backdrop-blur-sm`** (flou de fond CSS) de tout le fichier `Platform3DWidget.tsx`, sur le
+  disque de la boussole — un effet posé en permanence **au-dessus du `<canvas>` WebGL qui rend en
+  continu**. Un `backdrop-filter` forcé de ré-échantillonner/flouter une zone qui change à chaque
+  frame est un coût de compositing bien documenté sur Chromium (« SaveLayer + blur + composite » à
+  chaque frame), et frappe particulièrement les GPU intégrés faibles en compositing. Un test de
+  performance Playwright (trace CDP `Tracing.start`/`Tracing.end`, catégories
+  `disabled-by-default-devtools.timeline`) comparant le temps `GPUTask`/`CompositeLayers` avec et
+  sans la classe n'a montré **aucune différence mesurable** dans cet environnement (le rendu GPU y
+  est logiciel/`SwiftShader` en mode headless, ce qui ne reflète pas fidèlement un vrai pilote Intel
+  UHD) — l'hypothèse reste donc plausible mais NON confirmée en laboratoire, uniquement par
+  raisonnement sur le comportement connu de Chromium.
+
+**Correctif appliqué** (purement cosmétique, zéro risque de régression gameplay/fluidité) : le
+`backdrop-blur-sm` du disque de la boussole est retiré et remplacé par un fond opaque légèrement plus
+sombre (`bg-slate-900/80` au lieu de `bg-slate-900/60` + flou) — conserve l'esprit « translucide »
+sans exécuter de flou, ne peut qu'alléger la charge de compositing, jamais l'alourdir. Vérifié par
+Playwright (capture d'écran : disque toujours lisible, aiguille N/E/S/O toujours visible ; 0 erreur
+console) + `npx tsc --noEmit` et `npm run build` : 0 erreur.
+
+**Conclusion honnête pour le joueur concerné** : le correctif `powerPreference`/`stencil`/
+`frameloop`/`antialias` est confirmé actif en production à chaque étape ; **la cause la plus probable
+du symptôme persistant reste le réglage Windows « Préférence GPU » de `msedge.exe`, qui n'affiche pas
+« Performances élevées » sur la capture fournie** — à revérifier/re-sélectionner explicitement avant
+toute autre hypothèse. Le retrait du flou de la boussole est un allègement complémentaire, sûr et
+sans régression, mais ne remplace pas la vérification du réglage Windows ci-dessus.
 
