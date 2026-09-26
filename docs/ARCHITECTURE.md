@@ -3468,3 +3468,71 @@ correctif (GPU haute performance ET ombres activés par défaut) — seule la s�
 change (en mieux), sans aucune régression visuelle ni de jouabilité. Aucun autre widget/mécanisme de
 jeu n'est affecté (seul point d'implémentation : le `<Canvas>` unique de `Platform3DWidget.tsx`).
 
+### ⚡ Suite : `powerPreference` déployé mais SANS EFFET mesuré sur la machine du signalement — cause & compléments
+
+**Nouveau signalement** (captures d'écran à l'appui, APRÈS déploiement du correctif ci-dessus) : le
+GPU 0 (Intel UHD, intégré) reste à ~97-98% sous le moteur « 3D » alors que le GPU 1 (NVIDIA GeForce
+RTX, dédié) reste à ~9% (46 °C) — des valeurs QUASI IDENTIQUES à celles d'AVANT le correctif — y
+compris avec le widget « Plateforme 3D » explicitement fermé (GPU 0 encore à ~91% avec seulement les
+widgets Mapmonde/Plateforme 2D isométrique ouverts).
+
+**Vérification que le correctif est bien en production** : extraction du bundle JS déployé
+(`https://horizon-zeldcraft.vercel.app/_next/static/chunks/app/game/page-*.js`) — les chaînes
+`"high-performance"` et `"powerPreference"` sont bien présentes : **le correctif est bien livré et
+actif**, ce qui exclut un problème de déploiement.
+
+**Vérification que la fermeture du widget démonte bien le `<Canvas>`** : test Playwright dédié
+(ouverture du widget → comptage `document.querySelectorAll('canvas').length` = 1 → clic sur le
+bouton de fermeture `[data-widget-close]` → nouveau comptage = **0**) : le démontage fonctionne
+exactement comme prévu, aucune fuite de rendu en arrière-plan derrière un autre widget qui le
+recouvrirait visuellement.
+
+**Cause probable du GPU 0/1 inchangé malgré `powerPreference: 'high-performance'`** :
+`powerPreference` est un **indice** («&nbsp;hint&nbsp;»), pas une contrainte — la spécification WebGL
+ne garantit PAS que le navigateur l'honore. Sur Windows avec une configuration GPU hybride
+(intégré + dédié), le choix final du GPU peut être **verrouillé au niveau du système d'exploitation**
+via *Paramètres Windows → Système → Affichage → Graphismes*, qui permet d'assigner un GPU **par
+exécutable** (ex. `msedge.exe`, `chrome.exe`) : si ce réglage impose « Économie d'énergie » (GPU
+intégré) pour le navigateur, **AUCUN indice émis depuis la page ne peut le contourner** — le pilote
+graphique/le système décide en amont du navigateur lui-même. Les valeurs GPU 0/1 rigoureusement
+identiques avant/après le correctif (alors que celui-ci est confirmé actif dans le bundle) sont la
+signature typique de ce verrouillage côté OS plutôt que d'un bug applicatif.
+
+**➡️ Procédure Windows définitive (à effectuer par le joueur, hors de portée du code de
+l'application)** :
+1. Ouvrir *Paramètres Windows → Système → Affichage → Graphismes* (ou rechercher « Paramètres
+   graphiques » dans le menu Démarrer).
+2. Sous « Choisissez une application à personnaliser », sélectionner « Application de bureau »,
+   parcourir jusqu'à l'exécutable du navigateur utilisé (ex.
+   `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`), l'ajouter.
+3. Cliquer sur « Options », choisir **« Performances élevées »** (et non « Économie d'énergie » ni
+   « Laisser Windows décider »), Enregistrer.
+4. Fermer **complètement** le navigateur (toutes les fenêtres, y compris celles en arrière-plan
+   dans la barre des tâches) puis le rouvrir — le changement ne s'applique qu'aux nouveaux
+   processus navigateur.
+5. Revérifier le Gestionnaire des tâches (onglet Performance) en rejouant : le rendu devrait
+   désormais basculer sur le GPU dédié (utilisation qui augmente sur GPU 1, diminue sur GPU 0).
+
+**Compléments apportés côté code** (aucun ne peut se substituer à la procédure Windows ci-dessus si
+le verrouillage OS est en cause, mais réduisent le coût réel de rendu quel que soit le GPU utilisé,
+et corrigent un vrai gaspillage indépendant du choix de GPU) :
+- **Rendu totalement suspendu quand l'onglet n'est pas au premier plan** — nouveau
+  `frameloop={documentVisible ? 'always' : 'never'}` sur le `<Canvas>`, piloté par l'évènement
+  natif `visibilitychange` (`document.visibilityState`). Auparavant, R3F continuait d'appeler le
+  rendu à chaque `requestAnimationFrame` restant même onglet masqué (le throttling natif du
+  navigateur réduit la cadence mais ne l'annule pas forcément à zéro) ; ceci l'arrête
+  complètement, sans jamais démonter le `<Canvas>` (reprise instantanée et sans à-coup au retour au
+  premier plan — vérifié par test Playwright : 21&nbsp;666-21&nbsp;791 appels `drawElements`/s
+  onglet visible, **0** onglet masqué simulé, ~21&nbsp;666/s après reprise, aucune erreur, rendu
+  visuel identique après reprise).
+- **`platform3dAntialiasEnabled`** (nouveau réglage Administration, défaut `true`) — permet de
+  désactiver l'anticrénelage MSAA (deuxième réglage le plus coûteux en GPU après les ombres) en
+  dépannage supplémentaire sur une machine encore limitée après la procédure Windows ci-dessus.
+
+**Non-régression** : `npx tsc --noEmit` et `npm run build` : 0 erreur. Le nouveau réglage
+`platform3dAntialiasEnabled` conserve le comportement par défaut strictement identique à avant
+(anticrénelage activé). Le rendu en onglet visible (le cas d'usage normal de jeu) n'est absolument
+pas affecté par le nouveau contrôle `frameloop` — celui-ci ne fait la différence QUE lorsque
+l'onglet est masqué, un état dans lequel le joueur ne peut de toute façon pas voir/jouer la scène.
+
+

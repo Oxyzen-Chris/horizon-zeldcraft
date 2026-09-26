@@ -533,6 +533,8 @@ De la même manière, deux familiers entre eux ne doivent pas se traverser mais 
 -----------------------------------------------------------------------------------------------------------------
 - Il faudrait regarder a optimiser car il y a des pics de consommation de GPU 3D quand je suis sur le jeu, je ne ne les avait pas avant [📷
 copilot-image-fd68e9.png]. Il apparaissent quand j'ouvre la fenêtre du broswser Edge, que cela soit sur ce poste ou un autre. Regarde a optimiser sans toucher ou faire régresser la fluidité du jeu et résoudre ce problème de saturation à 100% du GPU et/ou du CPU qui fait chauffer la carte et fait tourner anormalement les ventilo de l'ordinateur. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+- Alors je viens de recharger le jeu et il semblerait que ton correctif ne corrige pas la saturation GPU sur la carte graphique comme tu peux le constater sur ce graph de charge : [📷 copilot-image-d5f216.png] et même avec le widget Plateforme 3D de fermé [📷 copilot-image-6b057e.png]. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
 
 
 

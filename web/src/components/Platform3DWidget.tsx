@@ -1954,6 +1954,21 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
 
   const [rules, setRules] = useState<RepRules | null>(null);
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
+  // ─── Optimisation GPU/CPU (suite, voir docs/ARCHITECTURE.md § Optimisation GPU/CPU) — un
+  // utilisateur a signalé que le GPU intégré restait saturé à ~90-98% MÊME onglet/fenêtre non
+  // regardée activement (le `<Canvas>` continue par défaut d'appeler `requestAnimationFrame` en
+  // continu tant qu'il est monté, même si le navigateur limite déjà fortement la cadence d'un
+  // onglet masqué). On stoppe désormais EXPLICITEMENT le rendu (`frameloop="never"`, voir plus bas)
+  // dès que l'onglet passe en arrière-plan (`document.visibilityState !== 'visible'` — minimisé,
+  // changement d'onglet, mise en veille de l'écran), sans jamais démonter le `<Canvas>` : aucune
+  // perte d'état de la scène, reprise immédiate et sans à-coup dès le retour au premier plan.
+  const [documentVisible, setDocumentVisible] = useState(true);
+  useEffect(() => {
+    const onVisibilityChange = () => setDocumentVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    onVisibilityChange();
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
   // Cycle jour/nuit + thème d'ambiance effectif (voir Platform3DAmbientScene.tsx et
   // lib/useWorldTheme.ts — même hook que WeatherPanel.tsx/WorldMapWidget.tsx, une seule résolution
   // fait autorité pour éviter toute incohérence entre widgets).
@@ -2889,6 +2904,10 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           shadows={rules?.platform3dShadowsEnabled ?? true}
           camera={{ position: [0, 3.2, 5.6], fov: 45 }}
           dpr={[1, 2]}
+          // Stoppe totalement le rendu quand l'onglet n'est pas visible (voir `documentVisible`
+          // ci-dessus) — AUCUN effet quand l'onglet est au premier plan (`'always'`, comportement
+          // strictement identique à avant), donc zéro régression de fluidité pendant le jeu actif.
+          frameloop={documentVisible ? 'always' : 'never'}
           gl={{
             // Corrige une saturation GPU signalée par un utilisateur (Task Manager : GPU intégré
             // Intel UHD à ~97-100% pendant que le GPU dédié NVIDIA restait à ~8%, ventilateurs
@@ -2906,6 +2925,9 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             // `slate-950`), une régression visuelle subtile à éviter.
             powerPreference: (rules?.platform3dHighPerformanceGpuEnabled ?? true) ? 'high-performance' : 'default',
             stencil: false,
+            // Anticrénelage désactivable en dépannage GPU limité (voir platform3dAntialiasEnabled,
+            // défaut true = comportement identique à avant ce réglage).
+            antialias: rules?.platform3dAntialiasEnabled ?? true,
           }}
         >
           {underwaterMode ? (

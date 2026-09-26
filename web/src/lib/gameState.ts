@@ -4459,6 +4459,16 @@ export interface RepRules {
   // mieux, pour le choix du GPU) tant qu'un administrateur ne les désactive pas explicitement.
   platform3dHighPerformanceGpuEnabled: boolean; // Force le GPU le plus performant (dédié) pour la Plateforme 3D (défaut true)
   platform3dShadowsEnabled: boolean;          // Active les ombres portées en Plateforme 3D (défaut true, désactivable si GPU limité)
+  // ─── Suite (retour utilisateur : `powerPreference` seul ne suffit pas toujours — Windows peut
+  // imposer le GPU intégré au niveau du pilote/du système pour TOUT le navigateur, auquel cas
+  // aucun indice émis par la page ne peut le contourner ; voir docs/ARCHITECTURE.md § Optimisation
+  // GPU/CPU pour la procédure Windows définitive dans ce cas). `platform3dAntialiasEnabled`
+  // (défaut true) permet de désactiver l'anticrénelage (MSAA), le réglage le plus coûteux après les
+  // ombres, en dépannage supplémentaire. Le rendu est par ailleurs désormais totalement suspendu
+  // (`frameloop: 'never'`, voir Platform3DWidget.tsx) dès que l'onglet du navigateur n'est plus au
+  // premier plan, sans réglage requis (aucune régression : le rendu reprend normalement dès le
+  // retour au premier plan, comportement inchangé tant que l'onglet reste visible).
+  platform3dAntialiasEnabled: boolean;        // Active l'anticrénelage (MSAA) en Plateforme 3D (défaut true, désactivable si GPU limité)
   // ─── Escalade/saut de montagne en Plateforme 3D (voir Platform3DWidget.tsx::move()) — grimper
   // sur une dalle plus haute que la position courante de Synk nécessite de maintenir Espace (voir
   // platform3dJumpEnabled/Platform3DObjectFlags.climbable) ; DESCENDRE reste toujours libre (jamais
@@ -4989,6 +4999,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dResizableEnabled: true,
   platform3dHighPerformanceGpuEnabled: true,
   platform3dShadowsEnabled: true,
+  platform3dAntialiasEnabled: true,
   platform3dCubeHeightM: 400,
   platform3dFallDamageMinCubes: 4,
   platform3dFallDamageHp: 20,

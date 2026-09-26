@@ -671,6 +671,11 @@ export function RepRulesPanel() {
             onChange={e => setBool('platform3dShadowsEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.platform3dShadowsEnabled')}</span>
         </label>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.platform3dAntialiasEnabled !== false}
+            onChange={e => setBool('platform3dAntialiasEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.platform3dAntialiasEnabled')}</span>
+        </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">🧗 {t('admin.repRules.platform3dClimbTitle')}</h3>
