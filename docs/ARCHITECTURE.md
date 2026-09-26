@@ -3407,3 +3407,64 @@ restent des mécanismes séparés et inchangés ; les réglages Administration
 exactement le même comportement qu'auparavant lorsqu'ils sont désactivés (chaque correctif
 ci-dessus reste dans le périmètre du mécanisme qu'il complète, sans nouveau réglage requis).
 
+## ⚡ Optimisation GPU/CPU : saturation anormale du GPU intégré en Plateforme 3D
+
+**Symptôme signalé** (capture d'écran du Gestionnaire des tâches Windows à l'appui) : ouvrir le jeu
+dans Edge fait grimper l'utilisation du **GPU 0 (Intel UHD Graphics, GPU intégré)** à ~97-100 % sous
+le moteur « 3D », alors que le **GPU 1 (NVIDIA GeForce RTX, GPU dédié)** reste presque inactif
+(~8 %, 46 °C) — les ventilateurs de la machine s'emballent anormalement. L'utilisateur précise que
+ce n'était pas le cas auparavant et que le symptôme se reproduit à l'identique sur plusieurs
+machines différentes.
+
+**Cause racine** : le seul `<Canvas>` React Three Fiber du jeu (`Platform3DWidget.tsx`, support de
+la Plateforme 3D — la Plateforme 2D isométrique et la Mapmonde utilisent un `<canvas>` HTML natif en
+2D, sans WebGL) était instancié sans aucun indice de préférence GPU
+(`gl={{ powerPreference: ... }}`). Sans cet indice explicite, la spécification WebGL laisse le
+navigateur/l'OS choisir librement le GPU de rendu — sur une machine hybride (GPU intégré basse
+consommation + GPU dédié), Chromium/Windows peuvent ainsi router le contexte vers le GPU intégré par
+défaut. Ce GPU, nettement moins puissant, sature (97-100 %) sous une charge de rendu 3D que le GPU
+dédié aurait absorbée avec une marge confortable (d'où les ~8 % observés sur le GPU 1, qui ne fait
+tout simplement pas le travail).
+
+**Correctifs** (`Platform3DWidget.tsx::<Canvas>`, `lib/gameState.ts` pour les réglages
+Administration) :
+- **`powerPreference: 'high-performance'`** — demande explicitement au navigateur le GPU le plus
+  performant disponible (typiquement le GPU dédié sur une machine hybride), au lieu de laisser le
+  choix par défaut du navigateur/OS. Paramétrable en Administration via
+  `platform3dHighPerformanceGpuEnabled` (défaut `true` — repli sur `'default'` si désactivé, par
+  exemple pour du dépannage sur un matériel atypique).
+  - **⚠️ Limite connue** : `powerPreference` est un indice (« hint »), pas une garantie absolue —
+    son effet final dépend aussi des réglages GPU propres au navigateur (bascule GPU de Chromium/
+    Edge) et des « Préférences graphiques » par application de Windows, qui peuvent chacun
+    surcharger ce choix. C'est néanmoins le levier standard côté plateforme web pour ce problème et
+    la correction attendue dans l'immense majorité des configurations.
+- **`stencil: false`** sur le contexte WebGL — la scène n'utilise nulle part de tampon de stencil
+  (aucun `clippingPlanes`/opération de stencil dans le code) : micro-optimisation mémoire/bande
+  passante à coût nul, sans aucun impact visuel.
+- **`dpr={[1, 2]}`** explicite (déjà la valeur par défaut de React Three Fiber — rendu explicite
+  pour documenter l'intention et garantir ce plafond même si le défaut de la bibliothèque venait à
+  changer) : évite un ratio de pixels non plafonné sur un écran HiDPI, qui multiplierait inutilement
+  le coût de calcul des fragments.
+- **`shadows` du `<Canvas>` rendu paramétrable** — nouveau réglage Administration
+  `platform3dShadowsEnabled` (défaut `true`, comportement inchangé) permettant de désactiver les
+  ombres portées (passe de rendu supplémentaire, la plus coûteuse en GPU des options du `<Canvas>`)
+  en dépannage sur une machine encore limitée après le réglage `powerPreference` ci-dessus.
+- **`alpha` du contexte WebGL délibérément conservé** (non désactivé) : `SkyBackdrop`
+  (`Platform3DAmbientScene.tsx`) met `scene.background = null` en thème nuit pour laisser
+  transparaître le fond `bg-slate-950` du conteneur DOM du widget — désactiver `alpha` aurait changé
+  la couleur de fond nocturne (noir pur au lieu du bleu-noir `slate-950`), une régression visuelle
+  subtile évitée en conservant ce réglage par défaut.
+
+**Vérification (Playwright)** : ouverture d'une session Démo, ouverture du widget « Plateforme 3D »,
+lecture des attributs du contexte WebGL actif via
+`canvas.getContext('webgl2').getContextAttributes()` — confirme
+`powerPreference: "high-performance"` et `stencil: false` effectivement appliqués par le navigateur,
+aucune erreur console/page, capture d'écran comparée visuellement identique (décor, PNJ, boussole,
+pavé directionnel tous inchangés).
+
+**Non-régression** : `npx tsc --noEmit` et `npm run build` : 0 erreur avant/après. Les deux nouveaux
+réglages Administration conservent le comportement PAR DÉFAUT strictement identique à avant ce
+correctif (GPU haute performance ET ombres activés par défaut) — seule la sélection du GPU physique
+change (en mieux), sans aucune régression visuelle ni de jouabilité. Aucun autre widget/mécanisme de
+jeu n'est affecté (seul point d'implémentation : le `<Canvas>` unique de `Platform3DWidget.tsx`).
+

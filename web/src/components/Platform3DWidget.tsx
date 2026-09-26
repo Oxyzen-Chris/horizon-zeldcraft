@@ -2885,7 +2885,29 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           }
         }}
       >
-        <Canvas shadows camera={{ position: [0, 3.2, 5.6], fov: 45 }}>
+        <Canvas
+          shadows={rules?.platform3dShadowsEnabled ?? true}
+          camera={{ position: [0, 3.2, 5.6], fov: 45 }}
+          dpr={[1, 2]}
+          gl={{
+            // Corrige une saturation GPU signalée par un utilisateur (Task Manager : GPU intégré
+            // Intel UHD à ~97-100% pendant que le GPU dédié NVIDIA restait à ~8%, ventilateurs
+            // s'emballant anormalement) : sans indice explicite, Chromium/Windows peut router le
+            // contexte WebGL vers le GPU basse consommation par défaut, qui sature bien plus vite
+            // que le GPU dédié sur la même charge de rendu 3D. `high-performance` demande le GPU
+            // le plus véloce disponible (paramétrable, voir platform3dHighPerformanceGpuEnabled
+            // dans le menu Administration — repli sur 'default' si désactivé). `stencil: false`
+            // évite l'allocation inutile d'un tampon de stencil que la scène n'utilise nulle part
+            // (aucun clippingPlanes/stencilFunc ailleurs dans le code) : micro-optimisation
+            // mémoire/bande passante à coût nul, sans aucun impact visuel. On NE désactive PAS
+            // `alpha` : `SkyBackdrop` (Platform3DAmbientScene.tsx) met `scene.background = null` de
+            // nuit pour laisser transparaître le fond `bg-slate-950` du conteneur DOM — le
+            // désactiver changerait la couleur de fond nocturne (noir pur au lieu du bleu-noir
+            // `slate-950`), une régression visuelle subtile à éviter.
+            powerPreference: (rules?.platform3dHighPerformanceGpuEnabled ?? true) ? 'high-performance' : 'default',
+            stencil: false,
+          }}
+        >
           {underwaterMode ? (
             <UnderwaterScene
               stage={stage} facing={facing} equipment={equipment}

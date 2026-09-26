@@ -4446,6 +4446,19 @@ export interface RepRules {
   platform3dEquipmentRenderEnabled: boolean; // Affiche l'équipement (arme, bouclier, casque, etc.) sur le modèle 3D de Synk (défaut true)
   platform3dJumpEnabled: boolean;            // Active le saut (barre espace) pour franchir montagnes/roches en 3D (défaut true)
   platform3dResizableEnabled: boolean;       // Autorise le redimensionnement (jusqu'au plein écran) du widget 3D (défaut true)
+  // ─── Optimisation GPU/CPU (voir Platform3DWidget.tsx::<Canvas>) — un utilisateur a signalé une
+  // saturation à ~97-100% du GPU INTÉGRÉ (Intel UHD) pendant que le GPU DÉDIÉ (NVIDIA GeForce RTX)
+  // restait presque inactif (~8%), causant un emballement anormal des ventilateurs : le contexte
+  // WebGL était créé sans indice `powerPreference`, laissant Chromium/Windows router le rendu vers
+  // le GPU faible par défaut plutôt que vers le GPU dédié bien plus à l'aise avec la même charge.
+  // `platform3dHighPerformanceGpuEnabled` (défaut true) demande explicitement le GPU le plus
+  // performant disponible (`powerPreference: 'high-performance'`) ; `platform3dShadowsEnabled`
+  // (défaut true) permet de désactiver les ombres portées (passe de rendu supplémentaire, coûteuse
+  // en GPU) en dépannage sur une machine encore limitée après le premier réglage. Aucune régression
+  // visuelle par défaut : les deux réglages restent activés (comportement identique à avant, en
+  // mieux, pour le choix du GPU) tant qu'un administrateur ne les désactive pas explicitement.
+  platform3dHighPerformanceGpuEnabled: boolean; // Force le GPU le plus performant (dédié) pour la Plateforme 3D (défaut true)
+  platform3dShadowsEnabled: boolean;          // Active les ombres portées en Plateforme 3D (défaut true, désactivable si GPU limité)
   // ─── Escalade/saut de montagne en Plateforme 3D (voir Platform3DWidget.tsx::move()) — grimper
   // sur une dalle plus haute que la position courante de Synk nécessite de maintenir Espace (voir
   // platform3dJumpEnabled/Platform3DObjectFlags.climbable) ; DESCENDRE reste toujours libre (jamais
@@ -4974,6 +4987,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dEquipmentRenderEnabled: true,
   platform3dJumpEnabled: true,
   platform3dResizableEnabled: true,
+  platform3dHighPerformanceGpuEnabled: true,
+  platform3dShadowsEnabled: true,
   platform3dCubeHeightM: 400,
   platform3dFallDamageMinCubes: 4,
   platform3dFallDamageHp: 20,
