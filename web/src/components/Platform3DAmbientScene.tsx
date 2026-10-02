@@ -762,6 +762,151 @@ export function Boar3D({ adminAudio, soundEnabled = true, seedKey, moving }: {
   );
 }
 
+// ─────────────────────────────── Morts-vivants (zombie/goule/squelette — tombes/cryptes) ───────────────────────────────
+/**
+ * Voir demande utilisateur « Tu feras sortir des monstres en 3D qui rampent puis marche avec une
+ * démarche de zombies, des goules en 3D, des zombies en 3D, des squelettes en 3D des tombes [...]
+ * Il faudra les considérer comme de nouveaux PNJ à part entière et leur donner des interactions,
+ * déplacements, paramètres et pattern similaire à ceux des PNJ ». Même conversion en VRAIE faune
+ * errante que Owl3D/Werewolf3D/Boar3D ci-dessus (voir lib/roamingActors.ts::WildlifeActorState
+ * 'zombie'|'ghoul'|'skeleton', Platform3DWidget.tsx::MarkerBlock::isWildlife) : AUCUNE position/
+ * rotation interne, c'est le groupe parent (MarkerBlock) qui positionne/oriente ce modèle selon sa
+ * direction de marche RÉELLE. La démarche "rampante puis marchée" est simplifiée : l'émergence
+ * (dalle qui se soulève) est portée par la tombe elle-même (voir MarkerBlock::TombMarker,
+ * animation locale ponctuelle à l'approche), tandis que ce composant porte uniquement la démarche
+ * continue une fois debout — dédoublerait inutilement la logique de synchroniser une "sortie de
+ * terre" par instance errante avec la tombe d'origine, pour un gain visuel marginal. Pas de cycle
+ * sonore dédié (pas de nouvelle clé AudioSourceKey) : limite le risque de régression sur le système
+ * audio existant, cohérent avec la demande centrée sur l'apparence/le déplacement.
+ */
+function Zombie3D({ seedKey, moving }: { seedKey?: string; moving?: boolean }) {
+  const headRef = useRef<THREE.Group>(null);
+  const armLRef = useRef<THREE.Mesh>(null);
+  const armRRef = useRef<THREE.Mesh>(null);
+  const legLRef = useRef<THREE.Mesh>(null);
+  const legRRef = useRef<THREE.Mesh>(null);
+  const bodyRef = useRef<THREE.Group>(null);
+  const seedOffset = useMemo(() => (hashSeed(seedKey || 'zombie') % 1000) / 130, [seedKey]);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime + seedOffset;
+    // Démarche de zombie : lente, raide, bras tendus devant à l'horizontale, jambes qui traînent
+    // (amplitude faible, asymétrique) — nulle à l'arrêt (reste planté, bras tendus).
+    const shambleFreq = 2.2, shambleAmp = 0.28;
+    const swing = moving ? Math.sin(t * shambleFreq) * shambleAmp : 0;
+    if (legLRef.current) legLRef.current.rotation.x = swing;
+    if (legRRef.current) legRRef.current.rotation.x = -swing * 0.8;
+    if (armLRef.current) armLRef.current.rotation.x = -1.35 + (moving ? Math.sin(t * shambleFreq * 0.6) * 0.12 : 0);
+    if (armRRef.current) armRRef.current.rotation.x = -1.3 + (moving ? Math.sin(t * shambleFreq * 0.6 + 1) * 0.12 : 0);
+    if (headRef.current) headRef.current.rotation.z = Math.sin(t * 0.7) * 0.08 - 0.1; // tête penchée, dodeline lentement
+    if (bodyRef.current) bodyRef.current.rotation.x = 0.18 + (moving ? Math.sin(t * shambleFreq) * 0.03 : 0); // torse voûté en permanence
+  });
+  const skin = '#5c6e4a'; // vert putréfié
+  const cloth = '#3f3a2e';
+  return (
+    <group ref={bodyRef} position={[0, 0.02, 0]}>
+      <mesh position={[0, 0.55, 0]} castShadow><boxGeometry args={[0.28, 0.4, 0.18]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
+      <group ref={headRef} position={[0, 0.84, 0.01]}>
+        <mesh castShadow><boxGeometry args={[0.2, 0.2, 0.2]} /><meshStandardMaterial color={skin} roughness={0.9} /></mesh>
+        {[-0.055, 0.055].map((ex, i) => (
+          <mesh key={i} position={[ex, 0.01, 0.1]}><sphereGeometry args={[0.028, 6, 6]} /><meshStandardMaterial color="#e2e8a0" emissive="#9ca33a" emissiveIntensity={0.5} /></mesh>
+        ))}
+        <mesh position={[0, -0.06, 0.1]}><boxGeometry args={[0.07, 0.03, 0.04]} /><meshStandardMaterial color="#1c1917" /></mesh>
+      </group>
+      <mesh ref={armLRef} position={[-0.19, 0.58, 0]} castShadow><cylinderGeometry args={[0.042, 0.048, 0.38, 6]} /><meshStandardMaterial color={skin} roughness={0.9} /></mesh>
+      <mesh ref={armRRef} position={[0.19, 0.58, 0]} castShadow><cylinderGeometry args={[0.042, 0.048, 0.38, 6]} /><meshStandardMaterial color={skin} roughness={0.9} /></mesh>
+      <mesh ref={legLRef} position={[-0.08, 0.2, 0]} castShadow><cylinderGeometry args={[0.055, 0.06, 0.4, 6]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
+      <mesh ref={legRRef} position={[0.08, 0.2, 0]} castShadow><cylinderGeometry args={[0.055, 0.06, 0.4, 6]} /><meshStandardMaterial color={cloth} roughness={0.95} /></mesh>
+    </group>
+  );
+}
+
+function Ghoul3D({ seedKey, moving }: { seedKey?: string; moving?: boolean }) {
+  const headRef = useRef<THREE.Group>(null);
+  const armLRef = useRef<THREE.Mesh>(null);
+  const armRRef = useRef<THREE.Mesh>(null);
+  const legLRef = useRef<THREE.Mesh>(null);
+  const legRRef = useRef<THREE.Mesh>(null);
+  const bodyRef = useRef<THREE.Group>(null);
+  const seedOffset = useMemo(() => (hashSeed(seedKey || 'ghoul') % 1000) / 95, [seedKey]);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime + seedOffset;
+    // Démarche de goule : accroupie, erratique et plus vive que le zombie (bondissante), bras
+    // griffus qui balaient grand vers l'avant.
+    const freq = 4.4, amp = 0.5;
+    const swingA = moving ? Math.sin(t * freq) * amp : 0;
+    const swingB = moving ? Math.sin(t * freq + Math.PI) * amp : 0;
+    if (legLRef.current) legLRef.current.rotation.x = swingA;
+    if (legRRef.current) legRRef.current.rotation.x = swingB;
+    if (armLRef.current) armLRef.current.rotation.x = -0.6 + swingB * 0.6;
+    if (armRRef.current) armRRef.current.rotation.x = -0.6 + swingA * 0.6;
+    if (headRef.current) headRef.current.rotation.x = moving ? Math.sin(t * freq) * 0.12 : Math.sin(t * 1.1) * 0.05;
+    if (bodyRef.current) bodyRef.current.position.y = 0.02 + (moving ? Math.abs(Math.sin(t * freq)) * 0.05 : 0);
+  });
+  const skin = '#6b6258';
+  return (
+    <group ref={bodyRef} rotation={[0.35, 0, 0]}>
+      <mesh position={[0, 0.42, 0]} castShadow scale={[1, 1.05, 0.85]}><sphereGeometry args={[0.2, 10, 8]} /><meshStandardMaterial color={skin} roughness={0.95} /></mesh>
+      <group ref={headRef} position={[0, 0.64, 0.08]}>
+        <mesh castShadow scale={[0.85, 0.85, 1]}><sphereGeometry args={[0.15, 10, 8]} /><meshStandardMaterial color={skin} roughness={0.95} /></mesh>
+        {[-0.05, 0.05].map((ex, i) => (
+          <mesh key={i} position={[ex, 0.01, 0.12]}><sphereGeometry args={[0.03, 6, 6]} /><meshStandardMaterial color="#ef4444" emissive="#b91c1c" emissiveIntensity={0.6} /></mesh>
+        ))}
+      </group>
+      <mesh ref={armLRef} position={[-0.22, 0.42, 0.1]} rotation={[0, 0, 0.1]} castShadow><cylinderGeometry args={[0.04, 0.05, 0.42, 6]} /><meshStandardMaterial color={skin} roughness={0.95} /></mesh>
+      <mesh ref={armRRef} position={[0.22, 0.42, 0.1]} rotation={[0, 0, -0.1]} castShadow><cylinderGeometry args={[0.04, 0.05, 0.42, 6]} /><meshStandardMaterial color={skin} roughness={0.95} /></mesh>
+      {/* Griffes */}
+      {[-0.22, 0.22].map((ex, i) => (
+        <mesh key={i} position={[ex, 0.19, 0.28]} rotation={[Math.PI / 2, 0, 0]}><coneGeometry args={[0.025, 0.09, 4]} /><meshStandardMaterial color="#e7e5e4" /></mesh>
+      ))}
+      <mesh ref={legLRef} position={[-0.1, 0.1, 0]} castShadow><cylinderGeometry args={[0.055, 0.06, 0.3, 6]} /><meshStandardMaterial color={skin} roughness={0.95} /></mesh>
+      <mesh ref={legRRef} position={[0.1, 0.1, 0]} castShadow><cylinderGeometry args={[0.055, 0.06, 0.3, 6]} /><meshStandardMaterial color={skin} roughness={0.95} /></mesh>
+    </group>
+  );
+}
+
+function Skeleton3D({ seedKey, moving }: { seedKey?: string; moving?: boolean }) {
+  const headRef = useRef<THREE.Group>(null);
+  const armLRef = useRef<THREE.Mesh>(null);
+  const armRRef = useRef<THREE.Mesh>(null);
+  const legLRef = useRef<THREE.Mesh>(null);
+  const legRRef = useRef<THREE.Mesh>(null);
+  const seedOffset = useMemo(() => (hashSeed(seedKey || 'skeleton') % 1000) / 110, [seedKey]);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime + seedOffset;
+    // Démarche de squelette : saccadée/rigide (pas de lissage sinusoïdal doux), bras qui balancent
+    // en opposition stricte avec les jambes, comme une marche militaire désarticulée.
+    const freq = 5.2, amp = 0.5;
+    const swing = moving ? Math.sin(t * freq) * amp : 0;
+    if (legLRef.current) legLRef.current.rotation.x = swing;
+    if (legRRef.current) legRRef.current.rotation.x = -swing;
+    if (armLRef.current) armLRef.current.rotation.x = -swing * 0.8;
+    if (armRRef.current) armRRef.current.rotation.x = swing * 0.8;
+    if (headRef.current) headRef.current.rotation.y = moving ? Math.sin(t * 1.5) * 0.15 : 0;
+  });
+  const bone = '#e7e5d8';
+  return (
+    <group>
+      {/* Cage thoracique — côtes empilées */}
+      {[0.38, 0.45, 0.52, 0.59].map((y, i) => (
+        <mesh key={i} position={[0, y, 0]} castShadow><boxGeometry args={[0.26 - i * 0.015, 0.035, 0.16]} /><meshStandardMaterial color={bone} roughness={0.7} /></mesh>
+      ))}
+      <mesh position={[0, 0.28, 0]} castShadow><boxGeometry args={[0.12, 0.14, 0.12]} /><meshStandardMaterial color={bone} roughness={0.7} /></mesh>
+      <group ref={headRef} position={[0, 0.78, 0]}>
+        <mesh castShadow><sphereGeometry args={[0.13, 10, 8]} /><meshStandardMaterial color={bone} roughness={0.6} /></mesh>
+        {[-0.045, 0.045].map((ex, i) => (
+          <mesh key={i} position={[ex, 0.01, 0.1]}><sphereGeometry args={[0.025, 6, 6]} /><meshStandardMaterial color="#0c0a09" /></mesh>
+        ))}
+        <mesh position={[0, -0.07, 0.1]}><boxGeometry args={[0.1, 0.04, 0.03]} /><meshStandardMaterial color="#44403c" /></mesh>
+      </group>
+      <mesh ref={armLRef} position={[-0.18, 0.56, 0]} castShadow><cylinderGeometry args={[0.03, 0.035, 0.36, 6]} /><meshStandardMaterial color={bone} roughness={0.6} /></mesh>
+      <mesh ref={armRRef} position={[0.18, 0.56, 0]} castShadow><cylinderGeometry args={[0.03, 0.035, 0.36, 6]} /><meshStandardMaterial color={bone} roughness={0.6} /></mesh>
+      <mesh ref={legLRef} position={[-0.07, 0.19, 0]} castShadow><cylinderGeometry args={[0.035, 0.04, 0.38, 6]} /><meshStandardMaterial color={bone} roughness={0.6} /></mesh>
+      <mesh ref={legRRef} position={[0.07, 0.19, 0]} castShadow><cylinderGeometry args={[0.035, 0.04, 0.38, 6]} /><meshStandardMaterial color={bone} roughness={0.6} /></mesh>
+    </group>
+  );
+}
+export { Zombie3D, Ghoul3D, Skeleton3D };
+
 // ─────────────────────────────── Sorcière volante sur balai (passages périodiques, sifflote) ───────────────────────────────
 /**
  * 🔧 Passages PÉRIODIQUES (au lieu d'un aller-retour continu toutes les ~34 s dans un petit

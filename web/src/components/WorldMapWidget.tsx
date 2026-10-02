@@ -360,7 +360,8 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   // "seed" de régénération n'ont changé (voir commentaire de la fonction).
   useEffect(() => {
     if (!rules) return;
-    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0, rules.wildlifeBoarCount ?? 8);
+    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0, rules.wildlifeBoarCount ?? 8,
+      rules.undeadEnabled === false ? 0 : (rules.undeadZombieCount ?? 6), rules.undeadEnabled === false ? 0 : (rules.undeadGhoulCount ?? 5), rules.undeadEnabled === false ? 0 : (rules.undeadSkeletonCount ?? 6));
   }, [rules]);
   // Alimente lib/roamingActors.ts avec la position COURANTE de Synk sur la mapmonde — gèle
   // UNIQUEMENT les PNJ/dragons/familiers déjà à proximité, ne les fait JAMAIS suivre Synk.
@@ -816,6 +817,9 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
                   { key: 'showWildlifeOwl' as const, icon: '🦉', label: 'map.filters.wildlifeOwl' },
                   { key: 'showWildlifeWerewolf' as const, icon: '🐺', label: 'map.filters.wildlifeWerewolf' },
                   { key: 'showWildlifeBoar' as const, icon: '🐗', label: 'map.filters.wildlifeBoar' },
+                  { key: 'showWildlifeZombie' as const, icon: '🧟', label: 'map.filters.wildlifeZombie' },
+                  { key: 'showWildlifeGhoul' as const, icon: '👹', label: 'map.filters.wildlifeGhoul' },
+                  { key: 'showWildlifeSkeleton' as const, icon: '💀', label: 'map.filters.wildlifeSkeleton' },
                 ]).map(sub => (
                   <button
                     key={sub.key}

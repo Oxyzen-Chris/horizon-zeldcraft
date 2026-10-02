@@ -798,6 +798,54 @@ export function RepRulesPanel() {
         </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🪦 {t('admin.repRules.graveyardTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.graveyardDescription')}</p>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.graveyardEnabled !== false}
+            onChange={e => setBool('graveyardEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.graveyardEnabled')}</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.undeadEnabled !== false}
+            onChange={e => setBool('undeadEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.undeadEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-3 gap-3">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.undeadZombieCount')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.undeadZombieCount} onChange={e => set('undeadZombieCount', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.undeadGhoulCount')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.undeadGhoulCount} onChange={e => set('undeadGhoulCount', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.undeadSkeletonCount')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.undeadSkeletonCount} onChange={e => set('undeadSkeletonCount', e.target.value)} />
+          </label>
+        </div>
+        <label className="flex items-center gap-2 text-sm mt-3 mb-2">
+          <input type="checkbox" checked={rules.cryptTorchFlickerEnabled !== false}
+            onChange={e => setBool('cryptTorchFlickerEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.cryptTorchFlickerEnabled')}</span>
+        </label>
+        <div className="grid md:grid-cols-2 gap-3">
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.cryptTunnelLength')}</span>
+            <input type="number" min="4" className="input mt-1 w-full"
+              value={rules.cryptTunnelLength} onChange={e => set('cryptTunnelLength', e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.cryptBatCount')}</span>
+            <input type="number" min="0" className="input mt-1 w-full"
+              value={rules.cryptBatCount} onChange={e => set('cryptBatCount', e.target.value)} />
+          </label>
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">📍 {t('admin.repRules.depthAltitudePopupTitle')}</h3>
         <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.depthAltitudePopupDescription')}</p>
         <label className="flex items-center gap-2 text-sm mb-3">

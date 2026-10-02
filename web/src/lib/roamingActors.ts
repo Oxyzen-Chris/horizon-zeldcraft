@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { WORLD_SIZE, worldTileAt, isObstacleAt, type PropKind } from './worldTerrain';
 import type { MapMarker, MapPoiType, SynkDirection } from './gameState';
+import { DEFAULT_TOMB_POIS } from './gameState';
 
 /**
  * Registre partagé (portée module, même technique que lib/mapFilters.ts et lib/platform3dActive.ts
@@ -145,8 +146,15 @@ export interface ExtraRoamingActor {
  * tsx (`Boar3D`/`BoarHerd3D` y étaient positionnés par translation LOCALE directe, glués à Synk et
  * orientés perpendiculairement à leur déplacement réel — « ils se déplacent en biais de côté [...]
  * je ne peux jamais les atteindre car ils glissent dans le décor »). Un point d'apparition `'boar'`
- * représente tout le petit troupeau (1 adulte + marcassins rendus en formation fixe, voir Boar3D). */
-export type WildlifeKind = 'owl' | 'werewolf' | 'boar';
+ * représente tout le petit troupeau (1 adulte + marcassins rendus en formation fixe, voir Boar3D).
+ * 🆕 `zombie`/`ghoul`/`skeleton` : morts-vivants (voir demande utilisateur « Tu feras sortir des
+ * monstres en 3D qui rampent puis marche avec une démarche de zombies, des goules [...] des
+ * squelettes [...] Il faudra les considérer comme de nouveaux PNJ à part entière et leur donner des
+ * interactions, déplacements, paramètres et pattern similaire à ceux des PNJ »). Même type
+ * `wildlife` réutilisé par analogie — seule différence : leur position de départ est ANCRÉE sur une
+ * tombe (DEFAULT_TOMB_POIS, voir `ensureWildlifeSpawns` ci-dessous) plutôt que tirée uniformément,
+ * après quoi ils errent librement exactement comme le reste de la faune (AUCUNE attache/laisse). */
+export type WildlifeKind = 'owl' | 'werewolf' | 'boar' | 'zombie' | 'ghoul' | 'skeleton';
 export interface WildlifeActorState extends RoamingActorPos { facing: SynkDirection; moving: boolean; kind: WildlifeKind }
 
 export interface RoamingActorsState {
@@ -943,28 +951,46 @@ let lastWildlifeEnabled: boolean | null = null;
 let lastWildlifeOwlCount = -1;
 let lastWildlifeWerewolfCount = -1;
 let lastWildlifeBoarCount = -1;
+let lastWildlifeZombieCount = -1;
+let lastWildlifeGhoulCount = -1;
+let lastWildlifeSkeletonCount = -1;
 let lastWildlifeSeedVersion = -1;
 
-/** (Re)génère la faune errante (hibou(x)/loup-garou(s)/troupeau(x) de sangliers) — voir
- * WildlifeActorState/RepRules.wildlife* (RepRulesPanel.tsx). Idempotent : n'effectue RIEN si
- * `enabled`/`owlCount`/`werewolfCount`/`boarCount`/`seedVersion` sont IDENTIQUES au dernier appel
- * ayant réellement régénéré la faune (permet un appel sans risque depuis les 3 widgets à chaque
- * montage/changement de RepRules). `seedVersion` (voir RepRules.wildlifeSpawnSeed) est un simple
- * compteur : l'incrémenter (bouton Administration) force une régénération avec de NOUVELLES
- * positions aléatoires même si les comptages n'ont pas changé. `enabled=false` vide entièrement
- * `wildlife` (aucune faune affichée dans aucun widget) sans pour autant perdre les compteurs suivis
- * ci-dessus (réactiver restaure le même comptage). `boarCount` par défaut à 0 (paramètre optionnel)
- * pour rester rétro-compatible avec d'éventuels appelants non mis à jour. */
-export function ensureWildlifeSpawns(enabled: boolean, owlCount: number, werewolfCount: number, seedVersion: number, boarCount = 0): void {
+/** (Re)génère la faune errante (hibou(x)/loup-garou(s)/troupeau(x) de sangliers/morts-vivants) —
+ * voir WildlifeActorState/RepRules.wildlife* & RepRules.undead* (RepRulesPanel.tsx). Idempotent :
+ * n'effectue RIEN si `enabled`/`owlCount`/`werewolfCount`/`boarCount`/`zombieCount`/`ghoulCount`/
+ * `skeletonCount`/`seedVersion` sont IDENTIQUES au dernier appel ayant réellement régénéré la faune
+ * (permet un appel sans risque depuis les 3 widgets à chaque montage/changement de RepRules).
+ * `seedVersion` (voir RepRules.wildlifeSpawnSeed) est un simple compteur : l'incrémenter (bouton
+ * Administration) force une régénération avec de NOUVELLES positions aléatoires même si les
+ * comptages n'ont pas changé. `enabled=false` vide entièrement `wildlife` (aucune faune affichée
+ * dans aucun widget) sans pour autant perdre les compteurs suivis ci-dessus (réactiver restaure le
+ * même comptage). `boarCount`/`zombieCount`/`ghoulCount`/`skeletonCount` par défaut à 0 (paramètres
+ * optionnels) pour rester rétro-compatible avec d'éventuels appelants non mis à jour.
+ * Les morts-vivants (`zombie`/`ghoul`/`skeleton`) sont seedés sur `DEFAULT_TOMB_POIS` (une tombe par
+ * individu, cyclique si plus d'individus que de tombes) plutôt que sur une position aléatoire
+ * uniforme — voir demande utilisateur « des monstres [...] des tombes » — avant d'errer librement
+ * exactement comme le reste de la faune (voir commentaire de WildlifeKind ci-dessus). */
+export function ensureWildlifeSpawns(
+  enabled: boolean, owlCount: number, werewolfCount: number, seedVersion: number, boarCount = 0,
+  zombieCount = 0, ghoulCount = 0, skeletonCount = 0,
+): void {
   const safeOwl = Math.max(0, Math.round(owlCount));
   const safeWere = Math.max(0, Math.round(werewolfCount));
   const safeBoar = Math.max(0, Math.round(boarCount));
+  const safeZombie = Math.max(0, Math.round(zombieCount));
+  const safeGhoul = Math.max(0, Math.round(ghoulCount));
+  const safeSkeleton = Math.max(0, Math.round(skeletonCount));
   if (enabled === lastWildlifeEnabled && safeOwl === lastWildlifeOwlCount && safeWere === lastWildlifeWerewolfCount
-    && safeBoar === lastWildlifeBoarCount && seedVersion === lastWildlifeSeedVersion) {
+    && safeBoar === lastWildlifeBoarCount && safeZombie === lastWildlifeZombieCount
+    && safeGhoul === lastWildlifeGhoulCount && safeSkeleton === lastWildlifeSkeletonCount
+    && seedVersion === lastWildlifeSeedVersion) {
     return; // rien n'a réellement changé — évite de re-tirer aléatoirement à chaque montage de widget
   }
   lastWildlifeEnabled = enabled; lastWildlifeOwlCount = safeOwl; lastWildlifeWerewolfCount = safeWere;
-  lastWildlifeBoarCount = safeBoar; lastWildlifeSeedVersion = seedVersion;
+  lastWildlifeBoarCount = safeBoar; lastWildlifeZombieCount = safeZombie;
+  lastWildlifeGhoulCount = safeGhoul; lastWildlifeSkeletonCount = safeSkeleton;
+  lastWildlifeSeedVersion = seedVersion;
   wildlifeMotions.clear();
   const wildlife: Record<string, WildlifeActorState> = {};
   // Positions DÉJÀ placées lors de cette régénération — alimente `randomWildlifeSpawnAvoidingOverlap`
@@ -994,6 +1020,28 @@ export function ensureWildlifeSpawns(enabled: boolean, owlCount: number, werewol
       wildlife[`boar-${i}`] = { ...pos, facing: 'down', moving: false, kind: 'boar' };
       wildlifeMotions.set(`boar-${i}`, { dx: 0, dy: 0, holdTicks: 0 });
       alreadyPlaced.push(pos);
+    }
+    const undeadSpawns: { prefix: string; kind: WildlifeKind; count: number }[] = [
+      { prefix: 'zombie', kind: 'zombie', count: safeZombie },
+      { prefix: 'ghoul', kind: 'ghoul', count: safeGhoul },
+      { prefix: 'skeleton', kind: 'skeleton', count: safeSkeleton },
+    ];
+    for (const { prefix, kind, count } of undeadSpawns) {
+      for (let i = 0; i < count; i++) {
+        const tomb = DEFAULT_TOMB_POIS[i % DEFAULT_TOMB_POIS.length];
+        // Légère dispersion (±1.5 case) autour de la tombe plutôt que l'exact point catalogue —
+        // évite que plusieurs morts-vivants ancrés sur la même tombe (si plus d'individus que de
+        // tombes) apparaissent parfaitement superposés.
+        const jitterAngle = Math.random() * Math.PI * 2;
+        const jitterRadius = Math.random() * 1.5;
+        const candidate = { x: clampWorld(tomb.x + Math.cos(jitterAngle) * jitterRadius), y: clampWorld(tomb.y + Math.sin(jitterAngle) * jitterRadius) };
+        const pos = isTileBlockedForRoaming(Math.round(candidate.x), Math.round(candidate.y)) || isNearBlockingPropFootprint(candidate.x, candidate.y)
+          ? randomWildlifeSpawnAvoidingOverlap(false, alreadyPlaced)
+          : candidate;
+        wildlife[`${prefix}-${i}`] = { ...pos, facing: 'down', moving: false, kind };
+        wildlifeMotions.set(`${prefix}-${i}`, { dx: 0, dy: 0, holdTicks: 0 });
+        alreadyPlaced.push(pos);
+      }
     }
   }
   state = { ...state, wildlife };

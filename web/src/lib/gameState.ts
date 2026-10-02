@@ -199,7 +199,7 @@ export const SEASON_ICONS: Record<Season, string> = { spring: '🌸', summer: '�
 export interface InventoryItem {
   itemId: string;
   name: string;
-  category: 'food' | 'weapon' | 'armor' | 'shield' | 'arrow' | 'spell' | 'vehicle' | 'potion' | 'treasure' | 'super_potion' | 'saddle';
+  category: 'food' | 'weapon' | 'armor' | 'shield' | 'arrow' | 'spell' | 'vehicle' | 'potion' | 'treasure' | 'super_potion' | 'saddle' | 'parchment';
   qty: number;
   effect?: {
     hp?: number; hunger?: number; happiness?: number; force?: number; spells?: number;
@@ -1860,6 +1860,44 @@ export function subscribeSolvedQuestIds(address: string, cb: (ids: Set<string>) 
   return () => off(r, 'value', handler);
 }
 
+// ────────────────────────────────── Parchemins de crypte ──────────────────────────────────
+// Voir demande utilisateur « Synk pourra [...] prendre ce parchemin et le mettre dans sa besace
+// [...] Une fois prit, le parchemin disparaitra de la table » — stocké PAR JOUEUR (et non
+// globalement) afin que chaque joueur puisse découvrir/ramasser sa propre copie du parchemin sans
+// contention multijoueur (même esprit que markQuestSolved/subscribeSolvedQuestIds ci-dessus).
+
+/** Marque le parchemin d'une crypte comme ramassé par ce joueur (voir CryptTunnelScene.tsx /
+ * ParchmentPopup.tsx). Idempotent : un second appel n'a aucun effet néfaste. */
+export async function markParchmentTaken(address: string, cryptId: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  await set(ref(db, `players/${KEY(address)}/parchments/${cryptId}`), { takenAt: Date.now() });
+}
+
+/** Renvoie l'ensemble des ids de crypte dont ce joueur a déjà ramassé le parchemin. */
+export async function getTakenParchmentIds(address: string): Promise<Set<string>> {
+  const db = getFirebaseDb();
+  if (!db) return new Set();
+  const snap = await get(ref(db, `players/${KEY(address)}/parchments`));
+  const v = snap.val() as Record<string, unknown> | null;
+  return new Set(v ? Object.keys(v) : []);
+}
+
+/** Abonnement temps réel (même principe que subscribeSolvedQuestIds) — permet à la scène du
+ * souterrain de refléter instantanément la disparition du parchemin une fois ramassé. */
+export function subscribeTakenParchmentIds(address: string, cb: (ids: Set<string>) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(new Set()); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/parchments`);
+  const handler = (snap: DataSnapshot) => {
+    const v = snap.val() as Record<string, unknown> | null;
+    cb(new Set(v ? Object.keys(v) : []));
+  };
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
 /** Nombre de quêtes INTERMÉDIAIRES (classiques + PNJ, `kingdomQuest` absent/false) déjà résolues
  * par ce joueur — condition de déblocage de la toute première Quête du Royaume (voir
  * RepRules.kingdomMinIntermediateSolved). */
@@ -2157,7 +2195,13 @@ export type MapPoiType =
   // 'sea'/'ocean' génèrent de grandes étendues d'eau profonde en bordure de carte, 'pond' un petit
   // plan d'eau peu profond (étang), 'island' un îlot de terre entouré par la mer/l'océan alentour
   // (accès conditionné à la possession d'un Engin — voir ShopItem.category === 'vehicle').
-  | 'sea' | 'ocean' | 'pond' | 'island';
+  | 'sea' | 'ocean' | 'pond' | 'island'
+  // ─── Cimetières/cryptes/tombes (voir demande utilisateur « ajoutes [...] 2 cimetières [...] une
+  // vingtaine de cryptes [...] et de tombes [...] dispersées dans le jeu ») : 'tomb' = pierre
+  // tombale isolée d'où un mort-vivant peut émerger (voir lib/roamingActors.ts::WildlifeKind) ;
+  // 'crypt' = caveau en pierre avec une porte menant à un souterrain (voir CryptTunnelScene.tsx) ;
+  // 'cemetery' = enclos funéraire (simple repère visuel/narratif, pas d'entrée de souterrain).
+  | 'cemetery' | 'crypt' | 'tomb';
 
 /** Carte mapmonde — évolutif : plusieurs cartes pourront coexister (territoire de Synk, futures
  * extensions saisonnières ou nouveaux continents), chacune avec son propre jeu de POI. */
@@ -2630,8 +2674,11 @@ export interface MapMarker {
   catalogId?: string;
   /** Sous-catégorie de faune (voir lib/roamingActors.ts::WildlifeKind) — seul kind==='wildlife'
    * porte cette info, pour permettre un filtre fin "Hibou"/"Loup-garou"/"Sanglier" distinct du
-   * filtre global "Faune" (showWildlife). */
-  wildlifeKind?: 'owl' | 'werewolf' | 'boar';
+   * filtre global "Faune" (showWildlife). `zombie`/`ghoul`/`skeleton` : morts-vivants émergeant des
+   * tombes (voir DEFAULT_TOMB_POIS/RepRules.undead*, demande utilisateur « tu feras sortir des
+   * monstres en 3D qui rampent puis marche avec une démarche de zombies, des goules [...] des
+   * squelettes »), même moteur d'errance/évitement d'obstacles que le reste de la faune. */
+  wildlifeKind?: 'owl' | 'werewolf' | 'boar' | 'zombie' | 'ghoul' | 'skeleton';
 }
 
 /** 10 grands lacs/étangs fixes, répartis sur toute la mapmonde (voir RepRules.defaultLakesEnabled)
@@ -2653,6 +2700,71 @@ export const DEFAULT_LAKE_POIS: { id: string; type: 'lake' | 'pond'; name: strin
   { id: 'default_lake_8', type: 'lake', name: 'Lac Turquoise', icon: '💧', x: 12, y: 75, radius: 14 },
   { id: 'default_lake_9', type: 'pond', name: 'Étang des Nénuphars', icon: '💧', x: 45, y: 80, radius: 8 },
   { id: 'default_lake_10', type: 'lake', name: 'Lac Profond', icon: '💧', x: 72, y: 85, radius: 16 },
+];
+
+/** 2 cimetières fixes, répartis sur la mapmonde (voir RepRules.graveyardEnabled) — corrige la
+ * demande utilisateur « ajoutes et places 2 cimetières en 3D [...] dans le jeu que tu identifieras
+ * dans le widget de la Mapmonde avec des icônes et un filtre particuliers ». Purement un repère
+ * visuel/narratif (comme un village), rendu en Plateforme 3D comme un petit enclos funéraire (voir
+ * Platform3DWidget.tsx::MarkerBlock) — ne mène à aucun souterrain (contrairement à 'crypt'). */
+export const DEFAULT_CEMETERY_POIS: { id: string; type: 'cemetery'; name: string; icon: string; x: number; y: number }[] = [
+  { id: 'default_cemetery_1', type: 'cemetery', name: 'Cimetière des Brumes', icon: '⚰️', x: 30, y: 68 },
+  { id: 'default_cemetery_2', type: 'cemetery', name: 'Cimetière Oublié', icon: '⚰️', x: 66, y: 36 },
+];
+
+/** 20 cryptes fixes (voir RepRules.graveyardEnabled/cryptTunnelLength) — corrige la demande
+ * utilisateur « une vingtaine de cryptes [...] Tu placeras à l'ouverture de la cryptes, une porte
+ * qui amenera Synk à des passages secrets dans des tunnels/souterrains ». Chaque crypte est un
+ * point d'entrée INDÉPENDANT vers un souterrain généré (voir CryptTunnelScene.tsx), identifié par
+ * son `id` (seed déterministe du type de salle d'arrivée — tour/chambre/salle au parchemin). */
+export const DEFAULT_CRYPT_POIS: { id: string; type: 'crypt'; name: string; icon: string; x: number; y: number }[] = [
+  { id: 'default_crypt_1', type: 'crypt', name: 'Crypte des Anciens', icon: '🏛️', x: 9, y: 12 },
+  { id: 'default_crypt_2', type: 'crypt', name: 'Crypte du Corbeau', icon: '🏛️', x: 27, y: 9 },
+  { id: 'default_crypt_3', type: 'crypt', name: 'Crypte Scellée', icon: '🏛️', x: 44, y: 6 },
+  { id: 'default_crypt_4', type: 'crypt', name: 'Crypte de l\u2019Aube Noire', icon: '🏛️', x: 58, y: 24 },
+  { id: 'default_crypt_5', type: 'crypt', name: 'Crypte du Linceul', icon: '🏛️', x: 93, y: 15 },
+  { id: 'default_crypt_6', type: 'crypt', name: 'Crypte des Murmures', icon: '🏛️', x: 6, y: 38 },
+  { id: 'default_crypt_7', type: 'crypt', name: 'Crypte du Glas', icon: '🏛️', x: 33, y: 33 },
+  { id: 'default_crypt_8', type: 'crypt', name: 'Crypte Grise', icon: '🏛️', x: 55, y: 42 },
+  { id: 'default_crypt_9', type: 'crypt', name: 'Crypte des Cendres', icon: '🏛️', x: 90, y: 42 },
+  { id: 'default_crypt_10', type: 'crypt', name: 'Crypte du Silence', icon: '🏛️', x: 8, y: 58 },
+  { id: 'default_crypt_11', type: 'crypt', name: 'Crypte Vermeille', icon: '🏛️', x: 39, y: 62 },
+  { id: 'default_crypt_12', type: 'crypt', name: 'Crypte des Ombres', icon: '🏛️', x: 60, y: 65 },
+  { id: 'default_crypt_13', type: 'crypt', name: 'Crypte du Veilleur', icon: '🏛️', x: 82, y: 60 },
+  { id: 'default_crypt_14', type: 'crypt', name: 'Crypte des Chimères', icon: '🏛️', x: 95, y: 70 },
+  { id: 'default_crypt_15', type: 'crypt', name: 'Crypte Engloutie', icon: '🏛️', x: 18, y: 88 },
+  { id: 'default_crypt_16', type: 'crypt', name: 'Crypte des Loyaux', icon: '🏛️', x: 35, y: 92 },
+  { id: 'default_crypt_17', type: 'crypt', name: 'Crypte du Dernier Soupir', icon: '🏛️', x: 56, y: 90 },
+  { id: 'default_crypt_18', type: 'crypt', name: 'Crypte des Spectres', icon: '🏛️', x: 80, y: 88 },
+  { id: 'default_crypt_19', type: 'crypt', name: 'Crypte des Rois Déchus', icon: '🏛️', x: 97, y: 95 },
+  { id: 'default_crypt_20', type: 'crypt', name: 'Crypte Primordiale', icon: '🏛️', x: 50, y: 15 },
+];
+
+/** 20 tombes fixes, dispersées entre les cryptes (voir RepRules.undead*) — corrige la demande
+ * utilisateur « puis de la câbler [...] et de tombes en 3D dispersées dans le jeu [...] feras
+ * sortir des monstres en 3D [...] des tombes ». Point d'apparition privilégié des morts-vivants
+ * errants (voir lib/roamingActors.ts::ensureWildlifeSpawns, appelé avec ces coordonnées). */
+export const DEFAULT_TOMB_POIS: { id: string; type: 'tomb'; name: string; icon: string; x: number; y: number }[] = [
+  { id: 'default_tomb_1', type: 'tomb', name: 'Tombe Anonyme', icon: '🪦', x: 12, y: 16 },
+  { id: 'default_tomb_2', type: 'tomb', name: 'Tombe du Soldat', icon: '🪦', x: 24, y: 18 },
+  { id: 'default_tomb_3', type: 'tomb', name: 'Tombe Fissurée', icon: '🪦', x: 31, y: 65 },
+  { id: 'default_tomb_4', type: 'tomb', name: 'Tombe Oubliée', icon: '🪦', x: 29, y: 72 },
+  { id: 'default_tomb_5', type: 'tomb', name: 'Tombe du Pèlerin', icon: '🪦', x: 63, y: 33 },
+  { id: 'default_tomb_6', type: 'tomb', name: 'Tombe Profanée', icon: '🪦', x: 69, y: 39 },
+  { id: 'default_tomb_7', type: 'tomb', name: 'Tombe du Veuf', icon: '🪦', x: 15, y: 42 },
+  { id: 'default_tomb_8', type: 'tomb', name: 'Tombe Grise', icon: '🪦', x: 38, y: 29 },
+  { id: 'default_tomb_9', type: 'tomb', name: 'Tombe du Marin', icon: '🪦', x: 52, y: 38 },
+  { id: 'default_tomb_10', type: 'tomb', name: 'Tombe des Jumeaux', icon: '🪦', x: 86, y: 46 },
+  { id: 'default_tomb_11', type: 'tomb', name: 'Tombe du Mendiant', icon: '🪦', x: 11, y: 62 },
+  { id: 'default_tomb_12', type: 'tomb', name: 'Tombe Lézardée', icon: '🪦', x: 44, y: 58 },
+  { id: 'default_tomb_13', type: 'tomb', name: 'Tombe du Berger', icon: '🪦', x: 64, y: 62 },
+  { id: 'default_tomb_14', type: 'tomb', name: 'Tombe des Sans-Nom', icon: '🪦', x: 85, y: 63 },
+  { id: 'default_tomb_15', type: 'tomb', name: 'Tombe du Forgeron', icon: '🪦', x: 22, y: 90 },
+  { id: 'default_tomb_16', type: 'tomb', name: 'Tombe Noircie', icon: '🪦', x: 39, y: 95 },
+  { id: 'default_tomb_17', type: 'tomb', name: 'Tombe du Veilleur de Nuit', icon: '🪦', x: 60, y: 93 },
+  { id: 'default_tomb_18', type: 'tomb', name: 'Tombe des Chuchotements', icon: '🪦', x: 83, y: 92 },
+  { id: 'default_tomb_19', type: 'tomb', name: 'Tombe du Gardien', icon: '🪦', x: 54, y: 18 },
+  { id: 'default_tomb_20', type: 'tomb', name: 'Tombe Rongée par le Temps', icon: '🪦', x: 95, y: 20 },
 ];
 
 /** Construit la liste unifiée des marqueurs d'une carte (voir MapMarker). `season`/`unlockedWorlds`
@@ -2677,6 +2789,23 @@ export async function getAllMapMarkers(
     for (const l of DEFAULT_LAKE_POIS) {
       if (existingIds.has(l.id)) continue;
       markers.push({ id: l.id, kind: 'poi', name: l.name, icon: l.icon, x: l.x, y: l.y, poiType: l.type, radius: l.radius });
+    }
+  }
+  // Cimetières/cryptes/tombes par défaut (voir DEFAULT_CEMETERY_POIS/DEFAULT_CRYPT_POIS/
+  // DEFAULT_TOMB_POIS ci-dessus) — même garde (mapId/existingIds) que les lacs juste au-dessus.
+  if ((rules.graveyardEnabled ?? true) && mapId === DEFAULT_MAP_ID) {
+    const existingIds = new Set(pois.map(p => p.id));
+    for (const c of DEFAULT_CEMETERY_POIS) {
+      if (existingIds.has(c.id)) continue;
+      markers.push({ id: c.id, kind: 'poi', name: c.name, icon: c.icon, x: c.x, y: c.y, poiType: c.type });
+    }
+    for (const c of DEFAULT_CRYPT_POIS) {
+      if (existingIds.has(c.id)) continue;
+      markers.push({ id: c.id, kind: 'poi', name: c.name, icon: c.icon, x: c.x, y: c.y, poiType: c.type });
+    }
+    for (const t of DEFAULT_TOMB_POIS) {
+      if (existingIds.has(t.id)) continue;
+      markers.push({ id: t.id, kind: 'poi', name: t.name, icon: t.icon, x: t.x, y: t.y, poiType: t.type });
     }
   }
   for (const w of worlds.filter(w2 => w2.active !== false && isContentPackVisible(w2.contentPack, packs))) {
@@ -4530,6 +4659,20 @@ export interface RepRules {
   // saisis manuellement par l'admin (jamais à la place) : aucune régression sur les POI déjà créés
   // en base. Désactivable ici si l'admin préfère composer entièrement son propre territoire aquatique.
   defaultLakesEnabled: boolean;                // Affiche les 10 lacs/étangs par défaut (défaut true)
+  // ─── Cimetières/cryptes/tombes & morts-vivants (voir demande utilisateur « ajoutes [...] 2
+  // cimetières [...] une vingtaine de cryptes [...] et de tombes [...] Tu feras sortir des monstres
+  // en 3D [...] des tombes [...] Tu placeras à l'ouverture de la cryptes, une porte [...] vers des
+  // passages secrets dans des tunnels/souterrains ») — DEFAULT_CEMETERY_POIS/DEFAULT_CRYPT_POIS/
+  // DEFAULT_TOMB_POIS fournissent les 2+20+20 emplacements fixes, FUSIONNÉS à getAllMapMarkers() en
+  // plus des MapPoiDef saisis manuellement par l'admin (même garde que defaultLakesEnabled).
+  graveyardEnabled: boolean;                   // Affiche les 2 cimetières + 20 cryptes + 20 tombes (défaut true)
+  undeadEnabled: boolean;                      // Autorise l'apparition de morts-vivants près des tombes (défaut true)
+  undeadZombieCount: number;                   // Nb de zombies errants (défaut 6)
+  undeadGhoulCount: number;                    // Nb de goules errantes (défaut 5)
+  undeadSkeletonCount: number;                 // Nb de squelettes errants (défaut 6)
+  cryptTunnelLength: number;                   // Nb de "pas"/dalles du souterrain avant la salle d'arrivée (défaut 20)
+  cryptTorchFlickerEnabled: boolean;           // Vacillement des torches murales du souterrain (défaut true)
+  cryptBatCount: number;                       // Nb de chauves-souris animées dans le souterrain (défaut 5)
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
   kingdomMinIntermediateSolved: number; // Nb de quêtes intermédiaires (classiques+PNJ) résolues
                                          // nécessaires avant de débloquer la 1ère Quête du Royaume (défaut 3)
@@ -5031,6 +5174,14 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dUnderwaterMoveEnabled: true,
   platform3dUnderwaterMoveRadius: 6,
   defaultLakesEnabled: true,
+  graveyardEnabled: true,
+  undeadEnabled: true,
+  undeadZombieCount: 6,
+  undeadGhoulCount: 5,
+  undeadSkeletonCount: 6,
+  cryptTunnelLength: 20,
+  cryptTorchFlickerEnabled: true,
+  cryptBatCount: 5,
   kingdomMinIntermediateSolved: 3,
   zorghonEnabled: true,
   zorghonAppearKingdomSolvedCount: 6,

@@ -204,7 +204,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // commentaires détaillés, dans WorldMapWidget.tsx/Platform3DWidget.tsx.
   useEffect(() => {
     if (!rules) return;
-    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0, rules.wildlifeBoarCount ?? 8);
+    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0, rules.wildlifeBoarCount ?? 8,
+      rules.undeadEnabled === false ? 0 : (rules.undeadZombieCount ?? 6), rules.undeadEnabled === false ? 0 : (rules.undeadGhoulCount ?? 5), rules.undeadEnabled === false ? 0 : (rules.undeadSkeletonCount ?? 6));
   }, [rules]);
 
   // Marqueur cliqué (PNJ/familier/trésor/quête/monde/hutte) alors que Synk est sur sa case ou une
@@ -1034,7 +1035,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // découverte fortuite (petit bonus d'XP) est déjà gérée par WorldMapWidget.tsx::runDiscoveryScan.
   const onMarkerClick = useCallback((m: MapMarker) => {
     const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure' || m.kind === 'drop'
-      || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && m.poiType === 'hut');
+      || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && (m.poiType === 'hut' || m.poiType === 'crypt'));
     if (!interactable) return;
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(Math.round(m.x) - Math.round(cur.x)), Math.abs(Math.round(m.y) - Math.round(cur.y)));
@@ -1520,7 +1521,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
             const x = projX(m.col, m.row), y = projY(m.col, m.row);
             const zIdx = m.col + m.row + 1;
             const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure' || m.kind === 'drop'
-              || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && m.poiType === 'hut');
+              || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && (m.poiType === 'hut' || m.poiType === 'crypt'));
             return (
               <div
                 key={`m-${m.kind}-${m.id}`}

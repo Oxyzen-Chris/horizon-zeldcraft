@@ -34,7 +34,7 @@ function formatRemaining(ms: number): string {
  * in-widget.
  */
 export function PoiInteractionModal({
-  marker, address, playerXp, playerWallet, rules, onClose, onRequestHutRest,
+  marker, address, playerXp, playerWallet, rules, onClose, onRequestHutRest, onRequestEnterCrypt,
 }: {
   marker: Marker | null;
   address?: string;
@@ -43,6 +43,12 @@ export function PoiInteractionModal({
   rules: RepRules | null;
   onClose: () => void;
   onRequestHutRest: () => void;
+  /** Déclenche l'entrée dans le souterrain de la crypte (voir CryptBody/CryptTunnelScene.tsx) —
+   * fourni UNIQUEMENT par Platform3DWidget.tsx (seule vue capable de rendre le souterrain en 3D) ;
+   * GameCanvas2D.tsx ne le passe pas, auquel cas CryptBody affiche un simple message explicatif
+   * sans bouton (voir demande utilisateur — « identifier » une crypte en 2D/Mapmonde sans pour
+   * autant pouvoir y entrer depuis ces vues). */
+  onRequestEnterCrypt?: (cryptId: string) => void;
 }) {
   const { t } = useI18n();
 
@@ -57,6 +63,9 @@ export function PoiInteractionModal({
   else if (marker.kind === 'quest') body = <QuestBody marker={marker} address={address} playerXp={playerXp} rules={rules} />;
   else if (marker.kind === 'world') body = <WorldBody marker={marker} address={address} playerXp={playerXp} />;
   else if (marker.kind === 'drop') body = <DropBody marker={marker} address={address} />;
+  else if (marker.kind === 'poi' && marker.poiType === 'crypt') {
+    body = <CryptBody onEnter={onRequestEnterCrypt ? () => { onClose(); onRequestEnterCrypt(marker.id); } : undefined} />;
+  }
   else body = <HutBody address={address} rules={rules} onRequestHutRest={() => { onClose(); onRequestHutRest(); }} />;
 
   return createPortal(
@@ -491,6 +500,26 @@ function HutBody({ address, rules, onRequestHutRest }: { address?: string; rules
         <button className="btn-primary text-xs w-full" onClick={onRequestHutRest}>
           {t('canvas2d.popup.hutRestBtn')}
         </button>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────── Crypte ───────────────────────────────────────────
+/** Voir demande utilisateur « Tu placeras à l'ouverture de la cryptes, une porte qui amenera Synk
+ * à des passages secrets dans des tunnels/souterrains ». `onEnter` absent (GameCanvas2D.tsx, voir
+ * commentaire de PoiInteractionModal ci-dessus) : affiche un simple message explicatif sans bouton. */
+function CryptBody({ onEnter }: { onEnter?: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="text-sm">
+      <p className="text-xs text-slate-400 mb-2">{t('canvas2d.popup.cryptDescription')}</p>
+      {onEnter ? (
+        <button className="btn-primary text-xs w-full" onClick={onEnter}>
+          {t('canvas2d.popup.cryptEnterBtn')}
+        </button>
+      ) : (
+        <p className="text-xs text-amber-400">{t('canvas2d.popup.cryptEnter3dOnly')}</p>
       )}
     </div>
   );

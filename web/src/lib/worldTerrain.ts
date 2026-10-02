@@ -32,7 +32,7 @@ function radiusForType(t: MapPoiType | null | undefined): number {
  * 'bridge', les POI d'eau ('stream'/'lake'/'sea'/'ocean'/'pond'/'waterfall') et 'forest'/'beach'/
  * 'island' (déjà régis par leurs propres mécaniques de traversée/nage/accès-Engin) : ajouter un
  * nouveau type ici l'active immédiatement comme obstacle, sans toucher au reste du moteur. */
-export const OBSTACLE_POI_TYPES: MapPoiType[] = ['village_ally', 'village_enemy', 'tavern', 'stable', 'hut'];
+export const OBSTACLE_POI_TYPES: MapPoiType[] = ['village_ally', 'village_enemy', 'tavern', 'stable', 'hut', 'cemetery', 'crypt', 'tomb'];
 
 /** Une cellule est un obstacle bloquant le déplacement INCRÉMENTAL (clavier/pavé directionnel/
  * souris maintenue — PAS le clic d'approche/téléportation `moveTo`, voir commentaire RepRules) si :

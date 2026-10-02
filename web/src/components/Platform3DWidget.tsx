@@ -9,6 +9,7 @@ import {
   subscribePlayer, subscribeInventory, getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment, applyEffect,
   DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY, dropInventoryItemAt, DEFAULT_AUDIO_SETTINGS,
+  subscribeTakenParchmentIds,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
   type ZorghonEncounterState, type SynkDirection, type EquipSlot, type EquippedItem,
   type Platform3DObjectKind, type Platform3DObjectFlags, type AudioSourceKey, type AudioSourceSetting,
@@ -32,7 +33,9 @@ import { PoiInteractionModal } from './PoiInteractionModal';
 import { HutRestModal } from './HutRestModal';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
-import { Platform3DAmbientScene, Owl3D, Werewolf3D, Boar3D } from './Platform3DAmbientScene';
+import { Platform3DAmbientScene, Owl3D, Werewolf3D, Boar3D, Zombie3D, Ghoul3D, Skeleton3D } from './Platform3DAmbientScene';
+import { CryptTunnelScene } from './CryptTunnelScene';
+import { ParchmentPopup } from './ParchmentPopup';
 import { useAdminAudioSettings } from '@/lib/audio';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 
@@ -982,6 +985,38 @@ function TreasureIcon({ category }: { category: TreasureCategory }) {
  * `kind==='zorghon'` → silhouette sombre cornue menaçante ; `kind==='captive'` → silhouette liée.
  * Tout kind non couvert ci-dessus conserve EXACTEMENT le rendu octaédrique précédent — zéro
  * régression. */
+/** Dalle de tombe qui se soulève/pivote UNE SEULE FOIS au montage (voir isTomb dans MarkerBlock
+ * ci-dessous) — animation LOCALE simplifiée (voir commentaire isTomb) : ne cherche pas à se
+ * synchroniser avec l'instant réel d'apparition d'un mort-vivant (lib/roamingActors.ts), juste un
+ * effet visuel suggérant qu'« une dalle bouge et se soulève à côté de sa pierre tombale ». Le délai
+ * de départ est dérivé de `markerId` (hash simple) pour que les 20 tombes ne s'ouvrent pas toutes
+ * en même temps au chargement de la scène. */
+function TombSlab({ markerId }: { markerId?: string }) {
+  const ref = useRef<THREE.Mesh>(null);
+  const startRef = useRef<number | null>(null);
+  const delay = useMemo(() => {
+    let h = 0;
+    for (const c of (markerId ?? 'tomb')) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return (h % 4000) / 1000; // 0-4s de décalage avant que la dalle ne commence à se soulever
+  }, [markerId]);
+  useFrame((state) => {
+    const m = ref.current;
+    if (!m) return;
+    if (startRef.current === null) startRef.current = state.clock.elapsedTime + delay;
+    const elapsed = state.clock.elapsedTime - startRef.current;
+    const progress = Math.max(0, Math.min(1, elapsed / 2)); // s'ouvre sur ~2s puis reste en l'état
+    const eased = 1 - Math.pow(1 - progress, 3);
+    m.rotation.x = -eased * 0.75;
+    m.position.y = 0.03 + eased * 0.1;
+    m.position.z = 0.32 + eased * 0.18;
+  });
+  return (
+    <mesh ref={ref} position={[0, 0.03, 0.32]} castShadow>
+      <boxGeometry args={[0.48, 0.06, 0.48]} />
+      <meshStandardMaterial color="#4a443a" roughness={1} />
+    </mesh>
+  );
+}
 function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, moving, onClick, fireBreathEnabled, fireBreathIntervalSec, wildlifeAudio, owlHootEnabled, werewolfHowlEnabled }: {
   kind: string; poiType?: MapPoiType; name?: string; markerId?: string; x: number; z: number; scale?: number;
   /** Renseignés UNIQUEMENT pour le PNJ/Dragon errant (voir lib/roamingActors.ts) — orientent le
@@ -1007,6 +1042,12 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   const bobRef = useRef<THREE.Group>(null);
   const isCave = kind === 'poi' && poiType === 'cave';
   const isBuilding = kind === 'poi' && !!poiType && (['hut', 'tavern', 'stable', 'village_ally', 'village_enemy'] as MapPoiType[]).includes(poiType);
+  // Cimetière/crypte/tombe (voir MapPoiType, demande utilisateur « 2 cimetières [...] une
+  // vingtaine de cryptes [...] et de tombes ») — rendues FIXES au sol comme `isBuilding` (pas de
+  // flottaison/bob), chacune avec sa propre silhouette dédiée (voir branches de rendu plus bas).
+  const isCemetery = kind === 'poi' && poiType === 'cemetery';
+  const isCrypt = kind === 'poi' && poiType === 'crypt';
+  const isTomb = kind === 'poi' && poiType === 'tomb';
   const isQuest = kind === 'quest';
   const isFamiliar = kind === 'familiar';
   const isNpc = kind === 'npc';
@@ -1020,7 +1061,13 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   // lib/roamingActors.ts::ensureWildlifeSpawns) — calculée ICI (et non plus seulement au moment du
   // rendu ci-dessous) car le calage au sol (voir `groundAnchorUnscaled` plus bas) dépend désormais
   // de la géométrie PROPRE à chaque sous-espèce, chacune ayant un point le plus bas différent.
-  const wildlifeKind: 'owl' | 'werewolf' | 'boar' = !isWildlife ? 'boar' : (markerId ?? '').startsWith('owl-') ? 'owl' : (markerId ?? '').startsWith('werewolf-') ? 'werewolf' : 'boar';
+  const wildlifeKind: 'owl' | 'werewolf' | 'boar' | 'zombie' | 'ghoul' | 'skeleton' = !isWildlife ? 'boar'
+    : (markerId ?? '').startsWith('owl-') ? 'owl'
+    : (markerId ?? '').startsWith('werewolf-') ? 'werewolf'
+    : (markerId ?? '').startsWith('zombie-') ? 'zombie'
+    : (markerId ?? '').startsWith('ghoul-') ? 'ghoul'
+    : (markerId ?? '').startsWith('skeleton-') ? 'skeleton'
+    : 'boar';
   const isTreasure = kind === 'treasure';
   // Objet déposé par un joueur (glisser-déposer depuis la besace — voir MapMarkerKind==='drop'/
   // lib/worldDrops.ts) : réutilise EXACTEMENT le même rendu que `isTreasure` ci-dessous (même
@@ -1031,7 +1078,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   const isWorld = kind === 'world';
   const isZorghon = kind === 'zorghon';
   const isCaptive = kind === 'captive';
-  const floating = !isCave && !isBuilding;
+  const floating = !isCave && !isBuilding && !isCemetery && !isCrypt && !isTomb;
   const spinning = floating && !isNpc && !isFamiliar && !isWildlife;
   const bobAmplitude = isQuest ? 0.25 : 0.15;
   // Interpolation de position (PNJ/Dragon errant, PNJ "en approche", fantômes persistés — voir
@@ -1132,7 +1179,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   // valant `0` pour eux — zéro régression.
   const isLivingCharacter = isNpc || isFamiliar || isWildlife;
   const groundAnchorUnscaled = isFamiliar ? 0.27 : isNpc ? 0.39
-    : isWildlife ? (wildlifeKind === 'werewolf' ? 0.06 : 0) : 0;
+    : isWildlife ? (wildlifeKind === 'werewolf' ? 0.06 : wildlifeKind === 'ghoul' ? 0.05 : 0) : 0;
   useFrame((state) => {
     const obj = bobRef.current;
     if (!obj || !floating) return;
@@ -1192,6 +1239,68 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
       </group>
     );
   }
+  if (isCemetery) {
+    // Cimetière (voir demande utilisateur « ajoutes et places 2 cimetières en 3D ») — simple repère
+    // visuel/narratif (comme un village) : enclos bas en pierre + quelques pierres tombales en
+    // formation, SANS porte de souterrain (contrairement à `isCrypt` ci-dessous).
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        {/* Muret d'enceinte bas (4 côtés) */}
+        {[[0, 0.18, 0.9, [1.9, 0.36, 0.14]], [0, 0.18, -0.9, [1.9, 0.36, 0.14]], [0.9, 0.18, 0, [0.14, 0.36, 1.9]], [-0.9, 0.18, 0, [0.14, 0.36, 1.9]]].map(([px, py, pz, size], i) => (
+          <mesh key={i} position={[px as number, py as number, pz as number]} castShadow>
+            <boxGeometry args={size as unknown as [number, number, number]} />
+            <meshStandardMaterial color="#6b6358" roughness={0.95} />
+          </mesh>
+        ))}
+        {[[-0.4, -0.3], [0.25, -0.1], [-0.1, 0.45], [0.5, 0.4]].map(([cx, cz], i) => (
+          <group key={i} position={[cx, 0, cz]}>
+            <mesh position={[0, 0.2, 0]} castShadow><boxGeometry args={[0.22, 0.4, 0.07]} /><meshStandardMaterial color="#8d887c" roughness={0.9} /></mesh>
+            <mesh position={[0, 0.3, 0.05]} castShadow><boxGeometry args={[0.3, 0.07, 0.03]} /><meshStandardMaterial color="#8d887c" roughness={0.9} /></mesh>
+          </group>
+        ))}
+      </group>
+    );
+  }
+  if (isCrypt) {
+    // Crypte (voir demande utilisateur « Tu placeras à l'ouverture de la cryptes, une porte qui
+    // amenera Synk à des passages secrets dans des tunnels/souterrains ») — mausolée en pierre avec
+    // une arche sombre (la "porte") : cliquer ouvre PoiInteractionModal::CryptBody, dont le bouton
+    // « Entrer dans la crypte » déclenche `cryptMode` (voir plus bas dans ce fichier) qui monte
+    // `CryptTunnelScene` à la place de `Scene` dans le même `<Canvas>`.
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, 0.55, 0]} castShadow><boxGeometry args={[1.1, 1.1, 1]} /><meshStandardMaterial color="#58544c" roughness={0.9} /></mesh>
+        <mesh position={[0, 1.22, 0]} castShadow><boxGeometry args={[1.3, 0.22, 1.2]} /><meshStandardMaterial color="#3f3b35" roughness={0.9} /></mesh>
+        {/* Arche sombre (porte d'entrée du souterrain) */}
+        <mesh position={[0, 0.42, 0.51]}>
+          <cylinderGeometry args={[0.32, 0.32, 0.72, 10, 1, false, 0, Math.PI]} />
+          <meshStandardMaterial color="#0a0908" roughness={1} side={THREE.DoubleSide} />
+        </mesh>
+        {/* Colonnes latérales */}
+        {[-0.5, 0.5].map((cx, i) => (
+          <mesh key={i} position={[cx, 0.55, 0.5]} castShadow><cylinderGeometry args={[0.1, 0.12, 1.1, 8]} /><meshStandardMaterial color="#6b655a" roughness={0.9} /></mesh>
+        ))}
+        {/* Crâne gravé au fronton (purement décoratif) */}
+        <mesh position={[0, 1.1, 0.56]}><sphereGeometry args={[0.13, 8, 8]} /><meshStandardMaterial color="#d6d3cb" roughness={0.8} /></mesh>
+      </group>
+    );
+  }
+  if (isTomb) {
+    // Tombe isolée (voir demande utilisateur « et de tombes [...] dispersées dans le jeu [...] Tu
+    // feras sortir des monstres [...] des tombes en simulant une dalle en 3D qui bouge et se
+    // soulève à côté de sa pierre tombale ») — pierre tombale + dalle au sol qui se soulève/pivote
+    // UNE SEULE FOIS au montage (animation locale simplifiée, voir TombSlab ci-dessous), suggérant
+    // l'émergence du mort-vivant ancré sur cette tombe (voir lib/roamingActors.ts::
+    // ensureWildlifeSpawns, seedé sur DEFAULT_TOMB_POIS).
+    return (
+      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+        <mesh position={[0, 0.16, 0.25]} castShadow><boxGeometry args={[0.1, 0.32, 0.04]} /><meshStandardMaterial color="#8d887c" roughness={0.9} /></mesh>
+        <mesh position={[0, 0.3, -0.1]} castShadow><cylinderGeometry args={[0.24, 0.26, 0.5, 8, 1, false, 0, Math.PI]} /><meshStandardMaterial color="#9c968a" roughness={0.9} side={THREE.DoubleSide} /></mesh>
+        <TombSlab markerId={markerId} />
+        <mesh position={[0, 0.02, -0.1]}><cylinderGeometry args={[0.32, 0.36, 0.05, 10]} /><meshStandardMaterial color="#3f3a30" roughness={1} /></mesh>
+      </group>
+    );
+  }
   if (isQuest) {
     // Parchemin roulé flottant (quêtes classiques/PNJ/énigmes) : cylindre papier + liseré + un ruban
     // — remplace le gemme octaédrique générique par une forme reconnaissable de rouleau de quête.
@@ -1247,13 +1356,13 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     );
   }
   if (isWildlife) {
-    // Hibou/loup-garou/sanglier errant — voir isWildlife/wildlifeKind plus haut. `markerId` est
-    // directement l'id d'errance (voir lib/roamingActors.ts::ensureWildlifeSpawns, préfixe stable
-    // `owl-`/`werewolf-`/`boar-`), pas besoin d'une identité catalogue distincte pour choisir le
-    // bon modèle 3D. `Owl3D`/`Werewolf3D`/`Boar3D` (voir Platform3DAmbientScene.tsx) n'ont plus de
-    // position interne fixe depuis leur conversion en entités mapmonde : ce groupe (position/
-    // orientation gérées comme tout PNJ/familier errant ci-dessus) est désormais leur SEULE source
-    // de placement.
+    // Hibou/loup-garou/sanglier/mort-vivant errant — voir isWildlife/wildlifeKind plus haut.
+    // `markerId` est directement l'id d'errance (voir lib/roamingActors.ts::ensureWildlifeSpawns,
+    // préfixe stable `owl-`/`werewolf-`/`boar-`/`zombie-`/`ghoul-`/`skeleton-`), pas besoin d'une
+    // identité catalogue distincte pour choisir le bon modèle 3D. `Owl3D`/`Werewolf3D`/`Boar3D`/
+    // `Zombie3D`/`Ghoul3D`/`Skeleton3D` (voir Platform3DAmbientScene.tsx) n'ont plus de position
+    // interne fixe depuis leur conversion en entités mapmonde : ce groupe (position/orientation
+    // gérées comme tout PNJ/familier errant ci-dessus) est désormais leur SEULE source de placement.
     return (
       <group ref={posGroupRef} position={isLiveActor ? undefined : [x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <group ref={bobRef} scale={scale} rotation={[0, facingAngle, 0]}>
@@ -1261,6 +1370,12 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
             ? <Owl3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} soundEnabled={owlHootEnabled !== false} seedKey={markerId} moving={!!moving} />
             : wildlifeKind === 'werewolf'
             ? <Werewolf3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} soundEnabled={werewolfHowlEnabled !== false} seedKey={markerId} moving={!!moving} />
+            : wildlifeKind === 'zombie'
+            ? <Zombie3D seedKey={markerId} moving={!!moving} />
+            : wildlifeKind === 'ghoul'
+            ? <Ghoul3D seedKey={markerId} moving={!!moving} />
+            : wildlifeKind === 'skeleton'
+            ? <Skeleton3D seedKey={markerId} moving={!!moving} />
             : <Boar3D adminAudio={wildlifeAudio ?? DEFAULT_AUDIO_SETTINGS} seedKey={markerId} moving={!!moving} />}
         </group>
       </group>
@@ -1348,7 +1463,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
  * avec la mécanique Oxygène/Fatigue déjà pilotée par GameCanvas2D.tsx (celui-ci reste l'unique
  * moteur de décroissance/récupération — ce composant n'est qu'une vue supplémentaire, aucune
  * nouvelle mécanique n'est introduite ici, zéro risque de double-décompte). */
-function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equipment, equipmentRenderEnabled, standY, fullySubmerged, eyeBlinkEnabled, eyeBlinkIntervalSec, recentering, onRecenterComplete }: {
+export function SynkVoxel({ stage, walking, running, swimming, jumpTrigger, facing, equipment, equipmentRenderEnabled, standY, fullySubmerged, eyeBlinkEnabled, eyeBlinkIntervalSec, recentering, onRecenterComplete }: {
   stage: number; walking: boolean; running: boolean; swimming: boolean; jumpTrigger: number; facing: SynkDirection;
   equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
   standY?: number; fullySubmerged?: boolean; eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
@@ -1993,7 +2108,8 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // commentaires détaillés, dans GameCanvas2D.tsx/WorldMapWidget.tsx.
   useEffect(() => {
     if (!rules) return;
-    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0, rules.wildlifeBoarCount ?? 8);
+    ensureWildlifeSpawns(rules.wildlifeEnabled !== false, rules.wildlifeOwlCount ?? 13, rules.wildlifeWerewolfCount ?? 12, rules.wildlifeSpawnSeed ?? 0, rules.wildlifeBoarCount ?? 8,
+      rules.undeadEnabled === false ? 0 : (rules.undeadZombieCount ?? 6), rules.undeadEnabled === false ? 0 : (rules.undeadGhoulCount ?? 5), rules.undeadEnabled === false ? 0 : (rules.undeadSkeletonCount ?? 6));
   }, [rules]);
   // Réglages audio admin (voir lib/audio.ts) — appelés UNE SEULE FOIS ici (composant NON-R3F) et
   // transmis en prop à `<Scene>` → `<MarkerBlock>` pour le hibou/loup-garou errant, plutôt que de
@@ -2098,6 +2214,25 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   }, [interactionMarker]);
   const [hutResting, setHutResting] = useState(false);
   const [hutFeedback, setHutFeedback] = useState<string | null>(null);
+
+  // ─── Souterrain de crypte (voir CryptTunnelScene.tsx) — `cryptMode` contient l'id de la crypte
+  // actuellement explorée (`null` = aucun souterrain actif, vue normale). `cryptProgress` est le
+  // nombre de "dalles" parcourues depuis l'entrée, piloté par les boutons dédiés « ▲ Avancer »/
+  // « ▼ Reculer » (voir plus bas, overlay HORS `<Canvas>`) — AUCUNE réutilisation du dpad/clavier
+  // existant (trop risqué pour la navigation déjà en place, voir useHoldMovement ci-dessous).
+  const [cryptMode, setCryptMode] = useState<string | null>(null);
+  const [cryptProgress, setCryptProgress] = useState(0);
+  const cryptTunnelLength = Math.max(4, Math.round(rules?.cryptTunnelLength ?? 20));
+  // Parchemin déjà ramassé par CE joueur (voir lib/gameState.ts::getTakenParchmentIds/
+  // subscribeTakenParchmentIds, stockage PAR JOUEUR — voir commentaire détaillé dans gameState.ts).
+  const [takenParchmentIds, setTakenParchmentIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!address) { setTakenParchmentIds(new Set()); return; }
+    return subscribeTakenParchmentIds(address, setTakenParchmentIds);
+  }, [address]);
+  // Pop-up de lecture du parchemin (voir ParchmentPopup.tsx) — `null` = fermé, sinon id de la
+  // crypte dont le parchemin est en cours de lecture.
+  const [parchmentPopupCryptId, setParchmentPopupCryptId] = useState<string | null>(null);
 
   const [kingdomMarker, setKingdomMarker] = useState<MapMarker | null>(null);
   useEffect(() => {
@@ -2591,7 +2726,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   const onMarkerClick3D = useCallback((m: MapMarker) => {
     if (dragStateRef.current?.dragged) return; // voir « Distinction glissé-souris / clic » ci-dessus
     const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure' || m.kind === 'drop'
-      || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && m.poiType === 'hut');
+      || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && (m.poiType === 'hut' || m.poiType === 'crypt'));
     if (!interactable) return;
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(Math.round(m.x) - Math.round(cur.x)), Math.abs(Math.round(m.y) - Math.round(cur.y)));
@@ -2930,7 +3065,18 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             antialias: rules?.platform3dAntialiasEnabled ?? true,
           }}
         >
-          {underwaterMode ? (
+          {cryptMode ? (
+            <>
+              <CryptTunnelScene
+                cryptId={cryptMode} progress={cryptProgress} tunnelLength={cryptTunnelLength}
+                torchFlickerEnabled={rules?.cryptTorchFlickerEnabled ?? true}
+                batCount={rules?.cryptBatCount ?? 5}
+                parchmentTaken={takenParchmentIds.has(cryptMode)}
+                onParchmentClick={() => setParchmentPopupCryptId(cryptMode)}
+              />
+              <OrbitControls enablePan={false} enableZoom={false} enableDamping dampingFactor={0.12} target={[0, 1.1, -2]} />
+            </>
+          ) : underwaterMode ? (
             <UnderwaterScene
               stage={stage} facing={facing} equipment={equipment}
               equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
@@ -3000,7 +3146,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             </div>
           </>
         )}
-        {!underwaterMode && (
+        {!underwaterMode && !cryptMode && (
         <div className="absolute top-1.5 left-1.5 bg-slate-900/70 rounded px-2 py-1 text-[10px] text-lime-200 pointer-events-none">
           {swimming ? '🏊 ' + t('game.platform3d.swimming') : isRunning ? '🏃 ' + t('game.platform3d.running') : '🚶 ' + t('game.platform3d.walking')}
           {player && <span className="ml-2">💨 {Math.round(player.oxygen ?? 100)}% · 🔋 {Math.round(player.fatigue ?? 100)}%</span>}
@@ -3011,8 +3157,10 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             reste toujours en haut, elle NE tourne PAS avec l'orbite de la caméra : seule l'aiguille
             pivote, selon `COMPASS_NEEDLE_DEG[facing]`), placée dans le coin libre en haut à droite de
             la vue 3D. Masquée en mode sous-marin (le monde immergé a son propre repère/caméra bornée
-            à un petit rayon d'exploration, voir UnderwaterScene — un cap Nord/Sud n'y a pas de sens). */}
-        {!underwaterMode && (
+            à un petit rayon d'exploration, voir UnderwaterScene — un cap Nord/Sud n'y a pas de sens)
+            et en souterrain de crypte (couloir rectiligne à sens unique, voir overlay crypt ci-dessus
+            qui affiche déjà la progression — un cap N/E/S/O n'y a pas plus de sens). */}
+        {!underwaterMode && !cryptMode && (
           <div className="absolute top-1.5 right-1.5 z-10 flex flex-col items-center gap-1">
             {/* `backdrop-blur-sm` volontairement RETIRÉ (voir signalement GPU + investigation du
                 commit d'origine, § Suite 2 de docs/ARCHITECTURE.md) : un flou de fond (`backdrop-
@@ -3062,6 +3210,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             </div>
           </div>
         )}
+        {!cryptMode && (
         <div className="absolute bottom-2 left-2 grid grid-cols-3 grid-rows-3 gap-0.5 w-[84px] h-[84px] z-10" title={t('canvas2d.dpadTitle')}>
           <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, -1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadUpLeft')}>↖</button>
           <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, -1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadUp')}>▲</button>
@@ -3081,6 +3230,41 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, 1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadDown')}>▼</button>
           <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 1, 1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadDownRight')}>↘</button>
         </div>
+        )}
+        {/* ─── Overlay souterrain de crypte (voir CryptTunnelScene.tsx) — remplace totalement le
+            dpad (masqué ci-dessus) tant que `cryptMode` est actif : seuls « ▲ Avancer »/« ▼ Reculer »
+            font progresser/reculer `cryptProgress` (une "dalle" à la fois, voir `cryptTunnelLength`
+            pour la borne max), et « 🚪 Sortir » referme le souterrain (retour instantané à la vue
+            normale, Synk réapparaît devant l'entrée de la crypte — aucune sauvegarde de position
+            dans le souterrain, cohérent avec la demande utilisateur « pourra bien sûr faire demi-tour
+            [...] puis y revenir »). */}
+        {cryptMode && (
+          <>
+            <div className="absolute top-1.5 left-1.5 right-1.5 bg-stone-950/85 rounded px-2 py-1 text-[10px] text-stone-300 pointer-events-none">
+              🕯️ {t('game.platform3d.crypt.title')}
+              <span className="block text-[9px] text-stone-400/80 mt-0.5">
+                {Math.min(cryptProgress, cryptTunnelLength)} / {cryptTunnelLength}
+              </span>
+            </div>
+            <div className="absolute bottom-2 left-2 flex flex-col gap-1 z-10">
+              <button
+                tabIndex={-1} className={dpadBtn + ' w-[84px] bg-stone-800/90'}
+                onClick={() => setCryptProgress((p) => Math.min(cryptTunnelLength, p + 1))}
+                title={t('game.platform3d.crypt.advance')}
+              >▲ {t('game.platform3d.crypt.advance')}</button>
+              <button
+                tabIndex={-1} className={dpadBtn + ' w-[84px] bg-stone-800/90'}
+                onClick={() => setCryptProgress((p) => Math.max(0, p - 1))}
+                title={t('game.platform3d.crypt.retreat')}
+              >▼ {t('game.platform3d.crypt.retreat')}</button>
+              <button
+                tabIndex={-1} className={dpadBtn + ' w-[84px] bg-rose-900/90 border-rose-600'}
+                onClick={() => setCryptMode(null)}
+                title={t('game.platform3d.crypt.exit')}
+              >🚪 {t('game.platform3d.crypt.exit')}</button>
+            </div>
+          </>
+        )}
         <p className="absolute bottom-2 right-2 text-[9px] text-slate-500 max-w-[180px] text-right pointer-events-none">
           {t('game.platform3d.hint')}
         </p>
@@ -3099,7 +3283,15 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         rules={rules}
         onClose={() => setInteractionMarker(null)}
         onRequestHutRest={() => setHutResting(true)}
+        onRequestEnterCrypt={(cryptId) => { setCryptMode(cryptId); setCryptProgress(0); setInteractionMarker(null); }}
       />
+      {parchmentPopupCryptId && (
+        <ParchmentPopup
+          cryptId={parchmentPopupCryptId}
+          address={address}
+          onClose={() => setParchmentPopupCryptId(null)}
+        />
+      )}
       {rules && (
         <HutRestModal
           active={hutResting}

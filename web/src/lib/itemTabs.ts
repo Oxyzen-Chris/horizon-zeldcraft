@@ -14,7 +14,11 @@ export const ITEM_TAB_CATEGORIES: Record<Exclude<ItemTab, 'familiars'>, Inventor
   food: ['food'],
   potion: ['potion', 'super_potion', 'spell'],
   vehicle: ['vehicle'],
-  treasure: ['treasure'],
+  // "parchment" (voir demande utilisateur : parchemins trouvés dans les salles de souterrains de
+  // crypte, lib/gameState.ts::DEFAULT_CRYPT_POIS/CryptTunnelScene.tsx) rangé dans l'onglet Trésors
+  // — même esprit d'objet de collection/lore que le reste de cet onglet, pas assez nombreux pour
+  // justifier un onglet dédié.
+  treasure: ['treasure', 'parchment'],
   saddle: ['saddle'],
 };
 

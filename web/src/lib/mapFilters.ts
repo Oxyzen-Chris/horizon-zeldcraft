@@ -64,6 +64,21 @@ export interface MapFilterState {
   showWildlifeOwl: boolean;
   showWildlifeWerewolf: boolean;
   showWildlifeBoar: boolean;
+  /** Sous-filtres morts-vivants (zombie/goule/squelette, voir WildlifeKind) — même principe que
+   * showWildlifeOwl/Werewolf/Boar ci-dessus, répond à la demande utilisateur « Il faudra les
+   * considérer comme de nouveaux PNJ à part entière et leur donner des interactions [...] et
+   * paramètres [...] similaire à ceux des PNJ » (incluant leur filtre dédié). Actifs par défaut. */
+  showWildlifeZombie: boolean;
+  showWildlifeGhoul: boolean;
+  showWildlifeSkeleton: boolean;
+  /** Filtres dédiés cimetières/cryptes/tombes (voir MapPoiType==='cemetery'|'crypt'|'tomb') —
+   * répond à la demande utilisateur « que tu identifieras dans le widget de la Mapmonde avec des
+   * icônes et un filtre particuliers pour chacun (cimetières, cryptes, tombes) ». N'ont d'effet
+   * QUE sur ces 3 types précis (voir markerMatchesFilters, cas 'poi') ; tous les autres types de
+   * POI restent gouvernés par `showPois` comme avant (zéro régression). Actifs par défaut. */
+  showCemetery: boolean;
+  showCrypt: boolean;
+  showTomb: boolean;
   /** Identifiants catalogue (`MapMarker.catalogId ?? MapMarker.id`) d'entités individuelles
    * (PNJ/familiers nommés — ex. dragon rouge, pêcheur Vaimoana) explicitement masquées par le
    * joueur, indépendamment du filtre global « PNJ »/« Familiers » — répond à « un filtre spécifique
@@ -81,6 +96,8 @@ export const DEFAULT_MAP_FILTERS: MapFilterState = {
   showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true,
   kingdomChapters: null, kingdomFullMoonMode: 'all', declutter: false, showDrops: true, showWildlife: true,
   showWildlifeOwl: true, showWildlifeWerewolf: true, showWildlifeBoar: true,
+  showWildlifeZombie: true, showWildlifeGhoul: true, showWildlifeSkeleton: true,
+  showCemetery: true, showCrypt: true, showTomb: true,
   hiddenEntityIds: [], hiddenNpcArchetypes: [],
 };
 
@@ -160,6 +177,9 @@ export const MAP_FILTER_CATEGORIES: { key: keyof MapFilterState; icon: string; i
   { key: 'showQuestsKingdom', icon: '👑', i18nKey: 'map.filters.questsKingdom' },
   { key: 'showDrops', icon: '📦', i18nKey: 'map.filters.drops' },
   { key: 'showWildlife', icon: '🦉', i18nKey: 'map.filters.wildlife' },
+  { key: 'showCemetery', icon: '⚰️', i18nKey: 'map.filters.cemetery' },
+  { key: 'showCrypt', icon: '🏛️', i18nKey: 'map.filters.crypt' },
+  { key: 'showTomb', icon: '🪦', i18nKey: 'map.filters.tomb' },
   { key: 'declutter', icon: '🧹', i18nKey: 'map.filters.declutter' },
 ];
 
@@ -177,7 +197,8 @@ const LIVE_ACTOR_MARKER_IDS = new Set(['roaming.npc.live', 'roaming.dragon.live'
  * ce sont elles aussi des entités EN DIRECT rares, que le "filtre intelligent" ne doit jamais
  * masquer. */
 function isLiveActorMarkerId(id: string): boolean {
-  return LIVE_ACTOR_MARKER_IDS.has(id) || id.startsWith('encounter.extra.') || id.startsWith('owl-') || id.startsWith('werewolf-') || id.startsWith('boar-');
+  return LIVE_ACTOR_MARKER_IDS.has(id) || id.startsWith('encounter.extra.') || id.startsWith('owl-') || id.startsWith('werewolf-') || id.startsWith('boar-')
+    || id.startsWith('zombie-') || id.startsWith('ghoul-') || id.startsWith('skeleton-');
 }
 
 const ARCHETYPE_I18N_PREFIX = 'npc.archetype.';
@@ -201,7 +222,12 @@ export function extractArchetypeKey(i18nKey?: string): string | null {
 export function markerMatchesFilters(m: MapMarker, f: MapFilterState, playerPos?: { x: number; y: number }): boolean {
   let matchesCategory: boolean;
   switch (m.kind) {
-    case 'poi': matchesCategory = f.showPois; break;
+    case 'poi':
+      matchesCategory = m.poiType === 'cemetery' ? f.showCemetery
+        : m.poiType === 'crypt' ? f.showCrypt
+        : m.poiType === 'tomb' ? f.showTomb
+        : f.showPois;
+      break;
     case 'world': matchesCategory = f.showWorlds; break;
     case 'npc': matchesCategory = f.showNpcs; break;
     case 'treasure': matchesCategory = f.showTreasures; break;
@@ -212,6 +238,9 @@ export function markerMatchesFilters(m: MapMarker, f: MapFilterState, playerPos?
       matchesCategory = m.wildlifeKind === 'owl' ? f.showWildlifeOwl
         : m.wildlifeKind === 'werewolf' ? f.showWildlifeWerewolf
         : m.wildlifeKind === 'boar' ? f.showWildlifeBoar
+        : m.wildlifeKind === 'zombie' ? f.showWildlifeZombie
+        : m.wildlifeKind === 'ghoul' ? f.showWildlifeGhoul
+        : m.wildlifeKind === 'skeleton' ? f.showWildlifeSkeleton
         : true; // espèce inconnue (ne devrait pas arriver) : par prudence, ne pas masquer
       break;
     }

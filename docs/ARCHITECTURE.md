@@ -3678,3 +3678,106 @@ déjà en place pour le localStorage existant). `GameCanvas2D.tsx`/`Platform3DWi
 n'avait pas le bug de transition manquante et continue de fonctionner à l'identique).
 
 
+## 🪦 Cimetières, cryptes, morts-vivants & souterrains explorables en 3D
+
+**Demande utilisateur** : ajouter 2 cimetières, ~20 cryptes et ~20 tombes en 3D dispersés sur la
+Mapmonde/Plateforme 3D/Plateforme 2D (icônes + filtres dédiés, paramétrables en Administration) ;
+faire émerger des tombes des zombies/goules/squelettes considérés comme de nouveaux PNJ à part
+entière (déplacement, interactions) ; chaque crypte ouvre sur un souterrain immersif en 3D (torches
+vacillantes, chauves-souris, ~20 dalles de couloir) menant à l'une de 3 salles d'arrivée (sommet de
+tour de donjon, chambre meublée, ou salle avec un parchemin interactif lisible + narré en voix de
+synthèse + ramassable dans la besace, indice de passage secret).
+
+**Modèle de données** (`lib/gameState.ts`) :
+- `MapPoiType` gagne `'cemetery' | 'crypt' | 'tomb'`, `MapMarker.wildlifeKind` gagne
+  `'zombie' | 'ghoul' | 'skeleton'`, `InventoryItem.category` gagne `'parchment'`.
+- `DEFAULT_CEMETERY_POIS` (2), `DEFAULT_CRYPT_POIS` (20), `DEFAULT_TOMB_POIS` (20) : coordonnées
+  fixes (même format que `DEFAULT_LAKE_POIS`), fusionnées dans `getAllMapMarkers()` sous la garde
+  `RepRules.graveyardEnabled` (même schéma que `defaultLakesEnabled`).
+- Nouveaux champs `RepRules` (Administration → section « 🪦 Cimetières & morts-vivants ») :
+  `graveyardEnabled`, `undeadEnabled`, `undeadZombieCount`/`undeadGhoulCount`/`undeadSkeletonCount`
+  (effectifs par espèce), `cryptTunnelLength` (nombre de dalles, défaut 20),
+  `cryptTorchFlickerEnabled`, `cryptBatCount`.
+- `markParchmentTaken(address, cryptId)` / `getTakenParchmentIds(address)` /
+  `subscribeTakenParchmentIds(address, cb)` : état de ramassage du parchemin PAR JOUEUR (chemin
+  Firebase `players/{KEY(address)}/parchments/{cryptId}`), pour que le parchemin ne réapparaisse
+  plus sur la table une fois pris par CE joueur, sans affecter les autres joueurs.
+
+**Filtres** (`lib/mapFilters.ts`, `WorldMapWidget.tsx`, `GameCanvas2D.tsx`) : 3 nouvelles catégories
+top-niveau (⚰️ Cimetières, 🏛️ Cryptes, 🪦 Tombes) dans `MAP_FILTER_CATEGORIES`, et 3 nouveaux
+sous-filtres par espèce de mort-vivant (🧟 Zombies, 👹 Goules, 💀 Squelettes) dans le panneau
+« par entité » (🎭⚙️), aux côtés des sous-filtres de faune existants (hibou/loup-garou/sanglier).
+`isLiveActorMarkerId()` exempte les préfixes `zombie-`/`ghoul-`/`skeleton-` du filtre « intelligent »
+(declutter), comme pour la faune existante.
+
+**Rendu 3D** (`components/Platform3DWidget.tsx::MarkerBlock`, `Platform3DAmbientScene.tsx`) :
+- Cimetière : enclos de pierre + 4 pierres tombales à croix. Crypte : mausolée avec archway sombre
+  cliquable + colonnes + décor crâne. Tombe : pierre tombale + tertre de terre + `TombSlab` (une
+  animation locale one-shot de dalle qui se soulève/pivote, non synchronisée à l'apparition réelle
+  des morts-vivants — simplification documentée en commentaire).
+- `Zombie3D`/`Ghoul3D`/`Skeleton3D` (nouveaux composants voxel, démarches distinctes : lent/raide
+  bras tendus, accroupi/erratique à 4 pattes avec griffes, rigide/saccadé avec cage thoracique) —
+  spawnés et déplacés par `lib/roamingActors.ts::ensureWildlifeSpawns()` (paramètres
+  `zombieCount`/`ghoulCount`/`skeletonCount` ajoutés en fin de signature), chaque individu étant
+  initialement ancré près d'une `DEFAULT_TOMB_POIS[i % length]` (avec repli anti-chevauchement sur
+  obstacle). Aucun son d'ambiance dédié (scope volontairement limité, voir `lib/audio.ts` inchangé).
+- `worldTerrain.ts::OBSTACLE_POI_TYPES` inclut `cemetery`/`crypt`/`tomb` : les PNJ/faune/familiers
+  contournent ces structures comme château/hutte/village (réutilise l'évitement d'obstacles déjà en
+  place, voir section « Évitement intelligent des obstacles » plus haut).
+
+**Souterrain de crypte** (`components/CryptTunnelScene.tsx`, nouveau fichier) : vue à la première
+personne (pas de modèle Synk visible, pour éviter un couplage circulaire avec `SynkVoxel`), montée
+EN REMPLACEMENT de `<Scene>`/`<Platform3DAmbientScene>` dans le même `<Canvas>` de
+`Platform3DWidget.tsx` (même principe que `UnderwaterScene` pour la plongée totale), tant que l'état
+local `cryptMode` (id de la crypte active) est non nul :
+- Le "monde" défile devant une caméra fixe (même philosophie que `Scene()::tiles`) : chaque dalle
+  `i` est bâtie à `z = -i·TILE_SIZE`, un groupe racine est translaté selon `displayedProgress`
+  (lerp doux vers l'entier `progress`, lui-même piloté par le parent via 2 boutons dédiés HORS
+  `<Canvas>`, « ▲ Avancer »/« ▼ Reculer »/« 🚪 Sortir » — AUCUNE réutilisation du dpad/clavier
+  existant, pour ne prendre aucun risque sur la navigation déjà en place). Le dpad/la boussole/le
+  HUD de marche habituels sont masqués pendant ce mode (mêmes conditions `!cryptMode` que pour
+  `!underwaterMode`).
+- `Torch` (lumière ponctuelle vacillante + flamme conique, toutes les 3 dalles des deux côtés,
+  désactivable via `cryptTorchFlickerEnabled`), `TunnelBat` (vol circulaire + battement d'ailes,
+  effectif réglable via `cryptBatCount`).
+- `cryptDestinationRoomFor(cryptId)` choisit déterministement (hash de l'id) l'une de 3 salles
+  d'arrivée au bout du couloir : `TowerRoom` (plateforme ouverte + créneaux, vue dégagée), `BedroomRoom`
+  (lit/table de chevet/armoire), `ParchmentRoom` (table/chaises + parchemin 3D cliquable).
+- Le parchemin (`ParchmentRoom`) disparaît si `parchmentTaken` (lu depuis
+  `subscribeTakenParchmentIds`) ; son clic ouvre `components/ParchmentPopup.tsx` (nouveau fichier)
+  qui affiche un des 6 textes d'indice (`crypt.parchment.clue1..6`, sélection déterministe par
+  crypte via le même hash que `cryptDestinationRoomFor`), les lit à voix haute via
+  `window.speechSynthesis` (langue de synthèse dérivée de la locale active), et propose
+  Prendre/Laisser — « Prendre » appelle `addToInventory` (catégorie `parchment`) PUIS
+  `markParchmentTaken`.
+
+**Pop-up d'interaction** (`components/PoiInteractionModal.tsx`) : nouveau composant `CryptBody`,
+affiché pour `marker.poiType === 'crypt'` — propose un bouton « 🚪 Entrer dans la crypte »
+uniquement si `onRequestEnterCrypt` est fourni (câblé uniquement par `Platform3DWidget.tsx` — la
+Plateforme 2D isométrique et la Mapmonde affichent un simple message indiquant que l'entrée du
+souterrain n'est possible qu'en Plateforme 3D, cette dernière étant seule capable d'un rendu de
+couloir en 3D immersif).
+
+**i18n** : toutes les nouvelles chaînes (filtres, pop-ups, HUD du souterrain, panneau Administration,
+6 textes de parchemin, entrée de changelog) traduites dans les 5 langues (fr/en/es/pt/us) — noms
+propres des 2 cimetières/20 cryptes/20 tombes volontairement laissés en français dans toutes les
+langues (même convention que `DEFAULT_LAKE_POIS`, non traduits non plus).
+
+**Vérification** : `npx tsc --noEmit` et `npm run build` : 0 erreur. Vérification Playwright (session
+Démo anonyme) : les 3 nouveaux filtres de catégorie (Cimetières/Cryptes/Tombes) et les 3 nouveaux
+sous-filtres de faune (Zombies/Goules/Squelettes) sont bien présents et traduits dans le panneau
+Mapmonde ; le widget Plateforme 3D s'ouvre sans erreur console, boussole/HUD/dpad inchangés (aucune
+régression) ; une structure sombre (crypte) a été visuellement repérée en marchant vers des
+coordonnées proches d'une crypte par défaut (confirmant le rendu `MarkerBlock` + l'évitement
+d'obstacles pour la faune alentour). 0 erreur console relevée sur l'ensemble du scénario.
+
+**Simplifications assumées** (documentées ici pour transparence, vu l'ampleur de la demande) :
+- Un seul interrupteur `graveyardEnabled` pour l'ensemble cimetières/cryptes/tombes (plutôt que 3
+  interrupteurs séparés) + effectifs de morts-vivants par espèce (plutôt que par tombe individuelle).
+- Vue de souterrain à la première personne, sans modèle Synk visible (plus immersif pour un couloir
+  étroit, évite un couplage circulaire de composants).
+- Animation d'ouverture de dalle de tombe purement locale/cosmétique, non synchronisée à l'instant
+  réel d'apparition du mort-vivant correspondant.
+- 6 textes de parchemin génériques (sélection déterministe par crypte) plutôt que 20 textes uniques.
+- Aucun son d'ambiance dédié aux morts-vivants (zombies/goules/squelettes restent silencieux).
+
