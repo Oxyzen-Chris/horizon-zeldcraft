@@ -3591,3 +3591,90 @@ du symptôme persistant reste le réglage Windows « Préférence GPU » de `mse
 toute autre hypothèse. Le retrait du flou de la boussole est un allègement complémentaire, sûr et
 sans régression, mais ne remplace pas la vérification du réglage Windows ci-dessus.
 
+## 🗺️ Mapmonde : déplacement des PNJ saccadé + filtre d'affichage par entité
+
+**Symptôme signalé** : « dans le widget de la Mapmonde, le déplacement des PNJ (loup-garou, hibou,
+chevalier, familiers, dragon rouge, pêcheur Vaimoana) semblent saccader », avec demande d'un filtre
+d'affichage spécifique à chacune de ces six entités.
+
+**Cause racine n°1 (saccade/téléportation)** : `lib/roamingActors.ts` fait avancer tous les acteurs
+errants par un `setInterval` unique (`stepMs`, défaut 1500ms — voir `getRoamStepMs()`). Les 3 widgets
+interpolent visuellement la position entre deux ticks pour éviter un saut brut — mais dans
+`WorldMapWidget.tsx`, le bloc de rendu fusionnant `generalFamiliarLiveMarkers` (TOUS les
+familiers/dragons errants du catalogue, hors PNJ/Dragon « historiques ») avec les marqueurs
+catalogue statiques **n'avait AUCUNE transition CSS** (`transition-all`/`transitionDuration`
+absents) : ces marqueurs se **téléportaient instantanément** à chaque tick, d'où la saccade — ce qui
+couvre directement le cas « dragon rouge » et tout autre familier errant (`GameCanvas2D.tsx`, lui,
+avait déjà cette transition sur l'équivalent de ce bloc : aucune régression à corriger de ce côté).
+
+**Cause racine n°2 (secondaire, plus subtile)** : le bloc `liveActorMarkers` (PNJ/Dragon « historiques »,
+faune, PNJ de rencontre persistés, PNJ en approche) disposait déjà d'une transition CSS, mais avec la
+courbe d'accélération par défaut (`ease`) plutôt qu'une vitesse constante — un à-coup qui se répète à
+chaque tick de 1,5s peut se percevoir comme un « saccadement » rythmique.
+
+**Correctifs** :
+- **`lib/roamingActors.ts`** : nouvelle fonction exportée `getRoamTransitionMs()` — retourne
+  `Math.round(stepMs * 0.92)` (minimum 200ms). Utilisée UNIQUEMENT comme durée de transition CSS
+  (jamais comme base de calcul des ticks eux-mêmes, qui continuent de se produire exactement toutes
+  les `getRoamStepMs()` ms — zéro impact sur la logique de jeu/IA de déplacement). Le but : une
+  transition qui dure légèrement MOINS longtemps que l'intervalle réel entre deux ticks, pour
+  qu'elle soit toujours terminée avant l'arrivée de la position suivante, même en cas de léger
+  retard du `setInterval` JS sous-jacent (jitter inévitable sous charge, avec de nombreux minuteurs
+  concurrents dans cette application) — élimine un artefact de type « gel puis saut sec ».
+- **`WorldMapWidget.tsx`** : le bloc `generalFamiliarLiveMarkers` est désormais rendu séparément
+  (plus fusionné avec les marqueurs catalogue statiques) avec `transition-all` +
+  `transitionDuration: ${getRoamTransitionMs()}ms` + `transitionTimingFunction: 'linear'`. Le bloc
+  `liveActorMarkers` reprend la même durée/courbe (au lieu de `getRoamStepMs()`/courbe par défaut).
+  Les marqueurs catalogue réellement statiques (décors, trésors, quêtes…) ne reçoivent PAS de
+  transition (leur position ne change jamais, aucun changement de comportement pour eux).
+
+**Nouveau filtre d'affichage « par entité »** (`lib/mapFilters.ts`, `WorldMapWidget.tsx`,
+`gameState.ts`, bouton 🎭⚙️ à côté de 🔧 dans la barre de filtres) — répond à « un filtre
+spécifique pour chacun : loup-garou, hibou, chevalier, familiers, dragon rouge, pêcheur Vaimoana » :
+- **`MapFilterState`** (`lib/mapFilters.ts`) gagne 5 champs (tous rétrocompatibles, défaut
+  identique au comportement historique) : `showWildlifeOwl`/`showWildlifeWerewolf`/
+  `showWildlifeBoar` (sous-filtres par espèce de faune, actifs uniquement si `showWildlife` l'est
+  déjà), `hiddenEntityIds: string[]` (identifiants catalogue — PNJ/familiers nommés masqués
+  individuellement) et `hiddenNpcArchetypes: string[]` (clés d'archétype de rencontre masquées,
+  ex. `"chevalier"`).
+- **`gameState.ts::MapMarker`** gagne 2 champs optionnels : `wildlifeKind` (espèce de faune, pour le
+  filtre fin) et `catalogId` (VRAIE identité catalogue d'un marqueur synthétique « en direct » —
+  les marqueurs `roaming.npc.live`/`roaming.dragon.live` gardent leur `id` synthétique historique,
+  indispensable à `isLiveActorMarkerId()` pour l'exemption du filtre « intelligent », mais portent
+  désormais aussi leur vraie identité catalogue via `catalogId` pour le filtrage individuel).
+- **`markerMatchesFilters()`** (`lib/mapFilters.ts`) applique ces nouveaux filtres pour `kind ===
+  'npc' | 'familiar'` : masque si `catalogId ?? id` figure dans `hiddenEntityIds`, ou si la clé
+  d'archétype extraite de `i18nKey` (nouvelle fonction exportée `extractArchetypeKey()`, format
+  `npc.archetype.<clé>`) figure dans `hiddenNpcArchetypes`.
+- **`WorldMapWidget.tsx`** : nouveau panneau (disclosure, state `entityFilterOpen`) listant — 100%
+  dynamique/évolutif, aucune entité codée en dur : (1) les 3 sous-filtres de faune ; (2) la liste
+  des PNJ/familiers *actuellement* en vadrouille (PNJ/Dragon « historiques » + tous les familiers
+  errants du catalogue), identifiés par leur vraie identité catalogue — couvre directement « dragon
+  rouge »/« pêcheur Vaimoana » dès qu'ils sont tirés comme acteur errant ; (3) la liste de TOUS les
+  archétypes de rencontre possibles (`NpcEncounterPopup.tsx::ARCHETYPES`, désormais exporté), y
+  compris ceux jamais encore croisés dans la session — couvre « chevalier » et les ~14 autres,
+  pré-filtrables avant même une première rencontre.
+
+**Vérification Playwright** (session démo anonyme, widget Mapmonde ouvert via le dock d'icônes) :
+- Échantillonnage des styles inline des marqueurs familiers : `transitionDuration: "1380ms"`
+  (= 1500 × 0,92, confirme `getRoamTransitionMs()`) et `transitionTimingFunction: "linear"` bien
+  appliqués — confirme la fin de la téléportation instantanée.
+- Panneau 🎭⚙️ : présence confirmée de « Hibou », « Loup-garou », « Chevalier », et de tous les
+  familiers/dragons actuellement errants (ex. « Dragon Rouge », « Dragon Blanc »…) et des ~14
+  archétypes de rencontre.
+- Bascule du filtre « Hibou » : nombre d'éléments `🦉` dans le DOM passe de 22 → 7 (masqué) → 22
+  (réaffiché), confirmant un filtrage réel et non cosmétique.
+- Bascule du bouton « Chevalier » : changement de classe CSS actif/inactif confirmé (bouton visuel
+  cohérent avec l'état du filtre).
+- 0 erreur console relevée pendant tout le scénario. `npx tsc --noEmit` et `npm run build` : 0
+  erreur.
+
+**Non-régression** : les filtres historiques (`showNpcs`/`showFamiliars`/`showWildlife`/etc.),
+le filtre « intelligent » (`declutter`), le gel de proximité, l'anneau clignotant et les libellés
+toujours visibles des acteurs « en direct » sont strictement inchangés — les nouveaux champs
+`MapFilterState` sont tous rétrocompatibles (fusion `{ ...DEFAULT_MAP_FILTERS, ...JSON.parse(raw) }`
+déjà en place pour le localStorage existant). `GameCanvas2D.tsx`/`Platform3DWidget.tsx` non modifiés
+(périmètre explicitement limité à la Mapmonde par la demande utilisateur ; `GameCanvas2D.tsx`
+n'avait pas le bug de transition manquante et continue de fonctionner à l'identique).
+
+

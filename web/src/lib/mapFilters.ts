@@ -56,12 +56,32 @@ export interface MapFilterState {
    * conformément à la demande utilisateur : « positionnes un filtre intelligent [...] pour ne pas
    * avoir trop d'éléments qui surchargent l'affichage ». Actif par défaut. */
   showWildlife: boolean;
+  /** Sous-filtres par espèce de faune (voir WildlifeKind) — n'ont d'effet QUE si `showWildlife`
+   * est actif (voir markerMatchesFilters) : répond à la demande utilisateur « ajoutes également un
+   * niveau de filtre par entité [...] un filtre spécifique pour chacun : loup-garou, hibou [...] ».
+   * `showWildlifeBoar` ajouté par symétrie (3ᵉ espèce de faune existante, voir
+   * lib/roamingActors.ts::WildlifeKind). Actifs par défaut (comportement historique inchangé). */
+  showWildlifeOwl: boolean;
+  showWildlifeWerewolf: boolean;
+  showWildlifeBoar: boolean;
+  /** Identifiants catalogue (`MapMarker.catalogId ?? MapMarker.id`) d'entités individuelles
+   * (PNJ/familiers nommés — ex. dragon rouge, pêcheur Vaimoana) explicitement masquées par le
+   * joueur, indépendamment du filtre global « PNJ »/« Familiers » — répond à « un filtre spécifique
+   * pour chacun [...] dragon rouge, pêcheur Vaimoana ». Vide par défaut (rien de masqué). */
+  hiddenEntityIds: string[];
+  /** Clés d'archétype de rencontre (voir NpcEncounterPopup.tsx::ARCHETYPES, ex. "chevalier")
+   * explicitement masquées parmi les PNJ de rencontre persistés (voir lib/roamingActors.ts::
+   * ExtraRoamingActor) — répond à « un filtre spécifique pour chacun [...] chevalier ». Vide par
+   * défaut. */
+  hiddenNpcArchetypes: string[];
 }
 
 export const DEFAULT_MAP_FILTERS: MapFilterState = {
   showPois: true, showWorlds: true, showNpcs: true, showTreasures: true, showFamiliars: true,
   showQuestsClassic: true, showQuestsNpc: true, showQuestsKingdom: true,
   kingdomChapters: null, kingdomFullMoonMode: 'all', declutter: false, showDrops: true, showWildlife: true,
+  showWildlifeOwl: true, showWildlifeWerewolf: true, showWildlifeBoar: true,
+  hiddenEntityIds: [], hiddenNpcArchetypes: [],
 };
 
 // Rayon (en % de l'échelle mapmonde 0-100, même échelle que MapMarker.x/y) au-delà duquel un
@@ -160,6 +180,16 @@ function isLiveActorMarkerId(id: string): boolean {
   return LIVE_ACTOR_MARKER_IDS.has(id) || id.startsWith('encounter.extra.') || id.startsWith('owl-') || id.startsWith('werewolf-') || id.startsWith('boar-');
 }
 
+const ARCHETYPE_I18N_PREFIX = 'npc.archetype.';
+/** Extrait la clé d'archétype stable (ex. "chevalier") d'un `i18nKey` de marqueur PNJ de rencontre
+ * (voir NpcEncounterPopup.tsx::ARCHETYPES / app/game/page.tsx::spawnExtraRoamingActor, qui pose
+ * systématiquement `i18nKey: npc.archetype.<key>`) — `null` si le marqueur n'est pas un PNJ de
+ * rencontre (PNJ/familier catalogue classique, dont l'`i18nKey` suit un format différent). Exporté
+ * pour réutilisation dans WorldMapWidget.tsx (construction de la liste de filtre "par entité"). */
+export function extractArchetypeKey(i18nKey?: string): string | null {
+  return i18nKey && i18nKey.startsWith(ARCHETYPE_I18N_PREFIX) ? i18nKey.slice(ARCHETYPE_I18N_PREFIX.length) : null;
+}
+
 /** Prédicat de filtrage d'un marqueur — utilisé IDENTIQUEMENT par WorldMapWidget.tsx (rendu de la
  * carte) et GameCanvas2D.tsx (rendu de la caméra isométrique), appliqué uniquement à la liste
  * RENDUE (jamais aux pools fonctionnels : biais de terrain, PNJ/dragon errant, tuiles-portail…).
@@ -177,7 +207,14 @@ export function markerMatchesFilters(m: MapMarker, f: MapFilterState, playerPos?
     case 'treasure': matchesCategory = f.showTreasures; break;
     case 'familiar': matchesCategory = f.showFamiliars; break;
     case 'drop': matchesCategory = f.showDrops; break;
-    case 'wildlife': matchesCategory = f.showWildlife; break;
+    case 'wildlife': {
+      if (!f.showWildlife) { matchesCategory = false; break; }
+      matchesCategory = m.wildlifeKind === 'owl' ? f.showWildlifeOwl
+        : m.wildlifeKind === 'werewolf' ? f.showWildlifeWerewolf
+        : m.wildlifeKind === 'boar' ? f.showWildlifeBoar
+        : true; // espèce inconnue (ne devrait pas arriver) : par prudence, ne pas masquer
+      break;
+    }
     case 'quest': {
       if (m.questCategory === 'kingdom') {
         if (!f.showQuestsKingdom) { matchesCategory = false; break; }
@@ -192,6 +229,16 @@ export function markerMatchesFilters(m: MapMarker, f: MapFilterState, playerPos?
     default: matchesCategory = true;
   }
   if (!matchesCategory) return false;
+  // Filtre fin "par entité" (voir MapFilterState.hiddenEntityIds/hiddenNpcArchetypes ci-dessus) —
+  // ne s'applique qu'aux PNJ/familiers (seuls kinds concernés par une identité catalogue ou un
+  // archétype de rencontre nommé individuellement) ; `catalogId` prend le pas sur `id` quand il est
+  // renseigné (cas des marqueurs synthétiques "historiques", voir gameState.ts::MapMarker.catalogId).
+  if (m.kind === 'npc' || m.kind === 'familiar') {
+    const entityKey = extractArchetypeKey(m.i18nKey);
+    if (entityKey && f.hiddenNpcArchetypes.includes(entityKey)) return false;
+    const catalogId = m.catalogId ?? m.id;
+    if (f.hiddenEntityIds.includes(catalogId)) return false;
+  }
   if (f.declutter && playerPos && !m.isKingdom && m.kind !== 'zorghon' && m.kind !== 'captive' && !isLiveActorMarkerId(m.id)) {
     const dist = Math.hypot(m.x - playerPos.x, m.y - playerPos.y);
     if (dist > DECLUTTER_RADIUS_PCT) return false;

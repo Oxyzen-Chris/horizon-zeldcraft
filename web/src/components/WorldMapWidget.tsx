@@ -24,12 +24,12 @@ import {
 import { ConfirmDialog } from './ConfirmDialog';
 import { SynkSkin } from './SynkSkin';
 import { NPC_SKINS } from '@/lib/contract';
-import type { EncounterMarkerInfo } from './NpcEncounterPopup';
+import { ARCHETYPES, type EncounterMarkerInfo } from './NpcEncounterPopup';
 import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
 import { WorldMapAmbientOverlay } from './WorldMapAmbientOverlay';
-import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, getRoamStepMs } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, getRoamTransitionMs } from '@/lib/roamingActors';
 import { useNpcApproach } from '@/lib/npcApproach';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
@@ -168,6 +168,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
         name: roamingNpcMarker?.name ?? t('canvas2d.npcLabel'),
         i18nKey: roamingNpcMarker?.i18nKey, icon: roamingNpcMarker?.icon ?? '🧙',
         x: roamingActors.npc.x, y: roamingActors.npc.y,
+        catalogId: roamingActors.npcMarkerId,
       });
     }
     if (roamingActors.dragonMarkerId) {
@@ -176,6 +177,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
         name: roamingDragonMarker?.name ?? t('canvas2d.dragonLabel'),
         i18nKey: roamingDragonMarker?.i18nKey, icon: roamingDragonMarker?.icon ?? '🐉',
         x: roamingActors.dragon.x, y: roamingActors.dragon.y,
+        catalogId: roamingActors.dragonMarkerId,
       });
     }
     return list;
@@ -206,6 +208,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     id, kind: 'wildlife' as const,
     name: t(w.kind === 'owl' ? 'canvas2d.owlLabel' : w.kind === 'werewolf' ? 'canvas2d.werewolfLabel' : 'canvas2d.boarLabel'),
     icon: w.kind === 'owl' ? '🦉' : w.kind === 'werewolf' ? '🐺' : '🐗', x: w.x, y: w.y,
+    wildlifeKind: w.kind,
   })), [roamingActors.wildlife, t]);
 
   // ─── PNJ "en approche" (rencontre sollicitée — quête/troc/combat, voir NpcEncounterPopup.tsx) ───
@@ -229,6 +232,30 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     () => [...roamingLiveMarkers, ...extraLiveMarkers, ...wildlifeLiveMarkers, ...(encounterLiveMarker ? [encounterLiveMarker] : [])],
     [roamingLiveMarkers, extraLiveMarkers, wildlifeLiveMarkers, encounterLiveMarker],
   );
+  /** Liste dynamique d'entités individuellement filtrables sur la Mapmonde (voir demande
+   * utilisateur « ajoutes également un niveau de filtre par entité [...] un filtre spécifique pour
+   * chacun : loup-garou, hibou, chevalier, familiers, dragon rouge, pêcheur Vaimoana »). `catalog`
+   * couvre le PNJ/Dragon errant "historique" + tous les familiers errants (ex. dragon rouge),
+   * identifiés par leur VRAIE identité catalogue (`catalogId`, voir gameState.ts::MapMarker et
+   * lib/mapFilters.ts::hiddenEntityIds) même quand le marqueur "en direct" utilise un `id`
+   * synthétique. `archetypes` couvre TOUS les archétypes de rencontre possibles (voir
+   * NpcEncounterPopup.tsx::ARCHETYPES, ex. "chevalier"), y compris ceux jamais encore croisés dans
+   * cette session (sinon impossible de les pré-filtrer avant une première rencontre). 100%
+   * générique : tout nouveau familier/PNJ/archétype ajouté au catalogue apparaît automatiquement. */
+  const entityFilterEntries = useMemo(() => {
+    const catalog: { id: string; icon: string; label: string }[] = [];
+    const seen = new Set<string>();
+    const pushCatalog = (catalogId: string | null | undefined, icon: string, name: string, i18nKey?: string) => {
+      if (!catalogId || seen.has(catalogId)) return;
+      seen.add(catalogId);
+      catalog.push({ id: catalogId, icon, label: localizeName(t, i18nKey, name) });
+    };
+    pushCatalog(roamingActors.npcMarkerId, roamingNpcMarker?.icon ?? '🧙', roamingNpcMarker?.name ?? t('canvas2d.npcLabel'), roamingNpcMarker?.i18nKey);
+    pushCatalog(roamingActors.dragonMarkerId, roamingDragonMarker?.icon ?? '🐉', roamingDragonMarker?.name ?? t('canvas2d.dragonLabel'), roamingDragonMarker?.i18nKey);
+    generalFamiliarLiveMarkers.forEach((m) => pushCatalog(m.id, m.icon, m.name, m.i18nKey));
+    const archetypes = ARCHETYPES.map((a) => ({ key: a.key, icon: NPC_SKINS[0] ?? '🧙', label: localizeName(t, `npc.archetype.${a.key}`, a.base) }));
+    return { catalog, archetypes };
+  }, [roamingActors.npcMarkerId, roamingActors.dragonMarkerId, roamingNpcMarker, roamingDragonMarker, generalFamiliarLiveMarkers, t]);
   /** Libellé de catégorie affiché en suffixe du marqueur "en direct" (voir rendu plus bas) —
    * distingue "PNJ errant"/"Dragon errant" (errance ambiante) du PNJ "en approche" (dont le
    * libellé reprend le TYPE de sollicitation : quête/troc/combat/discussion, bien plus parlant
@@ -267,6 +294,13 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
   const [mapFilters, setMapFilters] = useMapFilters();
   const [filtersBarOpen, setFiltersBarOpen] = useState(false);
   const [kingdomFilterOpen, setKingdomFilterOpen] = useState(false);
+  const [entityFilterOpen, setEntityFilterOpen] = useState(false);
+  const toggleHiddenEntity = useCallback((id: string) => {
+    setMapFilters({ hiddenEntityIds: mapFilters.hiddenEntityIds.includes(id) ? mapFilters.hiddenEntityIds.filter(x => x !== id) : [...mapFilters.hiddenEntityIds, id] });
+  }, [mapFilters.hiddenEntityIds, setMapFilters]);
+  const toggleHiddenArchetype = useCallback((key: string) => {
+    setMapFilters({ hiddenNpcArchetypes: mapFilters.hiddenNpcArchetypes.includes(key) ? mapFilters.hiddenNpcArchetypes.filter(x => x !== key) : [...mapFilters.hiddenNpcArchetypes, key] });
+  }, [mapFilters.hiddenNpcArchetypes, setMapFilters]);
   useEffect(() => {
     getMapFilterDefaults().then(applyAdminMapFilterDefaults).catch(() => {});
   }, []);
@@ -715,6 +749,11 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
                 onClick={() => setKingdomFilterOpen(o => !o)}
               >👑⚙️</button>
             )}
+            <button
+              className={`text-[10px] px-1.5 py-0.5 rounded border ml-1 ${entityFilterOpen ? 'bg-amber-600 border-amber-400' : 'bg-amber-800/60 border-amber-700'}`}
+              title={t('map.filters.entitiesHint')}
+              onClick={() => setEntityFilterOpen(o => !o)}
+            >🎭⚙️</button>
           </div>
           {mapFilters.showQuestsKingdom && kingdomFilterOpen && (
             <div className="flex flex-col gap-1 border-t border-amber-800/50 pt-1">
@@ -753,6 +792,73 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
                         active ? 'bg-fuchsia-800/70 border-fuchsia-500 text-fuchsia-100' : 'bg-slate-800/60 border-slate-600 text-slate-400'
                       }`}
                     >{ch.chapter}</button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {/* Filtre fin "par entité" (voir demande utilisateur « ajoutes également un niveau de
+              filtre par entité pour les sélectionner et les voir ou non se déplacer sur la carte
+              de la Mapmonde [...] un filtre spécifique pour chacun : loup-garou, hibou, chevalier,
+              familiers, dragon rouge, pêcheur Vaimoana ») — 3 sous-filtres par espèce de faune
+              (actifs seulement si le filtre "Faune" global l'est, voir markerMatchesFilters), puis
+              2 listes dynamiques : PNJ/familiers nommés actuellement en vadrouille (couvre p. ex.
+              dragon rouge/pêcheur Vaimoana sous leur VRAIE identité catalogue, voir
+              entityFilterEntries) et TOUS les archétypes de rencontre possibles (couvre chevalier
+              et les ~14 autres, même jamais encore croisés — voir NpcEncounterPopup.tsx::
+              ARCHETYPES). 100% générique/évolutif : n'importe quel nouveau familier/PNJ/archétype
+              ajouté au catalogue apparaît ici automatiquement, sans modification de code. */}
+          {entityFilterOpen && (
+            <div className="flex flex-col gap-1 border-t border-amber-800/50 pt-1">
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-[10px] text-amber-300 shrink-0">{t('map.filters.wildlife')}:</span>
+                {([
+                  { key: 'showWildlifeOwl' as const, icon: '🦉', label: 'map.filters.wildlifeOwl' },
+                  { key: 'showWildlifeWerewolf' as const, icon: '🐺', label: 'map.filters.wildlifeWerewolf' },
+                  { key: 'showWildlifeBoar' as const, icon: '🐗', label: 'map.filters.wildlifeBoar' },
+                ]).map(sub => (
+                  <button
+                    key={sub.key}
+                    title={t(sub.label)}
+                    onClick={() => setMapFilters({ [sub.key]: !mapFilters[sub.key] } as Partial<typeof mapFilters>)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                      mapFilters[sub.key] ? 'bg-emerald-800/70 border-emerald-500 text-emerald-100' : 'bg-slate-800/60 border-slate-600 text-slate-400 opacity-60'
+                    }`}
+                  >{sub.icon} {t(sub.label)}</button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1 flex-wrap max-h-20 overflow-y-auto">
+                <span className="text-[10px] text-amber-300 shrink-0">{t('map.filters.entitiesCatalog')}:</span>
+                {entityFilterEntries.catalog.length === 0 && (
+                  <span className="text-[9px] text-amber-400/70 italic">{t('map.filters.entitiesEmpty')}</span>
+                )}
+                {entityFilterEntries.catalog.map(ent => {
+                  const active = !mapFilters.hiddenEntityIds.includes(ent.id);
+                  return (
+                    <button
+                      key={ent.id}
+                      title={ent.label}
+                      onClick={() => toggleHiddenEntity(ent.id)}
+                      className={`text-[9px] px-1 py-0.5 rounded border ${
+                        active ? 'bg-emerald-800/70 border-emerald-500 text-emerald-100' : 'bg-slate-800/60 border-slate-600 text-slate-400 opacity-60'
+                      }`}
+                    >{ent.icon} {ent.label}</button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-1 flex-wrap max-h-20 overflow-y-auto">
+                <span className="text-[10px] text-amber-300 shrink-0">{t('map.filters.entitiesArchetypes')}:</span>
+                {entityFilterEntries.archetypes.map(a => {
+                  const active = !mapFilters.hiddenNpcArchetypes.includes(a.key);
+                  return (
+                    <button
+                      key={a.key}
+                      title={a.label}
+                      onClick={() => toggleHiddenArchetype(a.key)}
+                      className={`text-[9px] px-1 py-0.5 rounded border ${
+                        active ? 'bg-emerald-800/70 border-emerald-500 text-emerald-100' : 'bg-slate-800/60 border-slate-600 text-slate-400 opacity-60'
+                      }`}
+                    >{a.icon} {a.label}</button>
                   );
                 })}
               </div>
@@ -831,11 +937,30 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
               ci-dessous) est exclu ICI (`m.id !== roamingActors.npcMarkerId && ...`) pour ne jamais
               afficher deux fois le même personnage : une fois à sa position CATALOGUE figée, une
               fois à sa position EN DIRECT — seule cette dernière doit apparaître. */}
-          {[...entityMarkers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId && !roamingActors.familiars[m.id]), ...generalFamiliarLiveMarkers, ...(kingdomMarker ? [kingdomMarker] : []), ...zorghonMarkers].filter(m => markerMatchesFilters(m, mapFilters, mapPos)).map(m => (
+          {[...entityMarkers.filter(m => m.id !== roamingActors.npcMarkerId && m.id !== roamingActors.dragonMarkerId && !roamingActors.familiars[m.id]), ...(kingdomMarker ? [kingdomMarker] : []), ...zorghonMarkers].filter(m => markerMatchesFilters(m, mapFilters, mapPos)).map(m => (
             <div key={`${m.kind}-${m.id}`} title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
               className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none ${m.isKingdom ? 'animate-pulse' : ''}`}
               style={{ left: `${m.x}%`, top: `${m.y}%` }}>
               <span style={{ fontSize: (m.isKingdom ? 16 : 13) + zoom * 5 }}>{m.icon}</span>
+            </div>
+          ))}
+
+          {/* Familiers/dragons du catalogue AUTRES que le Dragon errant "historique" (voir
+              generalFamiliarLiveMarkers/lib/roamingActors.ts::familiars) — rendus séparément du
+              bloc catalogue statique ci-dessus car ils bougent (position EN DIRECT, rafraîchie à
+              chaque tick) : SANS transition CSS, un changement de `left`/`top` s'applique de façon
+              instantanée ("téléportation" à chaque tick) — corrige le bug remonté par l'utilisateur
+              « le déplacement des PNJ [...] semble saccader », qui touchait en premier lieu CES
+              marqueurs (seuls `liveActorMarkers` ci-dessous bénéficiaient déjà d'une transition).
+              `transitionTimingFunction: 'linear'` (plutôt que la courbe par défaut Tailwind,
+              accélère/décélère à chaque segment) + durée légèrement réduite (`getRoamTransitionMs()`,
+              voir lib/roamingActors.ts) pour une vitesse constante et sans temps mort entre deux
+              ticks, cohérent avec le correctif appliqué au bloc `liveActorMarkers` ci-dessous. */}
+          {generalFamiliarLiveMarkers.filter(m => markerMatchesFilters(m, mapFilters, mapPos)).map(m => (
+            <div key={`${m.kind}-${m.id}`} title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)}`}
+              className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none transition-all"
+              style={{ left: `${m.x}%`, top: `${m.y}%`, transitionDuration: `${getRoamTransitionMs()}ms`, transitionTimingFunction: 'linear' }}>
+              <span style={{ fontSize: 13 + zoom * 5 }}>{m.icon}</span>
             </div>
           ))}
 
@@ -849,12 +974,18 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
               "filtre intelligent" declutter est actif, voir LIVE_ACTOR_MARKER_IDS dans
               lib/mapFilters.ts) pour bien les distinguer des marqueurs catalogue figés. Respecte
               les mêmes filtres « PNJ »/« Familiers » que leurs homologues statiques (kind
-              'npc'/'familiar') — répond à « les ajouter dans le filtre d'affichage des PNJ ». */}
+              'npc'/'familiar') — répond à « les ajouter dans le filtre d'affichage des PNJ ».
+              🔧 `transitionTimingFunction: 'linear'` + `getRoamTransitionMs()` (voir commentaire
+              détaillé ci-dessus sur generalFamiliarLiveMarkers) : corrige le même bug de
+              "saccadement" pour le PNJ/Dragon errant, la faune (hibou/loup-garou/sanglier) et les
+              PNJ de rencontre persistés, qui disposaient déjà d'une transition mais avec la courbe
+              par défaut (accélère/décélère à chaque segment de 1,5s) et une durée pile égale à la
+              cadence des ticks (sensible au moindre jitter du minuteur JS). */}
           {liveActorMarkers.filter(m => markerMatchesFilters(m, mapFilters, mapPos)).map(m => (
             <div key={`live-${m.kind}-${m.id}`}
               title={`${m.icon} ${localizeName(t, m.i18nKey, m.name)} · ${liveActorKindLabel(m)}`}
               className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none transition-all"
-              style={{ left: `${m.x}%`, top: `${m.y}%`, transitionDuration: `${getRoamStepMs()}ms` }}>
+              style={{ left: `${m.x}%`, top: `${m.y}%`, transitionDuration: `${getRoamTransitionMs()}ms`, transitionTimingFunction: 'linear' }}>
               {isNearSynk(m) && (
                 <span className="absolute rounded-full border-2 border-amber-400 animate-ping" style={{ width: 20 + zoom * 8, height: 20 + zoom * 8 }} />
               )}

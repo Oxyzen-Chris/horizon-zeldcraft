@@ -13,6 +13,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  { date: '2026-10-15', icon: '🗺️', titleKey: 'changelog.mapmondeSmoothFilters.title', bodyKey: 'changelog.mapmondeSmoothFilters.body' },
   { date: '2026-10-14', icon: '🧭', titleKey: 'changelog.compassBlurRemoved.title', bodyKey: 'changelog.compassBlurRemoved.body' },
   { date: '2026-10-13', icon: '⚡', titleKey: 'changelog.gpuSaturationFollowup.title', bodyKey: 'changelog.gpuSaturationFollowup.body' },
   { date: '2026-10-12', icon: '⚡', titleKey: 'changelog.gpuSaturationFix.title', bodyKey: 'changelog.gpuSaturationFix.body' },

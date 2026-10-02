@@ -766,6 +766,23 @@ function maybeStopInterval(): void {
  * réelle des ticks, quelle que soit la valeur configurée en Administration. */
 export function getRoamStepMs(): number { return stepMs; }
 
+/** Durée (ms) à utiliser pour la transition CSS `left`/`top` des marqueurs "en direct" de la
+ * Mapmonde/Plateforme 2D isométrique — LÉGÈREMENT inférieure à `getRoamStepMs()` (voir
+ * `TRANSITION_SAFETY_MARGIN_MS` ci-dessous). Corrige le bug remonté par l'utilisateur : « le
+ * déplacement des PNJ [...] semble saccader ». Cause : une transition CSS durant EXACTEMENT
+ * `stepMs` peut, au moindre jitter du `setInterval` JS sous-jacent (quelques ms de retard, tout à
+ * fait normal sous charge avec de nombreux minuteurs concurrents dans cette application), se
+ * retrouver déjà arrivée à sa cible AVANT que le tick suivant ne fournisse une nouvelle position —
+ * l'élément reste alors visuellement figé un court instant avant de reprendre sec dès l'arrivée de
+ * la cible suivante, un à-coup qui s'accumule et devient perceptible comme un « saccadement ». En
+ * ne laissant à la transition que ~92% de l'intervalle réel entre deux ticks, elle a toujours fini
+ * AVANT l'arrivée de la position suivante, éliminant ce temps mort — le déplacement reste identique
+ * en distance/trajectoire, seule la régularité visuelle change. Utilisée UNIQUEMENT comme durée de
+ * transition CSS (jamais comme base de calcul des ticks eux-mêmes, qui continuent de se produire
+ * toutes les `getRoamStepMs()` ms exactement, zéro impact sur la logique de jeu/IA de déplacement). */
+const TRANSITION_SAFETY_MARGIN_RATIO = 0.92;
+export function getRoamTransitionMs(): number { return Math.max(200, Math.round(stepMs * TRANSITION_SAFETY_MARGIN_RATIO)); }
+
 /** Reçoit la config Administration (voir RepRules.roamStepMs/roamPauseMinSec/roamPauseMaxSec/
  * roamProximityFreezeEnabled/roamProximityFreezeTiles, RepRulesPanel.tsx section « 🚶 Déplacement
  * des PNJ/Familiers errants ») — appelé par les 3 widgets dès que les règles sont chargées, aucun

@@ -2615,6 +2615,23 @@ export interface MapMarker {
   questCategory?: 'classic' | 'npc' | 'kingdom';
   kingdomChapter?: number;
   fullMoonOnly?: boolean;
+  // ─── Métadonnées de filtrage "par entité" (voir lib/mapFilters.ts::hiddenEntityIds/
+  // hiddenNpcArchetypes/showWildlifeOwl-Werewolf-Boar et demande utilisateur « ajoutes également un
+  // niveau de filtre par entité [...] un filtre spécifique pour chacun : loup-garou, hibou,
+  // chevalier, familiers, dragon rouge, pêcheur Vaimoana ») : certains marqueurs "en direct" (voir
+  // WorldMapWidget.tsx::roamingLiveMarkers) utilisent un `id` SYNTHÉTIQUE stable
+  // ('roaming.npc.live'/'roaming.dragon.live', voir lib/mapFilters.ts::LIVE_ACTOR_MARKER_IDS, qui en
+  // dépend pour l'exemption du "filtre intelligent" — ne JAMAIS le remplacer par l'id catalogue).
+  // `catalogId` porte alors SÉPARÉMENT la vraie identité catalogue (ex. "dragon.red", "pecheur_
+  // taolani") pour permettre un filtrage individuel fiable même sur ces marqueurs synthétiques —
+  // pour tous les autres marqueurs (catalogue statique, familiers errants hors "historique"), `id`
+  // EST déjà la vraie identité catalogue : `catalogId` n'est alors pas nécessaire (voir
+  // markerMatchesFilters, repli sur `m.id`). */
+  catalogId?: string;
+  /** Sous-catégorie de faune (voir lib/roamingActors.ts::WildlifeKind) — seul kind==='wildlife'
+   * porte cette info, pour permettre un filtre fin "Hibou"/"Loup-garou"/"Sanglier" distinct du
+   * filtre global "Faune" (showWildlife). */
+  wildlifeKind?: 'owl' | 'werewolf' | 'boar';
 }
 
 /** 10 grands lacs/étangs fixes, répartis sur toute la mapmonde (voir RepRules.defaultLakesEnabled)

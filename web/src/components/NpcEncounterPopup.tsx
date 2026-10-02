@@ -98,13 +98,17 @@ type TradeResultData = {
 // (voir t(`npc.archetype.${key}`)), `base` = texte FR brut de repli. Les 4 archétypes saisonniers
 // (`season` renseigné) n'apparaissent que pendant la saison effective (voir getCurrentSeason() /
 // rollNpc()) — les autres restent disponibles toute l'année.
-type NpcArchetype = {
+export type NpcArchetype = {
   key: string; base: string;
   align: 'friendly' | 'neutral' | 'hostile' | 'unknown';
   offer: 'trade' | 'quest' | 'fight' | 'chat';
   season?: Season;
 };
-const ARCHETYPES: readonly NpcArchetype[] = [
+/** Exporté (voir WorldMapWidget.tsx::entityFilterEntries) pour permettre au filtre "par entité" de
+ * la Mapmonde de lister TOUS les archétypes possibles — y compris ceux qui n'ont encore jamais été
+ * rencontrés dans la session en cours (sinon un joueur ne pourrait filtrer "Chevalier" qu'APRÈS en
+ * avoir croisé un) — répond à la demande utilisateur « un filtre spécifique pour chacun ». */
+export const ARCHETYPES: readonly NpcArchetype[] = [
   { key: 'marchand',   base: 'Marchand',   align: 'friendly', offer: 'trade' },
   { key: 'chevalier',  base: 'Chevalier',  align: 'neutral',  offer: 'quest' },
   { key: 'combattant', base: 'Combattant', align: 'hostile',  offer: 'fight' },
