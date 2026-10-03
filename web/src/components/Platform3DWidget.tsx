@@ -34,9 +34,9 @@ import { HutRestModal } from './HutRestModal';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
 import { Platform3DAmbientScene, Owl3D, Werewolf3D, Boar3D, Zombie3D, Ghoul3D, Skeleton3D } from './Platform3DAmbientScene';
-import { CryptTunnelScene } from './CryptTunnelScene';
+import { CryptTunnelScene, CRYPT_STAIR_STEPS } from './CryptTunnelScene';
 import { ParchmentPopup } from './ParchmentPopup';
-import { useAdminAudioSettings } from '@/lib/audio';
+import { useAdminAudioSettings, playAmbientSound } from '@/lib/audio';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 
 const POS_KEY = 'zc.platform3dWidgetPos';
@@ -1252,10 +1252,15 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
             <meshStandardMaterial color="#6b6358" roughness={0.95} />
           </mesh>
         ))}
+        {/* Pierres tombales agrandies (~1.35x, voir demande utilisateur « agrandisses un peu plus
+            les tombes et pierre tombales dans le cimetière ») + croix au-dessus de chacune (voir
+            demande utilisateur « ajoutes une croix au dessus de la pierre tombale »). */}
         {[[-0.4, -0.3], [0.25, -0.1], [-0.1, 0.45], [0.5, 0.4]].map(([cx, cz], i) => (
           <group key={i} position={[cx, 0, cz]}>
-            <mesh position={[0, 0.2, 0]} castShadow><boxGeometry args={[0.22, 0.4, 0.07]} /><meshStandardMaterial color="#8d887c" roughness={0.9} /></mesh>
-            <mesh position={[0, 0.3, 0.05]} castShadow><boxGeometry args={[0.3, 0.07, 0.03]} /><meshStandardMaterial color="#8d887c" roughness={0.9} /></mesh>
+            <mesh position={[0, 0.27, 0]} castShadow><boxGeometry args={[0.3, 0.54, 0.09]} /><meshStandardMaterial color="#8d887c" roughness={0.9} /></mesh>
+            <mesh position={[0, 0.44, 0.07]} castShadow><boxGeometry args={[0.4, 0.09, 0.04]} /><meshStandardMaterial color="#8d887c" roughness={0.9} /></mesh>
+            <mesh position={[0, 0.66, 0]} castShadow><boxGeometry args={[0.05, 0.24, 0.05]} /><meshStandardMaterial color="#b9b4a7" roughness={0.85} /></mesh>
+            <mesh position={[0, 0.72, 0]} castShadow><boxGeometry args={[0.18, 0.05, 0.05]} /><meshStandardMaterial color="#b9b4a7" roughness={0.85} /></mesh>
           </group>
         ))}
       </group>
@@ -1267,21 +1272,27 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // une arche sombre (la "porte") : cliquer ouvre PoiInteractionModal::CryptBody, dont le bouton
     // « Entrer dans la crypte » déclenche `cryptMode` (voir plus bas dans ce fichier) qui monte
     // `CryptTunnelScene` à la place de `Scene` dans le même `<Canvas>`.
+    // Agrandie ~1.3x (voir demande utilisateur « agrandisses la crypte qui me semble trop petite »)
+    // + croix ajoutée au sommet du fronton (voir demande utilisateur « ajoutes une croix pour
+    // rendre plus crédible la crypte »), en plus du crâne décoratif déjà présent (conservé).
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, 0.55, 0]} castShadow><boxGeometry args={[1.1, 1.1, 1]} /><meshStandardMaterial color="#58544c" roughness={0.9} /></mesh>
-        <mesh position={[0, 1.22, 0]} castShadow><boxGeometry args={[1.3, 0.22, 1.2]} /><meshStandardMaterial color="#3f3b35" roughness={0.9} /></mesh>
+        <mesh position={[0, 0.72, 0]} castShadow><boxGeometry args={[1.43, 1.43, 1.3]} /><meshStandardMaterial color="#58544c" roughness={0.9} /></mesh>
+        <mesh position={[0, 1.59, 0]} castShadow><boxGeometry args={[1.69, 0.29, 1.56]} /><meshStandardMaterial color="#3f3b35" roughness={0.9} /></mesh>
         {/* Arche sombre (porte d'entrée du souterrain) */}
-        <mesh position={[0, 0.42, 0.51]}>
-          <cylinderGeometry args={[0.32, 0.32, 0.72, 10, 1, false, 0, Math.PI]} />
+        <mesh position={[0, 0.55, 0.66]}>
+          <cylinderGeometry args={[0.42, 0.42, 0.94, 10, 1, false, 0, Math.PI]} />
           <meshStandardMaterial color="#0a0908" roughness={1} side={THREE.DoubleSide} />
         </mesh>
         {/* Colonnes latérales */}
-        {[-0.5, 0.5].map((cx, i) => (
-          <mesh key={i} position={[cx, 0.55, 0.5]} castShadow><cylinderGeometry args={[0.1, 0.12, 1.1, 8]} /><meshStandardMaterial color="#6b655a" roughness={0.9} /></mesh>
+        {[-0.65, 0.65].map((cx, i) => (
+          <mesh key={i} position={[cx, 0.72, 0.65]} castShadow><cylinderGeometry args={[0.13, 0.16, 1.43, 8]} /><meshStandardMaterial color="#6b655a" roughness={0.9} /></mesh>
         ))}
         {/* Crâne gravé au fronton (purement décoratif) */}
-        <mesh position={[0, 1.1, 0.56]}><sphereGeometry args={[0.13, 8, 8]} /><meshStandardMaterial color="#d6d3cb" roughness={0.8} /></mesh>
+        <mesh position={[0, 1.43, 0.73]}><sphereGeometry args={[0.17, 8, 8]} /><meshStandardMaterial color="#d6d3cb" roughness={0.8} /></mesh>
+        {/* Croix sommitale */}
+        <mesh position={[0, 1.95, 0]} castShadow><boxGeometry args={[0.08, 0.42, 0.08]} /><meshStandardMaterial color="#3f3b35" roughness={0.85} /></mesh>
+        <mesh position={[0, 2.08, 0]} castShadow><boxGeometry args={[0.3, 0.08, 0.08]} /><meshStandardMaterial color="#3f3b35" roughness={0.85} /></mesh>
       </group>
     );
   }
@@ -1291,11 +1302,15 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // soulève à côté de sa pierre tombale ») — pierre tombale + dalle au sol qui se soulève/pivote
     // UNE SEULE FOIS au montage (animation locale simplifiée, voir TombSlab ci-dessous), suggérant
     // l'émergence du mort-vivant ancré sur cette tombe (voir lib/roamingActors.ts::
-    // ensureWildlifeSpawns, seedé sur DEFAULT_TOMB_POIS).
+    // ensureWildlifeSpawns, seedé sur DEFAULT_TOMB_POIS). Pierre tombale agrandie ~1.35x et croix
+    // ajoutée au sommet, même traitement que les pierres tombales du cimetière (voir isCemetery
+    // ci-dessus), pour une cohérence visuelle entre tombes isolées et tombes groupées.
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, 0.16, 0.25]} castShadow><boxGeometry args={[0.1, 0.32, 0.04]} /><meshStandardMaterial color="#8d887c" roughness={0.9} /></mesh>
-        <mesh position={[0, 0.3, -0.1]} castShadow><cylinderGeometry args={[0.24, 0.26, 0.5, 8, 1, false, 0, Math.PI]} /><meshStandardMaterial color="#9c968a" roughness={0.9} side={THREE.DoubleSide} /></mesh>
+        <mesh position={[0, 0.22, 0.25]} castShadow><boxGeometry args={[0.14, 0.43, 0.05]} /><meshStandardMaterial color="#8d887c" roughness={0.9} /></mesh>
+        <mesh position={[0, 0.41, -0.1]} castShadow><cylinderGeometry args={[0.32, 0.35, 0.68, 8, 1, false, 0, Math.PI]} /><meshStandardMaterial color="#9c968a" roughness={0.9} side={THREE.DoubleSide} /></mesh>
+        <mesh position={[0, 0.78, -0.1]} castShadow><boxGeometry args={[0.06, 0.26, 0.06]} /><meshStandardMaterial color="#9c968a" roughness={0.85} /></mesh>
+        <mesh position={[0, 0.85, -0.1]} castShadow><boxGeometry args={[0.21, 0.06, 0.06]} /><meshStandardMaterial color="#9c968a" roughness={0.85} /></mesh>
         <TombSlab markerId={markerId} />
         <mesh position={[0, 0.02, -0.1]}><cylinderGeometry args={[0.32, 0.36, 0.05, 10]} /><meshStandardMaterial color="#3f3a30" roughness={1} /></mesh>
       </group>
@@ -2222,7 +2237,17 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // existant (trop risqué pour la navigation déjà en place, voir useHoldMovement ci-dessous).
   const [cryptMode, setCryptMode] = useState<string | null>(null);
   const [cryptProgress, setCryptProgress] = useState(0);
-  const cryptTunnelLength = Math.max(4, Math.round(rules?.cryptTunnelLength ?? 20));
+  // true une fois la porte au sommet de l'escalier franchie (voir CryptTunnelScene.tsx, § Escalier
+  // + porte) — bascule l'overlay HUD et le rendu 3D vers la salle d'arrivée (tour/chambre/
+  // parchemin), réinitialisé à chaque nouvelle entrée en crypte (voir onRequestEnterCrypt).
+  const [cryptDoorOpened, setCryptDoorOpened] = useState(false);
+  const cryptTunnelLength = Math.max(4, Math.round(rules?.cryptTunnelLength ?? 40));
+  // Sauvegarde de la caméra AVANT l'entrée en crypte (position + orientation), pour la restaurer
+  // telle quelle à la sortie (voir bouton « Sortir » plus bas) — sans cela, la caméra R3F unique
+  // (voir `cameraRef`/`CameraBridge`) resterait positionnée au fond du souterrain après la sortie,
+  // et `OrbitControls` du monde extérieur recalculerait une orbite aberrante à partir de cette
+  // position résiduelle (régression visuelle : "saut" de caméra au retour du souterrain).
+  const preCryptCameraRef = useRef<{ position: THREE.Vector3; quaternion: THREE.Quaternion } | null>(null);
   // Parchemin déjà ramassé par CE joueur (voir lib/gameState.ts::getTakenParchmentIds/
   // subscribeTakenParchmentIds, stockage PAR JOUEUR — voir commentaire détaillé dans gameState.ts).
   const [takenParchmentIds, setTakenParchmentIds] = useState<Set<string>>(new Set());
@@ -2800,7 +2825,16 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // ignorée via `e.repeat`) et ajoute la course au maintien prolongé (movementRunHoldThresholdMs).
   const keysDownRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (collapsed || !enabled) return;
+    // Gate `cryptMode` : tant que Synk explore un souterrain de crypte, les flèches/WASD sont
+    // interceptées par l'effet dédié ci-dessous (voir `cryptKeyboard`) pour faire progresser
+    // `cryptProgress` — SANS JAMAIS faire bouger le VRAI Synk "au-dessus", dans le monde normal.
+    // Bug corrigé : ce garde-fou manquait auparavant, si bien qu'appuyer sur Haut/Bas dans le
+    // souterrain faisait AUSSI avancer Synk dehors (parfois jusque sur une dalle d'eau), ce qui
+    // déclenchait à tort le popup "Profondeur" (`EnvStatusPopupLayer`/`depthAltitudeUi` dans
+    // GameCanvas2D.tsx/WorldMapWidget.tsx, qui lit la position RÉELLE de Synk, indépendamment de
+    // ce widget) — voir aussi le nettoyage de `keysDownRef`/`releaseMovement` ci-dessous à l'entrée
+    // en crypte, pour ne laisser aucune touche "fantôme" active au moment du changement de mode.
+    if (collapsed || !enabled || cryptMode) return;
     const UP = new Set(['ArrowUp', 'w', 'W', 'z', 'Z']);
     const DOWN = new Set(['ArrowDown', 's', 'S']);
     const LEFT = new Set(['ArrowLeft', 'a', 'A', 'q', 'Q']);
@@ -2848,7 +2882,35 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       keysDownRef.current.clear();
       releaseMovement();
     };
-  }, [collapsed, enabled, hold, releaseMovement]);
+  }, [collapsed, enabled, cryptMode, hold, releaseMovement]);
+
+  // ─── Déplacement au clavier DANS le souterrain de crypte (flèches Haut/Bas uniquement, voir
+  // demande utilisateur « l'on puisse utiliser le pavé directionnel flèches haut ou bas du clavier
+  // pour avancer ou reculer ») — effet ENTIÈREMENT SÉPARÉ de celui ci-dessus (qui reste désactivé
+  // tant que `cryptMode` est actif, voir le garde-fou ajouté plus haut) pour garantir une isolation
+  // stricte entre les deux mondes : les touches ne modifient JAMAIS `worldPosRef`/`hold` (le "vrai"
+  // Synk extérieur) pendant l'exploration du souterrain, seulement `cryptProgress`. Le répétiteur
+  // natif du clavier (OS) est volontairement laissé actif (pas de filtre `e.repeat`) pour un effet
+  // "maintenir pour avancer" simple, sans dupliquer `useHoldMovement` pour ce cas particulier.
+  useEffect(() => {
+    if (!cryptMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const maxProgress = cryptTunnelLength + CRYPT_STAIR_STEPS;
+      if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W' || e.key === 'z' || e.key === 'Z') {
+        e.preventDefault();
+        if (cryptDoorOpened) return; // plus de progression possible une fois la porte franchie
+        setCryptProgress((p) => Math.min(maxProgress, p + 1));
+      } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        if (cryptDoorOpened) { setCryptDoorOpened(false); return; } // referme la porte (repart)
+        setCryptProgress((p) => Math.max(0, p - 1));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cryptMode, cryptTunnelLength, cryptDoorOpened]);
 
   // ─── Redimensionnement à la souris (coin bas-droit, voir onResizePointerMove) + plein écran natif
   // du navigateur (voir RepRules.platform3dResizableEnabled) — le conteneur 3D `fullscreenRef` (et
@@ -3066,16 +3128,15 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           }}
         >
           {cryptMode ? (
-            <>
-              <CryptTunnelScene
-                cryptId={cryptMode} progress={cryptProgress} tunnelLength={cryptTunnelLength}
-                torchFlickerEnabled={rules?.cryptTorchFlickerEnabled ?? true}
-                batCount={rules?.cryptBatCount ?? 5}
-                parchmentTaken={takenParchmentIds.has(cryptMode)}
-                onParchmentClick={() => setParchmentPopupCryptId(cryptMode)}
-              />
-              <OrbitControls enablePan={false} enableZoom={false} enableDamping dampingFactor={0.12} target={[0, 1.1, -2]} />
-            </>
+            <CryptTunnelScene
+              cryptId={cryptMode} progress={cryptProgress} tunnelLength={cryptTunnelLength}
+              torchFlickerEnabled={rules?.cryptTorchFlickerEnabled ?? true}
+              batCount={rules?.cryptBatCount ?? 5}
+              doorOpened={cryptDoorOpened}
+              onToggleDoor={() => setCryptDoorOpened((v) => !v)}
+              parchmentTaken={takenParchmentIds.has(cryptMode)}
+              onParchmentClick={() => setParchmentPopupCryptId(cryptMode)}
+            />
           ) : underwaterMode ? (
             <UnderwaterScene
               stage={stage} facing={facing} equipment={equipment}
@@ -3232,42 +3293,82 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         </div>
         )}
         {/* ─── Overlay souterrain de crypte (voir CryptTunnelScene.tsx) — remplace totalement le
-            dpad (masqué ci-dessus) tant que `cryptMode` est actif : seuls « ▲ Avancer »/« ▼ Reculer »
-            font progresser/reculer `cryptProgress` (une "dalle" à la fois, voir `cryptTunnelLength`
-            pour la borne max), et « 🚪 Sortir » referme le souterrain (retour instantané à la vue
-            normale, Synk réapparaît devant l'entrée de la crypte — aucune sauvegarde de position
-            dans le souterrain, cohérent avec la demande utilisateur « pourra bien sûr faire demi-tour
-            [...] puis y revenir »). */}
-        {cryptMode && (
+            dpad (masqué ci-dessus) tant que `cryptMode` est actif : « ▲ Avancer »/« ▼ Reculer » (ou
+            les flèches Haut/Bas du clavier, voir l'effet dédié plus haut) font progresser/reculer
+            `cryptProgress` dans le couloir PUIS l'escalier (voir `cryptTunnelLength`/
+            `CRYPT_STAIR_STEPS` pour les bornes de chaque phase), jusqu'à la porte — une fois la
+            porte franchie (`cryptDoorOpened`), « ▲ Avancer » est désactivé (plus de couloir à
+            parcourir) et « ▼ Reculer » referme la porte au lieu de reculer. « 🚪 Sortir » referme
+            TOUJOURS intégralement le souterrain (retour instantané à la vue normale, Synk
+            réapparaît devant l'entrée de la crypte — aucune sauvegarde de position dans le
+            souterrain, cohérent avec la demande utilisateur « pourra bien sûr faire demi-tour
+            [...] puis y revenir ») et restaure la caméra extérieure EXACTEMENT comme avant l'entrée
+            (voir `preCryptCameraRef`, capturé dans `onRequestEnterCrypt` ci-dessous). */}
+        {cryptMode && (() => {
+          const inStairs = cryptProgress > cryptTunnelLength;
+          const maxProgress = cryptTunnelLength + CRYPT_STAIR_STEPS;
+          const atDoor = cryptProgress >= maxProgress;
+          return (
           <>
             <div className="absolute top-1.5 left-1.5 right-1.5 bg-stone-950/85 rounded px-2 py-1 text-[10px] text-stone-300 pointer-events-none">
-              🕯️ {t('game.platform3d.crypt.title')}
-              <span className="block text-[9px] text-stone-400/80 mt-0.5">
-                {Math.min(cryptProgress, cryptTunnelLength)} / {cryptTunnelLength}
-              </span>
+              {cryptDoorOpened ? (
+                <>🏰 {t('game.platform3d.crypt.roomTitle')}</>
+              ) : inStairs ? (
+                <>🪜 {t('game.platform3d.crypt.stairsTitle')}
+                  <span className="block text-[9px] text-stone-400/80 mt-0.5">
+                    {Math.min(cryptProgress - cryptTunnelLength, CRYPT_STAIR_STEPS)} / {CRYPT_STAIR_STEPS}
+                  </span>
+                </>
+              ) : (
+                <>🕯️ {t('game.platform3d.crypt.title')}
+                  <span className="block text-[9px] text-stone-400/80 mt-0.5">
+                    {Math.min(cryptProgress, cryptTunnelLength)} / {cryptTunnelLength}
+                  </span>
+                </>
+              )}
+              {atDoor && !cryptDoorOpened && (
+                <span className="block text-[9px] text-amber-300 mt-0.5">🚪 {t('game.platform3d.crypt.doorHint')}</span>
+              )}
             </div>
             <div className="absolute bottom-2 left-2 flex flex-col gap-1 z-10">
               <button
-                tabIndex={-1} className={dpadBtn + ' w-[84px] bg-stone-800/90'}
-                onClick={() => setCryptProgress((p) => Math.min(cryptTunnelLength, p + 1))}
+                tabIndex={-1} className={dpadBtn + ' w-[84px] bg-stone-800/90 disabled:opacity-40'}
+                disabled={cryptDoorOpened || atDoor}
+                onClick={() => setCryptProgress((p) => Math.min(maxProgress, p + 1))}
                 title={t('game.platform3d.crypt.advance')}
               >▲ {t('game.platform3d.crypt.advance')}</button>
               <button
                 tabIndex={-1} className={dpadBtn + ' w-[84px] bg-stone-800/90'}
-                onClick={() => setCryptProgress((p) => Math.max(0, p - 1))}
-                title={t('game.platform3d.crypt.retreat')}
-              >▼ {t('game.platform3d.crypt.retreat')}</button>
+                onClick={() => { if (cryptDoorOpened) setCryptDoorOpened(false); else setCryptProgress((p) => Math.max(0, p - 1)); }}
+                title={cryptDoorOpened ? t('game.platform3d.crypt.closeDoor') : t('game.platform3d.crypt.retreat')}
+              >{cryptDoorOpened ? <>🚪 {t('game.platform3d.crypt.closeDoor')}</> : <>▼ {t('game.platform3d.crypt.retreat')}</>}</button>
               <button
                 tabIndex={-1} className={dpadBtn + ' w-[84px] bg-rose-900/90 border-rose-600'}
-                onClick={() => setCryptMode(null)}
+                onClick={() => {
+                  // Restaure la caméra extérieure EXACTEMENT comme avant l'entrée (voir
+                  // `preCryptCameraRef`) — sans cela, l'objet caméra R3F unique (réutilisé par
+                  // <Canvas>) resterait positionné au fond du souterrain, et `OrbitControls` du
+                  // monde extérieur recalculerait une orbite aberrante à la reprise (régression :
+                  // "saut" de caméra visible au retour du souterrain).
+                  const saved = preCryptCameraRef.current;
+                  if (saved && cameraRef.current) {
+                    cameraRef.current.position.copy(saved.position);
+                    cameraRef.current.quaternion.copy(saved.quaternion);
+                  }
+                  setCryptMode(null);
+                  setCryptDoorOpened(false);
+                }}
                 title={t('game.platform3d.crypt.exit')}
               >🚪 {t('game.platform3d.crypt.exit')}</button>
             </div>
           </>
-        )}
+          );
+        })()}
+        {!cryptMode && (
         <p className="absolute bottom-2 right-2 text-[9px] text-slate-500 max-w-[180px] text-right pointer-events-none">
           {t('game.platform3d.hint')}
         </p>
+        )}
         {!isFullscreen && resizableEnabled && (
           <div
             className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize text-lime-400/70 flex items-center justify-center text-[10px] z-20"
@@ -3283,7 +3384,20 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         rules={rules}
         onClose={() => setInteractionMarker(null)}
         onRequestHutRest={() => setHutResting(true)}
-        onRequestEnterCrypt={(cryptId) => { setCryptMode(cryptId); setCryptProgress(0); setInteractionMarker(null); }}
+        onRequestEnterCrypt={(cryptId) => {
+          // Capture la caméra AVANT de basculer `cryptMode` (voir `preCryptCameraRef`) : à cet
+          // instant précis, `CameraBridge` est encore monté (branche non-crypt du <Canvas>) donc
+          // `cameraRef.current` reflète fidèlement la vue courante du joueur, à restaurer identique
+          // à la sortie du souterrain (voir bouton « Sortir » ci-dessus).
+          if (cameraRef.current) {
+            preCryptCameraRef.current = {
+              position: cameraRef.current.position.clone(),
+              quaternion: cameraRef.current.quaternion.clone(),
+            };
+          }
+          playAmbientSound('doorCreak', wildlifeAudio);
+          setCryptMode(cryptId); setCryptProgress(0); setCryptDoorOpened(false); setInteractionMarker(null);
+        }}
       />
       {parchmentPopupCryptId && (
         <ParchmentPopup

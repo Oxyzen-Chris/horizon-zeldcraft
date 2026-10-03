@@ -149,6 +149,13 @@ function playSynth(key: AudioSourceKey, ctx: AudioContext, dest: GainNode) {
     case 'witch': // Sifflotement léger à 4 notes (mélodie ludique)
       [660, 740, 880, 740].forEach((f, i) => synth(ctx, dest, { freqStart: f, freqEnd: f, duration: 0.16, type: 'sine', delay: i * 0.18 }));
       break;
+    case 'doorCreak': // Grincement grave et irrégulier (gonds rouillés) — joué à l'entrée d'une
+      // crypte (voir Platform3DWidget.tsx::onRequestEnterCrypt), deux "grincements" successifs de
+      // fréquence montante puis descendante pour un effet organique plutôt qu'un simple bip.
+      synth(ctx, dest, { freqStart: 140, freqEnd: 210, duration: 0.5, type: 'sawtooth' });
+      synth(ctx, dest, { freqStart: 190, freqEnd: 110, duration: 0.65, type: 'sawtooth', delay: 0.45 });
+      noiseBurst(ctx, dest, 0.3, 0.1);
+      break;
   }
 }
 

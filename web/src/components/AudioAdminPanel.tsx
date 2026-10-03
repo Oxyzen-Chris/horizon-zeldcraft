@@ -8,12 +8,13 @@ import {
 import { useI18n } from '@/lib/i18n';
 
 const SOURCE_ICON: Record<AudioSourceKey, string> = {
-  owl: '🦉', werewolf: '🐺', bat: '🦇', raptor: '🦅', bird: '🐦', boar: '🐗', witch: '🧙‍♀️',
+  owl: '🦉', werewolf: '🐺', bat: '🦇', raptor: '🦅', bird: '🐦', boar: '🐗', witch: '🧙‍♀️', doorCreak: '🚪',
 };
 const SOURCE_LABEL: Record<AudioSourceKey, string> = {
   owl: 'Hibou (hululement, nuit)', werewolf: 'Loup-garou (cri, nuit)', bat: 'Chauve-souris (nuit)',
   raptor: 'Rapaces — aigles/vautours/faucons (cri, jour)', bird: 'Oiseaux & hirondelles (pépiement, jour)',
   boar: 'Sangliers & marcassins (grognement, jour)', witch: 'Sorcière volante (sifflotement, jour)',
+  doorCreak: 'Porte de crypte (grincement, entrée du souterrain)',
 };
 
 /**

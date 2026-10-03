@@ -3781,3 +3781,83 @@ d'obstacles pour la faune alentour). 0 erreur console relevée sur l'ensemble du
 - 6 textes de parchemin génériques (sélection déterministe par crypte) plutôt que 20 textes uniques.
 - Aucun son d'ambiance dédié aux morts-vivants (zombies/goules/squelettes restent silencieux).
 
+## 🕯️ Raffinement du souterrain de crypte : virages, escaliers, porte, caméra verrouillée & isolation du clavier
+
+**Demande utilisateur** : le souterrain (section précédente) était trop simpliste — couloir
+rectiligne trop court/sombre, hint HUD hors-sujet affiché à l'intérieur, possibilité de pivoter la
+caméra en vue immersive, flèches haut/bas du clavier faisant AUSSI bouger Synk dans le monde réel
+(déclenchant à tort le pop-up « Profondeur »), pas d'escalier/porte/salle d'arrivée différenciés, et
+cimetière/crypte/tombes jugés trop petits sans croix. Entièrement réécrit dans
+`components/CryptTunnelScene.tsx` (remplace l'ancienne approche « monde qui défile devant une
+caméra fixe » par un modèle **chemin à virages**) et `components/Platform3DWidget.tsx` :
+
+- **`computeTunnelPath(cryptId)`** : génère déterministement (seed = hash de l'id) une liste de
+  `Pose` (position + cap en radians, non enroulé) pour les 40 dalles du couloir (`cryptTunnelLength`,
+  paramétrable Administration, 20→40 par défaut) puis les `CRYPT_STAIR_STEPS=6` marches d'escalier
+  (montée en Y) jusqu'à une position de porte puis de salle. Des virages de ±90° surviennent tous les
+  7 à 11 dalles (jamais dans les 2 premières/dernières avant l'escalier). Convention Three.js
+  vérifiée : `dirFor(heading) = (-sin(heading), 0, -cos(heading))`, donc `group.rotation.y = heading`
+  oriente naturellement la géométrie locale (torches, chauve-souris, murs) de chaque dalle sans
+  transformation manuelle en coordonnées monde.
+- **`CryptCamera`** : positionne/oriente la caméra de façon impérative à chaque frame (`useFrame`)
+  en interpolant entre les `Pose` successives selon la progression — AUCUNE rotation libre n'est
+  possible tant que `doorOpened` est faux (le `<OrbitControls>` n'est monté, à l'intérieur même de
+  ce fichier, QUE lorsque `doorOpened === true`, c.-à-d. uniquement dans les salles d'arrivée ;
+  retiré du parent `Platform3DWidget.tsx` qui le montait auparavant pour tout le mode crypte).
+- **`CryptDoor`** : porte cliquable (garde anti-glissement pointerdown/pointerup, seuil 6 px, même
+  motif que le pattern glisser-déposer déjà en place ailleurs), utilisée à la fois en bout de
+  couloir (entrée) et dans chaque salle (porte de retour) — toutes deux appellent `onToggleDoor`.
+- **Éclairage** : intensité/portée des torches augmentées (1.1→1.7 / 4.5→6.5), lumière ambiante
+  0.12→0.32, ajout d'une `hemisphereLight` — souterrain plus visible tout en restant « ténébreux ».
+- **Suppression du hint HUD** `game.platform3d.hint` (« Flèches/WASD, clic... ») pendant `cryptMode`
+  (gated `!cryptMode`, inchangé en dehors du souterrain).
+- **Clavier isolé du monde réel (correctif du bug « Profondeur »)** : l'ancien `useEffect` de
+  déplacement clavier du monde extérieur ne se désactivait pas en mode crypte — une flèche pressée
+  dans le souterrain faisait AUSSI avancer le vrai Synk dehors (pouvant le faire marcher sur une
+  dalle d'eau, déclenchant à tort `EnvStatusPopupLayer` → pop-up « Profondeur »). Corrigé en ajoutant
+  `cryptMode` à la condition de sortie anticipée (et aux dépendances) de cet effet. Un **second
+  `useEffect` entièrement séparé**, actif uniquement `if (cryptMode)`, gère désormais Flèche Haut/Z/W
+  et Flèche Bas/S pour `cryptProgress` sans jamais toucher à la position réelle de Synk — les deux
+  mondes (souterrain et extérieur) sont ainsi isolés dans leurs événements, Synk ne reprenant sa
+  position/orientation réelles (mise à jour) qu'à la ressortie du souterrain.
+- **Escalier → porte → salle** : au bout des 40 dalles, 6 marches montent en Y jusqu'à une porte;
+  un clic l'ouvre (son de porte) et révèle l'une de 3 salles (`TowerRoom`/`BedroomRoom`/
+  `ParchmentRoom`, choix déterministe inchangé) avec vue libre (`OrbitControls`). Une seconde porte
+  dans la salle permet de refermer (`onToggleDoor`) et de redescendre l'escalier en sens inverse par
+  Flèche Bas, pour ressortir de la crypte comme avant.
+- **HUD contextuel** : le titre/compteur bascule entre phase couloir (`X / 40`), phase escalier
+  (`crypt.stairsTitle`, `X / 6`), indice de porte atteinte (`crypt.doorHint` : « Cliquez sur la
+  porte pour l'ouvrir ») et phase salle (`crypt.roomTitle`). Le bouton « ▲ Avancer » se désactive une
+  fois la porte ouverte ou en fin de parcours ; « ▼ Reculer » devient « 🚪 Refermer la porte »
+  (`crypt.closeDoor`) une fois dans la salle.
+- **Caméra sauvegardée/restaurée à l'entrée/sortie** : `preCryptCameraRef` capture
+  `cameraRef.current.position/quaternion` juste AVANT de basculer `cryptMode` (pendant que
+  `CameraBridge` est encore monté) ; le bouton « 🚪 Sortir » restaure ces valeurs sur la caméra
+  persistante du `<Canvas>` avant de quitter le mode crypte, pour un retour sans saut de vue.
+- **Cimetière/crypte/tombes agrandis + croix** : pierres tombales (~1.35×) et mausolée de crypte
+  (~1.3×) agrandis dans `MarkerBlock`, avec une croix ajoutée au-dessus de chaque élément (crypte,
+  cimetière, tombe) pour plus de crédibilité visuelle.
+- **Son de porte** : `doorCreak` ajouté à `AUDIO_SOURCE_KEYS`/`DEFAULT_AUDIO_SETTINGS`
+  (`lib/gameState.ts`), synthétisé dans `lib/audio.ts::playSynth()`, joué via
+  `playAmbientSound('doorCreak', ...)` à l'entrée en crypte ; icône 🚪 et libellé traduit ajoutés
+  dans `AudioWidget.tsx` et `AudioAdminPanel.tsx` (panneau Administration).
+
+**i18n** : 4 nouvelles clés (`game.platform3d.crypt.stairsTitle/roomTitle/doorHint/closeDoor`)
+traduites dans les 5 langues (fr/en/es/pt/us).
+
+**Vérification** : `npx tsc --noEmit` et `npm run build` : 0 erreur. Script autonome dédié validant
+`computeTunnelPath` (5 `cryptId` différents) : nombre de poses correct, aucun `NaN`, deltas de cap
+toujours 0 ou exactement ±90°, distances conformes à `TILE_SIZE`/`STAIR_DEPTH`, Y constant dans le
+couloir puis croissant de façon monotone dans l'escalier — tout conforme. Vérification Playwright
+de bout en bout (session Démo anonyme, navigation précise via l'attribut de débogage
+`data-synk-pos` exposé par le widget réduit) : entrée en crypte (titre « Souterrain de la crypte »,
+compteur `0 / 40`, hint absent) ; tentative de glisser-déposer pour pivoter la caméra SANS AUCUN
+effet (caméra verrouillée confirmée) ; progression au clavier jusqu'à l'escalier (`Escalier de la
+crypte`, `6 / 6`, hint « Cliquez sur la porte pour l'ouvrir ») ; clic sur la porte → salle
+(« Au-delà de la porte », bouton « Refermer la porte ») avec glisser-déposer fonctionnel cette fois
+(vue libre confirmée) ; fermeture de la porte puis sortie → HUD/boussole/dpad/hint extérieurs
+restaurés à l'identique, caméra sans saut visible. **Aucun pop-up « Profondeur » observé à aucun
+moment du scénario** (bug corrigé confirmé) ; position réelle de Synk dans le monde extérieur
+strictement inchangée pendant toute la traversée du souterrain (confirmant l'isolation du clavier) ;
+0 erreur console relevée sur l'ensemble du scénario.
+

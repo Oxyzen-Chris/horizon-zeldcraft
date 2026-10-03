@@ -21,7 +21,7 @@ const MAX_W = 560, MAX_H = 760;
 type Size = { w: number; h: number };
 
 const SOURCE_ICON: Record<AudioSourceKey, string> = {
-  owl: '🦉', werewolf: '🐺', bat: '🦇', raptor: '🦅', bird: '🐦', boar: '🐗', witch: '🧙‍♀️',
+  owl: '🦉', werewolf: '🐺', bat: '🦇', raptor: '🦅', bird: '🐦', boar: '🐗', witch: '🧙‍♀️', doorCreak: '🚪',
 };
 
 /**

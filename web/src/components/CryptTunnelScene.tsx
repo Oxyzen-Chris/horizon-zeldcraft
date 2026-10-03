@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
+import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 
 /**
@@ -10,28 +11,58 @@ import * as THREE from 'three';
  * donnes un côté immersif [...] avec des sons, des chauves-souris qui se baladent, en créant une
  * atmosphères un peu ténébreuse, lugubre avec des torches en 3D accrochées au mur qui éclairent et
  * dont la flamme vascille [...] amènent après plusieurs pas de marche [...] (au moins l'équivalent
- * de 20 dalles) dans des dédales de pièces en 3D débouchant dans certains châteaux et donjons »).
+ * de 20 dalles [40 depuis la demande de correctif ergonomique]) dans des dédales de pièces en 3D
+ * débouchant dans certains châteaux et donjons »).
  *
+ * ─── Vue 100% immersive, verrouillée, sans rotation (correctif ergonomique) ────────────────────
  * Monté EN REMPLACEMENT de `<Scene>`/`<Platform3DAmbientScene>` dans le même `<Canvas>` (voir
- * Platform3DWidget.tsx, exactement le même principe que `UnderwaterScene` pour la plongée totale),
- * tant que `cryptMode` est actif côté composant parent. Vue à la première personne (pas de modèle
- * Synk visible, caméra fixe à hauteur d'yeux) : plus immersif pour un couloir étroit, et évite de
- * dépendre de `SynkVoxel` (couplage inter-composants inutile ici). Le déplacement est piloté par
- * le composant parent via `progress` (nombre entier de "dalles" parcourues depuis l'entrée, 0 =
- * juste entré) à l'aide de boutons dédiés HORS `<Canvas>` (« ▲ Avancer »/« ▼ Reculer »/« Sortir »)
- * — AUCUNE réutilisation du dpad/clavier existant (trop risqué pour la navigation 2D/3D en place,
- * voir commentaire détaillé dans Platform3DWidget.tsx à l'endroit où `cryptMode` est déclaré).
+ * Platform3DWidget.tsx), tant que `cryptMode` est actif côté composant parent. Contrairement à la
+ * toute première version de ce module (qui laissait le "monde" défiler devant une caméra fixe sans
+ * aucun contrôle de rotation — correct pour un couloir rectiligne, mais `OrbitControls` restait
+ * monté par le composant PARENT avec `enableRotate` par défaut, ce qui permettait de faire pivoter
+ * la vue et de se retrouver nez contre un mur ou à regarder dans une direction aberrante, bug
+ * remonté par l'utilisateur captures à l'appui), la caméra est désormais ENTIÈREMENT pilotée par le
+ * code tant que la salle d'arrivée n'a pas été atteinte PAR LA PORTE (voir `doorOpened` ci-dessous) :
+ * `CryptCamera` fixe `camera.position`/`camera.rotation` CHAQUE frame d'après la position
+ * interpolée le long du chemin du souterrain (voir `computeTunnelPath`), et AUCUN `<OrbitControls>`
+ * n'est monté pendant cette phase — il est physiquement impossible de faire pivoter la caméra. Une
+ * fois la porte franchie (`doorOpened`), la salle d'arrivée (tour/chambre/parchemin) est en
+ * revanche explorable à la souris (orbite libre, zoom/pan désactivés), car regarder autour de soi y
+ * a un sens (« regarder le paysage [...] de haut autour de lui »), contrairement au couloir.
  *
- * Le "monde" du souterrain défile devant une caméra fixe (même philosophie que `Scene()::tiles`,
- * qui recentre le terrain sur Synk plutôt que de déplacer la caméra) : chaque dalle `i` est bâtie à
- * `z = -i * TILE_SIZE`, et un unique groupe racine est translaté de `+displayedProgress * TILE_SIZE`
- * — quand `displayedProgress === i`, la dalle `i` se retrouve exactement sous la caméra (z=0).
- * `displayedProgress` est interpolé en douceur vers `progress` (voir useFrame ci-dessous) pour un
- * glissement fluide plutôt qu'un saut nets d'une dalle à l'autre.
+ * ─── Chemin avec virages (correctif ergonomique) ───────────────────────────────────────────────
+ * `computeTunnelPath` calcule un chemin déterministe (seedé sur `cryptId`, même pattern que
+ * `cryptDestinationRoomFor`) avec des virages à 90° tous les 7 à 11 dalles — chaque `Pose` du
+ * chemin porte sa position ET son cap (`heading`, en radians NON bornés : on ne les ramène jamais
+ * modulo 2π, ce qui évite tout problème de "saut d'angle" lors de l'interpolation continue d'une
+ * dalle à l'autre). Chaque dalle de couloir (`TunnelSegment`) est un groupe positionné+pivoté sur
+ * sa propre `Pose` : torches/chauves-souris qui lui sont ancrées sont des ENFANTS de ce groupe
+ * (positionnées en coordonnées LOCALES, inchangées depuis la version initiale) — le pivot du
+ * groupe parent les réoriente donc automatiquement avec le virage, sans calcul supplémentaire.
+ * `CryptCamera` réoriente Synk/la caméra dans le nouveau cap dès que la portion courbée du chemin
+ * est franchie (interpolation continue de `heading`, voir demande utilisateur « positionner Synk
+ * dans la bonne direction une fois l'angle du virage passé »).
+ *
+ * ─── Escalier + porte (correctif ergonomique) ──────────────────────────────────────────────────
+ * Après `tunnelLength` dalles de couloir, `CRYPT_STAIR_STEPS` marches supplémentaires (voir
+ * constante exportée, utilisée par le composant PARENT pour borner `cryptProgress`) font monter le
+ * chemin en Y jusqu'à une porte (`CryptDoor`), cliquable à la souris gauche (voir demande
+ * utilisateur). Cliquer dessus bascule `doorOpened` (callback `onToggleDoor`, état possédé par le
+ * parent) : la salle d'arrivée apparaît alors (avec sa propre porte de retour, cliquable de la
+ * même façon pour revenir dans l'escalier et repartir en sens inverse dans le souterrain).
  */
 const TILE_SIZE = 2;
 const TUNNEL_HALF_WIDTH = 1.1;
 const TUNNEL_HEIGHT = 2.4;
+const EYE_HEIGHT = 1.55;
+/** Nb de "marches" après `tunnelLength` menant à la porte — EXPORTÉ pour que le composant parent
+ * (Platform3DWidget.tsx) puisse borner `cryptProgress` à `tunnelLength + CRYPT_STAIR_STEPS` (voir
+ * commentaire d'en-tête, § Escalier + porte). Volontairement une constante fixe (non paramétrable
+ * en Administration, contrairement à `tunnelLength`) : simplification assumée, la longueur de
+ * l'escalier n'a pas d'impact sur le gameplay/la difficulté contrairement à celle du couloir. */
+export const CRYPT_STAIR_STEPS = 6;
+const STAIR_RISE_PER_STEP = 0.32;
+const STAIR_DEPTH = TILE_SIZE * 0.62;
 
 export type CryptDestinationRoom = 'tower' | 'bedroom' | 'parchment';
 
@@ -46,35 +77,109 @@ export function cryptDestinationRoomFor(cryptId: string): CryptDestinationRoom {
   return rooms[h % rooms.length];
 }
 
-function Torch({ i, side, flicker }: { i: number; side: -1 | 1; flicker: boolean }) {
+interface Pose { pos: THREE.Vector3; heading: number }
+
+/** Déterministe (seedé sur `cryptId`) — voir § Chemin avec virages ci-dessus. Convention Three.js
+ * (`group.rotation.y = heading`) : avancer d'un pas dans la direction du cap courant correspond au
+ * vecteur `(-sin(heading), 0, -cos(heading))`, EXACTEMENT ce que produit une rotation Y native de
+ * l'axe local -Z — donc une dalle/porte/salle positionnée à `pos` et pivotée à `rotation.y=heading`
+ * s'aligne automatiquement sur le chemin, sans transformation manuelle supplémentaire. */
+function computeTunnelPath(cryptId: string, tunnelLength: number, stairSteps: number): { poses: Pose[]; doorPos: THREE.Vector3; roomPos: THREE.Vector3; lastHeading: number } {
+  let h = 0;
+  for (const c of cryptId) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const rnd = (seed: number) => {
+    const x = Math.sin(h + seed * 999.7) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  const TURN_MIN = 7, TURN_SPAN = 5;
+  let heading = 0;
+  const pos = new THREE.Vector3(0, 0, 0);
+  const poses: Pose[] = [{ pos: pos.clone(), heading }];
+  let nextTurnAt = TURN_MIN + Math.floor(rnd(1) * TURN_SPAN);
+  const dirFor = (ang: number) => new THREE.Vector3(-Math.sin(ang), 0, -Math.cos(ang));
+  for (let i = 1; i <= tunnelLength; i++) {
+    // Pas de virage trop près de l'entrée (lisibilité) ni des 3 dernières dalles avant l'escalier.
+    if (i === nextTurnAt && i > 2 && i < tunnelLength - 2) {
+      heading += (rnd(i + 17) < 0.5 ? -1 : 1) * (Math.PI / 2);
+      nextTurnAt = i + TURN_MIN + Math.floor(rnd(i + 53) * TURN_SPAN);
+    }
+    pos.add(dirFor(heading).multiplyScalar(TILE_SIZE));
+    poses.push({ pos: pos.clone(), heading });
+  }
+  const lastHeading = poses[poses.length - 1].heading;
+  const stairDir = dirFor(lastHeading);
+  for (let s = 1; s <= stairSteps; s++) {
+    pos.add(stairDir.clone().multiplyScalar(STAIR_DEPTH));
+    const stepPos = pos.clone();
+    stepPos.y = s * STAIR_RISE_PER_STEP;
+    poses.push({ pos: stepPos, heading: lastHeading });
+  }
+  const lastPose = poses[poses.length - 1];
+  const doorPos = lastPose.pos.clone().add(stairDir.clone().multiplyScalar(TILE_SIZE * 0.55));
+  doorPos.y = lastPose.pos.y;
+  const roomPos = lastPose.pos.clone().add(stairDir.clone().multiplyScalar(TILE_SIZE * 2.4));
+  roomPos.y = lastPose.pos.y;
+  return { poses, doorPos, roomPos, lastHeading };
+}
+
+/** Caméra 100% pilotée par le code tant que `doorOpened` est faux (voir commentaire d'en-tête,
+ * § Vue 100% immersive) — interpole en douceur `progress` (comme l'ancienne version, même
+ * constante de lissage) le long du tableau `poses`, POSITION ET CAP, pour un glissement fluide y
+ * compris dans les virages et dans la montée de l'escalier. Ne fait RIEN une fois `doorOpened`
+ * (la salle d'arrivée est alors explorable via `<OrbitControls>`, monté plus bas dans ce fichier). */
+function CryptCamera({ poses, progress, doorOpened }: { poses: Pose[]; progress: number; doorOpened: boolean }) {
+  const { camera } = useThree();
+  const displayedRef = useRef(0);
+  useFrame((_, delta) => {
+    if (doorOpened) return;
+    displayedRef.current += (progress - displayedRef.current) * Math.min(1, delta * 6);
+    if (Math.abs(progress - displayedRef.current) < 0.002) displayedRef.current = progress;
+    const clamped = Math.max(0, Math.min(poses.length - 1, displayedRef.current));
+    const i0 = Math.floor(clamped);
+    const i1 = Math.min(poses.length - 1, i0 + 1);
+    const frac = clamped - i0;
+    const p0 = poses[i0], p1 = poses[i1];
+    camera.position.set(
+      p0.pos.x + (p1.pos.x - p0.pos.x) * frac,
+      p0.pos.y + (p1.pos.y - p0.pos.y) * frac + EYE_HEIGHT,
+      p0.pos.z + (p1.pos.z - p0.pos.z) * frac,
+    );
+    camera.rotation.set(0, p0.heading + (p1.heading - p0.heading) * frac, 0);
+  });
+  return null;
+}
+
+function Torch({ side, flicker }: { side: -1 | 1; flicker: boolean }) {
   const flameRef = useRef<THREE.Mesh>(null);
   const lightRef = useRef<THREE.PointLight>(null);
   const seed = useMemo(() => Math.random() * Math.PI * 2, []);
   useFrame((state) => {
     if (!flicker) return;
-    const t = state.clock.elapsedTime * 9 + seed + i;
-    const flick = 0.75 + Math.sin(t) * 0.15 + Math.sin(t * 2.7) * 0.1;
-    if (lightRef.current) lightRef.current.intensity = 1.1 * flick;
+    const t = state.clock.elapsedTime * 9 + seed;
+    const flick = 0.8 + Math.sin(t) * 0.15 + Math.sin(t * 2.7) * 0.1;
+    // Intensité/distance renforcées (voir demande utilisateur « éclaire un peu plus les
+    // souterrains ») — auparavant 1.1/4.5, trop sombre entre deux torches espacées de 3 dalles.
+    if (lightRef.current) lightRef.current.intensity = 1.7 * flick;
     if (flameRef.current) flameRef.current.scale.setScalar(0.85 + flick * 0.25);
   });
   const x = side * TUNNEL_HALF_WIDTH;
   return (
-    <group position={[x, 1.35, -i * TILE_SIZE]}>
+    <group position={[x, 1.35, 0]}>
       <mesh rotation={[0, 0, side * 0.3]} castShadow><cylinderGeometry args={[0.03, 0.035, 0.42, 6]} /><meshStandardMaterial color="#4a3728" roughness={0.9} /></mesh>
       <mesh ref={flameRef} position={[-side * 0.1, 0.26, 0]}><coneGeometry args={[0.08, 0.26, 6]} /><meshStandardMaterial color="#fb923c" emissive="#f97316" emissiveIntensity={1.4} /></mesh>
-      <pointLight ref={lightRef} position={[-side * 0.1, 0.3, 0]} color="#fb923c" intensity={1.1} distance={4.5} decay={2} />
+      <pointLight ref={lightRef} position={[-side * 0.1, 0.3, 0]} color="#fb923c" intensity={1.7} distance={6.5} decay={2} />
     </group>
   );
 }
 
-function TunnelBat({ anchorIndex, phase }: { anchorIndex: number; phase: number }) {
+function TunnelBat({ phase }: { phase: number }) {
   const ref = useRef<THREE.Group>(null);
   const wingLRef = useRef<THREE.Mesh>(null);
   const wingRRef = useRef<THREE.Mesh>(null);
   useFrame((state) => {
     const t = state.clock.elapsedTime * 1.4 + phase;
     if (ref.current) {
-      ref.current.position.set(Math.sin(t) * 0.55, 1.75 + Math.sin(t * 2.3) * 0.15, -anchorIndex * TILE_SIZE + Math.cos(t * 0.7) * 0.8);
+      ref.current.position.set(Math.sin(t) * 0.55, 1.75 + Math.sin(t * 2.3) * 0.15, Math.cos(t * 0.7) * 0.8);
       ref.current.rotation.y = -t;
     }
     const flap = Math.sin(state.clock.elapsedTime * 18 + phase) * 0.85;
@@ -90,27 +195,75 @@ function TunnelBat({ anchorIndex, phase }: { anchorIndex: number; phase: number 
   );
 }
 
-/** Une "dalle" de souterrain : sol + plafond + murs latéraux (voir description du module). */
-function TunnelSegment({ i }: { i: number }) {
-  const z = -i * TILE_SIZE;
+/** Une "dalle" de souterrain : sol + plafond + murs latéraux — groupe positionné/pivoté sur sa
+ * `Pose` (voir § Chemin avec virages en en-tête de module). */
+function TunnelSegment({ pose, torch, batPhase }: { pose: Pose; torch: boolean; batPhase: number | null }) {
   return (
-    <group position={[0, 0, z]}>
+    <group position={pose.pos} rotation={[0, pose.heading, 0]}>
       <mesh position={[0, 0, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[TUNNEL_HALF_WIDTH * 2, TILE_SIZE]} />
-        <meshStandardMaterial color="#44403c" roughness={0.95} />
+        <meshStandardMaterial color="#48443c" roughness={0.95} />
       </mesh>
       <mesh position={[0, TUNNEL_HEIGHT, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[TUNNEL_HALF_WIDTH * 2, TILE_SIZE]} />
-        <meshStandardMaterial color="#292524" roughness={1} />
+        <meshStandardMaterial color="#302b26" roughness={1} />
       </mesh>
       <mesh position={[-TUNNEL_HALF_WIDTH, TUNNEL_HEIGHT / 2, 0]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[TILE_SIZE, TUNNEL_HEIGHT]} />
-        <meshStandardMaterial color="#57534e" roughness={0.95} />
+        <meshStandardMaterial color="#5f5a52" roughness={0.95} />
       </mesh>
       <mesh position={[TUNNEL_HALF_WIDTH, TUNNEL_HEIGHT / 2, 0]} rotation={[0, -Math.PI / 2, 0]}>
         <planeGeometry args={[TILE_SIZE, TUNNEL_HEIGHT]} />
-        <meshStandardMaterial color="#57534e" roughness={0.95} />
+        <meshStandardMaterial color="#5f5a52" roughness={0.95} />
       </mesh>
+      {torch && (<><Torch side={-1} flicker /><Torch side={1} flicker /></>)}
+      {batPhase !== null && <TunnelBat phase={batPhase} />}
+    </group>
+  );
+}
+
+/** Marche d'escalier (voir § Escalier + porte en en-tête de module) — groupe positionné/pivoté sur
+ * sa `Pose`, murs latéraux qui continuent de monter avec la marche. */
+function StairStep({ pose }: { pose: Pose }) {
+  return (
+    <group position={pose.pos} rotation={[0, pose.heading, 0]}>
+      <mesh position={[0, -0.5, 0]} receiveShadow castShadow>
+        <boxGeometry args={[TUNNEL_HALF_WIDTH * 2, 1, STAIR_DEPTH]} />
+        <meshStandardMaterial color="#49443b" roughness={0.95} />
+      </mesh>
+      <mesh position={[-TUNNEL_HALF_WIDTH, 0.55, 0]} rotation={[0, Math.PI / 2, 0]}>
+        <planeGeometry args={[STAIR_DEPTH, TUNNEL_HEIGHT]} />
+        <meshStandardMaterial color="#5f5a52" roughness={0.95} />
+      </mesh>
+      <mesh position={[TUNNEL_HALF_WIDTH, 0.55, 0]} rotation={[0, -Math.PI / 2, 0]}>
+        <planeGeometry args={[STAIR_DEPTH, TUNNEL_HEIGHT]} />
+        <meshStandardMaterial color="#5f5a52" roughness={0.95} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Porte en bois cliquable (voir § Escalier + porte, et demande utilisateur « une porte que je
+ * pourrais passer/ouvrir si je clique gauche à la souris ») — utilisée aussi bien au sommet de
+ * l'escalier (pour entrer) que dans la salle d'arrivée (pour ressortir, voir `onClick` reçu).
+ * Suit le même garde-fou glissé/clic (seuil de quelques pixels entre pointerdown/pointerup) que
+ * Platform3DWidget.tsx::dragStateRef, pour ne jamais confondre une orbite de caméra à la souris
+ * (possible une fois dans la salle d'arrivée, voir `doorOpened`) avec un simple clic sur la porte. */
+function CryptDoor({ onClick }: { onClick: () => void }) {
+  const downRef = useRef<{ x: number; y: number } | null>(null);
+  return (
+    <group
+      onPointerDown={(e) => { downRef.current = { x: e.clientX, y: e.clientY }; }}
+      onPointerUp={(e) => {
+        const d = downRef.current;
+        downRef.current = null;
+        if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6) { e.stopPropagation(); onClick(); }
+      }}
+    >
+      <mesh castShadow><boxGeometry args={[1.3, 2.1, 0.12]} /><meshStandardMaterial color="#3f3b35" roughness={0.9} /></mesh>
+      <mesh position={[0, 0, 0.07]} castShadow><boxGeometry args={[1.05, 1.9, 0.08]} /><meshStandardMaterial color="#5a3f22" roughness={0.85} /></mesh>
+      <mesh position={[0, 0, 0.12]}><boxGeometry args={[0.85, 0.06, 0.02]} /><meshStandardMaterial color="#3f3b35" roughness={0.9} /></mesh>
+      <mesh position={[0.4, 0, 0.14]}><sphereGeometry args={[0.06, 8, 8]} /><meshStandardMaterial color="#d4af37" metalness={0.6} roughness={0.4} /></mesh>
     </group>
   );
 }
@@ -118,9 +271,9 @@ function TunnelSegment({ i }: { i: number }) {
 /** Salle d'arrivée "tour de donjon" — plateforme ouverte avec créneaux, vue dégagée sur un
  * paysage lointain (voir demande utilisateur « se retrouvera alors en haut d'une tour [...] à
  * regarder le paysage [...] de haut autour de lui »). */
-function TowerRoom({ z }: { z: number }) {
+function TowerRoom() {
   return (
-    <group position={[0, 0, z]}>
+    <>
       <mesh position={[0, 0, 0]} receiveShadow><cylinderGeometry args={[2.4, 2.4, 0.3, 16]} /><meshStandardMaterial color="#6b655a" roughness={0.9} /></mesh>
       {Array.from({ length: 16 }, (_, k) => {
         const a = (k / 16) * Math.PI * 2;
@@ -135,15 +288,15 @@ function TowerRoom({ z }: { z: number }) {
       <fog attach="fog" args={['#1e293b', 6, 26]} />
       <ambientLight intensity={0.5} color="#bfdbfe" />
       <directionalLight position={[4, 8, 3]} intensity={0.6} />
-    </group>
+    </>
   );
 }
 
 /** Salle d'arrivée "chambre" — lit, table de chevet, armoire (voir demande utilisateur « une
  * pièce avec un lit [...] une table de chevet [...] une armoire »). */
-function BedroomRoom({ z }: { z: number }) {
+function BedroomRoom() {
   return (
-    <group position={[0, 0, z]}>
+    <>
       <mesh position={[0, 0, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[4, 4]} /><meshStandardMaterial color="#4a443a" roughness={0.95} /></mesh>
       {/* Lit */}
       <group position={[-0.9, 0, -0.5]}>
@@ -157,7 +310,7 @@ function BedroomRoom({ z }: { z: number }) {
       <mesh position={[1.4, 0.65, -1.4]} castShadow><boxGeometry args={[0.8, 1.3, 0.5]} /><meshStandardMaterial color="#4a3320" roughness={0.85} /></mesh>
       <pointLight position={[0, 1.8, 0]} intensity={0.9} color="#fde68a" distance={5} decay={2} />
       <ambientLight intensity={0.25} color="#78716c" />
-    </group>
+    </>
   );
 }
 
@@ -165,9 +318,9 @@ function BedroomRoom({ z }: { z: number }) {
  * utilisateur « une autre pièce avec des chaises [...] une table [...] avec un parchemins posé
  * dessus permettant si on s'en approche et clique dessus de le lire »). `taken` masque le
  * parchemin une fois ramassé (voir markParchmentTaken côté parent, Firebase par joueur). */
-function ParchmentRoom({ z, taken, onParchmentClick }: { z: number; taken: boolean; onParchmentClick: () => void }) {
+function ParchmentRoom({ taken, onParchmentClick }: { taken: boolean; onParchmentClick: () => void }) {
   return (
-    <group position={[0, 0, z]}>
+    <>
       <mesh position={[0, 0, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[4, 4]} /><meshStandardMaterial color="#4a443a" roughness={0.95} /></mesh>
       {/* Table */}
       <mesh position={[0, 0.42, 0]} castShadow><boxGeometry args={[1.3, 0.06, 0.8]} /><meshStandardMaterial color="#5a3f22" roughness={0.85} /></mesh>
@@ -190,61 +343,84 @@ function ParchmentRoom({ z, taken, onParchmentClick }: { z: number; taken: boole
       )}
       <pointLight position={[0, 1.8, 0]} intensity={0.9} color="#fde68a" distance={5} decay={2} />
       <ambientLight intensity={0.25} color="#78716c" />
-    </group>
+    </>
   );
 }
 
 export function CryptTunnelScene({
-  cryptId, progress, tunnelLength, torchFlickerEnabled, batCount, parchmentTaken, onParchmentClick,
+  cryptId, progress, tunnelLength, torchFlickerEnabled, batCount, doorOpened, onToggleDoor, parchmentTaken, onParchmentClick,
 }: {
   cryptId: string;
-  /** Nombre entier de dalles parcourues depuis l'entrée (0 = entrée), piloté par le composant
-   * parent via les boutons « ▲ Avancer »/« ▼ Reculer » (hors `<Canvas>`). */
+  /** Nombre entier de dalles/marches parcourues depuis l'entrée (0 = entrée), piloté par le
+   * composant parent via les boutons « ▲ Avancer »/« ▼ Reculer » OU les flèches Haut/Bas du
+   * clavier (voir Platform3DWidget.tsx) — borné à `tunnelLength + CRYPT_STAIR_STEPS` (la porte). */
   progress: number;
   tunnelLength: number;
   torchFlickerEnabled: boolean;
   batCount: number;
+  /** true une fois la porte franchie (voir § Escalier + porte en en-tête de module) — bascule le
+   * rendu couloir+escalier+porte vers la salle d'arrivée, et active `<OrbitControls>`. */
+  doorOpened: boolean;
+  onToggleDoor: () => void;
   /** true si CE joueur a déjà ramassé le parchemin de cette crypte (voir getTakenParchmentIds/
    * subscribeTakenParchmentIds dans gameState.ts) — sans effet si la salle d'arrivée n'est pas
    * `'parchment'` (voir cryptDestinationRoomFor). */
   parchmentTaken: boolean;
   onParchmentClick: () => void;
 }) {
-  const rootRef = useRef<THREE.Group>(null);
-  const displayedProgressRef = useRef(0);
   const room = useMemo(() => cryptDestinationRoomFor(cryptId), [cryptId]);
-  const torchIndices = useMemo(() => Array.from({ length: tunnelLength + 1 }, (_, i) => i).filter(i => i % 3 === 1), [tunnelLength]);
-  const batSeeds = useMemo(() => Array.from({ length: Math.max(0, batCount) }, (_, i) => ({
-    anchor: 2 + (i * 7) % Math.max(3, tunnelLength - 1), phase: i * 1.7,
-  })), [batCount, tunnelLength]);
-  useFrame((_, delta) => {
-    displayedProgressRef.current += (progress - displayedProgressRef.current) * Math.min(1, delta * 6);
-    if (Math.abs(progress - displayedProgressRef.current) < 0.002) displayedProgressRef.current = progress;
-    if (rootRef.current) rootRef.current.position.z = displayedProgressRef.current * TILE_SIZE;
-  });
-  const roomZ = -tunnelLength * TILE_SIZE;
+  const { poses, doorPos, roomPos, lastHeading } = useMemo(
+    () => computeTunnelPath(cryptId, tunnelLength, CRYPT_STAIR_STEPS),
+    [cryptId, tunnelLength],
+  );
+  const tunnelPoses = poses.slice(0, tunnelLength + 1);
+  const stairPoses = poses.slice(tunnelLength + 1);
+  const torchIndices = useMemo(() => new Set(Array.from({ length: tunnelLength + 1 }, (_, i) => i).filter(i => i % 3 === 1)), [tunnelLength]);
+  const batPhaseByIndex = useMemo(() => {
+    const m = new Map<number, number>();
+    for (let i = 0; i < Math.max(0, batCount); i++) {
+      const anchor = 2 + (i * 7) % Math.max(3, tunnelLength - 1);
+      m.set(anchor, i * 1.7);
+    }
+    return m;
+  }, [batCount, tunnelLength]);
+
   return (
     <>
+      {/* Éclairage renforcé (voir demande utilisateur « éclaire un peu plus les souterrains ») —
+          ambiance 0.12 → 0.32 (quasi x3), conservée en dessous d'une salle ÉCLAIRÉE normalement pour
+          garder l'atmosphère "ténébreuse, lugubre" explicitement demandée, tout en rendant le
+          couloir entre deux torches bien plus lisible qu'auparavant. */}
       <color attach="background" args={['#0c0a09']} />
-      <fog attach="fog" args={['#0c0a09', 1.5, 9]} />
-      <ambientLight intensity={0.12} color="#78716c" />
-      <group ref={rootRef}>
-        {Array.from({ length: tunnelLength }, (_, i) => <TunnelSegment key={`seg-${i}`} i={i} />)}
-        {torchIndices.map(i => (
-          <group key={`torch-${i}`}>
-            <Torch i={i} side={-1} flicker={torchFlickerEnabled} />
-            <Torch i={i} side={1} flicker={torchFlickerEnabled} />
+      <fog attach="fog" args={['#0c0a09', 2, 15]} />
+      <ambientLight intensity={0.32} color="#8a8178" />
+      <hemisphereLight args={['#4b4038', '#0c0a09', 0.25]} />
+      {!doorOpened && <CryptCamera poses={poses} progress={progress} doorOpened={doorOpened} />}
+      {!doorOpened && (
+        <>
+          {tunnelPoses.map((pose, i) => (
+            <TunnelSegment key={`seg-${i}`} pose={pose} torch={torchIndices.has(i)} batPhase={batPhaseByIndex.get(i) ?? null} />
+          ))}
+          {stairPoses.map((pose, i) => <StairStep key={`stair-${i}`} pose={pose} />)}
+          <group position={[doorPos.x, doorPos.y + 1.05, doorPos.z]} rotation={[0, lastHeading, 0]}>
+            <CryptDoor onClick={onToggleDoor} />
           </group>
-        ))}
-        {batSeeds.map((b, i) => <TunnelBat key={`bat-${i}`} anchorIndex={b.anchor} phase={b.phase} />)}
-        {room === 'tower' && <TowerRoom z={roomZ} />}
-        {room === 'bedroom' && <BedroomRoom z={roomZ} />}
-        {room === 'parchment' && <ParchmentRoom z={roomZ} taken={parchmentTaken} onParchmentClick={onParchmentClick} />}
-      </group>
-      {/* Caméra fixe à hauteur d'yeux (vue à la première personne) — voir commentaire d'en-tête du
-          module : le "monde" défile devant elle plutôt que l'inverse. Un léger `look-around` reste
-          possible grâce à `OrbitControls` (rotation seule, zoom/pan désactivés) monté par le
-          composant parent comme pour `UnderwaterScene`. */}
+        </>
+      )}
+      {doorOpened && (
+        <>
+          <OrbitControls enablePan={false} enableZoom={false} enableDamping dampingFactor={0.12} target={[roomPos.x, roomPos.y + 1.1, roomPos.z]} />
+          <group position={roomPos} rotation={[0, lastHeading, 0]}>
+            {room === 'tower' && <TowerRoom />}
+            {room === 'bedroom' && <BedroomRoom />}
+            {room === 'parchment' && <ParchmentRoom taken={parchmentTaken} onParchmentClick={onParchmentClick} />}
+            {/* Porte de retour (voir § Escalier + porte) — en face (local +Z = vers l'escalier). */}
+            <group position={[0, 1.05, TILE_SIZE * 1.15]} rotation={[0, Math.PI, 0]}>
+              <CryptDoor onClick={onToggleDoor} />
+            </group>
+          </group>
+        </>
+      )}
     </>
   );
 }

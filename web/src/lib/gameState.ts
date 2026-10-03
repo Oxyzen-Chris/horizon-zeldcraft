@@ -3523,8 +3523,8 @@ export function resolveActiveTheme(themes: WorldThemeDef[], date: Date, isNight:
 // réseau, aucun risque de lien mort/droit d'auteur). L'admin peut néanmoins définir ici, pour
 // chaque créature, une URL de fichier audio personnalisée (mp3/ogg hébergé par ses soins) qui
 // remplace alors le son synthétisé — voir AudioAdminPanel.tsx.
-export type AudioSourceKey = 'owl' | 'werewolf' | 'bat' | 'raptor' | 'bird' | 'boar' | 'witch';
-export const AUDIO_SOURCE_KEYS: AudioSourceKey[] = ['owl', 'werewolf', 'bat', 'raptor', 'bird', 'boar', 'witch'];
+export type AudioSourceKey = 'owl' | 'werewolf' | 'bat' | 'raptor' | 'bird' | 'boar' | 'witch' | 'doorCreak';
+export const AUDIO_SOURCE_KEYS: AudioSourceKey[] = ['owl', 'werewolf', 'bat', 'raptor', 'bird', 'boar', 'witch', 'doorCreak'];
 export interface AudioSourceSetting {
   enabled: boolean;   // Son par défaut activé pour cette créature (le joueur peut quand même la
                        // couper individuellement côté client, voir AudioWidget.tsx/lib/audio.ts)
@@ -3539,6 +3539,7 @@ export const DEFAULT_AUDIO_SETTINGS: Record<AudioSourceKey, AudioSourceSetting> 
   bird: { enabled: true, volume: 45 },
   boar: { enabled: true, volume: 50 },
   witch: { enabled: true, volume: 50 },
+  doorCreak: { enabled: true, volume: 60 }, // Grincement de porte (crypte) — voir CryptTunnelScene.tsx
 };
 
 export async function getAudioSettings(): Promise<Record<AudioSourceKey, AudioSourceSetting>> {
@@ -4670,7 +4671,7 @@ export interface RepRules {
   undeadZombieCount: number;                   // Nb de zombies errants (défaut 6)
   undeadGhoulCount: number;                    // Nb de goules errantes (défaut 5)
   undeadSkeletonCount: number;                 // Nb de squelettes errants (défaut 6)
-  cryptTunnelLength: number;                   // Nb de "pas"/dalles du souterrain avant la salle d'arrivée (défaut 20)
+  cryptTunnelLength: number;                   // Nb de "pas"/dalles du souterrain (couloir, hors escalier) avant la porte de la salle d'arrivée (défaut 40 — voir CryptTunnelScene.tsx::CRYPT_STAIR_STEPS pour les marches ajoutées après ce nombre)
   cryptTorchFlickerEnabled: boolean;           // Vacillement des torches murales du souterrain (défaut true)
   cryptBatCount: number;                       // Nb de chauves-souris animées dans le souterrain (défaut 5)
   // ─── Quêtes du Royaume (voir section dédiée gameState.ts) ───────────────────────────────────
@@ -5179,7 +5180,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   undeadZombieCount: 6,
   undeadGhoulCount: 5,
   undeadSkeletonCount: 6,
-  cryptTunnelLength: 20,
+  cryptTunnelLength: 40,
   cryptTorchFlickerEnabled: true,
   cryptBatCount: 5,
   kingdomMinIntermediateSolved: 3,
