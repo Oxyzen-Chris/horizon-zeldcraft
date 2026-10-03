@@ -127,7 +127,7 @@ function computeTunnelPath(cryptId: string, tunnelLength: number, stairSteps: nu
  * constante de lissage) le long du tableau `poses`, POSITION ET CAP, pour un glissement fluide y
  * compris dans les virages et dans la montée de l'escalier. Ne fait RIEN une fois `doorOpened`
  * (la salle d'arrivée est alors explorable via `<OrbitControls>`, monté plus bas dans ce fichier). */
-function CryptCamera({ poses, progress, doorOpened }: { poses: Pose[]; progress: number; doorOpened: boolean }) {
+function CryptCamera({ poses, progress, doorOpened, turnOffset }: { poses: Pose[]; progress: number; doorOpened: boolean; turnOffset: number }) {
   const { camera } = useThree();
   const displayedRef = useRef(0);
   useFrame((_, delta) => {
@@ -144,12 +144,17 @@ function CryptCamera({ poses, progress, doorOpened }: { poses: Pose[]; progress:
       p0.pos.y + (p1.pos.y - p0.pos.y) * frac + EYE_HEIGHT,
       p0.pos.z + (p1.pos.z - p0.pos.z) * frac,
     );
-    camera.rotation.set(0, p0.heading + (p1.heading - p0.heading) * frac, 0);
+    // 🆕 `turnOffset` (0 à 3 quarts de tour, voir § Quart de tour ci-dessous) s'ajoute AU CAP
+    // interpolé de la position : permet à Synk de regarder autour de lui (tableaux/portraits sur
+    // les murs) ou de faire demi-tour (2 quarts = 180°) pour repartir en marche AVANT vers la
+    // sortie au lieu de reculer, SANS jamais modifier l'interpolation de `camera.position`
+    // ci-dessus (la caméra glisse toujours le long du même chemin, seul le regard tourne).
+    camera.rotation.set(0, p0.heading + (p1.heading - p0.heading) * frac + turnOffset * (Math.PI / 2), 0);
   });
   return null;
 }
 
-function Torch({ side, flicker }: { side: -1 | 1; flicker: boolean }) {
+export function Torch({ side, flicker }: { side: -1 | 1; flicker: boolean }) {
   const flameRef = useRef<THREE.Mesh>(null);
   const lightRef = useRef<THREE.PointLight>(null);
   const seed = useMemo(() => Math.random() * Math.PI * 2, []);
@@ -168,6 +173,40 @@ function Torch({ side, flicker }: { side: -1 | 1; flicker: boolean }) {
       <mesh rotation={[0, 0, side * 0.3]} castShadow><cylinderGeometry args={[0.03, 0.035, 0.42, 6]} /><meshStandardMaterial color="#4a3728" roughness={0.9} /></mesh>
       <mesh ref={flameRef} position={[-side * 0.1, 0.26, 0]}><coneGeometry args={[0.08, 0.26, 6]} /><meshStandardMaterial color="#fb923c" emissive="#f97316" emissiveIntensity={1.4} /></mesh>
       <pointLight ref={lightRef} position={[-side * 0.1, 0.3, 0]} color="#fb923c" intensity={1.7} distance={6.5} decay={2} />
+    </group>
+  );
+}
+
+export type PaintingKind = 'monster' | 'dragon' | 'zombie' | 'weird';
+
+/** Tableaux/portraits accrochés aux murs du souterrain (voir demande utilisateur « accroche des
+ * tableaux/portraits (tête de monstres, dragons, zombies, personnages bizarres) sur les murs du
+ * souterrain » — ⚠️ volontairement SANS AUCUN contenu dénudé/suggestif, voir confirmation
+ * utilisateur « continue sans contenu de nudité »). PUREMENT COSMÉTIQUE (aucune interaction),
+ * construit en primitives Three.js (cadre + toile + "visage" simplifié par couleurs/formes),
+ * cohérent avec le style du reste de ce module (torches/porte/salles : aucune texture/image
+ * externe nulle part dans ce fichier). `side` place le tableau sur le mur gauche (-1) ou droit
+ * (+1) de la dalle courante (voir TunnelSegment) — la rotation reprend EXACTEMENT celle du mur
+ * lui-même (voir TunnelSegment ci-dessous) pour que sa face visible pointe vers le centre du
+ * couloir, quel que soit le mur. */
+function Painting({ side, kind }: { side: -1 | 1; kind: PaintingKind }) {
+  const palette: Record<PaintingKind, { bg: string; face: string; eye: string }> = {
+    monster: { bg: '#3f2d1a', face: '#6b8e23', eye: '#fde047' },
+    dragon: { bg: '#3f1a1a', face: '#b91c1c', eye: '#fde047' },
+    zombie: { bg: '#1a2e1a', face: '#84a07a', eye: '#dc2626' },
+    weird: { bg: '#2a1a3f', face: '#a78bfa', eye: '#22d3ee' },
+  };
+  const c = palette[kind];
+  const x = side * (TUNNEL_HALF_WIDTH - 0.01);
+  return (
+    <group position={[x, 1.65, 0]} rotation={[0, side > 0 ? -Math.PI / 2 : Math.PI / 2, 0]}>
+      <mesh castShadow><boxGeometry args={[0.62, 0.78, 0.04]} /><meshStandardMaterial color="#8a6d2f" metalness={0.4} roughness={0.5} /></mesh>
+      <mesh position={[0, 0, 0.025]}><planeGeometry args={[0.52, 0.68]} /><meshStandardMaterial color={c.bg} roughness={0.9} /></mesh>
+      <mesh position={[0, 0.02, 0.04]}><circleGeometry args={[0.18, 16]} /><meshStandardMaterial color={c.face} roughness={0.8} /></mesh>
+      <mesh position={[-0.08, 0.08, 0.05]}><circleGeometry args={[0.035, 8]} /><meshStandardMaterial color={c.eye} emissive={c.eye} emissiveIntensity={0.6} /></mesh>
+      <mesh position={[0.08, 0.08, 0.05]}><circleGeometry args={[0.035, 8]} /><meshStandardMaterial color={c.eye} emissive={c.eye} emissiveIntensity={0.6} /></mesh>
+      <mesh position={[0, -0.1, 0.05]}><boxGeometry args={[0.12, 0.03, 0.01]} /><meshStandardMaterial color="#1c1917" /></mesh>
+      <pointLight position={[0, 0, 0.3]} intensity={0.3} color="#fde68a" distance={1.5} decay={2} />
     </group>
   );
 }
@@ -197,7 +236,7 @@ function TunnelBat({ phase }: { phase: number }) {
 
 /** Une "dalle" de souterrain : sol + plafond + murs latéraux — groupe positionné/pivoté sur sa
  * `Pose` (voir § Chemin avec virages en en-tête de module). */
-function TunnelSegment({ pose, torch, batPhase }: { pose: Pose; torch: boolean; batPhase: number | null }) {
+function TunnelSegment({ pose, torch, batPhase, painting }: { pose: Pose; torch: boolean; batPhase: number | null; painting: { side: -1 | 1; kind: PaintingKind } | null }) {
   return (
     <group position={pose.pos} rotation={[0, pose.heading, 0]}>
       <mesh position={[0, 0, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
@@ -218,13 +257,18 @@ function TunnelSegment({ pose, torch, batPhase }: { pose: Pose; torch: boolean; 
       </mesh>
       {torch && (<><Torch side={-1} flicker /><Torch side={1} flicker /></>)}
       {batPhase !== null && <TunnelBat phase={batPhase} />}
+      {painting && <Painting side={painting.side} kind={painting.kind} />}
     </group>
   );
 }
 
 /** Marche d'escalier (voir § Escalier + porte en en-tête de module) — groupe positionné/pivoté sur
- * sa `Pose`, murs latéraux qui continuent de monter avec la marche. */
-function StairStep({ pose }: { pose: Pose }) {
+ * sa `Pose`, murs latéraux qui continuent de monter avec la marche. `torch` (voir demande
+ * utilisateur « mets des torches avec une flamme scintillante quand Synk monte dans l'escalier »)
+ * ajoute une paire de torches (mêmes murs/hauteur relative que `TunnelSegment`, position LOCALE
+ * inchangée malgré l'élévation progressive de la marche — le groupe parent porte déjà tout le
+ * dénivelé via `pose.pos.y`). */
+function StairStep({ pose, torch }: { pose: Pose; torch: boolean }) {
   return (
     <group position={pose.pos} rotation={[0, pose.heading, 0]}>
       <mesh position={[0, -0.5, 0]} receiveShadow castShadow>
@@ -239,6 +283,7 @@ function StairStep({ pose }: { pose: Pose }) {
         <planeGeometry args={[STAIR_DEPTH, TUNNEL_HEIGHT]} />
         <meshStandardMaterial color="#5f5a52" roughness={0.95} />
       </mesh>
+      {torch && (<><Torch side={-1} flicker /><Torch side={1} flicker /></>)}
     </group>
   );
 }
@@ -248,8 +293,11 @@ function StairStep({ pose }: { pose: Pose }) {
  * l'escalier (pour entrer) que dans la salle d'arrivée (pour ressortir, voir `onClick` reçu).
  * Suit le même garde-fou glissé/clic (seuil de quelques pixels entre pointerdown/pointerup) que
  * Platform3DWidget.tsx::dragStateRef, pour ne jamais confondre une orbite de caméra à la souris
- * (possible une fois dans la salle d'arrivée, voir `doorOpened`) avec un simple clic sur la porte. */
-function CryptDoor({ onClick }: { onClick: () => void }) {
+ * (possible une fois dans la salle d'arrivée, voir `doorOpened`) avec un simple clic sur la porte.
+ * EXPORTÉE pour être réutilisée par `TowerTopScene` (Platform3DWidget.tsx) — la porte de retour en
+ * haut de la tour du donjon (colonne centrale, voir demande utilisateur) utilise EXACTEMENT le
+ * même composant/la même logique anti-glissé, sans dupliquer son code. */
+export function CryptDoor({ onClick }: { onClick: () => void }) {
   const downRef = useRef<{ x: number; y: number } | null>(null);
   return (
     <group
@@ -349,6 +397,7 @@ function ParchmentRoom({ taken, onParchmentClick }: { taken: boolean; onParchmen
 
 export function CryptTunnelScene({
   cryptId, progress, tunnelLength, torchFlickerEnabled, batCount, doorOpened, onToggleDoor, parchmentTaken, onParchmentClick,
+  turnOffset,
 }: {
   cryptId: string;
   /** Nombre entier de dalles/marches parcourues depuis l'entrée (0 = entrée), piloté par le
@@ -367,6 +416,11 @@ export function CryptTunnelScene({
    * `'parchment'` (voir cryptDestinationRoomFor). */
   parchmentTaken: boolean;
   onParchmentClick: () => void;
+  /** 🆕 Quart(s) de tour sur soi-même (0 à 3, voir § Quart de tour / Platform3DWidget.tsx::cryptTurn)
+   * — n'affecte QUE le CAP regardé par la caméra (voir CryptCamera), jamais la position interpolée
+   * le long du chemin : permet d'observer les tableaux/portraits sur les murs (voir Painting) ou de
+   * faire demi-tour (2 quarts = 180°) pour marcher en avant vers la sortie plutôt qu'à reculons. */
+  turnOffset: number;
 }) {
   const room = useMemo(() => cryptDestinationRoomFor(cryptId), [cryptId]);
   const { poses, doorPos, roomPos, lastHeading } = useMemo(
@@ -384,6 +438,19 @@ export function CryptTunnelScene({
     }
     return m;
   }, [batCount, tunnelLength]);
+  // 🆕 Tableaux/portraits (voir demande utilisateur, § Painting ci-dessus) — un tous les ~4 dalles,
+  // JAMAIS sur une dalle à torche (même mur, se chevaucheraient visuellement), alternant de mur et
+  // de type déterministe (même crypte ⇒ toujours la même disposition, comme le reste du chemin).
+  const paintingByIndex = useMemo(() => {
+    const m = new Map<number, { side: -1 | 1; kind: PaintingKind }>();
+    const kinds: PaintingKind[] = ['monster', 'dragon', 'zombie', 'weird'];
+    for (let i = 2; i < tunnelLength - 1; i++) {
+      if (torchIndices.has(i) || i % 4 !== 2) continue;
+      const side: -1 | 1 = (i % 8 < 4) ? -1 : 1;
+      m.set(i, { side, kind: kinds[Math.floor(i / 4) % kinds.length] });
+    }
+    return m;
+  }, [tunnelLength, torchIndices]);
 
   return (
     <>
@@ -395,15 +462,20 @@ export function CryptTunnelScene({
       <fog attach="fog" args={['#0c0a09', 2, 15]} />
       <ambientLight intensity={0.32} color="#8a8178" />
       <hemisphereLight args={['#4b4038', '#0c0a09', 0.25]} />
-      {!doorOpened && <CryptCamera poses={poses} progress={progress} doorOpened={doorOpened} />}
+      {!doorOpened && <CryptCamera poses={poses} progress={progress} doorOpened={doorOpened} turnOffset={turnOffset} />}
       {!doorOpened && (
         <>
           {tunnelPoses.map((pose, i) => (
-            <TunnelSegment key={`seg-${i}`} pose={pose} torch={torchIndices.has(i)} batPhase={batPhaseByIndex.get(i) ?? null} />
+            <TunnelSegment key={`seg-${i}`} pose={pose} torch={torchIndices.has(i)} batPhase={batPhaseByIndex.get(i) ?? null} painting={paintingByIndex.get(i) ?? null} />
           ))}
-          {stairPoses.map((pose, i) => <StairStep key={`stair-${i}`} pose={pose} />)}
+          {/* Torches d'escalier tous les 2 marches (voir demande utilisateur « mets des torches
+              [...] quand Synk monte dans l'escalier ») + 2 torches supplémentaires de part et
+              d'autre de la porte d'entrée (voir groupe juste en dessous). */}
+          {stairPoses.map((pose, i) => <StairStep key={`stair-${i}`} pose={pose} torch={i % 2 === 0} />)}
           <group position={[doorPos.x, doorPos.y + 1.05, doorPos.z]} rotation={[0, lastHeading, 0]}>
             <CryptDoor onClick={onToggleDoor} />
+            <Torch side={-1} flicker={torchFlickerEnabled} />
+            <Torch side={1} flicker={torchFlickerEnabled} />
           </group>
         </>
       )}

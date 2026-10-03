@@ -22,7 +22,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, type ExtraRoamingActor } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, isWorldPosBlockedByLivingActor, type ExtraRoamingActor } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -692,8 +692,12 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       const destTile = worldTileAt(Math.round(clamp100(nx)), Math.round(clamp100(ny)), poiPoints);
       if (isObstacleAt(Math.round(clamp100(nx)), Math.round(clamp100(ny)), poiPoints, destTile)) return;
     }
+    // 🆕 Corrige le bug rapporté « je peux traverser ce PNJ et lui aussi peut me traverser » —
+    // même point d'appel partagé que Platform3DWidget.tsx::move (voir
+    // lib/roamingActors.ts::isWorldPosBlockedByLivingActor).
+    if (isWorldPosBlockedByLivingActor(nx, ny, markers, roamingActors)) return;
     moveTo(nx, ny);
-  }, [moveTo, rules?.poiObstacleCollisionEnabled, poiPoints]);
+  }, [moveTo, rules?.poiObstacleCollisionEnabled, poiPoints, markers, roamingActors]);
 
   const hold = useHoldMovement(move, {
     walkStepMs: rules?.movementWalkStepMs ?? 220,
@@ -1039,9 +1043,12 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     if (!interactable) return;
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(Math.round(m.x) - Math.round(cur.x)), Math.abs(Math.round(m.y) - Math.round(cur.y)));
+    // 🔒 Téléportation par clic DÉSACTIVÉE (voir demande utilisateur « je ne dois pas pouvoir
+    // déplacer ou téléporter Synk [...] avec un clic gauche de la souris [...] ça serait trop
+    // facile ») — interaction disponible UNIQUEMENT si déjà adjacent (ancien `else moveTo(m.x,
+    // m.y)` retiré, comme Platform3DWidget.tsx::onMarkerClick3D et WorldMapWidget.tsx).
     if (dist <= 1) setInteractionMarker(m);
-    else moveTo(m.x, m.y);
-  }, [moveTo]);
+  }, []);
 
   // ─── Clic sur le PNJ errant ou le Dragon errant (icônes qui se déplacent seules dans la grille) ───
   // Leur position (voir lib/roamingActors.ts) est désormais directement en coordonnées MAPMONDE
@@ -1053,9 +1060,9 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     if (!marker) return;
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(Math.round(actorWorldX) - Math.round(cur.x)), Math.abs(Math.round(actorWorldY) - Math.round(cur.y)));
+    // 🔒 Téléportation par clic DÉSACTIVÉE (voir onMarkerClick ci-dessus).
     if (dist <= 1) setInteractionMarker(marker);
-    else moveTo(actorWorldX, actorWorldY);
-  }, [moveTo]);
+  }, []);
 
   // ─── Clic sur un PNJ de rencontre PERSISTÉ ayant accordé une quête (voir
   // lib/roamingActors.ts::ExtraRoamingActor.questId) ─── Corrige la demande utilisateur : « rends
@@ -1080,9 +1087,9 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       name: actor.questLabel ?? actor.name, i18nKey: actor.questI18nKey ?? actor.i18nKey,
       icon: '📜', x: actor.x, y: actor.y,
     };
+    // 🔒 Téléportation par clic DÉSACTIVÉE (voir onMarkerClick ci-dessus).
     if (dist <= 1) setInteractionMarker(questMarker);
-    else moveTo(actor.x, actor.y);
-  }, [moveTo]);
+  }, []);
 
   // ─── Dépose d'un objet de la besace à un endroit exact de la grille (glisser-déposer natif HTML5,
   // même mécanisme que EquipmentWidget.tsx — voir demande utilisateur « donne la possibilité au
@@ -1114,13 +1121,12 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const onPortalTileClick = useCallback((wc: number, wr: number) => {
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(wc - Math.round(cur.x)), Math.abs(wr - Math.round(cur.y)));
+    // 🔒 Téléportation par clic DÉSACTIVÉE (voir onMarkerClick ci-dessus).
     if (dist <= 1 && worldMarkers.length) {
       const idx = Math.floor(hashRand(wc, wr, 5) * worldMarkers.length);
       setInteractionMarker(worldMarkers[Math.min(worldMarkers.length - 1, idx)]);
-    } else {
-      moveTo(wc, wr);
     }
-  }, [moveTo, worldMarkers]);
+  }, [worldMarkers]);
 
   // ─── Clic sur une tuile portant une hutte décorative (🛖 générée aléatoirement par worldTileAt,
   // biais village/taverne/étable/hutte) ─── Aucune MapPoiDef "hutte" n'est semée par défaut dans le
@@ -1132,15 +1138,14 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   const onHutTileClick = useCallback((wc: number, wr: number) => {
     const cur = worldPosRef.current;
     const dist = Math.max(Math.abs(wc - Math.round(cur.x)), Math.abs(wr - Math.round(cur.y)));
+    // 🔒 Téléportation par clic DÉSACTIVÉE (voir onMarkerClick ci-dessus).
     if (dist <= 1) {
       setInteractionMarker({
         id: `hut-${wc}-${wr}`, kind: 'poi', poiType: 'hut',
         name: t(PROP_I18N_KEY.hut), icon: PROP_ICON.hut, x: wc, y: wr,
       });
-    } else {
-      moveTo(wc, wr);
     }
-  }, [moveTo, t]);
+  }, [t]);
 
   // Déplacement au clavier (flèches directionnelles, y compris en diagonale via appui combiné
   // Haut/Bas + Gauche/Droite — voir demande utilisateur "haut diagonale gauche", etc.) — actif
@@ -1494,7 +1499,8 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
                   onClick={() => {
                     if (tile.prop === 'portal') onPortalTileClick(origin.col + c, origin.row + r);
                     else if (tile.prop === 'hut') onHutTileClick(origin.col + c, origin.row + r);
-                    else moveTo(origin.col + c, origin.row + r);
+                    // 🔒 Téléportation par clic DÉSACTIVÉE sur une tuile ordinaire (voir demande
+                    // utilisateur, § Téléportation par clic) — ancien `else moveTo(...)` retiré.
                   }}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => handleWorldItemDrop(e, origin.col + c, origin.row + r)}

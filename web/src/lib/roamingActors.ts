@@ -411,6 +411,43 @@ function isTileBlockedForActor(x: number, y: number, selfId: string): boolean {
     || isTileBlockedByOtherActor(x, y, selfId);
 }
 
+/** 🆕 API publique pour SYNK LUI-MÊME (voir Platform3DWidget.tsx::move / GameCanvas2D.tsx::move) —
+ * corrige le bug rapporté « je peux traverser ce PNJ et lui aussi peut me traverser ». Jusqu'ici,
+ * `isTileBlockedByOtherActor`/`isBlockedBySynkProximity` ne servaient QU'à faire éviter les acteurs
+ * ERRANTS entre eux ou à les figer à l'approche de Synk (voir ci-dessus) — jamais à bloquer le
+ * déplacement de SYNK LUI-MÊME, qui pouvait donc toujours traverser n'importe quel PNJ/familier,
+ * errant ou statique. Combine ICI, en un seul point partagé par les deux widgets 3D/2D :
+ * - tout marqueur catalogue `'npc'`/`'familiar'` ENCORE STATIQUE (pas encore incarné par un acteur
+ *   errant, ex. PNJ figés des huttes/villages — `allMarkers` reçoit le catalogue COMPLET, pas
+ *   seulement celui visible à l'écran, pour bloquer Synk même hors du rayon de vue affiché) ;
+ * - TOUS les acteurs errants vivants (PNJ/Dragon/familiers/faune/rencontres persistées, voir
+ *   `actors` ci-dessous, structure `RoamingActorsState` déjà exposée par `useRoamingActors()`).
+ * Même rayon `ACTOR_COLLISION_RADIUS` que l'évitement mutuel existant entre acteurs, pour un
+ * comportement visuellement symétrique et cohérent (ni Synk ni un PNJ/familier ne peuvent se
+ * chevaucher, quel que soit le sens du déplacement). `x`/`y` : coordonnées RÉELLES (non arrondies)
+ * de la case candidate, mêmes unités mapmonde (0-100 %) que `worldPosRef`/`players/{addr}/mapPos`. */
+export function isWorldPosBlockedByLivingActor(
+  x: number, y: number,
+  allMarkers: { id: string; kind: string; x: number; y: number }[],
+  actors: RoamingActorsState,
+): boolean {
+  const near = (ax: number, ay: number) => Math.hypot(x - ax, y - ay) < ACTOR_COLLISION_RADIUS;
+  for (const m of allMarkers) {
+    if (m.kind !== 'npc' && m.kind !== 'familiar') continue;
+    // Exclut les fiches catalogue déjà incarnées par un acteur errant (voir leur position COURANTE
+    // ci-dessous) — sinon on bloquerait Synk CONTRE leur position catalogue FIXE, obsolète dès que
+    // l'acteur se met à errer ailleurs sur la mapmonde.
+    if (m.id === actors.npcMarkerId || m.id === actors.dragonMarkerId || actors.familiars[m.id]) continue;
+    if (near(m.x, m.y)) return true;
+  }
+  if (actors.npcMarkerId && near(actors.npc.x, actors.npc.y)) return true;
+  if (actors.dragonMarkerId && near(actors.dragon.x, actors.dragon.y)) return true;
+  for (const f of Object.values(actors.familiars)) if (near(f.x, f.y)) return true;
+  for (const w of Object.values(actors.wildlife)) if (near(w.x, w.y)) return true;
+  for (const e of actors.extras) if (near(e.x, e.y)) return true;
+  return false;
+}
+
 
 /** Cherche une direction DE REMPLACEMENT (autre que celle qui vient d'échouer) menant à une case
  * franchissable et dans les limites du mapmonde — ordre aléatoire pour ne jamais privilégier

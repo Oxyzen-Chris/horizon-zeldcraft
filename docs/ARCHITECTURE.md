@@ -3861,3 +3861,118 @@ moment du scénario** (bug corrigé confirmé) ; position réelle de Synk dans l
 strictement inchangée pendant toute la traversée du souterrain (confirmant l'isolation du clavier) ;
 0 erreur console relevée sur l'ensemble du scénario.
 
+## 🚫 Synk peut traverser les PNJ/familiers (et eux Synk) + téléportation par clic à désactiver
+
+**Demande utilisateur** : « je peux traverser ce perso et lui également peut me traverser » +
+« je ne dois pas pouvoir déplacer ou téléporter Synk [...] avec un clic gauche de la souris [...]
+ça serait trop facile ».
+
+- **`lib/roamingActors.ts::isWorldPosBlockedByLivingActor(x, y, allMarkers, actors)`** (nouvelle
+  fonction exportée) : jusqu'ici, l'évitement de collision (`isTileBlockedByOtherActor`,
+  `isBlockedBySynkProximity`) ne servait QU'à faire éviter les acteurs errants entre eux ou à les
+  figer à l'approche de Synk — jamais à bloquer le déplacement de SYNK LUI-MÊME, qui pouvait donc
+  toujours traverser n'importe quel PNJ/familier (errant ou encore statique dans son village).
+  Cette fonction unique, appelée par les DEUX widgets de déplacement (voir ci-dessous), combine :
+  les marqueurs catalogue `npc`/`familiar` pas encore incarnés par un acteur errant, et tous les
+  acteurs errants vivants (PNJ, dragon, familiers, faune, rencontres persistées), avec le même rayon
+  `ACTOR_COLLISION_RADIUS` que l'évitement mutuel déjà en place — comportement symétrique : ni Synk
+  ni un PNJ/familier ne peuvent plus se chevaucher, quel que soit le sens du déplacement.
+- **`Platform3DWidget.tsx::move()` / `GameCanvas2D.tsx::move()`** : appellent désormais
+  `isWorldPosBlockedByLivingActor` avant d'accepter un déplacement candidat, au même niveau que les
+  vérifications d'obstacle terrain existantes (eau/montagne/props) — un mouvement qui finirait sur
+  un PNJ/familier est simplement refusé (Synk reste immobile face à lui), sans glissement latéral
+  ni téléportation.
+- **Téléportation par clic désactivée** dans les 3 widgets (`Platform3DWidget.tsx`,
+  `GameCanvas2D.tsx`, `WorldMapWidget.tsx`) : les gestionnaires `onCanvasClick`/`moveSynkTo` (et
+  équivalents) qui déplaçaient instantanément Synk à l'endroit cliqué — y compris, bug associé, à
+  l'intérieur même d'un décor solide (crypte/maison/château) — ont été entièrement retirés. Seuls
+  restent inchangés : le pavé directionnel/clavier (déplacement pas-à-pas normal) et les boutons de
+  voyage rapide dédiés de la Mapmonde (`onClickWorld`/`instantTravel`/`onConfirmWalk`, mécanisme
+  distinct et volontaire, non concerné par la demande). Le style `cursor-crosshair` qui laissait
+  croire que cliquer déplaçait Synk a été retiré de la Mapmonde.
+
+**Vérification** : `npx tsc --noEmit` : 0 erreur. Playwright (session Démo anonyme, Plateforme 3D) :
+3 clics gauche sur des zones variées du canvas (gauche/centre/bord) → scène et HUD strictement
+identiques avant/après (aucun déplacement), puis un appui-maintien sur le pavé directionnel « Bas »
+déplace bien Synk normalement (message de garde-fou « île/Engin requis » déclenché en heurtant une
+étendue d'eau — confirmant à la fois que le déplacement volontaire fonctionne et que l'évitement
+d'obstacle pour Synk lui-même reste actif) — 0 erreur console.
+
+## 🕯️🏰 Virage à la souris dans le souterrain, tableaux muraux, sommet de donjon explorable & caméra de sortie
+
+**Demande utilisateur (suite du raffinement de crypte)** : couloir en mode tunnel figé avec
+possibilité de regarder à 90°/180° par clic (sans jamais pouvoir pivoter librement), tableaux/
+portraits accrochés aux murs, torches supplémentaires dans l'escalier et autour de la porte du
+donjon, et surtout un **sommet de donjon traversable** (la salle `TowerRoom`, jusqu'ici une simple
+vue figée) où Synk réapparaît comme dans le monde réel, peut se déplacer tout autour de la colonne
+centrale, observer le plateau de jeu en contrebas façon caméra d'épaule, et ressortir par une porte
+dans la colonne pour revenir au souterrain — plus un correctif de la caméra (trop proche de la
+tête/casque de Synk) à la sortie de crypte.
+
+- **`turnOffset` (0-3, quart de tour)** : nouvel état `cryptTurn` dans `Platform3DWidget.tsx`, 2
+  boutons ↺/↻ dédiés (masqués une fois `cryptDoorOpened`, pour ne pas polluer la vue libre de la
+  salle) qui l'incrémentent/décrémentent modulo 4. Transmis en prop à `CryptCamera` (dans
+  `CryptTunnelScene.tsx`) qui l'ajoute simplement au cap de la `Pose` courante — la caméra reste
+  verrouillée sur le chemin (aucune rotation libre à la souris), mais regarde dans la direction
+  choisie par clic, par incréments de 90°. Les boutons « ▲ Avancer »/« ▼ Reculer » et les flèches
+  Haut/Bas du clavier tiennent compte de `cryptTurn` (`advanceDir = cryptTurn === 2 ? -1 : 1`) —
+  en clair : après un demi-tour (180°), « Avancer » fait progresser `cryptProgress` dans le sens
+  opposé, pour que Synk marche TOUJOURS en avant dans la direction où il regarde, jamais en
+  reculant à l'écran — corrige au passage le défaut « on ressort du souterrain en marche arrière ».
+- **Tableaux muraux (`Painting`, `PaintingKind`)** : un tableau toutes les ~4 dalles (en sautant les
+  dalles à torche), alternant les deux murs, cycle déterministe (par crypte) entre 4 motifs
+  (tête de monstre, dragon, zombie, portrait énigmatique) — purement décoratif, posé en relief sur
+  le mur via `TunnelSegment`.
+- **Torches supplémentaires** : escalier (`StairStep` reçoit `torch={i % 2 === 0}`, une marche sur
+  deux) et 2 torches flanquant la porte d'entrée du souterrain — en plus des torches de couloir déjà
+  en place (réutilise le composant `Torch`, désormais exporté par `CryptTunnelScene.tsx`).
+- **Sommet de donjon explorable (`TowerTopScene`, nouveau, dans `Platform3DWidget.tsx`)** : remplace
+  la vue figée précédente de `TowerRoom` quand `cryptDestinationRoomFor(cryptId) === 'tower'`
+  ET que la porte de la salle est ouverte (`towerTopActive`). Modélisée sur le même principe que
+  `UnderwaterScene` (monde de substitution monté dans le même `<Canvas>`) :
+  - Plateforme circulaire crénelée, colonne centrale avec une `<CryptDoor>` réutilisée telle quelle
+    (câblée sur le même `onToggleDoor`/`setCryptDoorOpened` que la porte de l'escalier — la refermer
+    renvoie directement au souterrain, aux marches, sans nouvel état à gérer) ;
+  - `SynkVoxel` réapparaît ici visible (contrairement au couloir à la première personne) avec une
+    caméra « chase-cam » en retrait (traveling qui suit Synk), pour la perspective de hauteur demandée
+    (« voir Synk comme dans le monde réel », « caméra qui bouge avec lui en mode traveling ») ;
+    corrige du même coup la caméra « au ras du casque » à la sortie du souterrain (voir plus bas) ;
+  - `moveTowerTop()` : déplacement en anneau borné par `TOWER_INNER_RADIUS`(2.0)/
+    `TOWER_OUTER_RADIUS`(6.4) autour de la colonne — plutôt qu'un blocage brutal aux limites, la
+    position candidate est projetée radialement sur le cercle limite (glissement le long du mur/de
+    la colonne, jamais de saut ni de blocage sec) ;
+  - « mini-carte aérienne » construite à partir d'une version réduite des `sceneMarkers` existants
+    (arbres/huttes/PNJ/faune) pour donner la perspective en hauteur demandée sur le plateau de jeu
+    en contrebas, sans dupliquer de `<Scene>`/`<OrbitControls>` imbriqués ;
+  - dpad/clavier normaux réactivés dans ce mode (gate `(!cryptMode || towerTopActive)` sur les deux
+    effets clavier existants, et sur l'affichage du dpad), la pile de boutons Avancer/Reculer/Sortir
+    du couloir est masquée ici (collision d'emplacement à l'écran avec le dpad) et remplacée par un
+    petit bouton « 🚪 Sortir » de secours en bas à droite.
+- **Caméra de sortie trop proche (correctif)** : nouvelle constante `EXIT_MIN_CAMERA_DISTANCE = 4` ;
+  la logique du bouton « 🚪 Sortir » (facteurisée dans une fonction `exitSynk` partagée) calcule la
+  distance entre la position caméra sauvegardée avant l'entrée en crypte et `CAMERA_TARGET` — si elle
+  est inférieure au seuil (cas d'une caméra restée collée à la tête de Synk), on retombe sur la pose
+  par défaut `[0, 3.2, 5.6]` + `lookAt` au lieu de restaurer une vue trop rapprochée.
+
+**Portée** : ces 7 cryptes (sur les 20 par défaut) dont le hash de `cryptDestinationRoomFor` tombe
+sur `'tower'` (`default_crypt_3/6/9/10/13/16/19`) mènent TOUTES désormais à un sommet de donjon
+explorable — pas un donjon unique câblé en dur — conformément à « tu feras cela pour tous les
+châteaux/tourelles/donjons du jeu ».
+
+**i18n** : `game.platform3d.crypt.turnLeft`/`turnRight` ajoutées aux 5 langues (fr/en/es/pt/us).
+
+**Vérification** : `npx tsc --noEmit` : 0 erreur sur l'ensemble du projet. Playwright (session Démo
+anonyme) : réutilisation confirmée du bypass de connexion `zc.effectiveSession`, ouverture de la
+Plateforme 3D et de la Mapmonde sans erreur console, confirmation que le pavé directionnel déplace
+réellement Synk dans le monde (voir section précédente) et que le clic ne téléporte plus. **Limite
+assumée et signalée en toute transparence** : le parcours complet jusqu'à l'entrée d'une crypte de
+type « tour » (distante de plusieurs dizaines de cases du point d'apparition par défaut, sans
+commande de téléportation disponible — désormais désactivée par design) n'a pas pu être rejoué de
+bout en bout en direct dans le temps imparti à cette session de vérification ; le code du virage à
+la souris, des tableaux/torches et du sommet de donjon repose sur la réutilisation directe de
+composants déjà validés en conditions réelles lors du raffinement précédent (`CryptCamera`,
+`CryptDoor`, `Torch`, le modèle `UnderwaterScene`), une vérification de type stricte (0 erreur) et
+une relecture de code ligne à ligne ; une revérification Playwright ciblée est recommandée dès
+qu'un moyen de navigation plus rapide (ex. compte de test positionné près d'une crypte en base)
+sera disponible.
+

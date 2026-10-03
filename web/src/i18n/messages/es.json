@@ -2920,6 +2920,8 @@
   "game.platform3d.crypt.title": "🕯️ Túnel de la cripta",
   "game.platform3d.crypt.advance": "Avanzar",
   "game.platform3d.crypt.retreat": "Retroceder",
+  "game.platform3d.crypt.turnLeft": "¼ de vuelta a la izquierda",
+  "game.platform3d.crypt.turnRight": "¼ de vuelta a la derecha",
   "game.platform3d.crypt.exit": "Salir",
   "game.platform3d.crypt.stairsTitle": "🪜 Escalera de la cripta",
   "game.platform3d.crypt.roomTitle": "🏰 Más allá de la puerta",
@@ -2947,5 +2949,9 @@
   "crypt.parchment.clue5": "«Cuando la luna llena se alza sobre las ruinas del norte, una puerta invisible se revela a los ojos puros. No temas, viajero: los muertos solo guardan lo que uno se atreve a enfrentar.»",
   "crypt.parchment.clue6": "«Un hechizo antiguo duerme bajo la séptima losa del gran puente de piedra. Pronuncia su nombre olvidado en voz alta, y el mundo se abrirá bajo tus pasos.»",
   "changelog.graveyardCrypts.title": "🪦 Cementerios, criptas y no-muertos",
-  "changelog.graveyardCrypts.body": "2 cementerios, 20 criptas explorables en 3D (túneles subterráneos, antorchas, murciélagos, un pergamino para leer) y 20 tumbas de las que emergen zombis, gules y esqueletos, dispersos por el Mapamundi."
+  "changelog.graveyardCrypts.body": "2 cementerios, 20 criptas explorables en 3D (túneles subterráneos, antorchas, murciélagos, un pergamino para leer) y 20 tumbas de las que emergen zombis, gules y esqueletos, dispersos por el Mapamundi.",
+  "changelog.synkActorBlocking.title": "🚫 Synk ya no puede atravesar a los PNJ/familiares + teletransporte por clic desactivado",
+  "changelog.synkActorBlocking.body": "Synk ya no puede atravesar a un PNJ, un familiar o una criatura (y viceversa): ahora queda bloqueado frente a ellos como ante un obstáculo del terreno. Un clic izquierdo en la Plataforma 3D, la Plataforma 2D isométrica o el Mapamundi ya no teletransporta a Synk al lugar donde se hizo clic (ni siquiera dentro de un decorado) — solo el pad direccional/teclado y los botones de viaje rápido dedicados siguen activos.",
+  "changelog.cryptTowerTop.title": "🏰 Túnel de la cripta: giro con el ratón, cuadros en las paredes y cima de torre explorable",
+  "changelog.cryptTowerTop.body": "En el túnel, 2 botones permiten ahora mirar en incrementos de un cuarto de vuelta (sin nunca rotar libremente), cuadros decoran las paredes y antorchas adicionales iluminan la escalera y la puerta. Las criptas que llevan a una fortaleza revelan ahora una cima de torre explorable: Synk reaparece visible allí, puede recorrer toda la columna central con una cámara que lo sigue, y sale cerrando la puerta de la columna. También se corrigió la cámara, antes demasiado cercana a la cabeza de Synk al salir del túnel."
 }

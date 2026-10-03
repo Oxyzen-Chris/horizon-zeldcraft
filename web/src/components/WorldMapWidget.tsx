@@ -307,8 +307,12 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
 
   // Navigation de la carte (clic droit + glisser pour scroller, molette pour zoomer — voir demande
   // utilisateur) — paramétrable en Administration (voir lib/gameState.ts::MapNavigationSettings).
-  // N'affecte que le confort de navigation : le clic gauche continue de déplacer Synk exactement
-  // comme avant (onCanvasClick, inchangé) — zéro régression de jeu.
+  // 🔒 Le clic gauche NE déplace/téléporte plus Synk (voir demande utilisateur, § Téléportation par
+  // clic — « je ne dois pas pouvoir déplacer ou téléporter Synk [...] avec un clic gauche de la
+  // souris [...] ça serait trop facile ») : `onCanvasClick`/`moveSynkTo` ont été retirés plus bas
+  // (voir ancien commentaire « onCanvasClick, inchangé », qui faisait référence à ce même clic —
+  // désormais désactivé, cohérent avec Platform3DWidget.tsx/GameCanvas2D.tsx). Les boutons de
+  // voyage rapide (onClickWorld/instantTravel/onConfirmWalk) restent eux totalement inchangés.
   const [navSettings, setNavSettings] = useState<MapNavigationSettings>(DEFAULT_MAP_NAVIGATION_SETTINGS);
   const [panning, setPanning] = useState(false);
   const panRef = useRef<{ startX: number; startY: number; scrollLeft: number; scrollTop: number } | null>(null);
@@ -509,24 +513,10 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     localStorage.setItem(scopedKey(SIZE_KEY, address), JSON.stringify(size));
   };
 
-  // ─── Déplacement libre de Synk (clic sur la carte) ───
-  // Le scan de découverte de POI proches est désormais géré par l'écouteur temps réel
-  // subscribePlayerMapPos (voir plus haut), déclenché par cette écriture elle-même — ainsi le
-  // même code de découverte s'applique quel que soit le widget à l'origine du déplacement.
-  const moveSynkTo = async (xPct: number, yPct: number) => {
-    if (!address) return;
-    setMapPos({ x: xPct, y: yPct });
-    await setPlayerMapPos(address, DEFAULT_MAP_ID, xPct, yPct);
-  };
-
-  const onCanvasClick = (e: React.MouseEvent) => {
-    if (!canvasRef.current || traveling) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
-    const yPct = ((e.clientY - rect.top) / rect.height) * 100;
-    if (xPct < 0 || xPct > 100 || yPct < 0 || yPct > 100) return;
-    moveSynkTo(xPct, yPct);
-  };
+  // ─── Déplacement libre de Synk au clic : DÉSACTIVÉ (voir demande utilisateur ci-dessus,
+  // § Téléportation par clic) — `moveSynkTo`/`onCanvasClick` ont été retirés ; le div de la carte
+  // n'a volontairement plus aucun `onClick`, voir plus bas (curseur rendu à nouveau neutre, retiré
+  // le style `cursor-crosshair` qui laissait croire que cliquer déplaçait toujours Synk).
 
   // ─── Navigation carte : clic droit + glisser pour scroller, molette pour zoomer ───
   // Empêche le menu contextuel natif du clic droit uniquement si l'option est active (Administration).
@@ -885,8 +875,7 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
         }}>
         <div
           ref={canvasRef}
-          onClick={onCanvasClick}
-          className="relative cursor-crosshair"
+          className="relative"
           style={{
             width: scaledW, height: scaledH,
             backgroundImage: 'repeating-linear-gradient(0deg, rgba(120,90,40,0.05) 0px, rgba(120,90,40,0.05) 2px, transparent 2px, transparent 40px), repeating-linear-gradient(90deg, rgba(120,90,40,0.05) 0px, rgba(120,90,40,0.05) 2px, transparent 2px, transparent 40px)',

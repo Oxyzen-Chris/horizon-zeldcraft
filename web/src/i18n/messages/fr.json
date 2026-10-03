@@ -1938,6 +1938,8 @@
   "game.platform3d.crypt.title": "🕯️ Souterrain de la crypte",
   "game.platform3d.crypt.advance": "Avancer",
   "game.platform3d.crypt.retreat": "Reculer",
+  "game.platform3d.crypt.turnLeft": "¼ de tour à gauche",
+  "game.platform3d.crypt.turnRight": "¼ de tour à droite",
   "game.platform3d.crypt.exit": "Sortir",
   "game.platform3d.crypt.stairsTitle": "🪜 Escalier de la crypte",
   "game.platform3d.crypt.roomTitle": "🏰 Au-delà de la porte",
@@ -1965,5 +1967,9 @@
   "crypt.parchment.clue5": "« Quand la pleine lune se lève sur les ruines du nord, une porte invisible se révèle aux yeux purs. N'aie crainte, voyageur : les morts ne gardent que ce qu'on ose affronter. »",
   "crypt.parchment.clue6": "« Un sortilège ancien sommeille sous la septième dalle du grand pont de pierre. Prononce son nom oublié à voix haute, et le monde s'ouvrira sous tes pas. »",
   "changelog.graveyardCrypts.title": "🪦 Cimetières, cryptes & morts-vivants",
-  "changelog.graveyardCrypts.body": "2 cimetières, 20 cryptes explorables en 3D (souterrains, torches, chauves-souris, parchemin à lire) et 20 tombes dont émergent zombies, goules et squelettes, dispersés sur la Mapmonde."
+  "changelog.graveyardCrypts.body": "2 cimetières, 20 cryptes explorables en 3D (souterrains, torches, chauves-souris, parchemin à lire) et 20 tombes dont émergent zombies, goules et squelettes, dispersés sur la Mapmonde.",
+  "changelog.synkActorBlocking.title": "🚫 Synk ne peut plus traverser les PNJ/familiers + téléportation par clic désactivée",
+  "changelog.synkActorBlocking.body": "Synk ne peut plus traverser un PNJ, un familier ou une créature (et inversement) : il est désormais bloqué face à eux comme devant un obstacle de terrain. Le clic gauche sur la Plateforme 3D, la Plateforme 2D isométrique ou la Mapmonde ne téléporte plus Synk à l'endroit cliqué (même à l'intérieur d'un décor) — seuls le pavé directionnel/clavier et les boutons de voyage rapide restent actifs.",
+  "changelog.cryptTowerTop.title": "🏰 Souterrain de crypte : virage à la souris, tableaux muraux & sommet de donjon explorable",
+  "changelog.cryptTowerTop.body": "Dans le souterrain, 2 boutons permettent désormais de regarder par quart de tour (sans jamais pivoter librement), des tableaux ornent les murs et des torches supplémentaires éclairent l'escalier et la porte. Les cryptes menant à un donjon révèlent un sommet de tour explorable : Synk y réapparaît visible, peut en faire le tour autour de la colonne centrale avec une caméra en traveling, et ressort en refermant la porte de la colonne. La caméra, trop proche de la tête de Synk à la sortie du souterrain, a aussi été corrigée."
 }

@@ -2920,6 +2920,8 @@
   "game.platform3d.crypt.title": "🕯️ Crypt tunnel",
   "game.platform3d.crypt.advance": "Advance",
   "game.platform3d.crypt.retreat": "Retreat",
+  "game.platform3d.crypt.turnLeft": "Turn ¼ left",
+  "game.platform3d.crypt.turnRight": "Turn ¼ right",
   "game.platform3d.crypt.exit": "Exit",
   "game.platform3d.crypt.stairsTitle": "🪜 Crypt stairway",
   "game.platform3d.crypt.roomTitle": "🏰 Beyond the door",
@@ -2947,5 +2949,9 @@
   "crypt.parchment.clue5": "\"When the full moon rises over the northern ruins, an invisible door reveals itself to pure eyes. Fear not, traveler: the dead guard only what one dares to face.\"",
   "crypt.parchment.clue6": "\"An ancient spell slumbers beneath the seventh slab of the great stone bridge. Speak its forgotten name aloud, and the world shall open beneath your steps.\"",
   "changelog.graveyardCrypts.title": "🪦 Cemeteries, crypts & undead",
-  "changelog.graveyardCrypts.body": "2 cemeteries, 20 explorable 3D crypts (underground tunnels, torches, bats, a readable parchment) and 20 tombs from which zombies, ghouls and skeletons emerge, scattered across the Worldmap."
+  "changelog.graveyardCrypts.body": "2 cemeteries, 20 explorable 3D crypts (underground tunnels, torches, bats, a readable parchment) and 20 tombs from which zombies, ghouls and skeletons emerge, scattered across the Worldmap.",
+  "changelog.synkActorBlocking.title": "🚫 Synk can no longer walk through NPCs/familiars + click-teleport disabled",
+  "changelog.synkActorBlocking.body": "Synk can no longer walk through an NPC, familiar or creature (and vice versa): he is now blocked in front of them just like a terrain obstacle. Left-clicking on the 3D platform, the 2D isometric platform or the Worldmap no longer teleports Synk to the clicked spot (even inside scenery) — only the d-pad/keyboard and the dedicated fast-travel buttons remain active.",
+  "changelog.cryptTowerTop.title": "🏰 Crypt tunnel: mouse-click turning, wall paintings & explorable tower top",
+  "changelog.cryptTowerTop.body": "In the tunnel, 2 buttons now let you look in quarter-turn increments (never freely rotating), paintings decorate the walls, and extra torches light up the stairs and door. Crypts leading to a keep now reveal an explorable tower top: Synk reappears visible there, can walk all the way around the central column with a tracking camera, and leaves by closing the column's door. The camera, previously too close to Synk's head on exiting the tunnel, was also fixed."
 }
