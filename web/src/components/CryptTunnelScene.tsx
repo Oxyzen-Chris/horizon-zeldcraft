@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode, type RefObject, type MutableRefObject } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -129,7 +129,20 @@ function computeTunnelPath(cryptId: string, tunnelLength: number, stairSteps: nu
  * (la salle d'arrivée est alors explorable via `<OrbitControls>`, monté plus bas dans ce fichier). */
 function CryptCamera({ poses, progress, doorOpened, turnOffset }: { poses: Pose[]; progress: number; doorOpened: boolean; turnOffset: number }) {
   const { camera } = useThree();
-  const displayedRef = useRef(0);
+  // ⚠️ Bug corrigé (demande utilisateur « il y a comme une version accélérée qui se rejoue de
+  // déplacement depuis la porte d'entrée de la crypte jusqu'à la porte de la pièce ») : ce composant
+  // n'est monté QUE tant que `!doorOpened` (voir `{!doorOpened && <CryptCamera .../>}` plus bas) —
+  // à chaque sortie d'une salle/tour (`onLeaveRoom`/retour depuis le sommet du donjon, qui repasse
+  // `doorOpened` à `false`), une TOUTE NOUVELLE instance de ce composant est montée, et
+  // `useRef(0)` réinitialisait alors le lissage à 0 quel que soit l'endroit réel du couloir où se
+  // trouvait Synk. Le lissage (`displayedRef` rattrapant `progress` à vitesse `delta*6`, voir
+  // boucle ci-dessous) partait donc à chaque fois de la dalle 0 (l'entrée) et remontait tout le
+  // couloir en accéléré jusqu'à la position réelle — une « rediffusion » involontaire du trajet.
+  // Initialiser `displayedRef` à `progress` (valeur courante AU MOMENT du montage, donc la bonne
+  // position) supprime ce rattrapage : la caméra apparaît directement à la bonne dalle, sans jamais
+  // perdre le lissage normal utilisé pour une avancée/un recul standard (`progress` ne change alors
+  // que graduellement d'une frame à l'autre, le lissage s'applique identiquement à avant).
+  const displayedRef = useRef(progress);
   useFrame((_, delta) => {
     if (doorOpened) return;
     displayedRef.current += (progress - displayedRef.current) * Math.min(1, delta * 6);
@@ -150,6 +163,54 @@ function CryptCamera({ poses, progress, doorOpened, turnOffset }: { poses: Pose[
     // sortie au lieu de reculer, SANS jamais modifier l'interpolation de `camera.position`
     // ci-dessus (la caméra glisse toujours le long du même chemin, seul le regard tourne).
     camera.rotation.set(0, p0.heading + (p1.heading - p0.heading) * frac + turnOffset * (Math.PI / 2), 0);
+  });
+  return null;
+}
+
+/** 🆕 Caméra qui suit Synk "au-dessus de lui" dans la salle chambre/parchemin (voir demande
+ * utilisateur « pour faciliter les déplacements dans la pièces ou le donjon, met en place une
+ * caméra qui suit Synk et se positionne au dessus de lui et fait en sorte que les touches de
+ * direction reste les même car quand j'utilise la vue en perspective/caméra à l'aide de la souris
+ * [...] les directions au clavier [...] ne sont plus les mêmes »).
+ *
+ * Le déplacement (`moveRoom`, voir Platform3DWidget.tsx) est et reste en repère MONDE FIXE (jamais
+ * relatif à la caméra — même rationale que le monde extérieur, voir son commentaire historique sur
+ * `dispatchMove`) : le vrai problème n'était donc PAS le mapping des touches lui-même, mais la
+ * rotation LIBRE à la souris de l'`<OrbitControls>` de la salle, qui changeait l'apparence écran de
+ * "haut"/"avant" SANS jamais changer la direction réellement envoyée par les touches — d'où la
+ * désynchronisation perçue par le joueur. Solution : verrouiller l'azimut/l'inclinaison
+ * (`enableRotate={false}`, voir le `<OrbitControls>` de la salle ci-dessous) ET faire suivre
+ * AUTOMATIQUEMENT la cible (`target`) ainsi que la position de la caméra à Synk, chaque frame.
+ *
+ * Lit la position MONDE réelle de Synk via `anchorRef.getWorldPosition()` (le groupe contenant
+ * `synkSlot` est un ENFANT du groupe pivoté `[roomPos, rotation lastHeading]`, voir plus bas) plutôt
+ * que de recalculer sa position par trigonométrie manuelle (rotation de `roomSynkPos` par
+ * `lastHeading`) — évite tout risque d'erreur de signe/rotation difficile à vérifier sans test en
+ * conditions réelles, en s'appuyant sur le calcul de matrice déjà fiabilisé de Three.js. */
+function RoomFollowCamera({ anchorRef, controlsRef }: { anchorRef: RefObject<THREE.Object3D | null>; controlsRef: MutableRefObject<any> }) {
+  const { camera } = useThree();
+  const initedRef = useRef(false);
+  const worldPos = useMemo(() => new THREE.Vector3(), []);
+  const lookAt = useMemo(() => new THREE.Vector3(), []);
+  useFrame(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    anchor.getWorldPosition(worldPos);
+    lookAt.set(worldPos.x, worldPos.y + 0.9, worldPos.z);
+    if (!initedRef.current) {
+      initedRef.current = true;
+      // Pose initiale "au-dessus et en recul" — fixée UNE SEULE FOIS à l'entrée dans la salle
+      // (avant que `enableRotate={false}` ne la verrouille définitivement) : garantit que les
+      // touches directionnelles restent TOUJOURS alignées avec le même rendu écran, quel que soit
+      // l'endroit où Synk se déplace ensuite dans la pièce.
+      camera.position.set(lookAt.x, lookAt.y + 3.6, lookAt.z + 3.0);
+    }
+    if (controlsRef.current) {
+      controlsRef.current.target.copy(lookAt);
+      controlsRef.current.update();
+    } else {
+      camera.lookAt(lookAt);
+    }
   });
   return null;
 }
@@ -388,6 +449,35 @@ function TowerRoom() {
   );
 }
 
+/** 🆕 Meubles considérés comme des OBSTACLES dans les salles d'arrivée chambre/parchemin (voir
+ * demande utilisateur « il ne faut bien évidement pas que je passe au travers des objets dans la
+ * pièce comme le lit ou la table de chevet ou la table, ils doivent donc être considérés comme des
+ * obstacles. Néanmoins, je peux grimper sur la table, le lit ou la table de chevet (mais pas
+ * l'armoire) [...] à l'aide de la touche ESPACE et flêche haut [...] comme dans le jeu réel en
+ * dehors du souterrain »). Coordonnées EXACTEMENT alignées sur les meshs rendus dans
+ * `BedroomRoom`/`ParchmentRoom` ci-dessus (même repère local salle, centre `[0,0,0]`), avec une
+ * demi-largeur/profondeur légèrement généreuse pour englober visuellement chaque meuble (évite que
+ * Synk ne paraisse à moitié traverser un coin). `climbable` détermine si Espace maintenu + avancer
+ * permet d'y monter (voir `moveRoom`/`jumpHeldRef` côté Platform3DWidget.tsx — EXACTEMENT la même
+ * mécanique que l'escalade d'un rocher en extérieur, voir `tileClimbCubes`/`destFlags.climbable`) ;
+ * `topY` est la hauteur (`standY` de `SynkVoxel`) à laquelle Synk se tient une fois monté dessus.
+ * Exportées pour être réutilisées TELLES QUELLES côté `Platform3DWidget.tsx::moveRoom` (source
+ * unique de vérité : aucune duplication de coordonnées entre rendu 3D et logique de collision, qui
+ * diviergeraient sinon silencieusement au moindre futur ajustement visuel d'un meuble). */
+export interface RoomObstacle { x: number; z: number; halfX: number; halfZ: number; climbable: boolean; topY: number }
+
+export const BEDROOM_OBSTACLES: RoomObstacle[] = [
+  { x: -0.9, z: -0.5, halfX: 0.58, halfZ: 0.98, climbable: true, topY: 0.37 },  // Lit
+  { x: -0.1, z: -1.3, halfX: 0.23, halfZ: 0.23, climbable: true, topY: 0.44 },  // Table de chevet
+  { x: 1.4, z: -1.4, halfX: 0.43, halfZ: 0.28, climbable: false, topY: 1.3 },   // Armoire (NON grimpable)
+];
+
+export const PARCHMENT_OBSTACLES: RoomObstacle[] = [
+  { x: 0, z: 0, halfX: 0.68, halfZ: 0.43, climbable: true, topY: 0.45 },     // Table
+  { x: -0.9, z: 0.6, halfX: 0.2, halfZ: 0.2, climbable: false, topY: 0.42 }, // Chaise gauche
+  { x: 0.9, z: 0.6, halfX: 0.2, halfZ: 0.2, climbable: false, topY: 0.42 },  // Chaise droite
+];
+
 /** Salle d'arrivée "chambre" — lit, table de chevet, armoire (voir demande utilisateur « une
  * pièce avec un lit [...] une table de chevet [...] une armoire »). `torchFlickerEnabled` ajoute
  * deux torches scintillantes aux angles du fond (voir demande utilisateur « ajoutes des torches
@@ -501,7 +591,9 @@ export function CryptTunnelScene({
    * « permet à Synk de se déplacer à l'aide des touches directionnelles du clavier [...] afin de
    * lui permettre de découvrir la pièce et rechercher par exemple des objets ») — pilotée côté
    * PARENT (Platform3DWidget.tsx::moveRoom/roomPos, même principe que `moveTowerTop`/`towerPos`),
-   * remplace l'ancienne position fixe `[0,0,1.3]`. Sans effet si `synkSlot` est vide. */
+   * remplace l'ancienne position fixe `[0,0,1.3]`. L'élévation d'escalade (meuble grimpable, voir
+   * `RoomObstacle.topY`) est gérée par le PARENT via la prop `standY` du `<SynkVoxel>` lui-même
+   * (lissage interne identique au monde extérieur), PAS ici, pour éviter un double décalage. */
   roomSynkPos?: { x: number; z: number };
   /** 🆕 Clic sur la porte de retour DE LA SALLE (chambre/parchemin) vers l'escalier/souterrain —
    * DISTINCT de `onToggleDoor` (qui reste la porte d'ENTRÉE en haut de l'escalier) pour permettre au
@@ -520,6 +612,12 @@ export function CryptTunnelScene({
   onExitCrypt?: () => void;
 }) {
   const room = useMemo(() => cryptDestinationRoomFor(cryptId), [cryptId]);
+  // 🆕 Voir `RoomFollowCamera` ci-dessus : `synkAnchorRef` est le groupe portant `synkSlot` dans la
+  // salle (position monde réelle lue via `getWorldPosition`), `roomControlsRef` est l'instance
+  // `OrbitControls` de la salle (pour piloter `target` chaque frame sans passer par une prop React
+  // re-rendue à chaque mouvement, plus coûteux).
+  const synkAnchorRef = useRef<THREE.Group>(null);
+  const roomControlsRef = useRef<any>(null);
   const { poses, doorPos, roomPos, lastHeading } = useMemo(
     () => computeTunnelPath(cryptId, tunnelLength, CRYPT_STAIR_STEPS),
     [cryptId, tunnelLength],
@@ -596,14 +694,15 @@ export function CryptTunnelScene({
       )}
       {doorOpened && (
         <>
-          {/* 🆕 Zoom désormais autorisé (`enableZoom`, borné `minDistance`/`maxDistance`) — Synk
-              pouvant maintenant se déplacer dans toute la salle (voir `roomSynkPos`), le joueur
-              doit pouvoir reculer la caméra pour le garder dans le cadre quel que soit l'endroit où
-              il se trouve (désactivé auparavant, sans conséquence tant que Synk restait figé près
-              de l'entrée). `target` reste centré sur la salle (son origine/porte) plutôt que de
-              suivre Synk : la salle (4×4) est assez petite pour qu'il reste visible à cette
-              distance une fois le zoom arrière disponible. */}
-          <OrbitControls enablePan={false} enableZoom minDistance={1.8} maxDistance={7} enableDamping dampingFactor={0.12} target={[roomPos.x, roomPos.y + 1.1, roomPos.z]} />
+          {/* 🆕 Rotation libre à la souris DÉSORMAIS VERROUILLÉE (`enableRotate={false}`, voir doc
+              de `RoomFollowCamera` ci-dessus) — corrige le bug signalé « les directions au clavier
+              [...] ne sont plus les mêmes [...] fonction du mouvement de la caméra » : seul le zoom
+              (`enableZoom`, borné `minDistance`/`maxDistance`) reste ajustable à la souris, ce qui
+              ne change jamais l'azimut/l'orientation écran. `target` n'est plus une prop statique
+              centrée sur la salle : il est désormais piloté CHAQUE FRAME par `RoomFollowCamera`
+              ci-dessous, qui suit la position RÉELLE de Synk (voir `synkAnchorRef`). */}
+          <OrbitControls ref={roomControlsRef} enablePan={false} enableZoom enableRotate={false} minDistance={1.8} maxDistance={7} enableDamping dampingFactor={0.12} />
+          <RoomFollowCamera anchorRef={synkAnchorRef} controlsRef={roomControlsRef} />
           <group position={roomPos} rotation={[0, lastHeading, 0]}>
             {room === 'tower' && <TowerRoom />}
             {room === 'bedroom' && <BedroomRoom torchFlickerEnabled={torchFlickerEnabled} />}
@@ -613,9 +712,12 @@ export function CryptTunnelScene({
                 pour permettre à Synk de se déplacer librement dans la salle au clavier (demande
                 utilisateur), à l'écart de tout meuble (lit/table de chevet/armoire/table/chaises,
                 voir coordonnées de BedroomRoom/ParchmentRoom ci-dessus et bornes `ROOM_HALF_X`/
-                `ROOM_MIN_Z`/`ROOM_MAX_Z` côté parent). */}
-            {room !== 'tower' && synkSlot && (
-              <group position={[roomSynkPos?.x ?? 0, 0, roomSynkPos?.z ?? 1.3]}>{synkSlot}</group>
+                `ROOM_MIN_Z`/`ROOM_MAX_Z` côté parent). L'élévation d'escalade est gérée en interne
+                par `synkSlot` (prop `standY` du `<SynkVoxel>`, voir doc de `roomSynkPos` ci-dessus),
+                PAS par ce groupe. Le groupe reste monté (`ref={synkAnchorRef}`) même sans
+                `synkSlot`, pour que `RoomFollowCamera` ait toujours une cible valide. */}
+            {room !== 'tower' && (
+              <group ref={synkAnchorRef} position={[roomSynkPos?.x ?? 0, 0, roomSynkPos?.z ?? 1.3]}>{synkSlot}</group>
             )}
             {/* Porte de retour (voir § Escalier + porte) — en face (local +Z = vers l'escalier).
                 🆕 `onLeaveRoom` (plutôt que `onToggleDoor`) : voir doc ci-dessus, permet au parent

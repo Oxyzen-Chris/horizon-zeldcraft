@@ -34,7 +34,7 @@ import { HutRestModal } from './HutRestModal';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
 import { Platform3DAmbientScene, Owl3D, Werewolf3D, Boar3D, Zombie3D, Ghoul3D, Skeleton3D } from './Platform3DAmbientScene';
-import { CryptTunnelScene, CRYPT_STAIR_STEPS, cryptDestinationRoomFor, CryptDoor, Torch } from './CryptTunnelScene';
+import { CryptTunnelScene, CRYPT_STAIR_STEPS, cryptDestinationRoomFor, CryptDoor, Torch, BEDROOM_OBSTACLES, PARCHMENT_OBSTACLES, type RoomObstacle } from './CryptTunnelScene';
 import { ParchmentPopup } from './ParchmentPopup';
 import { useAdminAudioSettings, playAmbientSound } from '@/lib/audio';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
@@ -138,6 +138,20 @@ function directionFromDelta(dx: number, dy: number): SynkDirection | null {
   if (dy === 0) return dx < 0 ? 'left' : 'right';
   if (dx < 0) return dy < 0 ? 'up-left' : 'down-left';
   return dy < 0 ? 'up-right' : 'down-right';
+}
+
+/** Rayon (unités 3D) approximant l'encombrement au sol de Synk, ajouté à la demi-largeur/profondeur
+ * de chaque `RoomObstacle` lors du test de collision (voir `isInsideRoomObstacle`/`moveRoom`) — évite
+ * que Synk ne paraisse à moitié enfoncé dans un meuble avant d'être bloqué (demande utilisateur
+ * « il ne faut [...] pas que je passe au travers des objets dans la pièce comme le lit ou la table
+ * de chevet ou la table »). */
+const SYNK_ROOM_COLLIDE_PAD = 0.22;
+
+/** Vrai si le point (x, z), dans le repère LOCAL de la salle (voir `BEDROOM_OBSTACLES`/
+ * `PARCHMENT_OBSTACLES`), tombe à l'intérieur de l'empreinte d'un meuble — demi-largeur/profondeur
+ * élargies de `SYNK_ROOM_COLLIDE_PAD` pour englober l'encombrement de Synk (voir sa doc). */
+function isInsideRoomObstacle(x: number, z: number, o: RoomObstacle, pad: number = SYNK_ROOM_COLLIDE_PAD): boolean {
+  return Math.abs(x - o.x) <= o.halfX + pad && Math.abs(z - o.z) <= o.halfZ + pad;
 }
 
 /** Hauteur (unités 3D) de la surface sur laquelle Synk se tient DEBOUT pour une tuile donnée —
@@ -2117,6 +2131,19 @@ const AERIAL_SCALE = 0.42;
  * purement décorative (on regarde le monde d'en haut, on n'y interagit pas depuis la tourelle). */
 const AERIAL_NOOP = () => {};
 
+function TowerCameraInit({ target }: { target: [number, number, number] }) {
+  const { camera } = useThree();
+  const initedRef = useRef(false);
+  useEffect(() => {
+    if (initedRef.current) return;
+    initedRef.current = true;
+    camera.position.set(target[0], target[1] + 4.4, target[2] + 3.4);
+    camera.lookAt(target[0], target[1], target[2]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
 function TowerTopScene({
   stage, facing, equipment, equipmentRenderEnabled, pos, walking, running, eyeBlinkEnabled, eyeBlinkIntervalSec,
   onToggleDoor, torchFlickerEnabled, markers,
@@ -2233,11 +2260,24 @@ function TowerTopScene({
         />
       </group>
       {/* Caméra suiveuse "mode traveling" (voir demande utilisateur) : le `target` suit Synk tandis
-          que le joueur reste libre d'orbiter/zoomer pour lever ou baisser le regard (observer le
-          paysage en contrebas ou le ciel) — `maxPolarAngle` par défaut (Math.PI) autorise un regard
-          complet vers le bas, sans jamais pouvoir faire tomber Synk de la tour (bornage géré par
-          `moveTowerTop`, pas par la caméra). */}
-      <OrbitControls enablePan={false} enableDamping dampingFactor={0.12} minDistance={2.5} maxDistance={12} target={[pos.x, 1, pos.y]} />
+          que la caméra reste positionnée AU-DESSUS de lui. L'AZIMUT (rotation horizontale à la
+          souris) est désormais VERROUILLÉ (`minAzimuthAngle===maxAzimuthAngle`, voir demande
+          utilisateur « met en place une caméra qui suit Synk et se positionne au dessus de lui et
+          fait en sorte que les touches de direction reste les mêmes [...] quand j'utilise la vue
+          [...] à la souris [...] les directions au clavier [...] ne sont plus les mêmes ») — c'est
+          la rotation HORIZONTALE (tourner autour de Synk) qui changeait l'apparence écran de
+          "avant"/"gauche"/"droite" sans jamais changer la direction réellement envoyée par les
+          touches, d'où la désynchronisation. L'inclinaison VERTICALE (`minPolarAngle`/
+          `maxPolarAngle` par défaut, non bornés ici) reste en revanche 100% libre : « permettre à
+          Synk de baisser comme lever un peu le regard » (demande utilisateur antérieure) n'est
+          PAS affectée, puisqu'incliner la vue de haut en bas ne fait tourner ni ne retourne jamais
+          l'écran (contrairement à l'azimut). `TowerCameraInit` fixe la pose de départ en surplomb
+          (azimut 0, cohérent avec le verrouillage ci-dessus) UNE SEULE FOIS à l'entrée. */}
+      <OrbitControls
+        enablePan={false} enableDamping dampingFactor={0.12} minDistance={2.5} maxDistance={12}
+        target={[pos.x, 1, pos.y]} minAzimuthAngle={0} maxAzimuthAngle={0}
+      />
+      <TowerCameraInit target={[pos.x, 1, pos.y]} />
     </>
   );
 }
@@ -2966,8 +3006,15 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
    * s'éloigner de cette porte (déplacement libre), contrairement à l'ancienne position fixe. */
   const ROOM_DOOR_LOCAL = { x: 0, z: 2.3 };
   const ROOM_DOOR_PROXIMITY = 1.3;
-  const roomPosRef = useRef({ x: 0, y: 1.3 });
-  const [roomPos, setRoomPos] = useState({ x: 0, y: 1.3 });
+  const roomPosRef = useRef({ x: 0, y: 1.3, standY: 0 });
+  const [roomPos, setRoomPos] = useState({ x: 0, y: 1.3, standY: 0 });
+  /** Meubles de la salle d'arrivée courante (voir `cryptRoomType`) — `[]` pour `'tower'` (géré par
+   * `TowerTopScene`, aucun meuble). */
+  const roomObstacles: RoomObstacle[] = useMemo(() => {
+    if (cryptRoomType === 'bedroom') return BEDROOM_OBSTACLES;
+    if (cryptRoomType === 'parchment') return PARCHMENT_OBSTACLES;
+    return [];
+  }, [cryptRoomType]);
   const moveRoom = useCallback((dx: number, dy: number) => {
     if (isFainting || fallDeath) return;
     const dir = directionFromDelta(dx, dy);
@@ -2980,16 +3027,34 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     const cur = roomPosRef.current;
     const nx = Math.max(-ROOM_HALF_X, Math.min(ROOM_HALF_X, cur.x + dx * 0.5));
     const ny = Math.max(ROOM_MIN_Z, Math.min(ROOM_MAX_Z, cur.y + dy * 0.5));
-    roomPosRef.current = { x: nx, y: ny };
-    setRoomPos({ x: nx, y: ny });
-  }, [isFainting, fallDeath]);
+    // ─── Meubles-obstacles + escalade (voir demande utilisateur « il ne faut [...] pas que je passe
+    // au travers des objets dans la pièce comme le lit ou la table de chevet ou la table [...] je
+    // peux grimper sur la table, le lit ou la table de chevet (mais pas l'armoire) [...] à l'aide de
+    // la touche ESPACE et flêche haut [...] comme dans le jeu réel en dehors du souterrain ») — EXACTE-
+    // MENT la même mécanique que l'escalade d'un rocher en extérieur (`jumpHeldRef`/`destFlags.
+    // climbable`, voir `move()` plus bas) : sans Espace maintenu, avancer vers un meuble est bloqué
+    // net ; avec Espace maintenu ET le meuble `climbable`, l'avancée est autorisée (déclenche le même
+    // arc de saut cosmétique, voir `jumpTrigger`) et Synk se tient ensuite à la hauteur `topY` du
+    // meuble (`roomPos.standY`, voir `SynkVoxel.standY`) tant qu'il reste sur son empreinte. Un meuble
+    // NON grimpable (armoire, chaises) bloque TOUJOURS, quel que soit Espace — comme un mur.
+    const wasOn = roomObstacles.find(o => isInsideRoomObstacle(cur.x, cur.y, o));
+    const target = roomObstacles.find(o => isInsideRoomObstacle(nx, ny, o));
+    if (target && target !== wasOn) {
+      if (!target.climbable) return; // meuble non grimpable (armoire/chaise) : bloqué net
+      if (!jumpHeldRef.current) return; // grimpable, mais Espace non maintenu : bloqué
+      setJumpTrigger(v => v + 1); // même arc cosmétique que l'escalade d'un rocher en extérieur
+    }
+    const standY = target ? target.topY : 0;
+    roomPosRef.current = { x: nx, y: ny, standY };
+    setRoomPos({ x: nx, y: ny, standY });
+  }, [isFainting, fallDeath, roomObstacles]);
   // Réinitialise la position dans la salle à chaque nouvelle arrivée (même rationale que l'effet
   // équivalent pour `towerPos` ci-dessus) — Synk réapparaît toujours juste devant la porte, comme
   // avec l'ancienne position fixe `[0,0,1.3]`.
   useEffect(() => {
     if (roomTopActive) {
-      roomPosRef.current = { x: 0, y: 1.3 };
-      setRoomPos({ x: 0, y: 1.3 });
+      roomPosRef.current = { x: 0, y: 1.3, standY: 0 };
+      setRoomPos({ x: 0, y: 1.3, standY: 0 });
     }
   }, [roomTopActive]);
 
@@ -3511,9 +3576,9 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               turnOffset={cryptTurn}
               synkSlot={cryptDoorOpened && cryptRoomType !== 'tower' ? (
                 <SynkVoxel
-                  stage={stage} walking={isWalking} running={isRunning} swimming={false} jumpTrigger={0}
+                  stage={stage} walking={isWalking} running={isRunning} swimming={false} jumpTrigger={jumpTrigger}
                   facing={facing} equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
-                  standY={0} eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true} eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
+                  standY={roomPos.standY} eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true} eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
                 />
               ) : null}
               roomSynkPos={{ x: roomPos.x, z: roomPos.y }}

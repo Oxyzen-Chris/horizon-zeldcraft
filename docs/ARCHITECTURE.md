@@ -4187,4 +4187,103 @@ imparti ; la correction du déplacement en salle/de la porte d'entrée repose su
 code ligne à ligne et la réutilisation directe du même mécanisme déjà validé pour `moveTowerTop`/
 `towerPos` (tour du donjon, vérifié en conditions réelles lors du correctif précédent).
 
+## 🛋️ Salles chambre/parchemin : meubles-obstacles escaladables, correctif du « replay » de sortie & caméra suiveuse verrouillée
+
+Trois correctifs distincts demandés sur les salles d'arrivée (chambre/parchemin) et le sommet du
+donjon, tous **localisés à `CryptTunnelScene.tsx`/`Platform3DWidget.tsx`** — le monde extérieur
+(`Scene()`) et son couplage clavier/caméra historique (voir § « Déplacement de Synk en Plateforme
+3D — architecture VERROUILLÉE ») restent intouchés.
+
+### 1. Meubles-obstacles + escalade (lit/table de chevet/table grimpables, armoire/chaises solides)
+
+Demande : « il ne faut [...] pas que je passe au travers des objets dans la pièce comme le lit ou
+la table de chevet ou la table [...] Néanmoins, je peux grimper sur la table, le lit ou la table de
+chevet (mais pas l'armoire) [...] à l'aide de la touche ESPACE et flêche haut du pavé directionnel
+[...] comme dans le jeu réel en dehors du souterrain ».
+
+`CryptTunnelScene.tsx` exporte désormais une structure de données dérivée **directement** des
+coordonnées des meshes de meubles déjà existants dans `BedroomRoom`/`ParchmentRoom` (aucune
+coordonnée inventée) :
+
+```tsx
+export interface RoomObstacle { x: number; z: number; halfX: number; halfZ: number; climbable: boolean; topY: number; }
+export const BEDROOM_OBSTACLES: RoomObstacle[]; // lit (grimpable), table de chevet (grimpable), armoire (solide)
+export const PARCHMENT_OBSTACLES: RoomObstacle[]; // table (grimpable), 2 chaises (solides)
+```
+
+Côté `Platform3DWidget.tsx`, `moveRoom` réutilise **exactement** la même mécanique que l'escalade
+d'un rocher en extérieur (`jumpHeldRef`, rempli par la touche Espace ou le bouton tactile « Sauter »,
+voir `move()`) :
+
+- Un helper pur `isInsideRoomObstacle(x, z, obstacle, pad)` teste l'appartenance à l'empreinte d'un
+  meuble, élargie de `SYNK_ROOM_COLLIDE_PAD` (0.22) pour englober l'encombrement de Synk.
+- En entrant sur l'empreinte d'un meuble **non grimpable** (armoire, chaises) : mouvement bloqué net,
+  comme un mur.
+- En entrant sur l'empreinte d'un meuble **grimpable** (lit, table de chevet, table) sans Espace
+  maintenu : également bloqué.
+- Avec Espace maintenu : l'avancée est autorisée, déclenche le même `jumpTrigger` (arc de saut
+  cosmétique déjà utilisé par `SynkVoxel`), et Synk se tient ensuite à la hauteur `topY` du meuble
+  (nouveau champ `roomPos.standY`) tant qu'il reste sur son empreinte.
+- `roomPos`/`roomPosRef` passent de `{x, y}` à `{x, y, standY}` ; `standY` est transmis **directement
+  à la prop `standY` du `<SynkVoxel>`** rendu dans `synkSlot` (et non à un décalage de groupe dans
+  `CryptTunnelScene.tsx`) afin de réutiliser le lissage d'élévation déjà existant (`groundYRef`,
+  `useFrame` de `SynkVoxel`) — identique visuellement à l'escalade d'un rocher en extérieur, sans
+  double décalage ni nouveau code d'animation.
+
+### 2. Correctif du « replay » accéléré à la sortie d'une salle/du donjon
+
+Demande : « il y a comme une version accéléré qui se rejoue de déplacement depuis la porte d'entrée
+de la crypte jusqu'a la porte de la pèce, supprime ce playback ».
+
+Cause racine : `CryptCamera` n'est monté QUE tant que `!doorOpened` (`{!doorOpened &&
+<CryptCamera .../>}`). À chaque fermeture de porte (retour à la salle → couloir), une **toute
+nouvelle instance** de `CryptCamera` était créée, avec `const displayedRef = useRef(0)` — son ref de
+lissage caméra repartait donc TOUJOURS de 0, provoquant un lerp accéléré rejouant tout le couloir
+depuis l'entrée jusqu'à la position réelle de `progress`, à chaque sortie de salle.
+
+Correctif (une ligne) : `useRef(0)` → `useRef(progress)`. L'animation de glisse fluide pendant un
+déplacement réel (Avancer/Reculer) est inchangée (`progress` varie toujours graduellement d'une
+frame à l'autre) ; seul le faux rejeu complet du couloir à chaque remontage disparaît.
+
+### 3. Caméra suiveuse au-dessus de Synk + verrouillage de rotation (anti-désynchronisation clavier)
+
+Demande : « met en place une caméra qui suit Synk et se positionne au dessus de lui [...] fait en
+sorte que les touches de direction reste les même car quand j'utilise la vue en perspective/caméra
+à la souris [...] les directions au clavier [...] ne sont plus les mêmes ».
+
+Cause racine : les touches de direction en salle/tour restent **volontairement** mappées en dur sur
+les axes du MONDE (dx/dz), jamais relatives à la caméra (voir § architecture verrouillée extérieure
+— 5 tentatives précédentes de direction relative-caméra avaient provoqué des boucles de rétroaction
+avec une caméra qui se repositionnait elle-même selon la direction de déplacement). Tant que
+`<OrbitControls>` autorisait la rotation libre à la souris (`enableRotate` par défaut `true`), faire
+pivoter la caméra à la souris désynchronisait ce qui est visuellement « en haut/avant » à l'écran
+par rapport au mapping clavier fixe sur le monde.
+
+Correctifs distincts salle vs tour (différence **volontaire**, pas un oubli) :
+
+- **Salles chambre/parchemin** (`CryptTunnelScene.tsx`) : nouveau composant `RoomFollowCamera({
+  anchorRef, controlsRef })` — lit la position RÉELLE de Synk dans le MONDE via
+  `anchorRef.current.getWorldPosition()` à chaque frame (plutôt qu'un recalcul trigonométrique
+  manuel de `roomSynkPos` par la rotation `lastHeading` du groupe de la salle, source d'erreurs de
+  signe), positionne la caméra « au-dessus et en retrait » au premier frame, puis pilote
+  `controlsRef.current.target` en continu. `<OrbitControls enableRotate={false}>` : rotation
+  **entièrement verrouillée** (seul le zoom reste actif) — aucune fonctionnalité de regard
+  haut/bas n'a jamais été demandée dans ces salles, verrouillage total donc sans régression.
+- **Sommet du donjon** (`Platform3DWidget.tsx::TowerTopScene`) : UNIQUEMENT l'azimut est verrouillé
+  (`minAzimuthAngle={0}` / `maxAzimuthAngle={0}`), l'angle polaire (vertical) reste **libre** — car
+  une demande précédente explicitement livrée demandait à Synk de pouvoir « lever comme baisser le
+  regard » en haut du donjon ; verrouiller toute rotation aurait silencieusement supprimé cette
+  fonctionnalité déjà livrée. Nouveau composant `TowerCameraInit({ target })` : positionne la
+  caméra une seule fois au montage (azimut 0, cohérent avec le verrouillage), avant que le
+  verrouillage ne prenne effet durablement.
+
+**Vérification** : `npx tsc --noEmit -p tsconfig.json` : 0 erreur après l'ensemble des correctifs.
+Playwright (session Démo anonyme) : page `/game` chargée, onboarding ignoré (bouton « Passer »),
+widget Plateforme 3D ouvert — **0 erreur console** dans les trois cas. **Limite assumée** (identique
+aux correctifs précédents sur ces salles) : atteindre une crypte/salle/sommet de donjon réel en jeu
+depuis un spawn éloigné, sans téléportation par clic (désormais désactivée, voir § précédent), reste
+hors de portée d'un scénario Playwright complet dans le temps imparti — la correction repose sur une
+relecture de code ligne à ligne, la réutilisation directe de mécaniques déjà validées ailleurs
+(escalade de rocher, `getWorldPosition`, azimut de `OrbitControls`), et la vérification TypeScript
+stricte de l'ensemble des types/props modifiés.
 
