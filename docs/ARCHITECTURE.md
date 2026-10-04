@@ -3845,6 +3845,75 @@ caméra fixe » par un modèle **chemin à virages**) et `components/Platform3DW
 **i18n** : 4 nouvelles clés (`game.platform3d.crypt.stairsTitle/roomTitle/doorHint/closeDoor`)
 traduites dans les 5 langues (fr/en/es/pt/us).
 
+## Correctif caméra de sortie de crypte (angle de vue sensible à la direction)
+
+**Symptôme** : à la sortie complète d'un souterrain (crypte), la caméra se retrouvait parfois
+collée à l'arrière du bâtiment de la crypte, ou sur un écran noir/très rapproché du casque de Synk,
+au lieu de la vue reculée attendue (Synk visible de dos/trois-quarts, bâtiment de la crypte
+derrière lui, dégagé).
+
+**Cause racine** : l'ancienne constante `CRYPT_EXIT_CAMERA_POS` (`Platform3DWidget.tsx`) était un
+décalage **caméra fixe en coordonnées monde**, qui ne fonctionnait correctement QUE lorsque la
+direction de sortie de Synk (`OPPOSITE_DIRECTION[preCryptFacingRef.current]`) valait `'down'` — car
+la convention du jeu associe l'angle 0 (`'down'`) au vecteur de visage `(0,0,1)`, qui correspond
+justement à la position fixe `(0, 3.2, 5.6)` de l'ancienne caméra. Dès que le joueur était entré
+dans la crypte depuis une autre direction (la plupart des cas), la direction de sortie différait de
+`'down'`, et la caméra fixe se retrouvait alors **du même côté que le bâtiment** (donc derrière
+Synk par rapport à sa nouvelle orientation), provoquant le collage/écran noir observé.
+
+**Correctif** (`Platform3DWidget.tsx`) : remplacement de `CRYPT_EXIT_CAMERA_POS` par une fonction
+`cryptExitCameraPosFor(direction: SynkDirection)` qui calcule
+`[sin(FACING_ANGLE[direction]) * CRYPT_EXIT_CAMERA_RADIUS, CRYPT_EXIT_CAMERA_HEIGHT,
+cos(FACING_ANGLE[direction]) * CRYPT_EXIT_CAMERA_RADIUS]` — réutilisant la même table
+`FACING_ANGLE` et les mêmes magnitudes hauteur/rayon (3.2 / 5.6) que l'ancienne constante, mais
+généralisées aux 8 directions au lieu d'une seule. `exitCrypt()` calcule désormais `exitFacing`
+**une seule fois** puis l'utilise à la fois pour `cryptExitCameraPosFor(exitFacing)` (position/
+lookAt de la caméra) et `setFacing(exitFacing)` (orientation de Synk) — les deux étaient auparavant
+calculés de façon quelque peu redondante/indépendante, source potentielle d'incohérence.
+
+**Non en cause** (pistes explorées puis écartées après analyse) : le batching React 18 (les mises à
+jour d'état d'un `onClick` R3F natif restent batchées comme tout autre callback), la fraîcheur de
+`CameraBridge` (l'instance de caméra du `<Canvas>` persiste à travers les bascules de scène), et le
+remontage de `<OrbitControls>` de Drei (reconstruit `target`/offset à neuf à chaque montage, sans
+report d'un état obsolète).
+
+## Familier caché "Dragon Vert" (surprise, une seule chambre de crypte)
+
+Suite à la demande utilisateur d'ajouter une surprise cachée dans la table de chevet d'**une seule**
+chambre de crypte (sans aucune indication en jeu sur laquelle), un familier **Dragon Vert** est
+désormais ramassable gratuitement (aucune XP ni objet requis, contrairement au circuit standard
+`tameFamiliar`) dans la chambre de `HIDDEN_DRAGON_CRYPT_ID = 'default_crypt_1'`
+(`CryptTunnelScene.tsx`) — sur les 20 cryptes fixes (`DEFAULT_CRYPT_POIS`), 7 mènent à une chambre
+(`cryptDestinationRoomFor` : ids 1, 4, 7, 11, 14, 17, 20), et `default_crypt_1` a été choisie comme
+l'unique emplacement de cette surprise.
+
+- **`lib/gameState.ts`** : `HIDDEN_DRAGON_FAMILIAR_ID = 'dragon.green.hidden'` (id volontairement
+  distinct de tout familier dragon du catalogue admin) + 3 fonctions : `isHiddenDragonFamiliarTaken`/
+  `subscribeHiddenDragonFamiliarTaken` (lecture/abonnement à `players/{addr}/familiars/{key}`, même
+  principe que `getTakenParchmentIds`/`subscribeTakenParchmentIds`) et `claimHiddenDragonFamiliar`
+  (octroi direct et idempotent, SANS vérification XP/objet — contrairement à `tameFamiliar` — qui
+  écrit à la fois une fiche catalogue `FamiliarDef` minimale sous `catalog/familiars/{key}`, afin que
+  le familier s'affiche correctement partout avec nom/icône sans configuration admin préalable, et
+  l'enregistrement de possession du joueur). Réutilise la clé i18n déjà existante
+  `familiar.dragon_green` (nom déjà traduit dans les 5 langues pour les dragons verts du catalogue
+  admin).
+- **`CryptTunnelScene.tsx`** : constante `HIDDEN_DRAGON_CRYPT_ID`; `BedroomRoom` reçoit 2 nouvelles
+  props optionnelles `hiddenDragonAvailable`/`onHiddenDragonClick` qui rendent la table de chevet
+  cliquable — **sans aucun changement visuel** (même géométrie/couleurs que toute autre chambre),
+  afin qu'aucune chambre ne se distingue visuellement de celle contenant la surprise.
+  `CryptTunnelScene` transmet `onHiddenDragonClick` tel quel à `BedroomRoom`.
+- **`HiddenFamiliarPopup.tsx`** (nouveau) : pop-up de ramassage, même structure que
+  `ParchmentPopup.tsx` (portail plein écran, clic extérieur = fermer sans ramasser) mais sans
+  synthèse vocale, appelant `claimHiddenDragonFamiliar` au clic sur « Adopter ».
+- **`Platform3DWidget.tsx`** : état `hiddenDragonTaken` (abonné via `subscribeHiddenDragonFamiliarTaken`)
+  et `hiddenFamiliarPopupOpen`; `onHiddenDragonClick` n'est fourni à `<CryptTunnelScene>` QUE si
+  `cryptMode === HIDDEN_DRAGON_CRYPT_ID && !hiddenDragonTaken` (sinon `undefined`, la table de
+  chevet redevient un meuble inerte une fois le familier ramassé, ou dans toute autre chambre).
+
+**i18n** : 4 nouvelles clés (`crypt.hiddenFamiliar.title/body/take/leave`) traduites dans les 5
+langues (fr/en/es/pt/us); réutilise `familiar.dragon_green` existant pour le nom du familier.
+
+
 **Vérification** : `npx tsc --noEmit` et `npm run build` : 0 erreur. Script autonome dédié validant
 `computeTunnelPath` (5 `cryptId` différents) : nombre de poses correct, aucun `NaN`, deltas de cap
 toujours 0 ou exactement ±90°, distances conformes à `TILE_SIZE`/`STAIR_DEPTH`, Y constant dans le

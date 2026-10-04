@@ -9,7 +9,7 @@ import {
   subscribePlayer, subscribeInventory, getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment, applyEffect,
   DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY, dropInventoryItemAt, DEFAULT_AUDIO_SETTINGS,
-  subscribeTakenParchmentIds,
+  subscribeTakenParchmentIds, subscribeHiddenDragonFamiliarTaken,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
   type ZorghonEncounterState, type SynkDirection, type EquipSlot, type EquippedItem,
   type Platform3DObjectKind, type Platform3DObjectFlags, type AudioSourceKey, type AudioSourceSetting,
@@ -34,8 +34,9 @@ import { HutRestModal } from './HutRestModal';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
 import { Platform3DAmbientScene, Owl3D, Werewolf3D, Boar3D, Zombie3D, Ghoul3D, Skeleton3D } from './Platform3DAmbientScene';
-import { CryptTunnelScene, CRYPT_STAIR_STEPS, cryptDestinationRoomFor, CryptDoor, Torch, BEDROOM_OBSTACLES, PARCHMENT_OBSTACLES, type RoomObstacle } from './CryptTunnelScene';
+import { CryptTunnelScene, CRYPT_STAIR_STEPS, cryptDestinationRoomFor, HIDDEN_DRAGON_CRYPT_ID, CryptDoor, Torch, BEDROOM_OBSTACLES, PARCHMENT_OBSTACLES, type RoomObstacle } from './CryptTunnelScene';
 import { ParchmentPopup } from './ParchmentPopup';
+import { HiddenFamiliarPopup } from './HiddenFamiliarPopup';
 import { useAdminAudioSettings, playAmbientSound } from '@/lib/audio';
 import type { EncounterMarkerInfo } from './NpcEncounterPopup';
 
@@ -128,6 +129,29 @@ const OPPOSITE_DIRECTION: Record<SynkDirection, SynkDirection> = {
   up: 'down', down: 'up', left: 'right', right: 'left',
   'up-left': 'down-right', 'down-right': 'up-left', 'up-right': 'down-left', 'down-left': 'up-right',
 };
+
+/** 🔒 Bug corrigé (rapporté par l'utilisateur, capture d'écran à l'appui : caméra "zoomée" sur le
+ * toit/la croix de la crypte, parfois totalement noire) : la pose de sortie de crypte était
+ * auparavant un vecteur MONDE FIXE (`[0, 3.2, 5.6]`, voir `cryptExitCameraPosFor` ci-dessous pour le
+ * détail du calcul désormais utilisé) — correct UNIQUEMENT si Synk ressort en regardant vers 'down'
+ * (axe +Z, même convention que `FACING_ANGLE`). Or Synk est repositionné À L'EMPLACEMENT MÊME de la
+ * crypte en sortant (le bâtiment de la crypte se retrouve donc tout près de l'origine, quel que soit
+ * l'angle sous lequel le joueur l'a abordée) : si sa direction de sortie (`OPPOSITE_DIRECTION` de la
+ * direction d'entrée, voir `exitCrypt`) n'était PAS 'down', la caméra fixe `[0, 3.2, 5.6]` pouvait se
+ * retrouver du MÊME côté que le bâtiment de la crypte (au lieu du côté opposé, "derrière" Synk par
+ * rapport à sa nouvelle direction) et donc l'intersecter/passer au travers (vue noire ou cadrée sur
+ * le toit). Correctif : calculer la position caméra EN FONCTION de la direction de sortie réelle, en
+ * réutilisant `FACING_ANGLE` (même convention angle→vecteur de visage que le modèle 3D de Synk,
+ * `(sin(angle), 0, cos(angle))`) pour placer la caméra du côté vers lequel Synk regarde DÉSORMAIS
+ * (donc TOUJOURS à l'opposé de la crypte, qui reste dans son dos) — généralise la pose fixe qui
+ * n'était valide que pour le cas particulier 'down' à TOUTES les directions de sortie possibles,
+ * sans changer la hauteur/le recul (mêmes magnitudes que l'ancienne pose par défaut). */
+const CRYPT_EXIT_CAMERA_HEIGHT = 3.2;
+const CRYPT_EXIT_CAMERA_RADIUS = 5.6;
+function cryptExitCameraPosFor(direction: SynkDirection): [number, number, number] {
+  const angle = FACING_ANGLE[direction] ?? 0;
+  return [Math.sin(angle) * CRYPT_EXIT_CAMERA_RADIUS, CRYPT_EXIT_CAMERA_HEIGHT, Math.cos(angle) * CRYPT_EXIT_CAMERA_RADIUS];
+}
 
 /** Angle (degrés écran, sens horaire depuis le haut) de l'aiguille de la boussole HTML/CSS pour
  * chaque direction affichée — voir la boussole N/E/S/O du composant parent (demande utilisateur
@@ -1840,16 +1864,6 @@ interface SceneMarker {
 const CAMERA_TARGET: [number, number, number] = [0, 0.85, 0];
 const CAMERA_MIN_DISTANCE = 1.3;
 const CAMERA_MAX_DISTANCE = 20;
-// Pose caméra par défaut à la sortie COMPLÈTE d'un souterrain (voir `exitCrypt`) — recul standard
-// identique à celui de l'ouverture du widget. Utilisée INCONDITIONNELLEMENT depuis le correctif
-// « zoom sur le casque de Synk collé à la porte » (demande utilisateur « il ne faut pas zoomer sur
-// Synk mais le voir de la même manière que quand il est rentré dans la crypte ») : restaurer la
-// caméra EXACTE sauvegardée avant l'entrée (ancien comportement, via `preCryptCameraRef`) rapprochait
-// trop souvent la vue du casque de Synk, car le joueur zoome généralement de près pour cliquer
-// précisément sur la porte d'entrée juste avant que cette caméra ne soit capturée — un seuil de
-// distance avait été tenté (code retiré) mais restait contourné dans certains cas signalés ; la
-// pose fixe ci-dessous élimine le problème à la racine, pour TOUTE sortie de crypte.
-const CRYPT_EXIT_CAMERA_POS: [number, number, number] = [0, 3.2, 5.6];
 const CAMERA_MAX_POLAR_ANGLE = 2.4;
 const CAMERA_GROUND_CLAMP_Y = 0.05;
 
@@ -2518,6 +2532,18 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // Pop-up de lecture du parchemin (voir ParchmentPopup.tsx) — `null` = fermé, sinon id de la
   // crypte dont le parchemin est en cours de lecture.
   const [parchmentPopupCryptId, setParchmentPopupCryptId] = useState<string | null>(null);
+
+  // 🆕 Familier "Dragon Vert" caché dans la table de chevet de l'UNIQUE chambre HIDDEN_DRAGON_CRYPT_ID
+  // (voir CryptTunnelScene.tsx et gameState.ts::claimHiddenDragonFamiliar — demande utilisateur
+  // « ajoutes une surprise dans la table de chevet d'une chambre [...] ne donne aucune indication »).
+  // Même principe que `takenParchmentIds`/`parchmentPopupCryptId` ci-dessus, mais stockage PAR
+  // JOUEUR directement sous `familiars/` (une seule crypte concernée, pas besoin d'un Set).
+  const [hiddenDragonTaken, setHiddenDragonTaken] = useState(false);
+  useEffect(() => {
+    if (!address) { setHiddenDragonTaken(false); return; }
+    return subscribeHiddenDragonFamiliarTaken(address, setHiddenDragonTaken);
+  }, [address]);
+  const [hiddenFamiliarPopupOpen, setHiddenFamiliarPopupOpen] = useState(false);
 
   const [kingdomMarker, setKingdomMarker] = useState<MapMarker | null>(null);
   useEffect(() => {
@@ -3409,13 +3435,6 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   const ENTRANCE_EXIT_MAX_PROGRESS = 1;
   const exitCrypt = useCallback(() => {
     if (cryptProgress > ENTRANCE_EXIT_MAX_PROGRESS) return;
-    // Caméra : TOUJOURS la pose par défaut (voir doc de `CRYPT_EXIT_CAMERA_POS` ci-dessus) — plus
-    // de restauration de la caméra sauvegardée avant l'entrée, qui recollait trop souvent la vue au
-    // casque de Synk (zoom utilisé pour cliquer précisément sur la porte d'entrée).
-    if (cameraRef.current) {
-      cameraRef.current.position.set(...CRYPT_EXIT_CAMERA_POS);
-      cameraRef.current.lookAt(new THREE.Vector3(...CAMERA_TARGET));
-    }
     // 🆕 Retourne Synk à l'opposé EXACT de la direction qu'il regardait en entrant (face à la porte,
     // voir `preCryptFacingRef`) — donne l'impression qu'il sort véritablement de la crypte plutôt que
     // de s'apprêter à y rentrer à nouveau (demande utilisateur « il faut que Synk soit face à la
@@ -3423,7 +3442,18 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     // appliqué à la sortie d'une salle/du donjon (voir `onLeaveRoom`/`onToggleDoor` de `TowerTopScene`
     // plus bas, `setCryptTurn(2)`), mais ici sur `facing` (monde extérieur en 3e personne) plutôt que
     // sur `cryptTurn` (vue 1re personne du souterrain).
-    setFacing(OPPOSITE_DIRECTION[preCryptFacingRef.current] ?? 'down');
+    const exitFacing = OPPOSITE_DIRECTION[preCryptFacingRef.current] ?? 'down';
+    // Caméra : pose par défaut CALCULÉE SELON `exitFacing` (voir doc de `cryptExitCameraPosFor`
+    // ci-dessus, bug corrigé « caméra zoomée sur le toit/la croix de la crypte ») — plus de
+    // restauration de la caméra sauvegardée avant l'entrée, qui recollait trop souvent la vue au
+    // casque de Synk (zoom utilisé pour cliquer précisément sur la porte d'entrée), ET surtout
+    // toujours du côté OPPOSÉ au bâtiment de la crypte (qui reste dans le dos de Synk), quelle que
+    // soit la direction par laquelle il l'a abordée.
+    if (cameraRef.current) {
+      cameraRef.current.position.set(...cryptExitCameraPosFor(exitFacing));
+      cameraRef.current.lookAt(new THREE.Vector3(...CAMERA_TARGET));
+    }
+    setFacing(exitFacing);
     setCryptMode(null);
     setCryptDoorOpened(false);
   }, [cryptProgress]);
@@ -3613,6 +3643,11 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
                 if (d <= ROOM_DOOR_PROXIMITY) { setCryptDoorOpened(false); setCryptTurn(2); }
               }}
               onExitCrypt={exitCrypt}
+              onHiddenDragonClick={
+                cryptMode === HIDDEN_DRAGON_CRYPT_ID && !hiddenDragonTaken
+                  ? () => setHiddenFamiliarPopupOpen(true)
+                  : undefined
+              }
             />
           ) : underwaterMode ? (
             <UnderwaterScene
@@ -3778,7 +3813,8 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             parcourir) et « ▼ Reculer » referme la porte au lieu de reculer. La sortie COMPLÈTE du
             souterrain se fait désormais en cliquant sur la porte d'entrée (voir `exitCrypt`) plutôt
             que via un bouton HUD (retiré, voir § Suppression du bouton « Sortir ») : elle restaure
-            TOUJOURS la même pose de caméra par défaut (voir `CRYPT_EXIT_CAMERA_POS`) et retourne
+            TOUJOURS une pose de caméra par défaut calculée selon la direction de sortie (voir
+            `cryptExitCameraPosFor`) et retourne
             Synk à l'opposé de la direction qu'il regardait en entrant (voir `preCryptFacingRef`). */}
         {cryptMode && (() => {
           const inStairs = cryptProgress > cryptTunnelLength;
@@ -3888,6 +3924,12 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           cryptId={parchmentPopupCryptId}
           address={address}
           onClose={() => setParchmentPopupCryptId(null)}
+        />
+      )}
+      {hiddenFamiliarPopupOpen && (
+        <HiddenFamiliarPopup
+          address={address}
+          onClose={() => setHiddenFamiliarPopupOpen(false)}
         />
       )}
       {rules && (

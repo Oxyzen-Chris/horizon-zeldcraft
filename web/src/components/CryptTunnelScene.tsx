@@ -77,6 +77,14 @@ export function cryptDestinationRoomFor(cryptId: string): CryptDestinationRoom {
   return rooms[h % rooms.length];
 }
 
+/** 🆕 Identifiant de l'UNIQUE crypte "chambre" cachant le familier surprise (voir demande
+ * utilisateur « ajoutes une surprise dans la table de chevet d'une chambre [...] seulement une
+ * [...] pour ajouter une situation de surprise et de cadeau caché, donc ne donne aucune indication
+ * sur ce familier caché »). Volontairement une seule constante fixe plutôt qu'un tirage
+ * déterministe supplémentaire : garantit qu'il n'y a jamais plus d'une chambre concernée, même si
+ * de nouvelles cryptes sont ajoutées plus tard à DEFAULT_CRYPT_POIS (lib/gameState.ts). */
+export const HIDDEN_DRAGON_CRYPT_ID = 'default_crypt_1';
+
 interface Pose { pos: THREE.Vector3; heading: number }
 
 /** Déterministe (seedé sur `cryptId`) — voir § Chemin avec virages ci-dessus. Convention Three.js
@@ -483,8 +491,18 @@ export const PARCHMENT_OBSTACLES: RoomObstacle[] = [
  * deux torches scintillantes aux angles du fond (voir demande utilisateur « ajoutes des torches
  * avec une flammes scintillantes afin d'éclairer la pièce correctement ») — remplace l'éclairage
  * ponctuel statique (`pointLight` central) par le MÊME dispositif `Torch` que le reste du
- * souterrain, pour une cohérence visuelle complète. */
-function BedroomRoom({ torchFlickerEnabled }: { torchFlickerEnabled: boolean }) {
+ * souterrain, pour une cohérence visuelle complète.
+ *
+ * 🆕 `hiddenDragonAvailable` (voir demande utilisateur « ajoutes une surprise dans la table de
+ * chevet d'une chambre [...] ne donne aucune indication sur ce familier caché, cela sera la
+ * surprise ! ») rend la table de chevet cliquable, SANS AUCUN changement visuel (même géométrie,
+ * mêmes couleurs que toute autre chambre) pour ne jamais trahir laquelle des chambres cache la
+ * surprise — seul `onHiddenDragonClick` (fourni par le parent UNIQUEMENT quand `cryptId ===
+ * HIDDEN_DRAGON_CRYPT_ID` ET que le familier n'a pas déjà été ramassé par ce joueur) diffère d'une
+ * chambre banale. */
+function BedroomRoom({ torchFlickerEnabled, hiddenDragonAvailable, onHiddenDragonClick }: {
+  torchFlickerEnabled: boolean; hiddenDragonAvailable?: boolean; onHiddenDragonClick?: () => void;
+}) {
   return (
     <>
       <mesh position={[0, 0, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[4, 4]} /><meshStandardMaterial color="#4a443a" roughness={0.95} /></mesh>
@@ -494,8 +512,13 @@ function BedroomRoom({ torchFlickerEnabled }: { torchFlickerEnabled: boolean }) 
         <mesh position={[0, 0.42, 0]} castShadow><boxGeometry args={[1.0, 0.16, 1.7]} /><meshStandardMaterial color="#e2e8f0" roughness={0.8} /></mesh>
         <mesh position={[0, 0.55, -0.82]} castShadow><boxGeometry args={[1.1, 0.4, 0.08]} /><meshStandardMaterial color="#6b4a2a" roughness={0.85} /></mesh>
       </group>
-      {/* Table de chevet */}
-      <mesh position={[-0.1, 0.22, -1.3]} castShadow><boxGeometry args={[0.4, 0.44, 0.4]} /><meshStandardMaterial color="#5a3f22" roughness={0.85} /></mesh>
+      {/* Table de chevet — cliquable UNIQUEMENT dans la chambre-surprise (voir doc ci-dessus) */}
+      <mesh
+        position={[-0.1, 0.22, -1.3]} castShadow
+        onClick={hiddenDragonAvailable ? (e) => { e.stopPropagation(); onHiddenDragonClick?.(); } : undefined}
+      >
+        <boxGeometry args={[0.4, 0.44, 0.4]} /><meshStandardMaterial color="#5a3f22" roughness={0.85} />
+      </mesh>
       {/* Armoire */}
       <mesh position={[1.4, 0.65, -1.4]} castShadow><boxGeometry args={[0.8, 1.3, 0.5]} /><meshStandardMaterial color="#4a3320" roughness={0.85} /></mesh>
       {/* Torches murales (4 au total, voir doc ci-dessus — 🆕 2 torches supplémentaires ajoutées aux
@@ -556,7 +579,7 @@ function ParchmentRoom({ taken, onParchmentClick, torchFlickerEnabled }: { taken
 
 export function CryptTunnelScene({
   cryptId, progress, tunnelLength, torchFlickerEnabled, batCount, doorOpened, onToggleDoor, parchmentTaken, onParchmentClick,
-  turnOffset, synkSlot, roomSynkPos, onLeaveRoom, onExitCrypt,
+  turnOffset, synkSlot, roomSynkPos, onLeaveRoom, onExitCrypt, onHiddenDragonClick,
 }: {
   cryptId: string;
   /** Nombre entier de dalles/marches parcourues depuis l'entrée (0 = entrée), piloté par le
@@ -610,6 +633,13 @@ export function CryptTunnelScene({
    * souterrain (retour au monde réel), géré par le composant PARENT qui vérifie la proximité
    * (`progress` proche de 0) avant d'agir. */
   onExitCrypt?: () => void;
+  /** 🆕 Clic sur la table de chevet de l'UNIQUE chambre-surprise (voir `HIDDEN_DRAGON_CRYPT_ID`
+   * ci-dessus et demande utilisateur « ajoutes une surprise dans la table de chevet d'une chambre
+   * [...] ne donne aucune indication sur ce familier caché ») — fourni par le composant PARENT
+   * UNIQUEMENT quand `cryptId === HIDDEN_DRAGON_CRYPT_ID` ET que le familier n'a pas déjà été
+   * ramassé par ce joueur (sinon `undefined`, la table de chevet reste alors un simple meuble
+   * inerte comme dans toute autre chambre). */
+  onHiddenDragonClick?: () => void;
 }) {
   const room = useMemo(() => cryptDestinationRoomFor(cryptId), [cryptId]);
   // 🆕 Voir `RoomFollowCamera` ci-dessus : `synkAnchorRef` est le groupe portant `synkSlot` dans la
@@ -705,7 +735,13 @@ export function CryptTunnelScene({
           <RoomFollowCamera anchorRef={synkAnchorRef} controlsRef={roomControlsRef} />
           <group position={roomPos} rotation={[0, lastHeading, 0]}>
             {room === 'tower' && <TowerRoom />}
-            {room === 'bedroom' && <BedroomRoom torchFlickerEnabled={torchFlickerEnabled} />}
+            {room === 'bedroom' && (
+              <BedroomRoom
+                torchFlickerEnabled={torchFlickerEnabled}
+                hiddenDragonAvailable={cryptId === HIDDEN_DRAGON_CRYPT_ID && !!onHiddenDragonClick}
+                onHiddenDragonClick={onHiddenDragonClick}
+              />
+            )}
             {room === 'parchment' && <ParchmentRoom taken={parchmentTaken} onParchmentClick={onParchmentClick} torchFlickerEnabled={torchFlickerEnabled} />}
             {/* Synk visible dans la salle (voir doc de `synkSlot` ci-dessus) — 🆕 position PILOTÉE
                 par `roomSynkPos` (voir doc ci-dessus, remplace l'ancienne position fixe `[0,0,1.3]`)

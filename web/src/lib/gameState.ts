@@ -5680,7 +5680,62 @@ export async function getTamedFamiliarIds(address: string): Promise<Set<string>>
   return new Set(v ? Object.keys(v) : []);
 }
 
-// ────────────────────── État d'avancement / inventaire (ledger combiné) ──────────────────────
+// ─────────────── Familier caché (surprise) dans la table de chevet d'UNE chambre ───────────────
+// Voir demande utilisateur « ajoutes une surprise dans la table de chevet d'une chambre en y
+// cachant un familier de type Dragon vert qui n'a pas besoin d'expérience ou d'objet pour être
+// ramassé [...] ne donne aucune indication sur ce familier caché, cela sera la surprise ! ». UNE
+// seule crypte "chambre" du catalogue (voir HIDDEN_DRAGON_CRYPT_ID, CryptTunnelScene.tsx) cache ce
+// familier — volontairement EN DEHORS du catalogue admin-paramétrable `catalog/familiars`
+// (`addFamiliarDef`/`tameFamiliar`, qui exigent XP et/ou un objet rare consommé) : ce familier ne
+// nécessite NI XP NI objet, octroyé directement au clic sur la table de chevet.
+export const HIDDEN_DRAGON_FAMILIAR_ID = 'dragon.green.hidden';
+
+/** true si CE joueur a déjà trouvé/ramassé le dragon vert caché (stocké PAR JOUEUR, même esprit que
+ * getTakenParchmentIds). */
+export async function isHiddenDragonFamiliarTaken(address: string): Promise<boolean> {
+  const db = getFirebaseDb();
+  if (!db) return false;
+  const snap = await get(ref(db, `players/${KEY(address)}/familiars/${familiarKeyOf(HIDDEN_DRAGON_FAMILIAR_ID)}`));
+  return snap.exists();
+}
+
+/** Abonnement temps réel — permet à la scène de la chambre de masquer la "surprise" dès qu'elle a
+ * été ramassée, y compris sur un autre onglet/appareil (même principe que
+ * subscribeTakenParchmentIds). */
+export function subscribeHiddenDragonFamiliarTaken(address: string, cb: (taken: boolean) => void): () => void {
+  const db = getFirebaseDb();
+  if (!db) { cb(false); return () => {}; }
+  const r = ref(db, `players/${KEY(address)}/familiars/${familiarKeyOf(HIDDEN_DRAGON_FAMILIAR_ID)}`);
+  const handler = (snap: DataSnapshot) => cb(snap.exists());
+  onValue(r, handler);
+  return () => off(r, 'value', handler);
+}
+
+/** Octroie directement le familier "Dragon Vert" caché — AUCUNE vérification XP/objet,
+ * contrairement à `tameFamiliar` (voir demande utilisateur « qui n'a pas besoin d'expérience ou
+ * d'objet pour être ramassé »). Idempotent : un second appel n'a aucun effet néfaste. Enregistre
+ * AUSSI (idempotent) sa fiche catalogue afin qu'il s'affiche avec son nom/icône partout où un
+ * familier possédé est listé (besace, EquipmentWidget...), sans jamais requérir de configuration
+ * admin préalable — fonctionne "out of the box" sur toute installation. */
+export async function claimHiddenDragonFamiliar(address: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  await ensureAnonSignIn();
+  const key = familiarKeyOf(HIDDEN_DRAGON_FAMILIAR_ID);
+  const already = (await get(ref(db, `players/${KEY(address)}/familiars/${key}`))).exists();
+  if (already) return;
+  const def: FamiliarDef = {
+    // Réutilise la clé i18n déjà existante des familiers-dragons du catalogue admin (voir
+    // i18n/messages/*.json::familiar.dragon_green) — même nom localisé dans les 5 langues du jeu,
+    // sans dupliquer de traduction pour cet unique familier caché.
+    id: HIDDEN_DRAGON_FAMILIAR_ID, label: 'Dragon Vert', i18nKey: 'familiar.dragon_green',
+    xpRequired: 0, active: true, createdAt: Date.now(), combatDamage: 4, combatDefense: 2,
+  };
+  await set(ref(db, `catalog/familiars/${key}`), def);
+  await set(ref(db, `players/${KEY(address)}/familiars/${key}`), { obtainedAt: Date.now() });
+}
+
+
 // Voir demande utilisateur : nouveau widget flottant "État d'avancement / inventaire" (repliable
 // par grand thème, icône ✅/❌ par élément) + même détail dans la rubrique admin "Statistiques par
 // joueur". Combine TOUT le catalogue paramétrable (boutique, quêtes, PNJ, trésors, mondes,
