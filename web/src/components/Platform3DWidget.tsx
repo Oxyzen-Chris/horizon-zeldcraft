@@ -2444,6 +2444,10 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // tourelles/donjons du jeu » dans le cadre de l'architecture crypte→tour déjà en place.
   const cryptRoomType = useMemo(() => (cryptMode ? cryptDestinationRoomFor(cryptMode) : null), [cryptMode]);
   const towerTopActive = cryptMode !== null && cryptDoorOpened && cryptRoomType === 'tower';
+  // 🆕 true une fois la porte franchie vers une salle chambre/parchemin (voir doc de `towerTopActive`
+  // ci-dessus, même rationale) — active le déplacement libre au clavier/dpad (voir `moveRoom`/
+  // `roomPos` plus bas) exactement comme `towerTopActive` le fait pour la tour.
+  const roomTopActive = cryptMode !== null && cryptDoorOpened && (cryptRoomType === 'bedroom' || cryptRoomType === 'parchment');
   const cryptTunnelLength = Math.max(4, Math.round(rules?.cryptTunnelLength ?? 40));
   // Sauvegarde de la caméra AVANT l'entrée en crypte (position + orientation), pour la restaurer
   // telle quelle à la sortie (voir bouton « Sortir » plus bas) — sans cela, la caméra R3F unique
@@ -2943,6 +2947,52 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     }
   }, [towerTopActive]);
 
+  // ─── Déplacement libre dans les salles d'arrivée chambre/parchemin (voir CryptTunnelScene.tsx::
+  // BedroomRoom/ParchmentRoom, demande utilisateur « permet a Synk de se déplacer à l'aide des
+  // touches directionnelles du clavier tout comme quand il est dans le vrai jeu ou sur la tourelle
+  // du donjon afin de lui permettre de découvrir la pièce et rechercher par exemple des objets ») ─
+  // Même principe que `moveTowerTop` ci-dessus (mini-monde exploratoire borné, indépendant de
+  // `worldPos`), mais la zone navigable est un RECTANGLE (le sol carré `[4,4]` des deux salles,
+  // identique dans les deux, voir CryptTunnelScene.tsx) plutôt qu'un anneau. `ROOM_MAX_Z` est
+  // volontairement UN PEU en-deçà de la porte de retour (z=2.3, voir `ROOM_DOOR_LOCAL` ci-dessous)
+  // pour que Synk s'arrête juste devant elle plutôt que de la traverser.
+  const ROOM_HALF_X = 1.85;
+  const ROOM_MIN_Z = -1.85;
+  const ROOM_MAX_Z = 2.05;
+  /** Position locale (x, z) de la porte de retour dans la salle (voir CryptTunnelScene.tsx, groupe
+   * `<group position={[0, 1.05, TILE_SIZE * 1.15]}>` — `TILE_SIZE=2` ⇒ z=2.3) et rayon de proximité
+   * exigé pour pouvoir l'actionner (voir demande utilisateur « il faudra bien sûr pour cela qu'il
+   * soit à proximité de la porte de sortie ») — nouvellement nécessaire car Synk peut désormais
+   * s'éloigner de cette porte (déplacement libre), contrairement à l'ancienne position fixe. */
+  const ROOM_DOOR_LOCAL = { x: 0, z: 2.3 };
+  const ROOM_DOOR_PROXIMITY = 1.3;
+  const roomPosRef = useRef({ x: 0, y: 1.3 });
+  const [roomPos, setRoomPos] = useState({ x: 0, y: 1.3 });
+  const moveRoom = useCallback((dx: number, dy: number) => {
+    if (isFainting || fallDeath) return;
+    const dir = directionFromDelta(dx, dy);
+    if (dir) {
+      setFacing(dir);
+      setIsWalking(true);
+      if (walkStopTimerRef.current) clearTimeout(walkStopTimerRef.current);
+      walkStopTimerRef.current = setTimeout(() => { setIsWalking(false); setIsRunning(false); }, WALK_STOP_DELAY_MS);
+    }
+    const cur = roomPosRef.current;
+    const nx = Math.max(-ROOM_HALF_X, Math.min(ROOM_HALF_X, cur.x + dx * 0.5));
+    const ny = Math.max(ROOM_MIN_Z, Math.min(ROOM_MAX_Z, cur.y + dy * 0.5));
+    roomPosRef.current = { x: nx, y: ny };
+    setRoomPos({ x: nx, y: ny });
+  }, [isFainting, fallDeath]);
+  // Réinitialise la position dans la salle à chaque nouvelle arrivée (même rationale que l'effet
+  // équivalent pour `towerPos` ci-dessus) — Synk réapparaît toujours juste devant la porte, comme
+  // avec l'ancienne position fixe `[0,0,1.3]`.
+  useEffect(() => {
+    if (roomTopActive) {
+      roomPosRef.current = { x: 0, y: 1.3 };
+      setRoomPos({ x: 0, y: 1.3 });
+    }
+  }, [roomTopActive]);
+
   // Aiguille le clavier/pavé directionnel/souris vers la nage sous-marine ou le déplacement normal,
   // selon la vue active — un SEUL point d'entrée partagé par useHoldMovement pour ne dupliquer
   // aucune logique d'appui prolongé/course (voir useHoldMovement.ts).
@@ -2964,9 +3014,10 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // direction résolue.
   const dispatchMove = useCallback((dx: number, dy: number) => {
     if (towerTopActive) { moveTowerTop(dx, dy); return; }
+    if (roomTopActive) { moveRoom(dx, dy); return; }
     if (underwaterMode && underwaterMoveEnabled) { moveUnderwater(dx, dy); return; }
     move(dx, dy);
-  }, [towerTopActive, moveTowerTop, underwaterMode, underwaterMoveEnabled, moveUnderwater, move]);
+  }, [towerTopActive, moveTowerTop, roomTopActive, moveRoom, underwaterMode, underwaterMoveEnabled, moveUnderwater, move]);
 
   const hold = useHoldMovement(dispatchMove, {
     walkStepMs: rules?.movementWalkStepMs ?? 220,
@@ -3092,7 +3143,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     // GameCanvas2D.tsx/WorldMapWidget.tsx, qui lit la position RÉELLE de Synk, indépendamment de
     // ce widget) — voir aussi le nettoyage de `keysDownRef`/`releaseMovement` ci-dessous à l'entrée
     // en crypte, pour ne laisser aucune touche "fantôme" active au moment du changement de mode.
-    if (collapsed || !enabled || (cryptMode && !towerTopActive)) return;
+    if (collapsed || !enabled || (cryptMode && !towerTopActive && !roomTopActive)) return;
     const UP = new Set(['ArrowUp', 'w', 'W', 'z', 'Z']);
     const DOWN = new Set(['ArrowDown', 's', 'S']);
     const LEFT = new Set(['ArrowLeft', 'a', 'A', 'q', 'Q']);
@@ -3140,7 +3191,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       keysDownRef.current.clear();
       releaseMovement();
     };
-  }, [collapsed, enabled, cryptMode, towerTopActive, hold, releaseMovement]);
+  }, [collapsed, enabled, cryptMode, towerTopActive, roomTopActive, hold, releaseMovement]);
 
   // ─── Déplacement au clavier DANS le souterrain de crypte (flèches Haut/Bas uniquement, voir
   // demande utilisateur « l'on puisse utiliser le pavé directionnel flèches haut ou bas du clavier
@@ -3151,7 +3202,14 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // natif du clavier (OS) est volontairement laissé actif (pas de filtre `e.repeat`) pour un effet
   // "maintenir pour avancer" simple, sans dupliquer `useHoldMovement` pour ce cas particulier.
   useEffect(() => {
-    if (!cryptMode || towerTopActive) return;
+    // 🆕 Désormais également coupé une fois `roomTopActive` (salle chambre/parchemin) : le
+    // déplacement y est géré par l'effet clavier général ci-dessus (voir `dispatchMove`/`moveRoom`,
+    // demande utilisateur « permet a Synk de se déplacer à l'aide des touches directionnelles du
+    // clavier [...] afin de lui permettre de découvrir la pièce ») — les anciennes branches
+    // `cryptDoorOpened` ci-dessous (Haut ignoré, Bas referme la porte) ne s'appliquaient QUE tant
+    // que Synk n'avait aucun déplacement libre dans la salle ; sortir se fait maintenant en marchant
+    // jusqu'à la porte et en cliquant dessus (voir `onLeaveRoom`/`onExitCrypt`).
+    if (!cryptMode || towerTopActive || roomTopActive) return;
     // 🆕 Bascule de direction si Synk a fait 2 quarts de tour (demi-tour, voir § Quart de tour) :
     // presser « Avancer »/Haut doit alors le faire marcher vers la SORTIE (en avant, dans le sens où
     // il regarde désormais) plutôt que de continuer vers le fond du souterrain en marche arrière
@@ -3174,7 +3232,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cryptMode, towerTopActive, cryptTunnelLength, cryptDoorOpened, cryptTurn]);
+  }, [cryptMode, towerTopActive, roomTopActive, cryptTunnelLength, cryptDoorOpened, cryptTurn]);
 
   // ─── Redimensionnement à la souris (coin bas-droit, voir onResizePointerMove) + plein écran natif
   // du navigateur (voir RepRules.platform3dResizableEnabled) — le conteneur 3D `fullscreenRef` (et
@@ -3261,7 +3319,39 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     }).catch(() => {});
   }, [address, inventory, centerCol, centerRow, t]);
 
-
+  // ─── Sortie COMPLÈTE du souterrain de crypte (voir demande utilisateur « Enlève et désactive le
+  // bouton Sortir [...] Synk pourra sortir en cliquant avec le bouton gauche de la souris sur la
+  // porte de la crypte [...] il faudra bien sûr pour cela qu'il soit à proximité de la porte de
+  // sortie ») — remplace l'ancien bouton HUD « 🚪 Sortir » (retiré, voir plus bas) : la SEULE façon
+  // de quitter entièrement un souterrain (tour/chambre/parchemin) est désormais de revenir jusqu'à
+  // la porte d'entrée (`CryptTunnelScene.tsx::onExitCrypt`, nouvelle porte posée à `poses[0]`) et de
+  // cliquer dessus, EXACTEMENT comme pour les autres portes du jeu. `ENTRANCE_EXIT_MAX_PROGRESS`
+  // borne la proximité exigée (même rationale que `ROOM_DOOR_PROXIMITY` ci-dessus) : cliquer ne fait
+  // rien tant que Synk n'est pas revenu tout près de l'entrée (`cryptProgress` proche de 0).
+  const ENTRANCE_EXIT_MAX_PROGRESS = 1;
+  const exitCrypt = useCallback(() => {
+    if (cryptProgress > ENTRANCE_EXIT_MAX_PROGRESS) return;
+    // Restaure la caméra extérieure EXACTEMENT comme avant l'entrée (voir `preCryptCameraRef`) —
+    // sans cela, l'objet caméra R3F unique (réutilisé par <Canvas>) resterait positionné au fond du
+    // souterrain, et `OrbitControls` du monde extérieur recalculerait une orbite aberrante à la
+    // reprise (régression : "saut" de caméra visible au retour du souterrain). Si la caméra
+    // sauvegardée était anormalement proche de Synk (ex. zoom avant pour cliquer la porte d'entrée,
+    // voir bug signalé « ne met pas la caméra au dessus de sa tête »), on retombe sur la pose par
+    // défaut (recul) plutôt que de restaurer un cadrage trop serré.
+    const saved = preCryptCameraRef.current;
+    if (saved && cameraRef.current) {
+      const dist = saved.position.distanceTo(new THREE.Vector3(...CAMERA_TARGET));
+      if (dist < EXIT_MIN_CAMERA_DISTANCE) {
+        cameraRef.current.position.set(0, 3.2, 5.6);
+        cameraRef.current.lookAt(new THREE.Vector3(...CAMERA_TARGET));
+      } else {
+        cameraRef.current.position.copy(saved.position);
+        cameraRef.current.quaternion.copy(saved.quaternion);
+      }
+    }
+    setCryptMode(null);
+    setCryptDoorOpened(false);
+  }, [cryptProgress]);
 
   if (!enabled || !address || !pos) return null;
 
@@ -3421,11 +3511,19 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               turnOffset={cryptTurn}
               synkSlot={cryptDoorOpened && cryptRoomType !== 'tower' ? (
                 <SynkVoxel
-                  stage={stage} walking={false} running={false} swimming={false} jumpTrigger={0}
-                  facing="down" equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
+                  stage={stage} walking={isWalking} running={isRunning} swimming={false} jumpTrigger={0}
+                  facing={facing} equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
                   standY={0} eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true} eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
                 />
               ) : null}
+              roomSynkPos={{ x: roomPos.x, z: roomPos.y }}
+              onLeaveRoom={() => {
+                // 🆕 Proximité exigée (voir doc de `ROOM_DOOR_PROXIMITY` ci-dessus) avant de pouvoir
+                // refermer la porte de la salle et repartir dans l'escalier.
+                const d = Math.hypot(roomPos.x - ROOM_DOOR_LOCAL.x, roomPos.y - ROOM_DOOR_LOCAL.z);
+                if (d <= ROOM_DOOR_PROXIMITY) setCryptDoorOpened(false);
+              }}
+              onExitCrypt={exitCrypt}
             />
           ) : underwaterMode ? (
             <UnderwaterScene
@@ -3561,7 +3659,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             </div>
           </div>
         )}
-        {(!cryptMode || towerTopActive) && (
+        {(!cryptMode || towerTopActive || roomTopActive) && (
         <div className="absolute bottom-2 left-2 grid grid-cols-3 grid-rows-3 gap-0.5 w-[84px] h-[84px] z-10" title={t('canvas2d.dpadTitle')}>
           <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, -1, -1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadUpLeft')}>↖</button>
           <button tabIndex={-1} className={dpadBtn} style={{ touchAction: 'none' }} onPointerDown={(e) => onDpadDown(e, 0, -1)} onPointerUp={releaseMovement} onPointerLeave={releaseMovement} onPointerCancel={releaseMovement} title={t('canvas2d.dpadUp')}>▲</button>
@@ -3602,29 +3700,6 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           // garde les libellés et l'état désactivé des boutons cohérents avec le sens RÉEL de
           // progression une fois que Synk regarde vers la sortie plutôt que vers le fond.
           const advanceDir = cryptTurn === 2 ? -1 : 1;
-          const exitSynk = () => {
-            // Restaure la caméra extérieure EXACTEMENT comme avant l'entrée (voir
-            // `preCryptCameraRef`) — sans cela, l'objet caméra R3F unique (réutilisé par
-            // <Canvas>) resterait positionné au fond du souterrain, et `OrbitControls` du
-            // monde extérieur recalculerait une orbite aberrante à la reprise (régression :
-            // "saut" de caméra visible au retour du souterrain). Si la caméra sauvegardée était
-            // anormalement proche de Synk (ex. zoom avant pour cliquer la porte d'entrée, voir
-            // bug signalé « ne met pas la caméra au dessus de sa tête »), on retombe sur la pose
-            // par défaut (recul) plutôt que de restaurer un cadrage trop serré.
-            const saved = preCryptCameraRef.current;
-            if (saved && cameraRef.current) {
-              const dist = saved.position.distanceTo(new THREE.Vector3(...CAMERA_TARGET));
-              if (dist < EXIT_MIN_CAMERA_DISTANCE) {
-                cameraRef.current.position.set(0, 3.2, 5.6);
-                cameraRef.current.lookAt(new THREE.Vector3(...CAMERA_TARGET));
-              } else {
-                cameraRef.current.position.copy(saved.position);
-                cameraRef.current.quaternion.copy(saved.quaternion);
-              }
-            }
-            setCryptMode(null);
-            setCryptDoorOpened(false);
-          };
           return (
           <>
             <div className="absolute top-1.5 left-1.5 right-1.5 bg-stone-950/85 rounded px-2 py-1 text-[10px] text-stone-300 pointer-events-none">
@@ -3665,38 +3740,30 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
                 >↻</button>
               </div>
             )}
-            {!towerTopActive && (
+            {/* 🆕 Boutons « ▲ Avancer »/« ▼ Reculer » — UNIQUEMENT tant que la porte d'arrivée n'est
+                pas franchie (`!cryptDoorOpened`, couloir + escalier) : une fois dans la salle
+                (tour/chambre/parchemin), Synk se déplace librement au dpad/clavier (voir
+                `dispatchMove` § towerTopActive/roomTopActive) — le bouton « 🚪 Sortir » a été
+                RETIRÉ (voir demande utilisateur « Enlève et désactive le bouton Sortir [...] Synk
+                pourra sortir en cliquant [...] sur la porte de la crypte [...] à proximité ») : la
+                sortie complète se fait désormais UNIQUEMENT en revenant jusqu'à la porte d'entrée du
+                souterrain et en cliquant dessus (voir `CryptTunnelScene.tsx::onExitCrypt`/
+                `exitCrypt` ci-dessus), à l'identique des autres portes du jeu. */}
+            {!cryptDoorOpened && (
             <div className="absolute bottom-2 left-2 flex flex-col gap-1 z-10">
               <button
                 tabIndex={-1} className={dpadBtn + ' w-[84px] bg-stone-800/90 disabled:opacity-40'}
-                disabled={cryptDoorOpened || (advanceDir === 1 ? atDoor : cryptProgress <= 0)}
+                disabled={advanceDir === 1 ? atDoor : cryptProgress <= 0}
                 onClick={() => setCryptProgress((p) => Math.max(0, Math.min(maxProgress, p + advanceDir)))}
                 title={t('game.platform3d.crypt.advance')}
               >▲ {t('game.platform3d.crypt.advance')}</button>
               <button
                 tabIndex={-1} className={dpadBtn + ' w-[84px] bg-stone-800/90 disabled:opacity-40'}
-                disabled={!cryptDoorOpened && (advanceDir === 1 ? cryptProgress <= 0 : atDoor)}
-                onClick={() => { if (cryptDoorOpened) setCryptDoorOpened(false); else setCryptProgress((p) => Math.max(0, Math.min(maxProgress, p - advanceDir))); }}
-                title={cryptDoorOpened ? t('game.platform3d.crypt.closeDoor') : t('game.platform3d.crypt.retreat')}
-              >{cryptDoorOpened ? <>🚪 {t('game.platform3d.crypt.closeDoor')}</> : <>▼ {t('game.platform3d.crypt.retreat')}</>}</button>
-              <button
-                tabIndex={-1} className={dpadBtn + ' w-[84px] bg-rose-900/90 border-rose-600'}
-                onClick={exitSynk}
-                title={t('game.platform3d.crypt.exit')}
-              >🚪 {t('game.platform3d.crypt.exit')}</button>
+                disabled={advanceDir === 1 ? cryptProgress <= 0 : atDoor}
+                onClick={() => setCryptProgress((p) => Math.max(0, Math.min(maxProgress, p - advanceDir)))}
+                title={t('game.platform3d.crypt.retreat')}
+              >▼ {t('game.platform3d.crypt.retreat')}</button>
             </div>
-            )}
-            {/* En haut de la tour (voir TowerTopScene), le dpad normal pilote déjà le déplacement
-                (voir dispatchMove § towerTopActive) — on relocalise juste un bouton de sortie
-                d'urgence en bas à droite pour ne jamais chevaucher le dpad (bas-gauche). La sortie
-                "normale" reste de cliquer sur la porte de la colonne (`onToggleDoor`, revient à
-                l'escalier), documentée à l'utilisateur. */}
-            {towerTopActive && (
-              <button
-                tabIndex={-1} className={dpadBtn + ' absolute bottom-2 right-2 w-auto px-2 bg-rose-900/90 border-rose-600 z-10'}
-                onClick={exitSynk}
-                title={t('game.platform3d.crypt.exit')}
-              >🚪 {t('game.platform3d.crypt.exit')}</button>
             )}
           </>
           );

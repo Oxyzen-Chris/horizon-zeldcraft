@@ -408,10 +408,15 @@ function BedroomRoom({ torchFlickerEnabled }: { torchFlickerEnabled: boolean }) 
       <mesh position={[-0.1, 0.22, -1.3]} castShadow><boxGeometry args={[0.4, 0.44, 0.4]} /><meshStandardMaterial color="#5a3f22" roughness={0.85} /></mesh>
       {/* Armoire */}
       <mesh position={[1.4, 0.65, -1.4]} castShadow><boxGeometry args={[0.8, 1.3, 0.5]} /><meshStandardMaterial color="#4a3320" roughness={0.85} /></mesh>
-      {/* Torches murales (angles du fond, voir doc ci-dessus) — composent [groupX ± TUNNEL_HALF_WIDTH]
-          pour positionner la flamme contre chaque mur de fond sans chevaucher le lit/l'armoire. */}
+      {/* Torches murales (4 au total, voir doc ci-dessus — 🆕 2 torches supplémentaires ajoutées aux
+          angles AVANT, en plus des 2 déjà existantes aux angles du fond, voir demande utilisateur
+          « ajoutes deux lampes torches supplémentaires dans les pièces chambres [...] »). Composent
+          [groupX ± TUNNEL_HALF_WIDTH] pour positionner la flamme contre chaque mur, aux 4 coins du
+          sol carré (`[4,4]`), sans jamais chevaucher le lit/la table de chevet/l'armoire. */}
       <group position={[-0.8, 0, -1.7]}><Torch side={-1} flicker={torchFlickerEnabled} /></group>
       <group position={[0.8, 0, -1.7]}><Torch side={1} flicker={torchFlickerEnabled} /></group>
+      <group position={[-0.8, 0, 1.7]}><Torch side={-1} flicker={torchFlickerEnabled} /></group>
+      <group position={[0.8, 0, 1.7]}><Torch side={1} flicker={torchFlickerEnabled} /></group>
       <pointLight position={[0, 1.8, 0]} intensity={0.5} color="#fde68a" distance={4} decay={2} />
       <ambientLight intensity={0.3} color="#78716c" />
     </>
@@ -447,9 +452,12 @@ function ParchmentRoom({ taken, onParchmentClick, torchFlickerEnabled }: { taken
           <meshStandardMaterial color="#e8d9ad" roughness={0.85} emissive="#92752f" emissiveIntensity={0.15} />
         </mesh>
       )}
-      {/* Torches murales (voir doc ci-dessus) */}
+      {/* Torches murales (4 au total, voir doc de BedroomRoom ci-dessus — mêmes 2 torches
+          supplémentaires aux angles AVANT pour cette salle également, voir demande utilisateur). */}
       <group position={[-0.8, 0, -1.7]}><Torch side={-1} flicker={torchFlickerEnabled} /></group>
       <group position={[0.8, 0, -1.7]}><Torch side={1} flicker={torchFlickerEnabled} /></group>
+      <group position={[-0.8, 0, 1.7]}><Torch side={-1} flicker={torchFlickerEnabled} /></group>
+      <group position={[0.8, 0, 1.7]}><Torch side={1} flicker={torchFlickerEnabled} /></group>
       <pointLight position={[0, 1.8, 0]} intensity={0.5} color="#fde68a" distance={4} decay={2} />
       <ambientLight intensity={0.3} color="#78716c" />
     </>
@@ -458,7 +466,7 @@ function ParchmentRoom({ taken, onParchmentClick, torchFlickerEnabled }: { taken
 
 export function CryptTunnelScene({
   cryptId, progress, tunnelLength, torchFlickerEnabled, batCount, doorOpened, onToggleDoor, parchmentTaken, onParchmentClick,
-  turnOffset, synkSlot,
+  turnOffset, synkSlot, roomSynkPos, onLeaveRoom, onExitCrypt,
 }: {
   cryptId: string;
   /** Nombre entier de dalles/marches parcourues depuis l'entrée (0 = entrée), piloté par le
@@ -489,6 +497,27 @@ export function CryptTunnelScene({
    * ce module — l'importer ici créerait une dépendance circulaire. `null`/`undefined` (salle
    * `'tower'`, dont la vue de sortie est entièrement gérée par `TowerTopScene`) n'affiche rien. */
   synkSlot?: ReactNode;
+  /** 🆕 Position LOCALE (x, z) de Synk DANS la salle chambre/parchemin (voir demande utilisateur
+   * « permet à Synk de se déplacer à l'aide des touches directionnelles du clavier [...] afin de
+   * lui permettre de découvrir la pièce et rechercher par exemple des objets ») — pilotée côté
+   * PARENT (Platform3DWidget.tsx::moveRoom/roomPos, même principe que `moveTowerTop`/`towerPos`),
+   * remplace l'ancienne position fixe `[0,0,1.3]`. Sans effet si `synkSlot` est vide. */
+  roomSynkPos?: { x: number; z: number };
+  /** 🆕 Clic sur la porte de retour DE LA SALLE (chambre/parchemin) vers l'escalier/souterrain —
+   * DISTINCT de `onToggleDoor` (qui reste la porte d'ENTRÉE en haut de l'escalier) pour permettre au
+   * composant PARENT d'exiger que Synk soit à proximité de cette porte avant de l'actionner (voir
+   * demande utilisateur « il faudra bien sûr pour cela qu'il soit à proximité de la porte de
+   * sortie ») — chose impossible tant que Synk ne pouvait pas se déplacer librement dans la salle
+   * (position fixe), désormais nécessaire avec `roomSynkPos` ci-dessus. Sans effet (non rendu) pour
+   * la salle `'tower'`, gérée entièrement par `TowerTopScene`. */
+  onLeaveRoom?: () => void;
+  /** 🆕 Clic sur la NOUVELLE porte d'entrée du souterrain (voir § Porte d'entrée/sortie complète
+   * ci-dessous et demande utilisateur « Synk pourra sortir en cliquant avec le bouton gauche de la
+   * souris sur la porte de la crypte [...] il faudra bien sûr [...] qu'il soit à proximité de la
+   * porte de sortie ») — remplace l'ancien bouton HUD « 🚪 Sortir » : ferme ENTIÈREMENT le
+   * souterrain (retour au monde réel), géré par le composant PARENT qui vérifie la proximité
+   * (`progress` proche de 0) avant d'agir. */
+  onExitCrypt?: () => void;
 }) {
   const room = useMemo(() => cryptDestinationRoomFor(cryptId), [cryptId]);
   const { poses, doorPos, roomPos, lastHeading } = useMemo(
@@ -545,25 +574,54 @@ export function CryptTunnelScene({
             <Torch side={-1} flicker={torchFlickerEnabled} />
             <Torch side={1} flicker={torchFlickerEnabled} />
           </group>
+          {/* 🆕 Porte d'entrée/sortie COMPLÈTE du souterrain (voir doc de `onExitCrypt` ci-dessus et
+              demande utilisateur « Enlève et désactive le bouton Sortir [...] Synk pourra sortir en
+              cliquant avec le bouton gauche de la souris sur la porte de la crypte [...] de la même
+              manière que quand il clique sur une porte ») — MÊME composant `<CryptDoor>` que les
+              autres portes du souterrain, posée à l'entrée même du couloir (`poses[0]`), tournée à
+              180° (`+Math.PI`) pour faire face à Synk lorsqu'il revient vers l'entrée en ayant fait
+              demi-tour (voir § Quart de tour / `turnOffset===2`, seul moyen de la voir et de cliquer
+              dessus — la caméra, verrouillée, ne regarde JAMAIS en arrière sans ce demi-tour). Le
+              composant PARENT (`onExitCrypt`) vérifie que `progress` est proche de 0 avant d'agir
+              (garde-fou de proximité, voir doc ci-dessus) : cliquer dessus de loin (en théorie hors
+              champ, la caméra étant verrouillée vers l'avant) ne fait donc rien. */}
+          {onExitCrypt && (
+            <group position={[poses[0].pos.x, poses[0].pos.y + 1.05, poses[0].pos.z]} rotation={[0, poses[0].heading + Math.PI, 0]}>
+              <CryptDoor onClick={onExitCrypt} />
+              <Torch side={-1} flicker={torchFlickerEnabled} />
+              <Torch side={1} flicker={torchFlickerEnabled} />
+            </group>
+          )}
         </>
       )}
       {doorOpened && (
         <>
-          <OrbitControls enablePan={false} enableZoom={false} enableDamping dampingFactor={0.12} target={[roomPos.x, roomPos.y + 1.1, roomPos.z]} />
+          {/* 🆕 Zoom désormais autorisé (`enableZoom`, borné `minDistance`/`maxDistance`) — Synk
+              pouvant maintenant se déplacer dans toute la salle (voir `roomSynkPos`), le joueur
+              doit pouvoir reculer la caméra pour le garder dans le cadre quel que soit l'endroit où
+              il se trouve (désactivé auparavant, sans conséquence tant que Synk restait figé près
+              de l'entrée). `target` reste centré sur la salle (son origine/porte) plutôt que de
+              suivre Synk : la salle (4×4) est assez petite pour qu'il reste visible à cette
+              distance une fois le zoom arrière disponible. */}
+          <OrbitControls enablePan={false} enableZoom minDistance={1.8} maxDistance={7} enableDamping dampingFactor={0.12} target={[roomPos.x, roomPos.y + 1.1, roomPos.z]} />
           <group position={roomPos} rotation={[0, lastHeading, 0]}>
             {room === 'tower' && <TowerRoom />}
             {room === 'bedroom' && <BedroomRoom torchFlickerEnabled={torchFlickerEnabled} />}
             {room === 'parchment' && <ParchmentRoom taken={parchmentTaken} onParchmentClick={onParchmentClick} torchFlickerEnabled={torchFlickerEnabled} />}
-            {/* Synk visible dans la salle (voir doc de `synkSlot` ci-dessus) — posté juste devant la
-                porte de retour, face à la pièce (torches/lit/table désormais éclairés et visibles
-                derrière lui), à l'écart de tout meuble (lit/table de chevet/armoire/table/chaises,
-                voir coordonnées de BedroomRoom/ParchmentRoom ci-dessus). */}
+            {/* Synk visible dans la salle (voir doc de `synkSlot` ci-dessus) — 🆕 position PILOTÉE
+                par `roomSynkPos` (voir doc ci-dessus, remplace l'ancienne position fixe `[0,0,1.3]`)
+                pour permettre à Synk de se déplacer librement dans la salle au clavier (demande
+                utilisateur), à l'écart de tout meuble (lit/table de chevet/armoire/table/chaises,
+                voir coordonnées de BedroomRoom/ParchmentRoom ci-dessus et bornes `ROOM_HALF_X`/
+                `ROOM_MIN_Z`/`ROOM_MAX_Z` côté parent). */}
             {room !== 'tower' && synkSlot && (
-              <group position={[0, 0, 1.3]}>{synkSlot}</group>
+              <group position={[roomSynkPos?.x ?? 0, 0, roomSynkPos?.z ?? 1.3]}>{synkSlot}</group>
             )}
-            {/* Porte de retour (voir § Escalier + porte) — en face (local +Z = vers l'escalier). */}
+            {/* Porte de retour (voir § Escalier + porte) — en face (local +Z = vers l'escalier).
+                🆕 `onLeaveRoom` (plutôt que `onToggleDoor`) : voir doc ci-dessus, permet au parent
+                d'exiger la proximité de Synk avant de refermer/rouvrir l'escalier. */}
             <group position={[0, 1.05, TILE_SIZE * 1.15]} rotation={[0, Math.PI, 0]}>
-              <CryptDoor onClick={onToggleDoor} />
+              <CryptDoor onClick={onLeaveRoom ?? onToggleDoor} />
             </group>
           </group>
         </>

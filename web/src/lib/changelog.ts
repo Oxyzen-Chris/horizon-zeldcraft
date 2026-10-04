@@ -13,6 +13,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  { date: '2026-10-20', icon: '🚪', titleKey: 'changelog.cryptRoomFreeRoamExit.title', bodyKey: 'changelog.cryptRoomFreeRoamExit.body' },
   { date: '2026-10-19', icon: '🏯', titleKey: 'changelog.cryptRoomsRealism.title', bodyKey: 'changelog.cryptRoomsRealism.body' },
   { date: '2026-10-18', icon: '🏰', titleKey: 'changelog.cryptTowerTop.title', bodyKey: 'changelog.cryptTowerTop.body' },
   { date: '2026-10-17', icon: '🚫', titleKey: 'changelog.synkActorBlocking.title', bodyKey: 'changelog.synkActorBlocking.body' },

@@ -4069,4 +4069,122 @@ salles chambre/parchemin reposent sur une relecture de code ligne à ligne et la
 directe de briques (`TerrainBlock`/`PropBlock`/`MarkerBlock`/`Torch`/`SynkVoxel`) déjà validées en
 conditions réelles ailleurs dans le jeu.
 
+## 🕯️🚪 Salles chambre/parchemin : 4 torches, déplacement libre de Synk, suppression du bouton « Sortir » (sortie uniquement par la porte, à proximité)
+
+Suite à la demande utilisateur : « Ajoutes deux lampes torches supplémentaires dans les pièces
+chambres et pièces avec parchemins. Permet a Synk de se déplacer à l'aide des touches directionnelles
+du clavier tout comme quand il est dans le vrai jeu ou sur la tourelle du donjon [...] il pourra
+ressortir de la pièce en se mettant devant la porte et en cliquant gauche avec la souris dessus.
+Enlève et désactive le bouton Sortir [...] Synk pourra sortir en cliquant avec le bouton gauche de
+la souris sur la porte de la crypte [...] il faudra bien sûr pour cela qu'il soit à proximité de la
+porte de sortie. »
+
+### 1. Deux torches supplémentaires (4 au total) dans `BedroomRoom`/`ParchmentRoom`
+
+`CryptTunnelScene.tsx` : les deux salles avaient déjà 2 `<Torch>` scintillantes aux angles du FOND
+(`z=-1.7`, voir correctif précédent). Deux torches supplémentaires ont été ajoutées symétriquement
+aux angles AVANT (`z=+1.7`), de part et d'autre du sol carré `[4,4]`, couvrant ainsi les 4 coins de
+chaque pièce — aucun changement de géométrie des meubles (lit/table de chevet/armoire/table/chaises),
+simple ajout additif.
+
+### 2. Déplacement libre de Synk dans la salle (clavier/dpad), comme en haut du donjon
+
+Jusqu'ici, une fois la porte franchie (`cryptDoorOpened`), Synk restait figé à une position fixe
+(`[0,0,1.3]`) dans la salle d'arrivée ; seule la caméra (`<OrbitControls>`) pouvait orbiter librement
+à la souris. Pour répondre à la demande (« permet a Synk de se déplacer [...] tout comme [...] sur
+la tourelle du donjon [...] découvrir la pièce et rechercher [...] des objets »), le MÊME principe
+que `moveTowerTop`/`towerPos` (Platform3DWidget.tsx) a été répliqué pour les salles chambre/parchemin :
+
+- **`roomTopActive`** (nouveau, calculé comme `towerTopActive` mais pour `cryptRoomType ===
+  'bedroom' | 'parchment'`) remplace le gate `towerTopActive` partout où le dpad/clavier doivent
+  rester actifs : effet clavier général (flèches/WASD), visibilité du dpad flottant, et
+  `dispatchMove` (nouvelle branche `if (roomTopActive) { moveRoom(dx, dy); return; }`).
+- **`moveRoom`/`roomPos`** (nouveau, Platform3DWidget.tsx) : mini-monde borné indépendant de
+  `worldPos`, exactement comme `moveTowerTop`/`towerPos`, mais la zone navigable est un
+  **rectangle** (`ROOM_HALF_X=1.85` en x, `ROOM_MIN_Z=-1.85`/`ROOM_MAX_Z=2.05` en z) correspondant
+  au sol carré `[4,4]` des deux salles, plutôt qu'un anneau autour d'une colonne. Réinitialisé à
+  `[0, 1.3]` (devant la porte) à chaque nouvelle entrée dans une salle.
+- `CryptTunnelScene` reçoit un nouveau prop `roomSynkPos?: {x,z}` qui **remplace** l'ancienne
+  position fixe `[0,0,1.3]` du groupe englobant `synkSlot` — piloté par `roomPos` côté parent. Le
+  `synkSlot` fourni par `Platform3DWidget.tsx` utilise désormais `facing`/`walking`/`running` RÉELS
+  (état partagé avec tout le reste du jeu) plutôt que `facing="down"`/`walking={false}` figés.
+- L'ancien effet clavier dédié au couloir (Haut/Bas ⇒ `cryptProgress`) est désormais également coupé
+  dès que `roomTopActive` est vrai (comme il l'était déjà pour `towerTopActive`) : ses anciennes
+  branches `cryptDoorOpened` (Haut ignoré, Bas referme la porte) deviennent du code mort pour les
+  salles chambre/parchemin, remplacées par le déplacement libre ci-dessus.
+- `<OrbitControls>` de la salle (`CryptTunnelScene.tsx`) autorise désormais le zoom
+  (`enableZoom`, `minDistance=1.8`/`maxDistance=7`, auparavant désactivé) pour que le joueur puisse
+  reculer la caméra et garder Synk dans le cadre où qu'il se déplace dans la pièce (`target` reste
+  centré sur la salle, suffisant vu sa petite taille une fois le zoom arrière possible).
+
+### 3. Sortie de la salle **uniquement** en cliquant sur la porte, à proximité
+
+`CryptTunnelScene` scinde désormais la porte de retour (salle → escalier) en un nouveau prop
+`onLeaveRoom?: () => void`, **distinct** de `onToggleDoor` (qui reste la porte d'ENTRÉE en haut de
+l'escalier, inchangée). Côté parent :
+
+```tsx
+onLeaveRoom={() => {
+  const d = Math.hypot(roomPos.x - ROOM_DOOR_LOCAL.x, roomPos.y - ROOM_DOOR_LOCAL.z);
+  if (d <= ROOM_DOOR_PROXIMITY) setCryptDoorOpened(false);
+}}
+```
+
+`ROOM_DOOR_LOCAL = {x:0, z:2.3}` correspond exactement à la position locale déjà utilisée pour la
+porte (`TILE_SIZE * 1.15`) ; `ROOM_DOOR_PROXIMITY = 1.3` exige que Synk se tienne raisonnablement
+près d'elle avant que le clic ne produise un effet — répond littéralement à la demande « il faudra
+bien sûr pour cela qu'il soit à proximité de la porte de sortie », rendue nécessaire par l'ajout du
+déplacement libre (impossible à exploiter auparavant, Synk étant toujours déjà "devant" la porte).
+
+### 4. Suppression du bouton HUD « 🚪 Sortir » — nouvelle porte d'entrée/sortie complète du souterrain
+
+Les deux boutons « 🚪 Sortir » (bas-gauche pour le couloir/escalier, bas-droite pour le sommet du
+donjon) ont été **entièrement retirés**, ainsi que la fonction locale `exitSynk` qui les actionnait.
+Le bloc de boutons « ▲ Avancer »/« ▼ Reculer » n'est désormais affiché que tant que la porte
+d'arrivée n'est PAS franchie (`{!cryptDoorOpened && (...)`) — une fois dans une salle (tour, chambre
+ou parchemin), seul le dpad/clavier (déplacement libre) reste actif.
+
+La logique de sortie (anciennement dans `exitSynk`, restauration de la caméra extérieure via
+`preCryptCameraRef`/`cameraRef`/`CAMERA_TARGET`/`EXIT_MIN_CAMERA_DISTANCE`) a été **remontée** en un
+`useCallback` nommé `exitCrypt`, défini au niveau du composant (après `cameraRef`) pour être
+réutilisable par la nouvelle porte d'entrée du souterrain :
+
+```tsx
+const ENTRANCE_EXIT_MAX_PROGRESS = 1;
+const exitCrypt = useCallback(() => {
+  if (cryptProgress > ENTRANCE_EXIT_MAX_PROGRESS) return; // garde-fou de proximité
+  // ... restauration de la caméra extérieure (inchangé) ...
+  setCryptMode(null);
+  setCryptDoorOpened(false);
+}, [cryptProgress]);
+```
+
+`CryptTunnelScene.tsx` ajoute une **nouvelle porte** (même composant `<CryptDoor>`, avec 2
+`<Torch>`), posée directement à l'entrée du couloir (`poses[0]`), tournée à 180° (face à Synk
+lorsqu'il a fait demi-tour via les boutons de quart de tour ↺/↻, seul moyen de la voir — la caméra du
+couloir ne regarde jamais en arrière sans ce demi-tour, voir § Quart de tour). Son `onClick` est
+câblé sur `onExitCrypt={exitCrypt}`, lui-même gardé par `ENTRANCE_EXIT_MAX_PROGRESS` côté parent :
+cliquer dessus ne fait donc rien tant que Synk n'est pas revenu tout près de l'entrée
+(`cryptProgress <= 1`).
+
+**Parcours de sortie unifié pour les 3 types de salle** (tour/chambre/parchemin) : cliquer sur la
+porte de la salle (`onLeaveRoom` pour chambre/parchemin, déjà existant `onToggleDoor` pour la tour,
+inchangé — protégé par l'occlusion naturelle de la colonne centrale, voir § 3 du correctif
+précédent) ramène dans l'escalier ; Synk redescend/retraverse le couloir (bouton « ▼ Reculer » ou
+flèche Bas, en ayant fait demi-tour via ↺/↻ pour marcher en avant) jusqu'à `progress≈0`, où la
+nouvelle porte d'entrée permet enfin de sortir entièrement du souterrain — **aucune régression** :
+le mécanisme de restauration de caméra (`preCryptCameraRef`) et l'état `cryptMode`/`cryptDoorOpened`
+sont identiques à l'ancien bouton « Sortir », seul le déclencheur change (clic sur une porte, à
+proximité, plutôt qu'un bouton toujours disponible).
+
+**Vérification** : `npx tsc --noEmit` : 0 erreur (vérifié après chaque lot d'édits). `npm run lint`
+indisponible dans ce projet (ESLint non configuré, invite interactive de première config — aucune
+régression introduite par ce constat, simple limite de l'outillage local). Playwright (session Démo
+anonyme) : widget Plateforme 3D ouvert sans erreur console, dpad fonctionnel. **Limite assumée** :
+atteindre physiquement l'intérieur d'une crypte (couloir → escalier → salle) depuis un spawn
+éloigné sans téléportation reste hors de portée d'un scénario Playwright complet dans le temps
+imparti ; la correction du déplacement en salle/de la porte d'entrée repose sur une relecture de
+code ligne à ligne et la réutilisation directe du même mécanisme déjà validé pour `moveTowerTop`/
+`towerPos` (tour du donjon, vérifié en conditions réelles lors du correctif précédent).
+
 
