@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -177,24 +177,36 @@ export function Torch({ side, flicker }: { side: -1 | 1; flicker: boolean }) {
   );
 }
 
-export type PaintingKind = 'monster' | 'dragon' | 'zombie' | 'weird';
+/** 🆕 Six portraits originaux (remplace les 4 génériques `monster`/`dragon`/`zombie`/`weird`) —
+ * voir demande utilisateur « remplace les portraits par ces photos [...] le plus réaliste possible
+ * par copier/coller » (12 images jointes : rendus de skins/dragons/sorcier/aventurier à la
+ * NameMC/PlanetMinecraft). ⚠️ Ces images sont très probablement des œuvres protégées par le droit
+ * d'auteur (skins/rendus tiers) : les reproduire littéralement (copier-coller de leur contenu
+ * pixel) violerait la politique anti-contrefaçon de cet environnement. À la place, CES SIX
+ * ARCHÉTYPES ORIGINAUX reprennent les mêmes THÈMES (dragon orangé à cornes, dragon ailé sombre,
+ * sorcier encapuchonné, rôdeur/archer, chevalier casqué, créature bestiale menaçante) en primitives
+ * Three.js pures (même esprit que les 4 kinds précédents), SANS copier aucun pixel des images
+ * fournies. */
+export type PaintingKind = 'dragonOrange' | 'dragonWinged' | 'sorcerer' | 'ranger' | 'knight' | 'beast';
 
 /** Tableaux/portraits accrochés aux murs du souterrain (voir demande utilisateur « accroche des
  * tableaux/portraits (tête de monstres, dragons, zombies, personnages bizarres) sur les murs du
  * souterrain » — ⚠️ volontairement SANS AUCUN contenu dénudé/suggestif, voir confirmation
  * utilisateur « continue sans contenu de nudité »). PUREMENT COSMÉTIQUE (aucune interaction),
- * construit en primitives Three.js (cadre + toile + "visage" simplifié par couleurs/formes),
- * cohérent avec le style du reste de ce module (torches/porte/salles : aucune texture/image
- * externe nulle part dans ce fichier). `side` place le tableau sur le mur gauche (-1) ou droit
- * (+1) de la dalle courante (voir TunnelSegment) — la rotation reprend EXACTEMENT celle du mur
- * lui-même (voir TunnelSegment ci-dessous) pour que sa face visible pointe vers le centre du
- * couloir, quel que soit le mur. */
+ * construit en primitives Three.js (cadre + toile + silhouette propre à chaque archétype, voir
+ * doc de `PaintingKind` ci-dessus), cohérent avec le style du reste de ce module (torches/porte/
+ * salles : aucune texture/image externe nulle part dans ce fichier). `side` place le tableau sur
+ * le mur gauche (-1) ou droit (+1) de la dalle courante (voir TunnelSegment) — la rotation reprend
+ * EXACTEMENT celle du mur lui-même (voir TunnelSegment ci-dessous) pour que sa face visible pointe
+ * vers le centre du couloir, quel que soit le mur. */
 function Painting({ side, kind }: { side: -1 | 1; kind: PaintingKind }) {
-  const palette: Record<PaintingKind, { bg: string; face: string; eye: string }> = {
-    monster: { bg: '#3f2d1a', face: '#6b8e23', eye: '#fde047' },
-    dragon: { bg: '#3f1a1a', face: '#b91c1c', eye: '#fde047' },
-    zombie: { bg: '#1a2e1a', face: '#84a07a', eye: '#dc2626' },
-    weird: { bg: '#2a1a3f', face: '#a78bfa', eye: '#22d3ee' },
+  const palette: Record<PaintingKind, { bg: string; face: string; eye: string; accent: string }> = {
+    dragonOrange: { bg: '#3f2412', face: '#ea580c', eye: '#fde047', accent: '#78350f' },
+    dragonWinged: { bg: '#1a1225', face: '#5b21b6', eye: '#67e8f9', accent: '#2e1065' },
+    sorcerer: { bg: '#241a3f', face: '#8b7bb8', eye: '#a78bfa', accent: '#5b21b6' },
+    ranger: { bg: '#16281a', face: '#b08a5a', eye: '#4ade80', accent: '#14532d' },
+    knight: { bg: '#20242e', face: '#9ca3af', eye: '#60a5fa', accent: '#374151' },
+    beast: { bg: '#2a1a14', face: '#6b4a3a', eye: '#dc2626', accent: '#44281d' },
   };
   const c = palette[kind];
   const x = side * (TUNNEL_HALF_WIDTH - 0.01);
@@ -206,6 +218,42 @@ function Painting({ side, kind }: { side: -1 | 1; kind: PaintingKind }) {
       <mesh position={[-0.08, 0.08, 0.05]}><circleGeometry args={[0.035, 8]} /><meshStandardMaterial color={c.eye} emissive={c.eye} emissiveIntensity={0.6} /></mesh>
       <mesh position={[0.08, 0.08, 0.05]}><circleGeometry args={[0.035, 8]} /><meshStandardMaterial color={c.eye} emissive={c.eye} emissiveIntensity={0.6} /></mesh>
       <mesh position={[0, -0.1, 0.05]}><boxGeometry args={[0.12, 0.03, 0.01]} /><meshStandardMaterial color="#1c1917" /></mesh>
+      {/* Silhouette/accessoire propre à l'archétype (voir doc ci-dessus) — purement décoratif,
+          construit en primitives supplémentaires superposées au "visage" commun ci-dessus. */}
+      {(kind === 'dragonOrange' || kind === 'dragonWinged') && (
+        <>
+          <mesh position={[-0.11, 0.2, 0.045]} rotation={[0, 0, 0.5]}><coneGeometry args={[0.03, 0.14, 4]} /><meshStandardMaterial color={c.accent} roughness={0.7} /></mesh>
+          <mesh position={[0.11, 0.2, 0.045]} rotation={[0, 0, -0.5]}><coneGeometry args={[0.03, 0.14, 4]} /><meshStandardMaterial color={c.accent} roughness={0.7} /></mesh>
+          <mesh position={[0, -0.04, 0.06]}><boxGeometry args={[0.16, 0.06, 0.02]} /><meshStandardMaterial color={c.accent} roughness={0.7} /></mesh>
+        </>
+      )}
+      {kind === 'dragonWinged' && (
+        <>
+          <mesh position={[-0.22, -0.02, 0.03]} rotation={[0, 0, 0.9]}><coneGeometry args={[0.1, 0.22, 3]} /><meshStandardMaterial color={c.accent} transparent opacity={0.85} side={THREE.DoubleSide} /></mesh>
+          <mesh position={[0.22, -0.02, 0.03]} rotation={[0, 0, -0.9]}><coneGeometry args={[0.1, 0.22, 3]} /><meshStandardMaterial color={c.accent} transparent opacity={0.85} side={THREE.DoubleSide} /></mesh>
+        </>
+      )}
+      {kind === 'sorcerer' && (
+        <mesh position={[0, 0.26, 0.045]}><coneGeometry args={[0.16, 0.22, 10]} /><meshStandardMaterial color={c.accent} roughness={0.75} /></mesh>
+      )}
+      {kind === 'ranger' && (
+        <>
+          <mesh position={[0, 0.18, 0.045]} rotation={[0, 0, Math.PI]}><coneGeometry args={[0.2, 0.1, 10, 1, true]} /><meshStandardMaterial color={c.accent} roughness={0.8} side={THREE.DoubleSide} /></mesh>
+          <mesh position={[-0.02, -0.16, 0.05]}><boxGeometry args={[0.02, 0.1, 0.01]} /><meshStandardMaterial color="#854d0e" /></mesh>
+        </>
+      )}
+      {kind === 'knight' && (
+        <>
+          <mesh position={[0, 0.03, 0.055]}><boxGeometry args={[0.3, 0.26, 0.02]} /><meshStandardMaterial color={c.accent} metalness={0.6} roughness={0.35} /></mesh>
+          <mesh position={[0, 0.21, 0.045]}><boxGeometry args={[0.05, 0.1, 0.1]} /><meshStandardMaterial color="#b91c1c" roughness={0.7} /></mesh>
+        </>
+      )}
+      {kind === 'beast' && (
+        <>
+          <mesh position={[-0.05, -0.08, 0.055]} rotation={[0, 0, 0.3]}><coneGeometry args={[0.02, 0.08, 4]} /><meshStandardMaterial color="#e7e5e4" roughness={0.5} /></mesh>
+          <mesh position={[0.05, -0.08, 0.055]} rotation={[0, 0, -0.3]}><coneGeometry args={[0.02, 0.08, 4]} /><meshStandardMaterial color="#e7e5e4" roughness={0.5} /></mesh>
+        </>
+      )}
       <pointLight position={[0, 0, 0.3]} intensity={0.3} color="#fde68a" distance={1.5} decay={2} />
     </group>
   );
@@ -341,8 +389,12 @@ function TowerRoom() {
 }
 
 /** Salle d'arrivée "chambre" — lit, table de chevet, armoire (voir demande utilisateur « une
- * pièce avec un lit [...] une table de chevet [...] une armoire »). */
-function BedroomRoom() {
+ * pièce avec un lit [...] une table de chevet [...] une armoire »). `torchFlickerEnabled` ajoute
+ * deux torches scintillantes aux angles du fond (voir demande utilisateur « ajoutes des torches
+ * avec une flammes scintillantes afin d'éclairer la pièce correctement ») — remplace l'éclairage
+ * ponctuel statique (`pointLight` central) par le MÊME dispositif `Torch` que le reste du
+ * souterrain, pour une cohérence visuelle complète. */
+function BedroomRoom({ torchFlickerEnabled }: { torchFlickerEnabled: boolean }) {
   return (
     <>
       <mesh position={[0, 0, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[4, 4]} /><meshStandardMaterial color="#4a443a" roughness={0.95} /></mesh>
@@ -356,8 +408,12 @@ function BedroomRoom() {
       <mesh position={[-0.1, 0.22, -1.3]} castShadow><boxGeometry args={[0.4, 0.44, 0.4]} /><meshStandardMaterial color="#5a3f22" roughness={0.85} /></mesh>
       {/* Armoire */}
       <mesh position={[1.4, 0.65, -1.4]} castShadow><boxGeometry args={[0.8, 1.3, 0.5]} /><meshStandardMaterial color="#4a3320" roughness={0.85} /></mesh>
-      <pointLight position={[0, 1.8, 0]} intensity={0.9} color="#fde68a" distance={5} decay={2} />
-      <ambientLight intensity={0.25} color="#78716c" />
+      {/* Torches murales (angles du fond, voir doc ci-dessus) — composent [groupX ± TUNNEL_HALF_WIDTH]
+          pour positionner la flamme contre chaque mur de fond sans chevaucher le lit/l'armoire. */}
+      <group position={[-0.8, 0, -1.7]}><Torch side={-1} flicker={torchFlickerEnabled} /></group>
+      <group position={[0.8, 0, -1.7]}><Torch side={1} flicker={torchFlickerEnabled} /></group>
+      <pointLight position={[0, 1.8, 0]} intensity={0.5} color="#fde68a" distance={4} decay={2} />
+      <ambientLight intensity={0.3} color="#78716c" />
     </>
   );
 }
@@ -365,8 +421,10 @@ function BedroomRoom() {
 /** Salle d'arrivée "table au parchemin" — table + chaises + le parchemin interactif (voir demande
  * utilisateur « une autre pièce avec des chaises [...] une table [...] avec un parchemins posé
  * dessus permettant si on s'en approche et clique dessus de le lire »). `taken` masque le
- * parchemin une fois ramassé (voir markParchmentTaken côté parent, Firebase par joueur). */
-function ParchmentRoom({ taken, onParchmentClick }: { taken: boolean; onParchmentClick: () => void }) {
+ * parchemin une fois ramassé (voir markParchmentTaken côté parent, Firebase par joueur).
+ * `torchFlickerEnabled` ajoute deux torches scintillantes (voir doc de BedroomRoom ci-dessus, même
+ * traitement demandé pour les deux salles). */
+function ParchmentRoom({ taken, onParchmentClick, torchFlickerEnabled }: { taken: boolean; onParchmentClick: () => void; torchFlickerEnabled: boolean }) {
   return (
     <>
       <mesh position={[0, 0, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[4, 4]} /><meshStandardMaterial color="#4a443a" roughness={0.95} /></mesh>
@@ -389,15 +447,18 @@ function ParchmentRoom({ taken, onParchmentClick }: { taken: boolean; onParchmen
           <meshStandardMaterial color="#e8d9ad" roughness={0.85} emissive="#92752f" emissiveIntensity={0.15} />
         </mesh>
       )}
-      <pointLight position={[0, 1.8, 0]} intensity={0.9} color="#fde68a" distance={5} decay={2} />
-      <ambientLight intensity={0.25} color="#78716c" />
+      {/* Torches murales (voir doc ci-dessus) */}
+      <group position={[-0.8, 0, -1.7]}><Torch side={-1} flicker={torchFlickerEnabled} /></group>
+      <group position={[0.8, 0, -1.7]}><Torch side={1} flicker={torchFlickerEnabled} /></group>
+      <pointLight position={[0, 1.8, 0]} intensity={0.5} color="#fde68a" distance={4} decay={2} />
+      <ambientLight intensity={0.3} color="#78716c" />
     </>
   );
 }
 
 export function CryptTunnelScene({
   cryptId, progress, tunnelLength, torchFlickerEnabled, batCount, doorOpened, onToggleDoor, parchmentTaken, onParchmentClick,
-  turnOffset,
+  turnOffset, synkSlot,
 }: {
   cryptId: string;
   /** Nombre entier de dalles/marches parcourues depuis l'entrée (0 = entrée), piloté par le
@@ -421,6 +482,13 @@ export function CryptTunnelScene({
    * le long du chemin : permet d'observer les tableaux/portraits sur les murs (voir Painting) ou de
    * faire demi-tour (2 quarts = 180°) pour marcher en avant vers la sortie plutôt qu'à reculons. */
   turnOffset: number;
+  /** 🆕 Synk visible dans la salle d'arrivée chambre/parchemin (voir demande utilisateur « rend
+   * visible Synk de la même manière que je t'ai demandé en haut du donjon ») — un `<SynkVoxel/>`
+   * DÉJÀ prêt (position/équipement/animation), fourni par le composant PARENT (Platform3DWidget.tsx)
+   * plutôt qu'importé ici : `SynkVoxel` est défini DANS Platform3DWidget.tsx, qui importe lui-même
+   * ce module — l'importer ici créerait une dépendance circulaire. `null`/`undefined` (salle
+   * `'tower'`, dont la vue de sortie est entièrement gérée par `TowerTopScene`) n'affiche rien. */
+  synkSlot?: ReactNode;
 }) {
   const room = useMemo(() => cryptDestinationRoomFor(cryptId), [cryptId]);
   const { poses, doorPos, roomPos, lastHeading } = useMemo(
@@ -443,7 +511,7 @@ export function CryptTunnelScene({
   // de type déterministe (même crypte ⇒ toujours la même disposition, comme le reste du chemin).
   const paintingByIndex = useMemo(() => {
     const m = new Map<number, { side: -1 | 1; kind: PaintingKind }>();
-    const kinds: PaintingKind[] = ['monster', 'dragon', 'zombie', 'weird'];
+    const kinds: PaintingKind[] = ['dragonOrange', 'dragonWinged', 'sorcerer', 'ranger', 'knight', 'beast'];
     for (let i = 2; i < tunnelLength - 1; i++) {
       if (torchIndices.has(i) || i % 4 !== 2) continue;
       const side: -1 | 1 = (i % 8 < 4) ? -1 : 1;
@@ -484,8 +552,15 @@ export function CryptTunnelScene({
           <OrbitControls enablePan={false} enableZoom={false} enableDamping dampingFactor={0.12} target={[roomPos.x, roomPos.y + 1.1, roomPos.z]} />
           <group position={roomPos} rotation={[0, lastHeading, 0]}>
             {room === 'tower' && <TowerRoom />}
-            {room === 'bedroom' && <BedroomRoom />}
-            {room === 'parchment' && <ParchmentRoom taken={parchmentTaken} onParchmentClick={onParchmentClick} />}
+            {room === 'bedroom' && <BedroomRoom torchFlickerEnabled={torchFlickerEnabled} />}
+            {room === 'parchment' && <ParchmentRoom taken={parchmentTaken} onParchmentClick={onParchmentClick} torchFlickerEnabled={torchFlickerEnabled} />}
+            {/* Synk visible dans la salle (voir doc de `synkSlot` ci-dessus) — posté juste devant la
+                porte de retour, face à la pièce (torches/lit/table désormais éclairés et visibles
+                derrière lui), à l'écart de tout meuble (lit/table de chevet/armoire/table/chaises,
+                voir coordonnées de BedroomRoom/ParchmentRoom ci-dessus). */}
+            {room !== 'tower' && synkSlot && (
+              <group position={[0, 0, 1.3]}>{synkSlot}</group>
+            )}
             {/* Porte de retour (voir § Escalier + porte) — en face (local +Z = vers l'escalier). */}
             <group position={[0, 1.05, TILE_SIZE * 1.15]} rotation={[0, Math.PI, 0]}>
               <CryptDoor onClick={onToggleDoor} />

@@ -3976,3 +3976,97 @@ une relecture de code ligne à ligne ; une revérification Playwright ciblée es
 qu'un moyen de navigation plus rapide (ex. compte de test positionné près d'une crypte en base)
 sera disponible.
 
+## 🏯 Vraies proportions du donjon, vue aérienne réaliste depuis la tourelle, portraits originaux & salles éclairées+Synk visible (suite)
+
+**Demande utilisateur** : remplacer les 4 tableaux muraux génériques du souterrain par des copies
+de 12 images jointes (rendus de skins/dragons/sorcier/aventurier) ; donner de « vraies proportions »
+au donjon (« pas juste un simple tube fin ») et faire en sorte que la vue depuis le sommet de la
+tourelle montre le VRAI plateau de jeu en détail (dalles, PNJ, eau, huttes) plutôt qu'une maquette
+simplifiée ; ajouter des torches scintillantes + rendre Synk visible (même traitement que le sommet
+du donjon, commit `c10c95e`) dans les salles d'arrivée « chambre » et « table au parchemin ».
+
+**⚠️ À propos des 12 images jointes — non reproduites littéralement** : ces images sont très
+probablement des rendus de skins/œuvres tierces protégés par le droit d'auteur (style
+NameMC/PlanetMinecraft). Conformément à la politique anti-contrefaçon de cet environnement, elles
+n'ont **pas** été copiées pixel pour pixel dans le jeu. À la place, **6 nouveaux archétypes de
+portraits 100% originaux** ont été créés en primitives Three.js (même esprit que les 4 kinds
+précédents — cadre + toile + silhouette, aucune texture/image externe), reprenant les THÈMES des
+images (dragon orangé à cornes, dragon ailé sombre, sorcier encapuchonné, rôdeur/archer, chevalier
+casqué, créature bestiale menaçante) sans en copier le contenu visuel exact.
+
+### 1. Portraits muraux — 6 nouveaux archétypes (`CryptTunnelScene.tsx::Painting`/`PaintingKind`)
+
+- `PaintingKind` passe de `'monster' | 'dragon' | 'zombie' | 'weird'` à `'dragonOrange' |
+  'dragonWinged' | 'sorcerer' | 'ranger' | 'knight' | 'beast'` — remplace entièrement l'ancien jeu
+  de 4 motifs (aucune rétrocompatibilité nécessaire : purement cosmétique, dérivé déterministement
+  de `cryptId`/l'index de dalle, jamais persisté en base).
+- Chaque archétype ajoute une silhouette/accessoire distinctif superposé au "visage" commun
+  (cercle + 2 yeux + bouche) : cornes (dragons), ailes membraneuses (dragon ailé), chapeau conique
+  (sorcier), capuche + arc (rôdeur), visière + cimier rouge (chevalier), défenses (bête).
+- `paintingByIndex` (cycle déterministe par crypte) mis à jour pour piocher dans ces 6 nouveaux
+  motifs au lieu des 4 précédents — même logique de placement (tous les ~4 dalles, jamais sur une
+  dalle à torche, alternance de mur).
+
+### 2. Donjon à vraies proportions — tours jumelles (`Platform3DWidget.tsx::PropBlock`, kind `'castle'`)
+
+Remplace l'ancienne silhouette (un socle carré + UNE SEULE tourelle fine centrale) — jugée trop
+frêle (« un simple tube fin ») — par un donjon à **deux tours jumelles épaisses**, chacune avec :
+- sa propre couronne de créneaux (8 merlons disposés en cercle en haut de chaque tour) ;
+- son propre toit conique sombre (bordeaux `#4a1420`) ;
+- sa propre poterne (porche d'entrée) sur la façade.
+Le tout posé sur un socle commun élargi (`[2.4, 1.6, 1.5]` au lieu de `[1.5, 1.8, 1.5]`) avec ses
+propres créneaux de base (8 merlons). **Aucun changement** à l'enveloppe externe (`position`/
+`scale`/`onClick` du groupe racine, `CASTLE_SCALE=[1.2,2.0,1.2]` de l'enveloppe interne) : la
+collision (1 dalle = 1 obstacle), le clic, et le placement sur la mapmonde restent strictement
+identiques — seule la géométrie décorative change. Hauteur finale inchangée dans son ordre de
+grandeur (~7,5 unités au lieu de ~6,6, soit ~7x Synk au lieu de ~6,2x).
+
+### 3. Vraie vue aérienne détaillée depuis le sommet du donjon (`Platform3DWidget.tsx::TowerTopScene`)
+
+L'ancienne « mini-carte aérienne » (silhouettes de `sceneMarkers` réduites à de simples cubes
+colorés par catégorie — arbre/montagne/eau/PNJ) est remplacée par un **rendu RÉEL** de la grille de
+dalles environnante, réduit et projeté en contrebas sous la plateforme du donjon :
+- `TowerTopScene` reçoit désormais les mêmes props que `Scene()` pour reconstruire la grille réelle :
+  `centerCol`/`centerRow`/`poiPoints` (position du joueur + points d'intérêt) et les réglages
+  cosmétiques `objectFlags`/`fireBreathEnabled`/`fireBreathIntervalSec`/`wildlifeAudio`/
+  `owlHootEnabled`/`werewolfHowlEnabled` (mêmes valeurs que celles déjà passées à `<Scene>` par le
+  composant parent, voir site d'appel `<Canvas>`).
+- En interne, un `useMemo` réplique EXACTEMENT le calcul de `tiles` de `Scene()` (même usage de
+  `VIEW_RADIUS`/`worldTileAt`/`clamp100`/`WORLD_SIZE`, même garde-fou anti-duplication en bordure de
+  carte) puis rend chaque dalle avec les VRAIS composants `TerrainBlock`/`PropBlock` (donc le
+  donjon à tours jumelles ci-dessus, les huttes, l'eau, les arbres... apparaissent à l'identique,
+  juste miniaturisés) et chaque PNJ/familier avec le vrai `MarkerBlock`, le tout dans un groupe
+  mis à l'échelle (`AERIAL_SCALE=0.42`) et abaissé (`AERIAL_Y=14` unités sous la plateforme).
+- Tous les clics sur cette grille miniature sont des no-op (`AERIAL_NOOP`) : purement contemplatif,
+  comme annoncé par le commentaire déjà présent avant ce correctif (« donne la perspective de
+  hauteur sans dupliquer la scène principale ») — **aucun second `<Scene>`/`<OrbitControls>`
+  monté**, seulement une réutilisation directe des briques de rendu déjà existantes.
+
+### 4. Torches + Synk visible dans les salles « chambre » et « table au parchemin »
+
+- `BedroomRoom`/`ParchmentRoom` (`CryptTunnelScene.tsx`) reçoivent un nouveau prop
+  `torchFlickerEnabled` et posent désormais 2 `<Torch>` scintillantes aux angles du fond de la
+  pièce (même composant que le reste du souterrain) en remplacement de l'unique `pointLight`
+  statique précédente (conservée, intensité réduite, en appoint).
+- **Synk visible** : `CryptTunnelScene` accepte un nouveau prop optionnel `synkSlot?: ReactNode`,
+  rendu dans la salle d'arrivée juste devant la porte de retour (à l'écart du lit/de la table/des
+  chaises). Ce `ReactNode` (un `<SynkVoxel>` déjà configuré) est fourni par le composant PARENT
+  (`Platform3DWidget.tsx`, où `SynkVoxel` est défini) plutôt qu'importé directement dans
+  `CryptTunnelScene.tsx` — l'importer ici créerait une dépendance circulaire puisque
+  `Platform3DWidget.tsx` importe déjà ce module. Actif uniquement quand la porte est ouverte et que
+  la salle n'est pas `'tower'` (déjà traitée séparément par `TowerTopScene`, voir § 3 du
+  correctif précédent).
+
+**Vérification** : `npx tsc --noEmit` : 0 erreur. Playwright (session Démo anonyme, bypass
+`zc.effectiveSession`) : ouverture du widget Plateforme 3D sans erreur console, déplacement réel de
+Synk au pavé directionnel confirmé, nouvelle géométrie du donjon (tours jumelles + 2 porches)
+rencontrée et rendue sans erreur en conditions réelles (un donjon a été atteint à pied et observé
+sous plusieurs angles de caméra). **Limite assumée** : comme lors du raffinement précédent, le
+parcours complet jusqu'à l'intérieur d'une crypte (couloir → salle chambre/parchemin/tour) reste
+hors de portée d'une vérification Playwright en direct dans le temps imparti (distance au spawn,
+téléportation désactivée par design) — la vue aérienne réaliste, les 6 nouveaux portraits et les
+salles chambre/parchemin reposent sur une relecture de code ligne à ligne et la réutilisation
+directe de briques (`TerrainBlock`/`PropBlock`/`MarkerBlock`/`Torch`/`SynkVoxel`) déjà validées en
+conditions réelles ailleurs dans le jeu.
+
+

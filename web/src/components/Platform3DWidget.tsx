@@ -309,9 +309,11 @@ const PROP_COLOR: Record<string, string> = {
  * trouver, voir worldTerrain.ts::worldTileAt) et ne les chevauche visuellement. Avec
  * HUT_SCALE=[1.3,1.8,1.3], la hutte culmine à ~2,9 unités (~2,7x Synk, ~1,1 unité, voir SynkVoxel/
  * SYNK_GROUND_OFFSET) et sa porte fait ~1,4 unité de haut ; avec CASTLE_SCALE=[1.2,2.0,1.2], le
- * donjon culmine à ~6,6 unités (~6,2x Synk) et sa poterne ~2,2 unités de haut — proportions
- * réalistes d'un logis/d'une forteresse fortifiée SANS changer la logique de collision actuelle
- * (1 dalle = 1 obstacle, voir worldTerrain.ts::isObstacleAt), qui reste une étape ultérieure. */
+ * donjon (désormais à deux tours jumelles, voir PropBlock::kind==='castle' ci-dessous — demande
+ * utilisateur « ajoutes de vrai proportion au donjon et pas juste un simple tube fin ») culmine à
+ * ~7,5 unités (~7x Synk) et ses poternes ~2 unités de haut — proportions réalistes d'une forteresse
+ * fortifiée imposante SANS changer la logique de collision actuelle (1 dalle = 1 obstacle, voir
+ * worldTerrain.ts::isObstacleAt), qui reste une étape ultérieure. */
 const HUT_SCALE: [number, number, number] = [1.3, 1.8, 1.3];
 const CASTLE_SCALE: [number, number, number] = [1.2, 2.0, 1.2];
 function PropBlock({ kind, x, topY, z, scale = 1, onClick }: { kind: NonNullable<Tile['prop']>; x: number; topY: number; z: number; scale?: number; onClick: () => void }) {
@@ -331,23 +333,39 @@ function PropBlock({ kind, x, topY, z, scale = 1, onClick }: { kind: NonNullable
     );
   }
   if (kind === 'castle') {
-    // Donjon : socle de pierre + créneaux + tourelle centrale coiffée d'un toit conique — silhouette
-    // clairement plus imposante qu'une simple hutte (bâtiment fortifié). Enveloppe interne mise à
-    // l'échelle ×CASTLE_SCALE (voir plus haut) : donjon culminant à ~6,6 unités (~6,2x Synk) au lieu
-    // de l'ancien ~3,3 (à peine 3x Synk) — corrige « les châteaux sont trop petits ». Poterne (bois
-    // sombre) ajoutée sur la façade, dimensionnée nettement plus grande que Synk (~2,2 unités de
-    // haut) pour préparer une future entrée dans le bâtiment sans rien changer à la collision
-    // actuelle (1 dalle = 1 obstacle, voir worldTerrain.ts::isObstacleAt).
+    // Donjon : socle commun élargi + DEUX TOURS JUMELLES épaisses (chacune coiffée d'un toit
+    // conique sombre + sa propre couronne de créneaux) et 2 porches d'entrée distincts — voir
+    // demande utilisateur « ajoutes de vrai proportion au donjon et pas juste un simple tube fin »
+    // (captures de référence d'un donjon à deux tours). Remplace l'ancienne silhouette (une seule
+    // tourelle fine au centre d'un socle carré, jugée trop frêle) SANS changer le point d'ancrage/
+    // l'interaction (`onClick`)/l'enveloppe `CASTLE_SCALE` ni la collision (1 dalle = 1 obstacle,
+    // voir worldTerrain.ts::isObstacleAt) — purement un remplacement de géométrie/silhouette.
+    const TOWER_X = 0.78;
+    const towerCrenellations = Array.from({ length: 8 }, (_, i) => (i / 8) * Math.PI * 2);
+    const baseMerlons = [-1.02, -0.36, 0.36, 1.02].flatMap((mx) => [-0.7, 0.7].map((mz) => [mx, mz] as const));
     return (
       <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <group scale={CASTLE_SCALE}>
-          <mesh position={[0, 0.9, 0]} castShadow><boxGeometry args={[1.5, 1.8, 1.5]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
-          {[[-0.68, -0.68], [0.68, -0.68], [-0.68, 0.68], [0.68, 0.68]].map(([mx, mz], i) => (
-            <mesh key={i} position={[mx, 1.9, mz]} castShadow><boxGeometry args={[0.28, 0.3, 0.28]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
+          {/* Socle commun reliant les deux tours */}
+          <mesh position={[0, 0.8, 0]} castShadow><boxGeometry args={[2.4, 1.6, 1.5]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
+          {baseMerlons.map(([mx, mz], i) => (
+            <mesh key={i} position={[mx, 1.68, mz]} castShadow><boxGeometry args={[0.26, 0.28, 0.26]} /><meshStandardMaterial color={color} roughness={0.9} /></mesh>
           ))}
-          <mesh position={[0, 2.2, 0]} castShadow><cylinderGeometry args={[0.5, 0.55, 0.9, 10]} /><meshStandardMaterial color="#6b6f76" roughness={0.85} /></mesh>
-          <mesh position={[0, 2.95, 0]} castShadow><coneGeometry args={[0.62, 0.7, 10]} /><meshStandardMaterial color="#5b2b3a" roughness={0.7} /></mesh>
-          <mesh position={[0, 0.55, 0.76]} castShadow><boxGeometry args={[0.55, 1.1, 0.08]} /><meshStandardMaterial color="#241a12" roughness={0.95} /></mesh>
+          {/* Deux tours jumelles, chacune avec sa couronne de créneaux + son toit conique + sa
+              propre poterne — silhouette directement inspirée des références fournies. */}
+          {[-TOWER_X, TOWER_X].map((tx, i) => (
+            <group key={i} position={[tx, 0, 0]}>
+              <mesh position={[0, 2.25, 0]} castShadow><cylinderGeometry args={[0.5, 0.54, 1.3, 12]} /><meshStandardMaterial color="#6b6f76" roughness={0.85} /></mesh>
+              {towerCrenellations.map((a, k) => (
+                <mesh key={k} position={[Math.sin(a) * 0.5, 2.98, Math.cos(a) * 0.5]} castShadow>
+                  <boxGeometry args={[0.16, 0.22, 0.16]} />
+                  <meshStandardMaterial color="#6b6f76" roughness={0.85} />
+                </mesh>
+              ))}
+              <mesh position={[0, 3.45, 0]} castShadow><coneGeometry args={[0.64, 0.78, 12]} /><meshStandardMaterial color="#4a1420" roughness={0.65} /></mesh>
+              <mesh position={[0, 0.5, 0.76]} castShadow><boxGeometry args={[0.42, 1.0, 0.08]} /><meshStandardMaterial color="#1c140d" roughness={0.95} /></mesh>
+            </group>
+          ))}
         </group>
       </group>
     );
@@ -2085,9 +2103,25 @@ const TOWER_SCENE_OUTER_RADIUS = 6.4;
  * en conflit avec celui de cette scène) — donne la "perspective de hauteur" demandée sans dupliquer
  * la moindre logique de jeu.
  */
+/** Hauteur (sous la tourelle) et échelle d'affichage de la vraie vue aérienne détaillée (voir
+ * TowerTopScene ci-dessous — demande utilisateur « voir le plateau de jeu avec les dalles, les
+ * détails, les PNJ, l'eau, les huttes »). `AERIAL_Y=-14` reste nettement au-dessous de la colonne
+ * centrale (cylindre de 10 unités de haut centré en y=-3, donc son extrémité basse est en y=-8) pour
+ * éviter tout chevauchement visuel (la grille est projetée en y=-AERIAL_Y=-14) ; `AERIAL_SCALE=0.42`
+ * réduit la grille réelle (15×15 dalles, voir
+ * VIEW_RADIUS) à un diamètre d'environ 6,3 unités, cohérent avec le rayon de la plateforme du donjon
+ * (TOWER_SCENE_OUTER_RADIUS=6.4) pour qu'elle se lise comme "le même monde vu de haut". */
+const AERIAL_Y = 14;
+const AERIAL_SCALE = 0.42;
+/** Gestionnaire de clic neutre pour les dalles/props/marqueurs de la vue aérienne miniature :
+ * purement décorative (on regarde le monde d'en haut, on n'y interagit pas depuis la tourelle). */
+const AERIAL_NOOP = () => {};
+
 function TowerTopScene({
   stage, facing, equipment, equipmentRenderEnabled, pos, walking, running, eyeBlinkEnabled, eyeBlinkIntervalSec,
   onToggleDoor, torchFlickerEnabled, markers,
+  centerCol, centerRow, poiPoints, objectFlags, fireBreathEnabled, fireBreathIntervalSec,
+  wildlifeAudio, owlHootEnabled, werewolfHowlEnabled,
 }: {
   stage: number; facing: SynkDirection;
   equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
@@ -2095,19 +2129,38 @@ function TowerTopScene({
   eyeBlinkEnabled?: boolean; eyeBlinkIntervalSec?: number;
   onToggleDoor: () => void; torchFlickerEnabled: boolean;
   markers: SceneMarker[];
+  /** Props supplémentaires (mêmes que Scene(), voir plus bas) permettant à la vue aérienne de
+   * recalculer et de rendre la VRAIE grille de dalles/décor (TerrainBlock/PropBlock) plutôt que des
+   * silhouettes de cubes colorés — voir demande utilisateur « voir le plateau de jeu avec les
+   * dalles, les détails [...] comme on le voit ici ». Purement en LECTURE (aucun onClick actif, voir
+   * AERIAL_NOOP) : aucune interaction/duplication de `<Scene>`/`<OrbitControls>`. */
+  centerCol: number; centerRow: number;
+  poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
+  objectFlags?: Record<Platform3DObjectKind, Platform3DObjectFlags>;
+  fireBreathEnabled?: boolean; fireBreathIntervalSec?: number;
+  wildlifeAudio?: Record<AudioSourceKey, AudioSourceSetting>;
+  owlHootEnabled?: boolean; werewolfHowlEnabled?: boolean;
 }) {
   const merlons = useMemo(() => Array.from({ length: 16 }, (_, i) => {
     const angle = (i / 16) * Math.PI * 2;
     const r = TOWER_SCENE_OUTER_RADIUS + 0.55;
     return { angle, x: Math.sin(angle) * r, z: Math.cos(angle) * r };
   }), []);
-  // Vue aérienne miniature (voir doc ci-dessus) — même position relative (x,z) que dans le monde
-  // normal, juste mise à l'échelle et projetée très bas pour simuler la hauteur de la tour.
-  const miniMarkers = useMemo(() => markers.slice(0, 60).map(m => ({
-    ...m, x: m.x * 0.32, z: m.z * 0.32,
-    color: m.kind === 'tree' ? '#15803d' : m.kind === 'mountain' ? '#78716c' : m.kind === 'water' ? '#0ea5e9'
-      : (m.kind === 'npc' || m.kind === 'familiar') ? '#f59e0b' : '#a8a29e',
-  })), [markers]);
+  // Vraie grille de dalles (identique à Scene(), voir sa doc) — reconstruite ici plutôt que
+  // remontée en `<Scene>` pour ne jamais dupliquer `<OrbitControls>`/le Canvas (voir doc du
+  // composant ci-dessus).
+  const tiles = useMemo(() => {
+    const out: { tile: Tile; x: number; z: number }[] = [];
+    for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
+      for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
+        const rawWc = centerCol + dx, rawWr = centerRow + dz;
+        if (rawWc < 0 || rawWc > WORLD_SIZE || rawWr < 0 || rawWr > WORLD_SIZE) continue;
+        const wc = clamp100(rawWc), wr = clamp100(rawWr);
+        out.push({ tile: worldTileAt(wc, wr, poiPoints), x: dx, z: dz });
+      }
+    }
+    return out;
+  }, [centerCol, centerRow, poiPoints]);
   const colRadius = TOWER_SCENE_INNER_RADIUS - 0.3;
   return (
     <>
@@ -2136,18 +2189,42 @@ function TowerTopScene({
         <Torch side={-1} flicker={torchFlickerEnabled} />
         <Torch side={1} flicker={torchFlickerEnabled} />
       </group>
-      {/* Vue aérienne miniature très en contrebas (voir doc ci-dessus) — donne la perspective de
-          hauteur sans dupliquer la scène principale. */}
-      <mesh position={[0, -22, 0]} receiveShadow>
-        <cylinderGeometry args={[30, 34, 1, 32]} />
+      {/* VRAIE vue aérienne détaillée (voir doc ci-dessus) — la grille de dalles/décor/PNJ réelle,
+          juste réduite et projetée en contrebas, plutôt que des silhouettes de cubes colorés —
+          donne la perspective de hauteur SANS dupliquer la scène principale (`<Scene>`) ni son
+          `<OrbitControls>`. Fond vert sous la grille pour masquer les bords non couverts par
+          VIEW_RADIUS (coins du cercle de la plateforme du donjon). */}
+      <mesh position={[0, -AERIAL_Y - 0.4, 0]} receiveShadow>
+        <cylinderGeometry args={[TOWER_SCENE_OUTER_RADIUS + 0.4, TOWER_SCENE_OUTER_RADIUS + 1, 1, 32]} />
         <meshStandardMaterial color="#4d7c4f" />
       </mesh>
-      {miniMarkers.map((m, i) => (
-        <mesh key={`mini-${m.id}-${i}`} position={[m.x, -21.3, m.z]}>
-          <boxGeometry args={[0.4, 0.5, 0.4]} />
-          <meshStandardMaterial color={m.color} />
-        </mesh>
-      ))}
+      <group position={[0, -AERIAL_Y, 0]} scale={[AERIAL_SCALE, AERIAL_SCALE, AERIAL_SCALE]}>
+        {tiles.map(({ tile, x, z }) => (
+          <group key={`aerial-${x}-${z}`}>
+            <TerrainBlock tile={tile} x={x} z={z} onClick={AERIAL_NOOP} />
+            {tile.prop && (
+              <PropBlock
+                kind={tile.prop} x={x} z={z}
+                topY={tile.terrain === 'rock' ? Math.min(1.9, (tile.altitudeM ?? 300) / 2800) : 0}
+                scale={(objectFlags ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS)[platform3dPropKind(tile.prop)]?.scale ?? 1}
+                onClick={AERIAL_NOOP}
+              />
+            )}
+          </group>
+        ))}
+        {markers.map(m => {
+          const markerScaleKind: Platform3DObjectKind | null = m.kind === 'npc' ? 'marker:npc' : m.kind === 'familiar' ? 'marker:familiar' : null;
+          const markerScale = markerScaleKind ? ((objectFlags ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS)[markerScaleKind]?.scale ?? 1) : 1;
+          return (
+            <MarkerBlock
+              key={`aerial-${m.id}`} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name}
+              markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving}
+              onClick={AERIAL_NOOP} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec}
+              wildlifeAudio={wildlifeAudio} owlHootEnabled={owlHootEnabled} werewolfHowlEnabled={werewolfHowlEnabled}
+            />
+          );
+        })}
+      </group>
       <group position={[pos.x, 0, pos.y]}>
         <SynkVoxel
           stage={stage} walking={walking} running={running} swimming={false}
@@ -3324,6 +3401,13 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               onToggleDoor={() => setCryptDoorOpened((v) => !v)}
               torchFlickerEnabled={rules?.cryptTorchFlickerEnabled ?? true}
               markers={sceneMarkers}
+              centerCol={centerCol} centerRow={centerRow} poiPoints={poiPoints}
+              objectFlags={rules?.platform3dObjectFlags}
+              fireBreathEnabled={rules?.dragonFireBreathEnabled ?? true}
+              fireBreathIntervalSec={rules?.dragonFireBreathIntervalSec ?? 60}
+              wildlifeAudio={wildlifeAudio}
+              owlHootEnabled={worldAmbience.theme?.elements?.owlHootEnabled}
+              werewolfHowlEnabled={worldAmbience.theme?.elements?.werewolfHowlEnabled}
             />
           ) : cryptMode ? (
             <CryptTunnelScene
@@ -3335,6 +3419,13 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               parchmentTaken={takenParchmentIds.has(cryptMode)}
               onParchmentClick={() => setParchmentPopupCryptId(cryptMode)}
               turnOffset={cryptTurn}
+              synkSlot={cryptDoorOpened && cryptRoomType !== 'tower' ? (
+                <SynkVoxel
+                  stage={stage} walking={false} running={false} swimming={false} jumpTrigger={0}
+                  facing="down" equipment={equipment} equipmentRenderEnabled={rules?.platform3dEquipmentRenderEnabled ?? true}
+                  standY={0} eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true} eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
+                />
+              ) : null}
             />
           ) : underwaterMode ? (
             <UnderwaterScene
