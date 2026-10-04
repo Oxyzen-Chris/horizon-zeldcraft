@@ -4287,3 +4287,65 @@ relecture de code ligne à ligne, la réutilisation directe de mécaniques déj�
 (escalade de rocher, `getWorldPosition`, azimut de `OrbitControls`), et la vérification TypeScript
 stricte de l'ensemble des types/props modifiés.
 
+## 🧭 Orientation de Synk à la sortie d'une salle/du donjon et de la crypte (ne plus faire face à la porte)
+
+Demande : « quand je sors d'une pièce, donjon, il faudrait que Synk soit orienté vers la direction
+de la sortie [...] face à l'escalier et non [...] face à la porte qu'il vient d'ouvrir [...] quand
+il sort de la crypte [...] il faut que Synk soit face à la sortie et pas nez collé contre la porte
+[...] il ne faut pas zoomer sur Synk mais le voir de la même manière que quand il est rentré dans la
+crypte mais [...] à l'inverse de la porte [...] donner réellement l'impression qu'il sort de la
+crypte et pas qu'il a l'intention à nouveau d'y rentrer ».
+
+Deux correctifs distincts (même philosophie : **retourner l'orientation de 180° à la sortie**,
+jamais modifier la logique de déplacement elle-même) :
+
+### 1. Sortie d'une salle (chambre/parchemin) ou du sommet du donjon → retour au couloir/escalier
+
+Réutilise **exactement** le mécanisme déjà existant de demi-tour manuel dans le couloir (`cryptTurn`
+0 à 3 quarts de tour, boutons ↺/↻, voir § Virage à la souris dans le souterrain) : fermer la porte
+de la salle (`onLeaveRoom`) ou celle du donjon (`onToggleDoor` de `TowerTopScene`, qui n'est QUE
+jamais appelé en sortie puisque `towerTopActive` implique déjà `cryptDoorOpened===true`) appelle
+désormais `setCryptTurn(2)` en plus de `setCryptDoorOpened(false)` — un demi-tour (180°)
+**automatique**, qui faisait auparavant devoir être déclenché manuellement par le joueur avec les
+boutons ↺/↻. `CryptCamera` applique `camera.rotation` directement (`heading + turnOffset * π/2`,
+sans lissage sur l'angle, seulement sur la position) : le retournement est donc instantané dès la
+fermeture de la porte, et « Avancer » (déjà basculé sur `advanceDir=-1` quand `cryptTurn===2`, voir
+§ Quart de tour) fait immédiatement marcher Synk droit vers la sortie plutôt que vers le fond du
+souterrain qu'il vient de quitter.
+
+### 2. Sortie COMPLÈTE de la crypte (`exitCrypt`) → retour au monde extérieur
+
+Deux problèmes corrigés simultanément :
+
+- **Facing retourné à 180°** : nouvelle ref `preCryptFacingRef`, capturant `facing` au moment précis
+  de `onRequestEnterCrypt` (direction vers laquelle Synk marchait pour atteindre la porte). Un
+  nouveau dictionnaire `OPPOSITE_DIRECTION` (8 valeurs, simple inversion de paires haut/bas,
+  gauche/droite, diagonales) retourne cette direction à l'exécution d'`exitCrypt` :
+  `setFacing(OPPOSITE_DIRECTION[preCryptFacingRef.current])`. Aucun calcul d'angle flottant,
+  toujours une des 8 directions valides de `FACING_ANGLE`.
+- **Caméra qui zoomait sur le casque** : l'ancien mécanisme restaurait la caméra EXACTE sauvegardée
+  juste avant l'entrée (`preCryptCameraRef`, avec un seuil `EXIT_MIN_CAMERA_DISTANCE` de repli vers
+  une pose par défaut si jugée « trop proche ») — ce seuil s'est révélé insuffisant dans certains
+  cas rapportés (le joueur zoome généralement de près pour cliquer précisément sur la petite porte
+  d'entrée juste avant que cette caméra ne soit capturée). **Simplifié** : `exitCrypt` utilise
+  désormais INCONDITIONNELLEMENT la pose par défaut `CRYPT_EXIT_CAMERA_POS = [0, 3.2, 5.6]`
+  (identique à la vue d'ouverture du widget), quelle que soit la caméra avant l'entrée — élimine le
+  problème à la racine plutôt que de le contourner par seuil. `preCryptCameraRef` (devenu inutile) a
+  été retiré.
+
+**Non-régression** : aucune des deux logiques de déplacement (`dispatchMove`/`move`/`moveRoom`/
+`moveTowerTop`, répertoire MONDE FIXE) n'est touchée — seuls `facing`/`cryptTurn` (purement
+cosmétiques, pilotant la rotation visuelle de la caméra/du modèle) sont modifiés, et uniquement au
+moment précis d'une sortie (jamais pendant un déplacement normal). Le quart de tour manuel (↺/↻)
+reste disponible et fonctionne identiquement à avant (le joueur peut toujours se retourner pour
+regarder un tableau, par exemple) : le nouveau comportement ne fait qu'ÉVITER d'avoir à le déclencher
+manuellement après une sortie.
+
+**Vérification** : `npx tsc --noEmit -p tsconfig.json` : 0 erreur. Playwright (session Démo
+anonyme) : page `/game`, onboarding ignoré, widget Plateforme 3D ouvert — 0 erreur console. **Limite
+assumée** (identique aux correctifs précédents) : simuler un aller-retour complet jusqu'à une
+crypte/salle réelle depuis un spawn éloigné reste hors de portée d'un scénario Playwright automatisé
+dans le temps imparti ; la correction repose sur la réutilisation directe du mécanisme `cryptTurn`
+déjà validé pour le demi-tour manuel, et sur une relecture de code ligne à ligne de `exitCrypt`/
+`onLeaveRoom`/`onToggleDoor`.
+

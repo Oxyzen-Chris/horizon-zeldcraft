@@ -118,6 +118,17 @@ const FACING_ANGLE: Record<SynkDirection, number> = {
   up: Math.PI, 'up-right': (3 * Math.PI) / 4, right: Math.PI / 2, 'down-right': Math.PI / 4,
 };
 
+/** Direction à 180° de chaque direction à 8 valeurs — utilisée pour retourner Synk à l'opposé de
+ * la porte qu'il vient de franchir (voir demande utilisateur « il faut que Synk soit orienté vers
+ * la direction de la sortie [...] et pas face à la porte qu'il vient d'ouvrir ») : au lieu de
+ * recalculer un angle, on inverse simplement la direction à 8 valeurs déjà utilisée par `facing`,
+ * garantissant un résultat toujours valide (une des 8 clés de `FACING_ANGLE`) sans aucun calcul
+ * d'angle flottant. */
+const OPPOSITE_DIRECTION: Record<SynkDirection, SynkDirection> = {
+  up: 'down', down: 'up', left: 'right', right: 'left',
+  'up-left': 'down-right', 'down-right': 'up-left', 'up-right': 'down-left', 'down-left': 'up-right',
+};
+
 /** Angle (degrés écran, sens horaire depuis le haut) de l'aiguille de la boussole HTML/CSS pour
  * chaque direction affichée — voir la boussole N/E/S/O du composant parent (demande utilisateur
  * « place [...] une boussole translucide Nord, Est, Sud, Ouest [...] qui permet de savoir dans
@@ -1829,15 +1840,16 @@ interface SceneMarker {
 const CAMERA_TARGET: [number, number, number] = [0, 0.85, 0];
 const CAMERA_MIN_DISTANCE = 1.3;
 const CAMERA_MAX_DISTANCE = 20;
-// Seuil de distance (unités monde) en-deçà duquel la caméra sauvegardée avant l'entrée en crypte
-// (voir `preCryptCameraRef`) est considérée comme "trop proche" pour être restaurée telle quelle à
-// la sortie (voir bouton « 🚪 Sortir » plus bas) — corrige le bug signalé « ne met pas la caméra au
-// dessus de sa tête/casque » : si le joueur avait zoomé tout près de Synk juste avant de cliquer la
-// porte d'entrée de la crypte, restaurer CETTE pose à la sortie recollait la caméra sur son casque.
-// En dessous de ce seuil, on retombe sur la pose par défaut `[0, 3.2, 5.6]` (recul standard de la
-// caméra à l'ouverture du widget) ; au-dessus, le comportement "restauration exacte" historique est
-// intégralement conservé (aucune régression pour le cas normal, où la caméra n'était pas si proche).
-const EXIT_MIN_CAMERA_DISTANCE = 4;
+// Pose caméra par défaut à la sortie COMPLÈTE d'un souterrain (voir `exitCrypt`) — recul standard
+// identique à celui de l'ouverture du widget. Utilisée INCONDITIONNELLEMENT depuis le correctif
+// « zoom sur le casque de Synk collé à la porte » (demande utilisateur « il ne faut pas zoomer sur
+// Synk mais le voir de la même manière que quand il est rentré dans la crypte ») : restaurer la
+// caméra EXACTE sauvegardée avant l'entrée (ancien comportement, via `preCryptCameraRef`) rapprochait
+// trop souvent la vue du casque de Synk, car le joueur zoome généralement de près pour cliquer
+// précisément sur la porte d'entrée juste avant que cette caméra ne soit capturée — un seuil de
+// distance avait été tenté (code retiré) mais restait contourné dans certains cas signalés ; la
+// pose fixe ci-dessous élimine le problème à la racine, pour TOUTE sortie de crypte.
+const CRYPT_EXIT_CAMERA_POS: [number, number, number] = [0, 3.2, 5.6];
 const CAMERA_MAX_POLAR_ANGLE = 2.4;
 const CAMERA_GROUND_CLAMP_Y = 0.05;
 
@@ -2489,12 +2501,13 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // `roomPos` plus bas) exactement comme `towerTopActive` le fait pour la tour.
   const roomTopActive = cryptMode !== null && cryptDoorOpened && (cryptRoomType === 'bedroom' || cryptRoomType === 'parchment');
   const cryptTunnelLength = Math.max(4, Math.round(rules?.cryptTunnelLength ?? 40));
-  // Sauvegarde de la caméra AVANT l'entrée en crypte (position + orientation), pour la restaurer
-  // telle quelle à la sortie (voir bouton « Sortir » plus bas) — sans cela, la caméra R3F unique
-  // (voir `cameraRef`/`CameraBridge`) resterait positionnée au fond du souterrain après la sortie,
-  // et `OrbitControls` du monde extérieur recalculerait une orbite aberrante à partir de cette
-  // position résiduelle (régression visuelle : "saut" de caméra au retour du souterrain).
-  const preCryptCameraRef = useRef<{ position: THREE.Vector3; quaternion: THREE.Quaternion } | null>(null);
+  // 🆕 Direction (8 valeurs) de Synk juste AVANT l'entrée en crypte (capturée dans
+  // `onRequestEnterCrypt`) — c'est la direction vers laquelle il marchait pour atteindre la porte de
+  // la crypte (face à elle). Utilisée par `exitCrypt` pour le retourner à l'opposé exact (voir
+  // `OPPOSITE_DIRECTION`) lors de la sortie complète du souterrain, répondant à la demande
+  // utilisateur « il faut que Synk soit face à la sortie [...] à l'inverse de la porte [...] pour
+  // [...] donner réellement l'impression qu'il sort de la crypte ».
+  const preCryptFacingRef = useRef<SynkDirection>('down');
   // Parchemin déjà ramassé par CE joueur (voir lib/gameState.ts::getTakenParchmentIds/
   // subscribeTakenParchmentIds, stockage PAR JOUEUR — voir commentaire détaillé dans gameState.ts).
   const [takenParchmentIds, setTakenParchmentIds] = useState<Set<string>>(new Set());
@@ -3396,24 +3409,21 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   const ENTRANCE_EXIT_MAX_PROGRESS = 1;
   const exitCrypt = useCallback(() => {
     if (cryptProgress > ENTRANCE_EXIT_MAX_PROGRESS) return;
-    // Restaure la caméra extérieure EXACTEMENT comme avant l'entrée (voir `preCryptCameraRef`) —
-    // sans cela, l'objet caméra R3F unique (réutilisé par <Canvas>) resterait positionné au fond du
-    // souterrain, et `OrbitControls` du monde extérieur recalculerait une orbite aberrante à la
-    // reprise (régression : "saut" de caméra visible au retour du souterrain). Si la caméra
-    // sauvegardée était anormalement proche de Synk (ex. zoom avant pour cliquer la porte d'entrée,
-    // voir bug signalé « ne met pas la caméra au dessus de sa tête »), on retombe sur la pose par
-    // défaut (recul) plutôt que de restaurer un cadrage trop serré.
-    const saved = preCryptCameraRef.current;
-    if (saved && cameraRef.current) {
-      const dist = saved.position.distanceTo(new THREE.Vector3(...CAMERA_TARGET));
-      if (dist < EXIT_MIN_CAMERA_DISTANCE) {
-        cameraRef.current.position.set(0, 3.2, 5.6);
-        cameraRef.current.lookAt(new THREE.Vector3(...CAMERA_TARGET));
-      } else {
-        cameraRef.current.position.copy(saved.position);
-        cameraRef.current.quaternion.copy(saved.quaternion);
-      }
+    // Caméra : TOUJOURS la pose par défaut (voir doc de `CRYPT_EXIT_CAMERA_POS` ci-dessus) — plus
+    // de restauration de la caméra sauvegardée avant l'entrée, qui recollait trop souvent la vue au
+    // casque de Synk (zoom utilisé pour cliquer précisément sur la porte d'entrée).
+    if (cameraRef.current) {
+      cameraRef.current.position.set(...CRYPT_EXIT_CAMERA_POS);
+      cameraRef.current.lookAt(new THREE.Vector3(...CAMERA_TARGET));
     }
+    // 🆕 Retourne Synk à l'opposé EXACT de la direction qu'il regardait en entrant (face à la porte,
+    // voir `preCryptFacingRef`) — donne l'impression qu'il sort véritablement de la crypte plutôt que
+    // de s'apprêter à y rentrer à nouveau (demande utilisateur « il faut que Synk soit face à la
+    // sortie [...] à l'inverse de la porte »). Même principe que le retournement automatique
+    // appliqué à la sortie d'une salle/du donjon (voir `onLeaveRoom`/`onToggleDoor` de `TowerTopScene`
+    // plus bas, `setCryptTurn(2)`), mais ici sur `facing` (monde extérieur en 3e personne) plutôt que
+    // sur `cryptTurn` (vue 1re personne du souterrain).
+    setFacing(OPPOSITE_DIRECTION[preCryptFacingRef.current] ?? 'down');
     setCryptMode(null);
     setCryptDoorOpened(false);
   }, [cryptProgress]);
@@ -3553,7 +3563,18 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               pos={towerPos} walking={isWalking} running={isRunning}
               eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
               eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
-              onToggleDoor={() => setCryptDoorOpened((v) => !v)}
+              onToggleDoor={() => {
+                // 🆕 Ce `onToggleDoor` (passé à `TowerTopScene`) n'est appelé QUE lorsque la porte
+                // de la tour est déjà ouverte (`towerTopActive` implique `cryptDoorOpened===true`,
+                // voir sa définition) : c'est TOUJOURS une sortie de la tour vers l'escalier, jamais
+                // une entrée. `setCryptTurn(2)` retourne Synk/la caméra du couloir vers l'ENTRÉE
+                // (demi-tour, même mécanique que le bouton manuel ↺/↻) au lieu de rester face à la
+                // porte qu'il vient de franchir — demande utilisateur « il faudrait que Synk soit
+                // orienté vers la direction de la sortie [...] face à l'escalier et non [...] face à
+                // la porte qu'il vient d'ouvrir ».
+                setCryptDoorOpened(false);
+                setCryptTurn(2);
+              }}
               torchFlickerEnabled={rules?.cryptTorchFlickerEnabled ?? true}
               markers={sceneMarkers}
               centerCol={centerCol} centerRow={centerRow} poiPoints={poiPoints}
@@ -3584,9 +3605,12 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               roomSynkPos={{ x: roomPos.x, z: roomPos.y }}
               onLeaveRoom={() => {
                 // 🆕 Proximité exigée (voir doc de `ROOM_DOOR_PROXIMITY` ci-dessus) avant de pouvoir
-                // refermer la porte de la salle et repartir dans l'escalier.
+                // refermer la porte de la salle et repartir dans l'escalier. `setCryptTurn(2)` :
+                // même correctif que `TowerTopScene::onToggleDoor` ci-dessus, Synk/la caméra du
+                // couloir se retournent automatiquement vers l'ENTRÉE au lieu de rester face à la
+                // porte de la salle qu'il vient de franchir.
                 const d = Math.hypot(roomPos.x - ROOM_DOOR_LOCAL.x, roomPos.y - ROOM_DOOR_LOCAL.z);
-                if (d <= ROOM_DOOR_PROXIMITY) setCryptDoorOpened(false);
+                if (d <= ROOM_DOOR_PROXIMITY) { setCryptDoorOpened(false); setCryptTurn(2); }
               }}
               onExitCrypt={exitCrypt}
             />
@@ -3751,12 +3775,11 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             `cryptProgress` dans le couloir PUIS l'escalier (voir `cryptTunnelLength`/
             `CRYPT_STAIR_STEPS` pour les bornes de chaque phase), jusqu'à la porte — une fois la
             porte franchie (`cryptDoorOpened`), « ▲ Avancer » est désactivé (plus de couloir à
-            parcourir) et « ▼ Reculer » referme la porte au lieu de reculer. « 🚪 Sortir » referme
-            TOUJOURS intégralement le souterrain (retour instantané à la vue normale, Synk
-            réapparaît devant l'entrée de la crypte — aucune sauvegarde de position dans le
-            souterrain, cohérent avec la demande utilisateur « pourra bien sûr faire demi-tour
-            [...] puis y revenir ») et restaure la caméra extérieure EXACTEMENT comme avant l'entrée
-            (voir `preCryptCameraRef`, capturé dans `onRequestEnterCrypt` ci-dessous). */}
+            parcourir) et « ▼ Reculer » referme la porte au lieu de reculer. La sortie COMPLÈTE du
+            souterrain se fait désormais en cliquant sur la porte d'entrée (voir `exitCrypt`) plutôt
+            que via un bouton HUD (retiré, voir § Suppression du bouton « Sortir ») : elle restaure
+            TOUJOURS la même pose de caméra par défaut (voir `CRYPT_EXIT_CAMERA_POS`) et retourne
+            Synk à l'opposé de la direction qu'il regardait en entrant (voir `preCryptFacingRef`). */}
         {cryptMode && (() => {
           const inStairs = cryptProgress > cryptTunnelLength;
           const maxProgress = cryptTunnelLength + CRYPT_STAIR_STEPS;
@@ -3853,16 +3876,9 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         onClose={() => setInteractionMarker(null)}
         onRequestHutRest={() => setHutResting(true)}
         onRequestEnterCrypt={(cryptId) => {
-          // Capture la caméra AVANT de basculer `cryptMode` (voir `preCryptCameraRef`) : à cet
-          // instant précis, `CameraBridge` est encore monté (branche non-crypt du <Canvas>) donc
-          // `cameraRef.current` reflète fidèlement la vue courante du joueur, à restaurer identique
-          // à la sortie du souterrain (voir bouton « Sortir » ci-dessus).
-          if (cameraRef.current) {
-            preCryptCameraRef.current = {
-              position: cameraRef.current.position.clone(),
-              quaternion: cameraRef.current.quaternion.clone(),
-            };
-          }
+          // 🆕 Capture la direction de Synk à cet instant (voir `preCryptFacingRef`) — c'est la
+          // direction « face à la porte » à inverser lors de la sortie complète (`exitCrypt`).
+          preCryptFacingRef.current = facing;
           playAmbientSound('doorCreak', wildlifeAudio);
           setCryptMode(cryptId); setCryptProgress(0); setCryptDoorOpened(false); setCryptTurn(0); setInteractionMarker(null);
         }}
