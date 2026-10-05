@@ -26,6 +26,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
+import { setUndergroundActive } from '@/lib/undergroundActive';
 import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns, isWorldPosBlockedByLivingActor } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
@@ -69,6 +70,46 @@ const WALK_STOP_DELAY_MS = 220; // identique à GameCanvas2D.tsx (voir sa consta
 function CameraBridge({ cameraRef }: { cameraRef: React.MutableRefObject<THREE.Camera | null> }) {
   const { camera } = useThree();
   useEffect(() => { cameraRef.current = camera; }, [camera, cameraRef]);
+  return null;
+}
+
+/** 🔒 Positionne la caméra à la sortie d'une crypte (voir doc de `pendingExitCameraRef` dans le
+ * composant parent pour l'historique complet des deux bugs corrigés : course avec `CryptCamera`,
+ * puis décor non garanti dégagé à distance fixe). Monté DANS le `<Canvas>`, aux côtés de
+ * `<CameraBridge>`/`<Scene>`, UNIQUEMENT une fois revenu au monde extérieur (donc après le
+ * démontage réel de `<CryptTunnelScene>`) — chaque incrément de `requestId` (une sortie de crypte)
+ * redéclenche un seul passage de cet effet, qui recule la caméra PAR VRAI RAYCAST contre la scène
+ * déjà montée (arbres/huttes/châteaux/etc., quels qu'ils soient) au lieu de deviner une distance
+ * sûre par un calcul de tuile — robuste quel que soit le décor aléatoire propre à chaque crypte. */
+function CryptExitCameraGuard({ requestId, pendingRef }: { requestId: number; pendingRef: React.MutableRefObject<{ angle: number; radius: number } | null> }) {
+  const { scene, camera } = useThree();
+  const appliedForRef = useRef(-1);
+  useFrame(() => {
+    if (appliedForRef.current === requestId) return;
+    appliedForRef.current = requestId;
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (!pending) return;
+    const target = new THREE.Vector3(...CAMERA_TARGET);
+    const raycaster = new THREE.Raycaster();
+    let radius = pending.radius;
+    const MAX_RADIUS = pending.radius + 10;
+    const pos = new THREE.Vector3();
+    while (radius <= MAX_RADIUS) {
+      pos.set(Math.sin(pending.angle) * radius, CRYPT_EXIT_CAMERA_HEIGHT, Math.cos(pending.angle) * radius);
+      const dir = pos.clone().sub(target);
+      const dist = dir.length();
+      dir.normalize();
+      raycaster.set(target, dir);
+      raycaster.near = 0.6; // ignore Synk lui-même (juste devant la cible)
+      raycaster.far = dist - 0.3; // marge avant d'atteindre la position candidate de la caméra
+      const blocked = raycaster.intersectObjects(scene.children, true).length > 0;
+      if (!blocked) break;
+      radius += 1;
+    }
+    camera.position.copy(pos);
+    camera.lookAt(target);
+  });
   return null;
 }
 
@@ -130,28 +171,29 @@ const OPPOSITE_DIRECTION: Record<SynkDirection, SynkDirection> = {
   'up-left': 'down-right', 'down-right': 'up-left', 'up-right': 'down-left', 'down-left': 'up-right',
 };
 
-/** 🔒 Bug corrigé (rapporté par l'utilisateur, capture d'écran à l'appui : caméra "zoomée" sur le
- * toit/la croix de la crypte, parfois totalement noire) : la pose de sortie de crypte était
- * auparavant un vecteur MONDE FIXE (`[0, 3.2, 5.6]`, voir `cryptExitCameraPosFor` ci-dessous pour le
- * détail du calcul désormais utilisé) — correct UNIQUEMENT si Synk ressort en regardant vers 'down'
- * (axe +Z, même convention que `FACING_ANGLE`). Or Synk est repositionné À L'EMPLACEMENT MÊME de la
- * crypte en sortant (le bâtiment de la crypte se retrouve donc tout près de l'origine, quel que soit
- * l'angle sous lequel le joueur l'a abordée) : si sa direction de sortie (`OPPOSITE_DIRECTION` de la
- * direction d'entrée, voir `exitCrypt`) n'était PAS 'down', la caméra fixe `[0, 3.2, 5.6]` pouvait se
- * retrouver du MÊME côté que le bâtiment de la crypte (au lieu du côté opposé, "derrière" Synk par
- * rapport à sa nouvelle direction) et donc l'intersecter/passer au travers (vue noire ou cadrée sur
- * le toit). Correctif : calculer la position caméra EN FONCTION de la direction de sortie réelle, en
- * réutilisant `FACING_ANGLE` (même convention angle→vecteur de visage que le modèle 3D de Synk,
- * `(sin(angle), 0, cos(angle))`) pour placer la caméra du côté vers lequel Synk regarde DÉSORMAIS
- * (donc TOUJOURS à l'opposé de la crypte, qui reste dans son dos) — généralise la pose fixe qui
- * n'était valide que pour le cas particulier 'down' à TOUTES les directions de sortie possibles,
- * sans changer la hauteur/le recul (mêmes magnitudes que l'ancienne pose par défaut). */
+/** 🔒 Bug corrigé (rapporté par l'utilisateur, captures d'écran à l'appui : caméra "zoomée" sur le
+ * toit/la croix de la crypte, puis — après un premier correctif encore insuffisant — écran
+ * totalement envahi de vert/noir). Historique des deux correctifs successifs :
+ * 1) La pose de sortie était initialement un vecteur MONDE FIXE (`[0, 3.2, 5.6]`), correct
+ *    UNIQUEMENT si Synk ressort en regardant vers 'down' (axe +Z) : Synk étant repositionné à
+ *    l'emplacement même de la crypte, une direction de sortie différente pouvait placer la caméra
+ *    du MÊME côté que le bâtiment (au lieu du côté opposé) et donc l'intersecter.
+ * 2) Premier correctif (rendu obsolète) : calculer la position EN FONCTION de la direction de
+ *    sortie via `FACING_ANGLE`, pour toujours placer la caméra du côté vers lequel Synk regarde
+ *    désormais. Rejoué en Playwright (harnais `?debugCrypt=&debugFacing=`), ce correctif s'est
+ *    révélé INSUFFISANT : le bâtiment de la crypte a beau être toujours évité, l'orientation du
+ *    bâtiment en coordonnées monde est FIXE (son arche regarde toujours +Z, voir `MarkerBlock`),
+ *    rien à voir avec la direction de sortie — en réalité, le risque venait du DÉCOR ALÉATOIRE
+ *    environnant (arbres/huttes/châteaux dispersés par tuile, voir `worldTerrain.ts::worldTileAt`,
+ *    ~8 % de chance par tuile) : tourner la caméra vers une direction quelconque pouvait très bien
+ *    la faire atterrir EN PLEIN DANS un sapin décoratif voisin, aucun côté n'étant garanti dégagé.
+ * Correctif définitif : conserver le calcul angle→position (même convention que le modèle 3D de
+ * Synk, `(sin(angle), 0, cos(angle))`), mais AGRANDIR le rayon tuile par tuile (voir `exitCrypt`,
+ * boucle utilisant `worldTileAt`/`isObstacleAt`) jusqu'à retomber sur une tuile sans décor ni
+ * bâtiment POI catalogue — garantit une vue dégagée dans TOUTES les directions, sans jamais
+ * black-screener, quel que soit le décor aléatoire propre à chaque crypte. */
 const CRYPT_EXIT_CAMERA_HEIGHT = 3.2;
 const CRYPT_EXIT_CAMERA_RADIUS = 5.6;
-function cryptExitCameraPosFor(direction: SynkDirection): [number, number, number] {
-  const angle = FACING_ANGLE[direction] ?? 0;
-  return [Math.sin(angle) * CRYPT_EXIT_CAMERA_RADIUS, CRYPT_EXIT_CAMERA_HEIGHT, Math.cos(angle) * CRYPT_EXIT_CAMERA_RADIUS];
-}
 
 /** Angle (degrés écran, sens horaire depuis le haut) de l'aiguille de la boussole HTML/CSS pour
  * chaque direction affichée — voir la boussole N/E/S/O du composant parent (demande utilisateur
@@ -2488,6 +2530,16 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // « ▼ Reculer » (voir plus bas, overlay HORS `<Canvas>`) — AUCUNE réutilisation du dpad/clavier
   // existant (trop risqué pour la navigation déjà en place, voir useHoldMovement ci-dessous).
   const [cryptMode, setCryptMode] = useState<string | null>(null);
+  // Signale au registre partagé (voir lib/undergroundActive.ts) tant que Synk est sous terre
+  // (couloir, salle d'arrivée ou tour de donjon) — consommé par NpcEncounterPopup.tsx pour
+  // suspendre tout tirage de rencontre PNJ (combat/quête/troc/discussion) et fermer immédiatement
+  // toute rencontre déjà affichée, tant qu'aucun PNJ n'est rencontrable sous terre. Réinitialisé à
+  // `false` au démontage (repli du widget) pour ne jamais laisser les rencontres suspendues pour le
+  // reste de la session si le joueur replie la Plateforme 3D en pleine exploration souterraine.
+  useEffect(() => {
+    setUndergroundActive(cryptMode !== null);
+    return () => setUndergroundActive(false);
+  }, [cryptMode]);
   const [cryptProgress, setCryptProgress] = useState(0);
   // 🆕 Quart(s) de tour sur soi-même dans le couloir/escalier (0 à 3, voir CryptTunnelScene.tsx::
   // CryptCamera turnOffset et demande utilisateur « 2 boutons [...] permettant de faire [...] 1/4
@@ -2522,6 +2574,32 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // utilisateur « il faut que Synk soit face à la sortie [...] à l'inverse de la porte [...] pour
   // [...] donner réellement l'impression qu'il sort de la crypte ».
   const preCryptFacingRef = useRef<SynkDirection>('down');
+  // 🔒 Bug corrigé (rapporté par l'utilisateur à plusieurs reprises, captures d'écran à l'appui :
+  // caméra "zoomée" sur le toit/la croix de la crypte, puis écran envahi de vert/noir même après
+  // deux correctifs successifs sur le CALCUL de la position) : la vraie cause n'était ni l'angle ni
+  // le rayon de la pose caméra, mais une COURSE (race condition) — `exitCrypt` fixait
+  // `cameraRef.current.position`/`.lookAt(...)` de façon SYNCHRONE dans le même tick que
+  // `setCryptMode(null)`, hors `<CryptTunnelScene>` (toujours monté à cet instant précis, React
+  // n'ayant pas encore commité le démontage) pilote la caméra CHAQUE frame via son propre
+  // `useFrame` (voir `CryptCamera` dans CryptTunnelScene.tsx, actif tant que `!doorOpened` — or on
+  // sort toujours par la porte d'ENTRÉE avec `doorOpened===false`) : au moins une frame
+  // supplémentaire pouvait s'écouler avant le démontage réel, cette frame écrasant purement et
+  // simplement notre position/rotation manuelle avec celle, non pertinente, du couloir (près de
+  // l'entrée). Correctif (1/2) : ne plus toucher la caméra DANS `exitCrypt` lui-même — mémoriser
+  // ici l'angle visé (`pendingExitCameraRef`) et incrémenter `exitCamRequestId` (voir plus bas),
+  // consommés par `<CryptExitCameraGuard>` (monté DANS le `<Canvas>`, uniquement une fois revenu à
+  // la branche "monde extérieur", donc forcément après le démontage de `<CryptTunnelScene>`/l'arrêt
+  // de son `useFrame` — élimine la course par construction).
+  // 🔒 Second bug corrigé (Playwright : capture identique à un sapin décoratif vu de très près même
+  // après correction de la course ci-dessus) : UN SEUL côté "sûr" (ex. toujours au sud) ne l'est en
+  // réalité QUE pour certaines cryptes selon leur décor environnant tiré aléatoirement par tuile
+  // (voir `worldTerrain.ts::worldTileAt`) — et une simple vérification de la tuile exacte à distance
+  // `radius` (tentée puis abandonnée) s'est révélée insuffisante : un arbre déborde visuellement de
+  // sa tuile d'ancrage. Correctif (2/2), robuste quel que soit le décor : `<CryptExitCameraGuard>`
+  // utilise un VRAI raycast Three.js contre la scène déjà montée pour reculer la caméra tant qu'un
+  // objet s'interpose entre elle et Synk, au lieu de deviner une distance sûre par le calcul.
+  const pendingExitCameraRef = useRef<{ angle: number; radius: number } | null>(null);
+  const [exitCamRequestId, setExitCamRequestId] = useState(0);
   // Parchemin déjà ramassé par CE joueur (voir lib/gameState.ts::getTakenParchmentIds/
   // subscribeTakenParchmentIds, stockage PAR JOUEUR — voir commentaire détaillé dans gameState.ts).
   const [takenParchmentIds, setTakenParchmentIds] = useState<Set<string>>(new Set());
@@ -3443,16 +3521,14 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     // plus bas, `setCryptTurn(2)`), mais ici sur `facing` (monde extérieur en 3e personne) plutôt que
     // sur `cryptTurn` (vue 1re personne du souterrain).
     const exitFacing = OPPOSITE_DIRECTION[preCryptFacingRef.current] ?? 'down';
-    // Caméra : pose par défaut CALCULÉE SELON `exitFacing` (voir doc de `cryptExitCameraPosFor`
-    // ci-dessus, bug corrigé « caméra zoomée sur le toit/la croix de la crypte ») — plus de
-    // restauration de la caméra sauvegardée avant l'entrée, qui recollait trop souvent la vue au
-    // casque de Synk (zoom utilisé pour cliquer précisément sur la porte d'entrée), ET surtout
-    // toujours du côté OPPOSÉ au bâtiment de la crypte (qui reste dans le dos de Synk), quelle que
-    // soit la direction par laquelle il l'a abordée.
-    if (cameraRef.current) {
-      cameraRef.current.position.set(...cryptExitCameraPosFor(exitFacing));
-      cameraRef.current.lookAt(new THREE.Vector3(...CAMERA_TARGET));
-    }
+    // Caméra : NE PLUS la positionner ici de façon SYNCHRONE (voir doc de `pendingExitCameraRef`/
+    // `CryptExitCameraGuard` ci-dessous, § course avec `CryptCamera` ET § décor non garanti dégagé)
+    // — on mémorise simplement l'angle visé, appliqué par `<CryptExitCameraGuard>` (monté DANS le
+    // `<Canvas>`, aux côtés de `<Scene>`/`<CameraBridge>`) une fois `<CryptTunnelScene>` réellement
+    // démonté.
+    const exitAngle = FACING_ANGLE[exitFacing] ?? 0;
+    pendingExitCameraRef.current = { angle: exitAngle, radius: CRYPT_EXIT_CAMERA_RADIUS };
+    setExitCamRequestId((v) => v + 1);
     setFacing(exitFacing);
     setCryptMode(null);
     setCryptDoorOpened(false);
@@ -3662,6 +3738,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           ) : (
             <>
               <CameraBridge cameraRef={cameraRef} />
+              <CryptExitCameraGuard requestId={exitCamRequestId} pendingRef={pendingExitCameraRef} />
               <Platform3DAmbientScene isNight={worldAmbience.isNight} theme={worldAmbience.theme} moonPhase={worldAmbience.moonPhase} />
               <Scene
                 centerCol={centerCol} centerRow={centerRow} poiPoints={poiPoints} sceneMarkers={sceneMarkers}

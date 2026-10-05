@@ -4418,3 +4418,101 @@ dans le temps imparti ; la correction repose sur la réutilisation directe du m�
 déjà validé pour le demi-tour manuel, et sur une relecture de code ligne à ligne de `exitCrypt`/
 `onLeaveRoom`/`onToggleDoor`.
 
+## 🎥 Correctif DÉFINITIF de la caméra de sortie de souterrain (condition de course + garde par raycast)
+
+Malgré PLUSIEURS correctifs précédents (pose fixe `CRYPT_EXIT_CAMERA_POS`, puis angle de caméra
+sensible à la direction — voir les deux sections précédentes), le bug persistait à l'identique
+(écran collé au décor/quasi noir) pour certaines directions de sortie. L'investigation approfondie
+de cette itération a mis au jour la VRAIE cause racine, qui invalide les hypothèses précédentes.
+
+**Cause racine n°1 — condition de course React/R3F** : `exitCrypt()` fixait
+`cameraRef.current.position`/`.lookAt()` de façon SYNCHRONE, dans le même tick que
+`setCryptMode(null)`. Mais `CryptTunnelScene.tsx::CryptCamera` (son propre `useFrame`, actif tant
+que `!doorOpened` — donc systématiquement vrai à l'entrée du souterrain) ÉCRASAIT la position de la
+caméra À CHAQUE frame tant que React n'avait pas réellement démonté `<CryptTunnelScene>`. Le
+commit React (mise à jour du DOM/arbre R3F) n'étant pas synchronisé avec `requestAnimationFrame`,
+au moins une frame supplémentaire pouvait s'écouler après l'appel à `exitCrypt()` pendant laquelle
+`CryptCamera` reprenait la main et réécrivait la position manuelle — une vraie condition de course,
+invisible en lecture de code statique.
+
+**Correctif n°1** : `exitCrypt()` ne touche plus JAMAIS directement la caméra. Il stocke
+`{angle, radius}` dans une ref (`pendingExitCameraRef`) et incrémente un compteur
+(`exitCamRequestId`), consommés par un NOUVEAU composant `CryptExitCameraGuard` monté DANS
+`<Canvas>`, uniquement dans la branche "monde extérieur" (à côté de `<CameraBridge>`). Comme ce
+composant n'existe que lorsque `<CryptTunnelScene>` a RÉELLEMENT été démonté (même commit React,
+ordre garanti : les effets de nettoyage du sous-arbre retiré s'exécutent avant les effets de montage
+du nouveau sous-arbre), la course est structurellement impossible.
+
+**Cause racine n°2 — clipping dans le décor** : même la course corrigée, une position de caméra à
+rayon fixe (ou validée par une simple sonde de case `worldTileAt`/`isObstacleAt`) pouvait encore
+visuellement s'enfoncer dans un arbre ou un autre élément de décor, car le rendu 3D d'un arbre
+déborde largement de sa case d'ancrage — une sonde par hash de case est un indicateur insuffisant.
+
+**Correctif n°2** : remplacement de la sonde par case par un VRAI test de visibilité
+`THREE.Raycaster` (`CryptExitCameraGuard`, utilisant `useThree()`/`useFrame()`) : un rayon est lancé
+depuis `CAMERA_TARGET` (Synk, `[0, 0.85, 0]`) vers la position de caméra candidate
+(`raycaster.near = 0.6` pour ignorer la géométrie de Synk lui-même, `raycaster.far = distance - 0.3`
+comme marge avant d'atteindre la caméra) ; si un maillage de la scène est touché, le rayon de la
+caméra est augmenté de 1 (jusqu'à `+10` par rapport au rayon initial) et le test est rejoué — robuste
+quel que soit l'emplacement du décor, car il teste la géométrie RÉELLEMENT rendue plutôt qu'une
+heuristique par case.
+
+**Non-régression** : la piste "le prop `camera` de `<Canvas>` réinitialise la caméra à chaque
+rendu" a été explorée puis ÉCARTÉE après lecture du code source `@react-three/fiber` (comparaison
+`shallowLoose` sur les valeurs, pas sur la référence — un littéral JSX constant ne redéclenche donc
+jamais `applyProps` après le montage initial). Aucune des logiques de déplacement
+(`dispatchMove`/`move`/`moveRoom`/`moveTowerTop`) n'est touchée.
+
+**Vérification** : `npx tsc --noEmit -p tsconfig.json` : 0 erreur. Playwright (harnais de
+reproduction temporaire, entièrement retiré après validation — voir
+`web/src/lib/undergroundActive.ts` pour un exemple du registre partagé réutilisé ensuite) : les 4
+directions cardinales de sortie (haut/bas/gauche/droite) produisent désormais une vue extérieure
+dégagée, non collée au décor, avec Synk visible de dos/trois-quarts — conforme à la demande
+utilisateur. Aucun fichier de scaffolding temporaire (`tmp-*.js`/`tmp-dbg-*.png`) n'a été laissé dans
+le dépôt.
+
+## 🤫 Suspension des pop-up de rencontre PNJ pendant l'exploration souterraine
+
+Demande utilisateur : « désactive ou arrête d'afficher les pop-up de quêtes (combats, quêtes, troc,
+discussion, etc...) quand je suis dans un souterrain ou que je rentre dans une crypte ou que je suis
+dans une pièce (chambre, pièce avec parchemin) ou quand je suis en haut d'un Donjon [...] réactive le
+pop-up une fois à l'extérieur [...] je ne rencontre pas de PNJ à l'intérieur du souterrain ».
+
+**Problème** : le planificateur "battement de cœur" de rencontres PNJ aléatoires
+(`NpcEncounterPopup.tsx`, `setInterval` 15s) ne connaît pas l'état interne (privé) de
+`Platform3DWidget.tsx::cryptMode` (non-`null` dans les trois cas : couloir de crypte, salle
+chambre/parchemin, sommet de donjon) — les deux composants n'ont jamais eu besoin de communiquer
+jusqu'ici, aucun canal n'existait pour ce cas précis.
+
+**Solution** : nouveau registre partagé à portée module `web/src/lib/undergroundActive.ts` (même
+pattern, déjà éprouvé, que `platform3dActive.ts` utilisé pour l'arbitrage clavier 3D/2D — pas de
+Context React nécessaire, les deux composants sont montés dans le même arbre `/game`) :
+- `setUndergroundActive(v)` / `isUndergroundActive()` : lecture/écriture simple.
+- `subscribeUndergroundActive(cb)` : notifie immédiatement à l'abonnement, puis à chaque
+  changement (contrairement à un simple polling, permet une réaction immédiate).
+
+`Platform3DWidget.tsx` appelle `setUndergroundActive(cryptMode !== null)` dans un `useEffect` calé
+sur `cryptMode` (réinitialisé à `false` au démontage du widget, pour ne jamais laisser les
+rencontres suspendues si le widget est replié en pleine exploration souterraine).
+
+`NpcEncounterPopup.tsx` s'abonne via `subscribeUndergroundActive` : (a) le battement de cœur
+(`tick()`) lit un ref `undergroundRef` (jamais en dépendance d'effet, même principe que
+`currentRef`/`seasonRef` déjà en place) et ignore tout nouveau tirage tant que `true` — SANS
+consommer le quota journalier ni avancer l'horodatage "prochain tirage", qui reste donc valable à la
+sortie ; (b) dès que le registre bascule à `true`, toute rencontre déjà affichée (combat en cours,
+dialogue, troc, quête en cours d'acceptation) est immédiatement fermée via `close()`.
+
+**Non-régression** : aucune autre popup (`PoiInteractionModal`, interaction POI au clic) n'est
+concernée — elle ne peut de toute façon pas se déclencher en vue souterraine puisque les marqueurs
+POI du monde extérieur ne sont pas rendus dans `<CryptTunnelScene>`. Le widget "Lancer de dés"
+(`DiceRollWidget`, grisé pendant un combat via `onCombatActiveChange`) n'est pas affecté : un combat
+déjà en cours à l'instant où le joueur entre sous terre est fermé par `close()`, qui réinitialise
+aussi `onCombatActiveChange?.(false)` (filet de sécurité déjà existant au démontage).
+
+**Vérification** : `npx tsc --noEmit -p tsconfig.json` : 0 erreur. Playwright (session Démo anonyme,
+page `/game`) : 0 erreur console après chargement. **Limite assumée** : la fenêtre de tirage
+aléatoire des rencontres PNJ (1 à 25 minutes) rend impraticable un scénario Playwright automatisé
+couvrant le tirage réel en conditions de production dans le temps imparti — la correction s'appuie
+sur une relecture de code ligne à ligne du planificateur et la réutilisation d'un pattern de registre
+partagé déjà validé en production (`platform3dActive.ts`).
+

@@ -17,6 +17,7 @@ import {
 import { ITEM_TAB_ICON, ITEM_TAB_CATEGORIES, type ItemTab } from '@/lib/itemTabs';
 import { getFirebaseDb } from '@/lib/firebase';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
+import { subscribeUndergroundActive } from '@/lib/undergroundActive';
 import { FightResultModal, type FightResultData } from './FightResultModal';
 import type { DiceEventKind, DiceEventOutcome } from './DiceRollWidget';
 
@@ -324,6 +325,19 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
   // localStorage, tirée dans une fenêtre aléatoire de 60s à 25min) est dépassé. Aucune dépendance
   // instable (ni `current`, ni une valeur on-chain) : un battement en retard/raté n'empêche jamais
   // définitivement les suivants, et toute exception est absorbée par le try/catch.
+  //
+  // Suspension pendant un souterrain (voir lib/undergroundActive.ts) : « je ne rencontre pas de PNJ
+  // à l'intérieur du souterrain, de la crypte, d'une pièce ou d'un donjon » — `undergroundRef` est
+  // lu (sans figurer en dépendance) par `tick()` ci-dessous pour bloquer tout nouveau tirage, et
+  // l'effet d'abonnement ferme IMMÉDIATEMENT toute rencontre déjà affichée dès l'entrée sous terre
+  // (chat/combat/troc/quête en cours compris — aucun de ces PNJ n'a de sens une fois sous terre).
+  // Réactivé de lui-même dès la sortie, le battement de cœur reprenant alors son cycle normal.
+  const undergroundRef = useRef(false);
+  useEffect(() => subscribeUndergroundActive((v) => {
+    undergroundRef.current = v;
+    if (v && currentRef.current) close();
+  }), []);
+
   useEffect(() => {
     if (!address) return;
     const dayKey = new Date().toDateString();
@@ -340,6 +354,7 @@ export function NpcEncounterPopup({ contract, tokenId, onEncounterChange, onRequ
 
     const tick = () => {
       try {
+        if (undergroundRef.current) return; // sous terre : aucun tirage, voir effet d'abonnement ci-dessus
         const max = Number((rules ?? DEFAULT_REP_RULES).npcMaxPerDay ?? 4);
         const count = Number(localStorage.getItem(countKey) ?? 0);
         if (count >= max) return;
