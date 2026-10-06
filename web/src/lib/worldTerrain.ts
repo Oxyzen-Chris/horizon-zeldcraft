@@ -37,15 +37,27 @@ export const OBSTACLE_POI_TYPES: MapPoiType[] = ['village_ally', 'village_enemy'
 /** Une cellule est un obstacle bloquant le déplacement INCRÉMENTAL (clavier/pavé directionnel/
  * souris maintenue — PAS le clic d'approche/téléportation `moveTo`, voir commentaire RepRules) si :
  * (a) un POI catalogue de type `OBSTACLE_POI_TYPES` est positionné exactement sur cette case, ou
- * (b) le décor généré aléatoirement par `worldTileAt` y a placé une hutte/un château décoratif
- * (`tile.prop === 'hut' | 'castle'`). Ne dépend d'AUCUN autre champ de `Tile` : appelable avec la
- * tuile déjà calculée par `worldTileAt`, sans recalcul. */
+ * (b) le décor généré aléatoirement par `worldTileAt` y a placé une hutte/un château/une porte des
+ * étoiles décoratifs (`tile.prop === 'hut' | 'castle' | 'portal'`). Ne dépend d'AUCUN autre champ de
+ * `Tile` : appelable avec la tuile déjà calculée par `worldTileAt`, sans recalcul.
+ *
+ * 🆕 `'portal'` ajouté suite à la demande utilisateur « cette nouvelle porte des étoiles doit aussi
+ * être mise en place pour tous les portails (portail posé au sol, portail flottant inter-mondes,
+ * ...) » : la Plateforme 3D bloquait déjà l'anneau/sa console via le registre admin-paramétrable
+ * `platform3dTileFlags`/`DEFAULT_PLATFORM3D_OBJECT_FLAGS['prop:portal']` (voir Platform3DWidget.tsx),
+ * mais cette fonction `isObstacleAt` — partagée par GameCanvas2D.tsx (Plateforme 2D isométrique) ET
+ * `roamingActors.ts::isTileBlockedForRoaming` (évitement par les PNJ/familiers/faune errants) — n'en
+ * tenait pas compte, laissant le portail posé au sol traversable en 2D (et par les PNJ errants). Le
+ * portail flottant inter-mondes (`kind:'world'`) reste couvert séparément par
+ * `isWorldPosBlockedByStaticMarker` (non rattaché à une tuile, voir roamingActors.ts) — les DEUX
+ * variantes du portail sont donc désormais bloquantes dans les 3 vues (3D/2D/mapmonde pour l'affichage,
+ * 3D+2D pour le déplacement de Synk, PNJ/familiers/faune pour l'évitement). */
 export function isObstacleAt(
   wc: number, wr: number,
   poiPoints: { x: number; y: number; poiType?: MapPoiType }[],
   tile: Pick<Tile, 'prop'>,
 ): boolean {
-  if (tile.prop === 'hut' || tile.prop === 'castle') return true;
+  if (tile.prop === 'hut' || tile.prop === 'castle' || tile.prop === 'portal') return true;
   return poiPoints.some(p => p.poiType && OBSTACLE_POI_TYPES.includes(p.poiType) && Math.round(p.x) === wc && Math.round(p.y) === wr);
 }
 

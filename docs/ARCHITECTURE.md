@@ -4656,3 +4656,49 @@ bandeau de compte à rebours pendant une composition en cours (`stargateActivati
 n'est pas concerné, conservé à l'identique. `npx tsc --noEmit` : 0 erreur. Playwright (`/game`,
 session Démo) : 0 erreur console, anneau rendu en cuivre à l'écran, aucune régression visible sur le
 reste de l'interface.
+
+### 🔎 Correctif complémentaire : la bascule de code seule ne suffisait pas (donnée persistée en base)
+
+Demande utilisateur (suite au correctif ci-dessus) : « il semblerait que je peux encore traverser
+le portail et la console/pupitre [...] cette nouvelle porte des étoiles doit aussi être mise en
+place pour tous les portails (portail posé au sol, portail flottant inter-mondes, ...) ».
+
+**Cause racine identifiée** : `DEFAULT_PLATFORM3D_OBJECT_FLAGS['prop:portal'].obstacle` avait bien
+été basculé à `true` dans le code (voir section précédente), mais `mergeRepRules()`
+(`gameState.ts`) donne TOUJOURS priorité à la valeur **sauvegardée en base Firebase**
+(`catalog/repRules/platform3dObjectFlags/prop:portal`) sur le défaut du code dès qu'une entrée y
+existe déjà — comportement voulu pour un registre admin-paramétrable (un réglage explicite de
+l'admin ne doit jamais être silencieusement écrasé par un futur défaut de code). Le panneau
+Administration (`RepRulesPanel.tsx::save()`) réécrit l'intégralité de `platform3dObjectFlags` dès
+qu'un admin clique une seule fois sur "Enregistrer" (même pour un tout autre réglage) : ce projet
+ayant déjà été sauvegardé au moins une fois AVANT l'introduction du correctif précédent, la base
+contenait encore `prop:portal.obstacle: false` — une valeur explicite qui masquait indéfiniment le
+nouveau défaut du code, sans qu'aucune relecture du code ne puisse jamais le détecter (bug invisible
+en lecture de code seule, uniquement visible en inspectant la donnée réellement persistée).
+
+**Correctif appliqué** : migration ponctuelle de la donnée en base (mise à jour ciblée du seul champ
+`obstacle` de `prop:portal`, sans toucher aux autres réglages déjà personnalisés par l'admin,
+`climbable`/`water`/`scale` ni aucun autre type d'objet) — `obstacle` passe de `false` à `true` dans
+`catalog/repRules/platform3dObjectFlags/prop:portal`. Vérifié par lecture avant/après directement en
+base : `{"climbable":false,"obstacle":false,"scale":1,"water":false}` →
+`{"climbable":false,"obstacle":true,"scale":1,"water":false}`.
+
+**Portée élargie à "tous les portails"** (2e partie de la demande) : `worldTerrain.ts::isObstacleAt`
+— fonction PARTAGÉE par `GameCanvas2D.tsx` (Plateforme 2D isométrique) et
+`roamingActors.ts::isTileBlockedForRoaming` (évitement par les PNJ/familiers/faune errants), mais
+jusqu'ici limitée à `tile.prop === 'hut' | 'castle'` — couvre désormais aussi
+`tile.prop === 'portal'`. Avant ce complément, le portail posé au sol restait traversable en 2D (et
+ignoré par l'évitement des PNJ/faune errants), alors que la Plateforme 3D le bloquait déjà via le
+registre `platform3dTileFlags` : asymétrie désormais résolue, les DEUX variantes du portail (posé au
+sol via `tile.prop==='portal'`, flottant inter-mondes via le marqueur catalogue `kind:'world'` et
+`isWorldPosBlockedByStaticMarker`) sont maintenant bloquantes de façon identique dans les 3 vues
+(3D, 2D isométrique, et pour l'évitement des PNJ/familiers/faune errants sur la mapmonde).
+
+**Non-régression** : le changement sur `isObstacleAt` n'affecte QUE les cases portant
+`tile.prop === 'portal'` (généré aléatoirement à ~1% des tuiles, voir `worldTerrain.ts`) — aucun
+autre type de décor/terrain n'est concerné ; `hut`/`castle` restent inchangés. La migration de
+donnée ne touche qu'un seul champ booléen d'une seule entrée du registre, tous les autres réglages
+admin (y compris ceux déjà personnalisés pour d'autres types d'objets) restent strictement
+identiques. Vérifié : `npx tsc --noEmit` (0 erreur), script `tsx` autonome confirmant
+`isObstacleAt({prop:'portal'})===true` tout en laissant `tree`/`null` inchangés, Playwright sur
+`/game` (0 erreur console, aucune régression visible).
