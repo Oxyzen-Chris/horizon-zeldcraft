@@ -1090,6 +1090,13 @@ function QuestRow({ quest, answer, onSaved }: { quest: QuestDef; answer: string;
       <p className="mt-1 text-emerald-400">
         🔑 {t('admin.quest.list.answer')} : <b>{answer || '—'}</b>
       </p>
+      {/* Objet remis à la résolution (QuestDef.itemReward) — affichage SEUL (pas encore éditable
+          via ce formulaire, voir addQuestDef), préservé tel quel par save() ci-dessus. */}
+      {quest.itemReward && (
+        <p className="mt-1 text-amber-400">
+          🎁 {quest.itemReward.name} ×{quest.itemReward.qty}
+        </p>
+      )}
     </div>
   );
 }
@@ -1253,6 +1260,14 @@ function TreasureRow({ treasure, onSaved }: { treasure: TreasureDef; onSaved: ()
           {t('admin.quest.list.edit')}
         </button>
       </div>
+      {/* Objet remis à l'ouverture (TreasureDef.itemReward) — affichage SEUL (pas encore éditable
+          via ce formulaire, voir addTreasureDef) afin que l'admin voie immédiatement ce que promet
+          chaque trésor, préservé tel quel par save() ci-dessus. */}
+      {treasure.itemReward && (
+        <p className="mt-1 text-amber-400">
+          🎁 {treasure.itemReward.name} ×{treasure.itemReward.qty}
+        </p>
+      )}
     </div>
   );
 }

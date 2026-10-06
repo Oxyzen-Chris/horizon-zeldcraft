@@ -3999,7 +3999,11 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'perle_abysse_electrique', name: '🌊 Perle des Abysses Électriques',   category: 'treasure', priceGame: 25000, effect: {}, active: true },
   // Objet requis pour actionner la console de la Porte des Étoiles (voir RepRules::
   // stargateRequiresItem/stargateRequiredItemId, PoiInteractionModal.tsx § Porte des étoiles).
-  { itemId: 'stargate_crystal',        name: '🔺 Cristal de la Porte des Étoiles', category: 'treasure', priceGame: 12000, effect: {}, active: true },
+  // Prix élevé INTENTIONNEL (demande utilisateur « a 1000000 de coins du jeu, montant paramétrable
+  // dans le menu Administration ») : voir RepRulesPanel.tsx section « 🌀 Porte des étoiles » pour le
+  // champ d'édition de ce prix (relit/réécrit directement cette entrée de catalogue via setShopItem,
+  // sans RepRules.xxx dédié — une seule source de vérité, comme tout autre prix de boutique).
+  { itemId: 'stargate_crystal',        name: '🔺 Cristal de la Porte des Étoiles', category: 'treasure', priceGame: 1000000, effect: {}, active: true },
   // ─── Équipement du personnage (armes/protections/flèches) — voir EquipmentWidget.tsx.
   // Rareté croissante (common → rare → legendary → epic), inspirée de Tolkien/Donjons & Dragons,
   // recherchée pour rester crédible (Andúril, Dard/Sting, mithril, arc de Galadriel…). Prix
@@ -5036,6 +5040,15 @@ export interface RepRules {
   stargateXpRequired: number;            // défaut 50 — XP minimum requis pour actionner la console
   stargateRequiresItem: boolean;         // défaut true — exige en plus la possession de l'objet ci-dessous
   stargateRequiredItemId: string;        // défaut 'stargate_crystal' — id catalogue de l'objet requis (voir DEFAULT_SHOP)
+  // Nombre FIXE de Portes des étoiles dispersées sur toute la mapmonde — défaut 20 (demande
+  // utilisateur « je vois qu'il y a trop de Portes des étoiles [...] disperses seulement 20 Portes
+  // des étoiles dans l'intégralité du jeu [...] rends paramétrable le nombre »), remplace l'ancien
+  // tirage probabiliste par dalle (1 chance sur 100 à CHAQUE dalle d'herbe, bien trop dense) par un
+  // ensemble de positions déterministes de taille EXACTE `stargateCount`, calculé par
+  // worldTerrain.ts::configureStargates() — voir ce fichier pour le détail de l'algorithme. Poussé
+  // vers le registre partagé par les 3 widgets (GameCanvas2D.tsx/Platform3DWidget.tsx/
+  // WorldMapWidget.tsx) exactement comme RepRules.roamStepMs et consorts (voir configureRoaming()).
+  stargateCount: number; // défaut 20
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -5286,6 +5299,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   stargateXpRequired: 50,
   stargateRequiresItem: true,
   stargateRequiredItemId: 'stargate_crystal',
+  stargateCount: 20,
 }
 
 /** Merge une valeur brute Firebase (`catalog/repRules`, potentiellement partielle/absente) avec

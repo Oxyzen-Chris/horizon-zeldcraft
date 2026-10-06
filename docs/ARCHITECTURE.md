@@ -4767,3 +4767,94 @@ restauration du correctif : le MÊME déplacement est bloqué (position inchang�
 déplacement de contrôle vers une direction sans rapport reste libre. Même constat pour le portail
 posé au sol (dalle voisine bloquée, déplacement de contrôle libre).
 
+## 🔺 Cristal de la Porte des Étoiles : trésor + quête, prix boutique paramétrable, nombre de portails fixe
+
+Demande utilisateur : « Peux-tu me dire si l'objet "Cristal de la Porte des Étoiles" existe dans la
+liste des trésors [...] car je ne le trouve pas dans le menu Administration [...] Créer le trésor
+"Cristal de la Porte des Étoiles" et associe-le à une nouvelle quête pour le gagner [...] Ajoutes
+également l'objet [...] dans la boutique mais à 1000000 de coins du jeu (montant paramétrable) [...]
+disperses seulement 20 Portes des étoiles dans l'intégralité du jeu [...] rends paramétrable le
+nombre de Portes des étoiles à afficher ». Trois sous-demandes indépendantes.
+
+### 1. Trésor + quête (visibles en Administration)
+
+`stargate_crystal` existait déjà dans `DEFAULT_SHOP` (catégorie `'treasure'`, requis par
+`RepRules.stargateRequiredItemId` pour actionner une console) mais n'avait **jamais** été enregistré
+comme `TreasureDef` (`catalog/treasureDefs`, la source de données de la rubrique "Trésors" du menu
+Administration) ni comme récompense d'une `QuestDef` — d'où l'impossibilité de le trouver dans
+Administration malgré sa présence en boutique.
+
+Ajout via script de migration one-shot `scripts/seedStargateCrystalQuestTreasure.mjs` (même
+technique que `seedInvisibilityQuest.mjs` : `.env.local` parsé manuellement, `signInAnonymously`,
+écriture directe `firebase/database`) :
+- **Trésor** `treasure.stargate_crystal` (`xpRequired: 2600`, `xpReward: 150`, `itemReward:
+  {itemId:'stargate_crystal', qty:1, category:'treasure'}`) — coffre ouvrable une fois le seuil
+  d'XP atteint, comme tout autre trésor.
+- **Quête** `quest.stargate_crystal` (« 🌀 L'Énigme du Voyageur Immobile », classique — PAS
+  `npcGiver`, donc visible directement dans "Quêtes à énigmes" dès `xpRequired: 2200` atteint,
+  réponse `"cristal"`), avec le MÊME `itemReward` — deux voies indépendantes pour obtenir l'objet,
+  en plus de l'achat en boutique.
+
+Les deux apparaissent IMMÉDIATEMENT dans le menu Administration (rubriques "Quêtes existantes"/
+"Trésors existants" de `app/admin/page.tsx`, qui listent respectivement `getQuestDefs()`/
+`getTreasureDefs()` sans filtrage) sans aucune modification de code nécessaire pour l'affichage de
+base. `TreasureRow`/`QuestRow` affichent désormais en plus un badge `🎁 {itemReward.name} ×{qty}`
+(lecture seule — l'édition de `itemReward` reste réservée au script/à Firebase, comme avant ;
+`save()` des deux lignes préservait déjà `itemReward` tel quel lors de toute autre modification,
+donc aucune régression possible sur les entrées existantes qui en avaient déjà un, ex. la Cape
+d'invisibilité).
+
+### 2. Prix boutique paramétrable (1 000 000 pièces par défaut)
+
+`DEFAULT_SHOP['stargate_crystal'].priceGame` passe de `12000` à `1000000`. Plutôt que d'introduire
+un nouveau champ `RepRules` dupliquant cette valeur (risque de désynchronisation avec le catalogue
+boutique, seule source de vérité lue par `ShopPanel.tsx`), `RepRulesPanel.tsx` (section « 🌀 Porte
+des étoiles ») charge l'item `stargate_crystal` via `getShopCatalog()` et expose un champ numérique
+dédié + bouton d'enregistrement qui appelle `setShopItem({...item, priceGame})` — écriture
+DIRECTEMENT dans `catalog/shop/stargate_crystal`, indépendante du bouton "Enregistrer" global du
+reste du formulaire RepRules (chemins Firebase différents).
+
+### 3. Nombre de Portes des étoiles FIXE et paramétrable (`RepRules.stargateCount`, défaut 20)
+
+**Avant** : `worldTileAt()` (`worldTerrain.ts`) tirait un portail par un jet PROBABILISTE
+indépendant à CHAQUE dalle (`hashRand(wc, wr, 4) < 0.01`, ~1 % de chance par dalle admissible) — sur
+un monde de 101×101 dalles, cela produisait un nombre de portails bien plus élevé que prévu et
+variable, sans aucun moyen de le borner (capture utilisateur : bien trop de portails visibles).
+
+**Après** : nouvel algorithme dans `worldTerrain.ts` — `configureStargates({count})` pousse un
+nombre cible `stargatePortalCount` (module-scope, défaut 20) ; `stargateTileKeys()` calcule un
+ensemble d'EXACTEMENT `count` positions `(wc,wr)` UNIQUES, dérivées par `hashRand(i, 0, salt)` d'un
+indice `i = 0..N-1` (PAS de `wc`/`wr` : stable quel que soit `N`), mémoïsé (invalidé seulement si
+`count` change). `worldTileAt()` teste l'appartenance à cet ensemble **avant** les jets
+arbre/bâtisse (et non après, comme un essai initial l'avait fait — un arbre ou une hutte pouvait
+sinon occuper par hasard une des positions tirées et réduire silencieusement le compte réel en
+dessous de la valeur configurée, bug détecté par un test autonome : 19 portails trouvés au lieu de
+20 attendus, corrigé en donnant la priorité au portail).
+
+Poussé vers ce registre par les 3 widgets (`GameCanvas2D.tsx`/`Platform3DWidget.tsx`/
+`WorldMapWidget.tsx`) dans un nouveau `useEffect(() => configureStargates({count: rules.
+stargateCount}), [rules])`, exactement comme `configureRoaming()` existant (idempotent, dernier
+appelant gagne, valeurs identiques car toutes issues du même `RepRules`) — garantit que les 3 vues
+(Mapmonde/Plateforme 2D isométrique/Plateforme 3D) affichent TOUJOURS le même ensemble de portails,
+puisqu'elles appellent toutes `worldTileAt()` avec le même état module.
+
+Nouveau champ `RepRules.stargateCount` (défaut `20`), exposé dans `RepRulesPanel.tsx` (section
+« 🌀 Porte des étoiles », ajouté à `stargateFields` — suit le pattern générique déjà en place, aucun
+code de rendu spécifique nécessaire).
+
+**Vérifié** : `npx tsc --noEmit` (0 erreur) ; script autonome transpilant `worldTerrain.ts` et
+balayant la grille 101×101 complète pour plusieurs valeurs de `count` (20, 1, 0, 35, 20 à nouveau
+après retour en arrière) — nombre de portails trouvés strictement égal à `count` à chaque fois,
+y compris les cas limites (`0`, `1`) et le changement de valeur (invalidation du cache) ; lecture
+Firebase confirmant la persistance correcte du trésor/de la quête créés. `npm run dev` + Playwright
+confirmant l'absence d'erreur console au chargement (page d'accueil et `/admin`, ce dernier
+correctement protégé par la vérification propriétaire du contrat — accès refusé sans portefeuille
+connecté, comportement attendu et inchangé).
+
+**Non-régression** : `DEFAULT_SHOP`/`RepRules`/`worldTerrain.ts` modifiés de façon strictement
+additive (nouveau champ, nouvelle fonction, même signature publique de `worldTileAt`/`isObstacleAt`
+inchangée) ; aucun appelant existant n'a dû être adapté au-delà de l'ajout du `useEffect`
+`configureStargates` dans les 3 widgets (suit littéralement le patron `configureRoaming` déjà
+éprouvé) ; aucune donnée existante (quêtes/trésors déjà créés) n'est modifiée par le script de
+migration (clés Firebase nouvelles, `treasure.stargate_crystal`/`quest.stargate_crystal`).
+

@@ -25,7 +25,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { SynkSkin } from './SynkSkin';
 import { NPC_SKINS } from '@/lib/contract';
 import { ARCHETYPES, type EncounterMarkerInfo } from './NpcEncounterPopup';
-import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE } from '@/lib/worldTerrain';
+import { worldTileAt, TERRAIN_COLOR, WORLD_SIZE, configureStargates } from '@/lib/worldTerrain';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 import { useWorldThemeAmbience } from '@/lib/useWorldTheme';
 import { WorldMapAmbientOverlay } from './WorldMapAmbientOverlay';
@@ -358,6 +358,13 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
       obstacleAvoidanceEnabled: rules.roamObstacleAvoidanceEnabled,
       actorCollisionAvoidanceEnabled: rules.roamActorCollisionEnabled,
     });
+  }, [rules]);
+  // Pousse le nombre de Portes des étoiles (RepRules.stargateCount, défaut 20) vers le registre
+  // partagé lib/worldTerrain.ts — même appel que dans GameCanvas2D.tsx/Platform3DWidget.tsx (voir
+  // configureStargates() pour le détail de l'algorithme).
+  useEffect(() => {
+    if (!rules) return;
+    configureStargates({ count: rules.stargateCount });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous, voir RepRules.wildlife*/lib/roamingActors.ts::
   // ensureWildlifeSpawns) — appelé depuis les 3 widgets, idempotent tant que ni les comptages ni le

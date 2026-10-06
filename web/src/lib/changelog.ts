@@ -13,6 +13,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  { date: '2026-10-29', icon: '🔺', titleKey: 'changelog.stargateCrystalQuestTreasure.title', bodyKey: 'changelog.stargateCrystalQuestTreasure.body' },
   { date: '2026-10-28', icon: '🪑', titleKey: 'changelog.stargateConsoleObstacleFix.title', bodyKey: 'changelog.stargateConsoleObstacleFix.body' },
   { date: '2026-10-27', icon: '🚧', titleKey: 'changelog.stargatePortalAllVariants.title', bodyKey: 'changelog.stargatePortalAllVariants.body' },
   { date: '2026-10-26', icon: '🪙', titleKey: 'changelog.stargateObstacleCopper.title', bodyKey: 'changelog.stargateObstacleCopper.body' },

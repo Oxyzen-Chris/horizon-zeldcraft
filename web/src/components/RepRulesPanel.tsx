@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import {
   getRepRules, setRepRules, updateRepRulesFields, DEFAULT_REP_RULES, DEFAULT_PLATFORM3D_OBJECT_FLAGS, PLATFORM3D_OBJECT_KINDS,
-  type RepRules, type Platform3DObjectKind, type Platform3DObjectFlags,
+  getShopCatalog, setShopItem,
+  type RepRules, type Platform3DObjectKind, type Platform3DObjectFlags, type ShopItem,
 } from '@/lib/gameState';
 import { useI18n, SUPPORTED_LOCALES, CURRENCY_BY_LOCALE, type Locale } from '@/lib/i18n';
 
@@ -19,8 +20,39 @@ export function RepRulesPanel() {
   const [emailConfig, setEmailConfig] = useState<{ configured: boolean; fromEmail: string; isSandbox: boolean } | null>(null);
   const [instantFeedback, setInstantFeedback] = useState<string | null>(null);
 
+  // Prix (en pièces de jeu) du "🔺 Cristal de la Porte des Étoiles" (ShopItem.priceGame, catalogue
+  // boutique — PAS un champ RepRules : une seule source de vérité, comme tout autre prix de
+  // boutique) — demande utilisateur « Ajoutes également l'objet [...] dans la boutique mais à
+  // 1000000 de coins du jeu (montant paramétrable dans le menu Administration) ». Chargé/sauvé
+  // séparément du reste de ce formulaire (chemin Firebase différent, `catalog/shop/stargate_crystal`).
+  const [crystalItem, setCrystalItem] = useState<ShopItem | null>(null);
+  const [crystalPrice, setCrystalPrice] = useState('1000000');
+  const [crystalSaving, setCrystalSaving] = useState(false);
+  const [crystalSaved, setCrystalSaved] = useState(false);
+
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
   useEffect(() => { fetch('/api/email/config').then(r => r.json()).then(setEmailConfig).catch(() => {}); }, []);
+  useEffect(() => {
+    getShopCatalog().then(catalog => {
+      const item = catalog.find(i => i.itemId === 'stargate_crystal') ?? null;
+      setCrystalItem(item);
+      if (item) setCrystalPrice(String(item.priceGame ?? 0));
+    }).catch(() => {});
+  }, []);
+
+  const saveCrystalPrice = async () => {
+    if (!crystalItem || crystalSaving) return;
+    const price = Math.max(0, Math.round(Number(crystalPrice) || 0));
+    setCrystalSaving(true);
+    try {
+      await setShopItem({ ...crystalItem, priceGame: price });
+      setCrystalItem(prev => prev ? { ...prev, priceGame: price } : prev);
+      setCrystalSaved(true);
+      setTimeout(() => setCrystalSaved(false), 2500);
+    } finally {
+      setCrystalSaving(false);
+    }
+  };
 
   const set = (k: keyof RepRules, v: string) => {
     const n = parseInt(v, 10);
@@ -213,6 +245,7 @@ export function RepRulesPanel() {
   const stargateFields: { key: keyof RepRules; labelKey: string }[] = [
     { key: 'stargateActivationDurationSec', labelKey: 'admin.repRules.stargateActivationDurationSec' },
     { key: 'stargateXpRequired',            labelKey: 'admin.repRules.stargateXpRequired' },
+    { key: 'stargateCount',                 labelKey: 'admin.repRules.stargateCount' },
   ];
 
   const hutFields: { key: keyof RepRules; labelKey: string }[] = [
@@ -460,6 +493,22 @@ export function RepRulesPanel() {
             <input type="text" className="input mt-1 w-full" disabled={rules.stargateRequiresItem === false}
               value={rules.stargateRequiredItemId} onChange={e => setText('stargateRequiredItemId', e.target.value)} />
           </label>
+        </div>
+        {/* Prix du Cristal (catalogue boutique, voir commentaire crystalItem plus haut) — bouton
+            d'enregistrement DÉDIÉ (chemin Firebase distinct du reste du formulaire RepRules). */}
+        <div className="mt-3 pt-3 border-t border-slate-800">
+          <label className="text-sm block max-w-xs">
+            <span className="text-slate-300">{t('admin.repRules.stargateCrystalPriceGame')}</span>
+            <div className="flex gap-2 mt-1">
+              <input type="number" min={0} className="input flex-1" value={crystalPrice}
+                onChange={e => setCrystalPrice(e.target.value)} disabled={!crystalItem} />
+              <button type="button" className="btn-secondary text-xs px-3" disabled={!crystalItem || crystalSaving}
+                onClick={saveCrystalPrice}>
+                {crystalSaving ? '⏳' : t('admin.quest.list.save')}
+              </button>
+            </div>
+          </label>
+          {crystalSaved && <p className="text-xs text-emerald-400 mt-1">✅ {t('common.success')}</p>}
         </div>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">

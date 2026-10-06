@@ -140,6 +140,52 @@ export function hashRand(wc: number, wr: number, salt: number): number {
   return ((h >>> 0) % 100000) / 100000;
 }
 
+/** Nombre FIXE de Portes des étoiles (`tile.prop === 'portal'`) dispersées sur toute la mapmonde —
+ * remplace l'ancien tirage PROBABILISTE par dalle (`hashRand(wc, wr, 4) < 0.01`, ~1% de CHAQUE
+ * dalle d'herbe admissible — bien trop dense, voir capture utilisateur « il y a trop de Portes des
+ * étoiles sur le plateau ») par un ensemble de `stargatePortalCount` positions (wc, wr) UNIQUES,
+ * déterministes (dérivées d'un indice 0..N-1 via hashRand, PAS de wc/wr : stable quel que soit le
+ * nombre configuré) et mémoïsées (`stargateKeysCache`, invalidé seulement si le nombre change).
+ * Paramétrable via RepRules.stargateCount (défaut 20, voir RepRulesPanel.tsx section « 🌀 Porte des
+ * étoiles ») — poussé ici par `configureStargates()`, appelée par les 3 widgets (GameCanvas2D.tsx/
+ * Platform3DWidget.tsx/WorldMapWidget.tsx) dès que RepRules est chargé, exactement comme
+ * `configureRoaming()` (voir roamingActors.ts) : idempotent, dernier appelant gagne, valeurs
+ * identiques puisque toutes issues du même RepRules, aucun conflit possible entre widgets. */
+const DEFAULT_STARGATE_COUNT = 20;
+let stargatePortalCount = DEFAULT_STARGATE_COUNT;
+let stargateKeysCache: { count: number; keys: Set<string> } | null = null;
+
+export function configureStargates(opts: { count?: number }): void {
+  if (typeof opts.count === 'number' && Number.isFinite(opts.count)) {
+    const next = Math.max(0, Math.floor(opts.count));
+    if (next !== stargatePortalCount) {
+      stargatePortalCount = next;
+      stargateKeysCache = null;
+    }
+  }
+}
+
+function stargateTileKey(wc: number, wr: number): string {
+  return `${wc}:${wr}`;
+}
+
+function stargateTileKeys(): Set<string> {
+  if (stargateKeysCache && stargateKeysCache.count === stargatePortalCount) return stargateKeysCache.keys;
+  const keys = new Set<string>();
+  const guardMax = stargatePortalCount * 100 + 500; // évite une boucle infinie si le monde est trop petit
+  let i = 0;
+  let guard = 0;
+  while (keys.size < stargatePortalCount && guard < guardMax) {
+    const wc = Math.floor(hashRand(i, 0, 910001) * (WORLD_SIZE + 1));
+    const wr = Math.floor(hashRand(i, 0, 910002) * (WORLD_SIZE + 1));
+    keys.add(stargateTileKey(wc, wr));
+    i++;
+    guard++;
+  }
+  stargateKeysCache = { count: stargatePortalCount, keys };
+  return keys;
+}
+
 /** Plafond d'altitude/profondeur STABLE propre à un POI donné (dérivé de sa position, pas de son
  * id, pour rester déterministe même si l'id change) — ainsi certains sommets/certaines fosses sont
  * naturellement plus hauts/profonds que d'autres (chaîne de montagnes irrégulière, mers moins
@@ -298,8 +344,14 @@ export function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: n
   }
 
   let prop: PropKind = null;
+  // Portail temporel — nombre FIXE et paramétrable (voir stargateTileKeys() ci-dessus), décidé EN
+  // PREMIER (avant arbres/bâtisses ci-dessous) afin que le nombre exact configuré soit TOUJOURS
+  // atteint — sans cette priorité, un arbre ou une hutte aurait pu occuper par hasard une des
+  // positions tirées, réduisant silencieusement le compte réel en dessous de la valeur attendue
+  // (bug constaté en test : 19 portails trouvés au lieu de 20 configurés).
+  if (stargateTileKeys().has(stargateTileKey(wc, wr))) prop = 'portal';
   const treeChance = forestBias ? 0.28 : islandBias ? 0.22 : 0.08;
-  if (terrain === 'grass' && hashRand(wc, wr, 2) < treeChance) {
+  if (!prop && terrain === 'grass' && hashRand(wc, wr, 2) < treeChance) {
     if (islandBias) {
       const pr = hashRand(wc, wr, 24);
       prop = pr < 0.34 ? 'bamboo' : pr < 0.67 ? 'baobab' : 'palm';
@@ -309,8 +361,6 @@ export function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: n
   if (buildingBias && terrain === 'grass' && !prop && hashRand(wc, wr, 3) < 0.05) {
     prop = (bias === 'village_ally' || bias === 'village_enemy') ? 'castle' : 'hut';
   }
-  // Portail temporel rare et stable, dispersé sur toute la mapmonde
-  if (!prop && hashRand(wc, wr, 4) < 0.01) prop = 'portal';
 
   return { terrain, prop, altitudeM, depthM, waterKind, isIsland: islandBias || undefined };
 }

@@ -14,7 +14,7 @@ import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
 import {
   TERRAIN_COLOR, PROP_ICON, TERRAIN_I18N_KEY, PROP_I18N_KEY, worldTileAt, clamp100, WORLD_SIZE, hashRand,
-  isObstacleAt,
+  isObstacleAt, configureStargates,
   type Tile,
 } from '@/lib/worldTerrain';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
@@ -199,6 +199,13 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       obstacleAvoidanceEnabled: rules.roamObstacleAvoidanceEnabled,
       actorCollisionAvoidanceEnabled: rules.roamActorCollisionEnabled,
     });
+  }, [rules]);
+  // Pousse le nombre de Portes des étoiles (RepRules.stargateCount, défaut 20) vers le registre
+  // partagé lib/worldTerrain.ts — voir le même appel, avec les mêmes commentaires détaillés, dans
+  // Platform3DWidget.tsx/WorldMapWidget.tsx.
+  useEffect(() => {
+    if (!rules) return;
+    configureStargates({ count: rules.stargateCount });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous) — voir le même appel, avec les mêmes
   // commentaires détaillés, dans WorldMapWidget.tsx/Platform3DWidget.tsx.

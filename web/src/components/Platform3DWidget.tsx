@@ -19,7 +19,7 @@ import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
 import {
   worldTileAt, clamp100, WORLD_SIZE, TERRAIN_COLOR, PROP_ICON, PROP_I18N_KEY, hashRand,
-  isObstacleAt, type Tile,
+  isObstacleAt, configureStargates, type Tile,
 } from '@/lib/worldTerrain';
 import { STAGE_NAMES } from '@/lib/contract';
 import { useI18n, localizeName } from '@/lib/i18n';
@@ -2628,6 +2628,14 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       obstacleAvoidanceEnabled: rules.roamObstacleAvoidanceEnabled,
       actorCollisionAvoidanceEnabled: rules.roamActorCollisionEnabled,
     });
+  }, [rules]);
+  // Pousse le nombre de Portes des étoiles (RepRules.stargateCount, défaut 20) vers le registre
+  // partagé lib/worldTerrain.ts — voir configureStargates() pour le détail de l'algorithme.
+  // GameCanvas2D.tsx et WorldMapWidget.tsx font le même appel : idempotent (dernier appelant
+  // gagne, valeurs identiques puisque toutes issues du même RepRules), aucun conflit possible.
+  useEffect(() => {
+    if (!rules) return;
+    configureStargates({ count: rules.stargateCount });
   }, [rules]);
   // Idem pour la faune errante (hiboux/loups-garous) — voir le même appel, avec les mêmes
   // commentaires détaillés, dans GameCanvas2D.tsx/WorldMapWidget.tsx.
