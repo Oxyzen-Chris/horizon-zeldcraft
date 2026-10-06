@@ -459,8 +459,20 @@ export function isWorldPosBlockedByLivingActor(
  * STATIQUE (non errant) qui doive lui aussi bloquer Synk : il suffit d'y ajouter son `kind`, aucun
  * autre changement requis (le même appel couvre déjà 3D/2D, voir les 2 points d'appel identiques
  * dans Platform3DWidget.tsx et GameCanvas2D.tsx). Même rayon `ACTOR_COLLISION_RADIUS` que les autres
- * obstacles vivants — couvre à la fois l'anneau et sa console adjacente (décalage < 1 tuile). */
+ * obstacles vivants, centré sur la position PROPRE de l'anneau. */
 const STATIC_OBSTACLE_MARKER_KINDS = new Set(['world']);
+
+/** Décalage (unités monde = dalles, même échelle que `x`/`y`) de la console/pupitre d'activation du
+ * portail FLOTTANT inter-mondes par rapport au centre de son anneau — demande utilisateur « place
+ * aussi la console en obstacle, tu ne l'as pas fait ». `StargatePortal` (voir Platform3DWidget.tsx)
+ * positionne la console à un décalage 3D LOCAL FIXE de `[radius + 0.45, 0, radius * 0.55]` ; pour ce
+ * portail flottant, `radius` vaut TOUJOURS `0.3` (codé en dur dans `MarkerBlock::isWorld`, jamais mis
+ * à l'échelle) → décalage `(0.3+0.45, 0.3*0.55) = (0.75, 0.165)`. Distance au CENTRE DE L'ANNEAU
+ * ≈0.77, donc déjà < `ACTOR_COLLISION_RADIUS` (0.85) — MAIS un Synk posté sur la dalle entière
+ * ADJACENTE (distance 1.0 au centre de l'anneau, donc hors de ce rayon) peut se retrouver à
+ * seulement ≈0.30 de la console elle-même (bug corrigé ici) : la console nécessite donc son PROPRE
+ * point de blocage, distinct du centre de l'anneau, pour couvrir aussi cette dalle adjacente. */
+const WORLD_PORTAL_CONSOLE_OFFSET = { dx: 0.75, dy: 0.165 };
 
 export function isWorldPosBlockedByStaticMarker(
   x: number, y: number,
@@ -470,6 +482,7 @@ export function isWorldPosBlockedByStaticMarker(
   for (const m of allMarkers) {
     if (!STATIC_OBSTACLE_MARKER_KINDS.has(m.kind)) continue;
     if (near(m.x, m.y)) return true;
+    if (m.kind === 'world' && near(m.x + WORLD_PORTAL_CONSOLE_OFFSET.dx, m.y + WORLD_PORTAL_CONSOLE_OFFSET.dy)) return true;
   }
   return false;
 }

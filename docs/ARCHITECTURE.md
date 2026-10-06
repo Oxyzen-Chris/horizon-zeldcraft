@@ -4723,3 +4723,47 @@ réel à côté du portail flottant catalogue `world_zephyria` [mapX:10, mapY:80
   retourne avant d'atteindre ce code, avec sa propre couleur cuivre `#b5712b` codée en dur — aucun
   impact visuel, laissé en l'état (nettoyage cosmétique non prioritaire, aucune régression).
 
+### 🪑 Correctif : la console/pupitre d'activation était toujours traversable (décalage géométrique)
+
+Demande utilisateur : « Apparemment il y a toujours un bug car je peux encore traverser le portail
+et la console/pupitre [...] Place aussi la console en obstacle, tu ne l'as pas fait. Corrige ce
+bug. » — malgré le correctif précédent (anneau + console rendus bloquants), une capture d'écran a
+montré Synk capable de se tenir juste derrière/à côté de la console (ses jambes visibles de l'autre
+côté du meuble).
+
+**Cause racine** : `StargatePortal` (voir `Platform3DWidget.tsx`) positionne la console à un
+décalage 3D LOCAL FIXE par rapport au centre de l'anneau : `position={[radius + 0.45, 0,
+radius * 0.55]}`. Or 1 dalle de la mapmonde = 1 unité Three.js (aucun facteur `TILE_SIZE`, voir la
+boucle `tiles` dans `Scene` : `x: dx, z: dz` passés tels quels) — donc une demi-dalle ne vaut que
+`0.5` unité. Pour le portail **posé au sol** (`radius = 0.62`), le décalage vaut `(1.07, 0.34)`
+unités, soit **plus d'une demi-dalle** : la console déborde dans la dalle VOISINE (`(wc+1, wr)`),
+qui n'était jamais marquée comme obstacle (seule la dalle exacte `tile.prop === 'portal'` l'était).
+Pour le portail **flottant inter-mondes** (`radius = 0.3` fixe, jamais mis à l'échelle), le décalage
+vaut `(0.75, 0.165)` — la distance au CENTRE DE L'ANNEAU d'une dalle entière voisine (`1.0`) dépasse
+`ACTOR_COLLISION_RADIUS` (`0.85`), donc cette dalle n'était pas bloquée par la seule vérification de
+proximité à l'anneau, alors qu'elle se trouve à peine `~0.30` unité de la console elle-même.
+
+**Correctif** (deux mécanismes distincts, chacun idiomatique à sa représentation) :
+- **Portail posé au sol** (grille de dalles) : nouvelle fonction `isPortalConsoleTileAt()` dans
+  `worldTerrain.ts`, qui teste si la dalle `(wc,wr)` correspond à la dalle `(wc-1, wr)` (constantes
+  `PORTAL_CONSOLE_OFFSET_COLS=1`, `PORTAL_CONSOLE_OFFSET_ROWS=0`, dérivées de la géométrie ci-dessus
+  pour l'échelle par défaut) portant `tile.prop === 'portal'` — si oui, `isObstacleAt()` renvoie
+  `true` pour cette dalle VOISINE aussi, en plus de la dalle du portail lui-même. Point d'extension
+  unique et partagé (2D isométrique, Plateforme 3D via son appel existant à `isObstacleAt`, et
+  évitement des PNJ/familiers/faune errants), exactement comme pour le correctif précédent.
+- **Portail flottant inter-mondes** (position continue) : `isWorldPosBlockedByStaticMarker()` dans
+  `roamingActors.ts` teste désormais un SECOND point de proximité (même rayon
+  `ACTOR_COLLISION_RADIUS`) centré sur `marker.(x,y) + WORLD_PORTAL_CONSOLE_OFFSET` (constante
+  `{dx:0.75, dy:0.165}`, dérivée de la même géométrie), en plus du point d'origine (le centre de
+  l'anneau, déjà vérifié auparavant).
+
+**Non-régression** : changements strictement ADDITIFS (une nouvelle condition `||` dans chaque
+fonction) — aucune dalle/position auparavant bloquée ne redevient franchissable, seules de
+nouvelles positions deviennent bloquées. Vérifié : `npx tsc --noEmit` (0 erreur) ; Playwright sur
+`/game` en conditions réelles (session Démo anonyme, téléportation de Synk via écriture directe
+`players/{addr}/mapPos`) — AVANT le correctif (`git stash` temporaire des 2 fichiers modifiés) :
+déplacement vers la dalle où déborde la console du portail flottant RÉUSSIT (bug reproduit) ; APRÈS
+restauration du correctif : le MÊME déplacement est bloqué (position inchangée), tandis qu'un
+déplacement de contrôle vers une direction sans rapport reste libre. Même constat pour le portail
+posé au sol (dalle voisine bloquée, déplacement de contrôle libre).
+

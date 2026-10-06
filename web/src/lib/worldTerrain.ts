@@ -52,12 +52,40 @@ export const OBSTACLE_POI_TYPES: MapPoiType[] = ['village_ally', 'village_enemy'
  * `isWorldPosBlockedByStaticMarker` (non rattaché à une tuile, voir roamingActors.ts) — les DEUX
  * variantes du portail sont donc désormais bloquantes dans les 3 vues (3D/2D/mapmonde pour l'affichage,
  * 3D+2D pour le déplacement de Synk, PNJ/familiers/faune pour l'évitement). */
+/** Décalage (en dalles entières) de la console/pupitre d'activation par rapport à la dalle de
+ * l'anneau — demande utilisateur « place aussi la console en obstacle, tu ne l'as pas fait » : la
+ * console de `StargatePortal` (voir Platform3DWidget.tsx) est positionnée à un décalage 3D LOCAL
+ * FIXE de `[radius + 0.45, 0, radius * 0.55]` par rapport au centre de l'anneau — pour le portail
+ * POSÉ AU SOL (`radius = 0.62`, `scale` par défaut = 1, voir `DEFAULT_PLATFORM3D_OBJECT_FLAGS
+ * ['prop:portal'].scale` dans gameState.ts), cela donne `(0.62+0.45, 0.62*0.55) ≈ (1.07, 0.34)`
+ * unités 3D — sachant qu'1 dalle = 1 unité 3D (voir Platform3DWidget.tsx::Scene, `x:dx,z:dz` passés
+ * tels quels), la console déborde donc d'ENVIRON UNE DALLE ENTIÈRE dans la direction `+colonne`
+ * (arrondi : `round(1.07)=1` colonne, `round(0.34)=0` ligne) hors de l'emprise de la dalle `portal`
+ * elle-même (qui ne bloquait donc QUE l'anneau, jamais la console voisine — c'est le bug corrigé
+ * ici). Gardé en CONSTANTES plutôt que recalculé dynamiquement (pas de dépendance circulaire vers
+ * Platform3DWidget.tsx, qui IMPORTE déjà ce module) : à remettre à jour si la géométrie de
+ * `StargatePortal`/le `radius` par défaut du portail posé au sol change un jour. */
+export const PORTAL_CONSOLE_OFFSET_COLS = 1;
+export const PORTAL_CONSOLE_OFFSET_ROWS = 0;
+
+/** Vrai si la dalle (wc,wr) est celle où déborde la console d'un portail posé sur la dalle voisine
+ * (voir `PORTAL_CONSOLE_OFFSET_COLS`/`_ROWS` ci-dessus) — cette dalle voisine doit donc ÉGALEMENT
+ * être traitée comme un obstacle, même si son propre `tile.prop` n'est pas `'portal'`. */
+function isPortalConsoleTileAt(
+  wc: number, wr: number,
+  poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[],
+): boolean {
+  const originTile = worldTileAt(wc - PORTAL_CONSOLE_OFFSET_COLS, wr - PORTAL_CONSOLE_OFFSET_ROWS, poiPoints);
+  return originTile.prop === 'portal';
+}
+
 export function isObstacleAt(
   wc: number, wr: number,
-  poiPoints: { x: number; y: number; poiType?: MapPoiType }[],
+  poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[],
   tile: Pick<Tile, 'prop'>,
 ): boolean {
   if (tile.prop === 'hut' || tile.prop === 'castle' || tile.prop === 'portal') return true;
+  if (isPortalConsoleTileAt(wc, wr, poiPoints)) return true;
   return poiPoints.some(p => p.poiType && OBSTACLE_POI_TYPES.includes(p.poiType) && Math.round(p.x) === wc && Math.round(p.y) === wr);
 }
 
