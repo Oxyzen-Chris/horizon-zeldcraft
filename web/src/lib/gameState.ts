@@ -4245,6 +4245,13 @@ export type SynkDirection = 'up' | 'down' | 'left' | 'right' | 'up-left' | 'up-r
  * Seuls les décors/terrains listés ci-dessous sont couverts ; tout nouveau type ajouté à
  * `worldTerrain.ts::Terrain`/`PropKind` devra être ajouté ici avec un comportement par défaut
  * raisonnable (aucune régression sur les types déjà listés).
+ *
+ * 🆕 CONVENTION (demande utilisateur « a l'avenir, tout nouveaux objets que j'ajoute dans le jeu
+ * doit être considéré comme un obstacle ») : TOUT nouveau `prop:*`/décor 3D désormais ajouté à ce
+ * registre doit par défaut porter `obstacle: true` (comme `prop:tree`/`prop:hut`/`prop:castle`/
+ * `prop:portal` ci-dessous), sauf raison explicite et documentée de laisser Synk le traverser (ex.
+ * un simple effet au sol sans volume). Ne change rien aux terrains (`terrain:*`), qui restent
+ * praticables par nature.
  */
 export type Platform3DObjectKind =
   | 'terrain:grass' | 'terrain:sand' | 'terrain:path' | 'terrain:rock' | 'terrain:water'
@@ -4286,7 +4293,11 @@ export const DEFAULT_PLATFORM3D_OBJECT_FLAGS: Record<Platform3DObjectKind, Platf
   'prop:palm':     { obstacle: true,  climbable: false, water: false, scale: 1 },
   'prop:hut':      { obstacle: true,  climbable: false, water: false, scale: 1 },
   'prop:castle':   { obstacle: true,  climbable: false, water: false, scale: 1 },
-  'prop:portal':   { obstacle: false, climbable: false, water: false, scale: 1 },
+  // obstacle: true depuis la demande utilisateur « fait en sorte que je ne puisse pas passer a
+  // travers la porte des étoiles ou de la console/pupitre » — couvre la console d'activation
+  // (StargatePortal) car elle reste dans l'emprise de la même dalle que l'anneau (décalage <1 unité
+  // sur TILE_SIZE=2, voir Platform3DWidget.tsx::PropBlock::kind==='portal').
+  'prop:portal':   { obstacle: true,  climbable: false, water: false, scale: 1 },
   // PNJ voxel (style Minecraft, voir NpcVoxel) légèrement plus grand que Synk (~1.2 unité) pour
   // rester bien visible/lisible sur la carte. Le familier-dragon doit être NETTEMENT plus grand
   // que Synk (le joueur doit pouvoir imaginer le chevaucher) — voir DragonMarker.

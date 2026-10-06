@@ -448,6 +448,32 @@ export function isWorldPosBlockedByLivingActor(
   return false;
 }
 
+/** Marqueurs catalogue STATIQUES (jamais errants) qui doivent bloquer Synk comme un vrai obstacle,
+ * au même titre qu'une hutte/un arbre (voir gameState.ts::Platform3DObjectFlags) — distinct de
+ * `isWorldPosBlockedByLivingActor` ci-dessus (réservée aux PNJ/familiers/faune, errants ou non, qui
+ * ont une IDENTITÉ et un cycle de vie propre). Introduit pour la porte des étoiles flottante
+ * (`kind:'world'`, voir Platform3DWidget.tsx::StargatePortal) suite à la demande utilisateur
+ * « fait en sorte que je ne puisse pas passer a travers la porte des étoiles ou de la console/
+ * pupitre [...] a l'avenir, tout nouveaux objets que j'ajoute dans le jeu doit être considéré comme
+ * un obstacle » — ce tableau est donc le point d'extension à privilégier pour tout futur marqueur
+ * STATIQUE (non errant) qui doive lui aussi bloquer Synk : il suffit d'y ajouter son `kind`, aucun
+ * autre changement requis (le même appel couvre déjà 3D/2D, voir les 2 points d'appel identiques
+ * dans Platform3DWidget.tsx et GameCanvas2D.tsx). Même rayon `ACTOR_COLLISION_RADIUS` que les autres
+ * obstacles vivants — couvre à la fois l'anneau et sa console adjacente (décalage < 1 tuile). */
+const STATIC_OBSTACLE_MARKER_KINDS = new Set(['world']);
+
+export function isWorldPosBlockedByStaticMarker(
+  x: number, y: number,
+  allMarkers: { id: string; kind: string; x: number; y: number }[],
+): boolean {
+  const near = (ax: number, ay: number) => Math.hypot(x - ax, y - ay) < ACTOR_COLLISION_RADIUS;
+  for (const m of allMarkers) {
+    if (!STATIC_OBSTACLE_MARKER_KINDS.has(m.kind)) continue;
+    if (near(m.x, m.y)) return true;
+  }
+  return false;
+}
+
 
 /** Cherche une direction DE REMPLACEMENT (autre que celle qui vient d'échouer) menant à une case
  * franchissable et dans les limites du mapmonde — ordre aléatoire pour ne jamais privilégier

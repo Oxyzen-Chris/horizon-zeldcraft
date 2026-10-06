@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -27,7 +28,7 @@ import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWid
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { setUndergroundActive } from '@/lib/undergroundActive';
-import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns, isWorldPosBlockedByLivingActor } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
@@ -386,7 +387,10 @@ function TerrainBlock({ tile, x, z, onClick }: { tile: Tile; x: number; z: numbe
  * `Administration > Barème & règles > 🧱 Objets & décor 3D` sans toucher au code — extensible via
  * `PROP_COLOR` (registre par type, même esprit que MARKER_COLOR). */
 const PROP_COLOR: Record<string, string> = {
-  tree: '#2f6b27', castle: '#8a8577', hut: '#7a5230', portal: '#7c3aed',
+  // 'portal' : cuivre/bronze (au lieu du mauve d'origine) pour ressembler davantage à une vraie
+  // porte des étoiles (demande utilisateur « change la couleur de l'anneau violet et met une
+  // couleur cuivre pour qu'il soit plus ressemblant à la vraie porte des étoiles »).
+  tree: '#2f6b27', castle: '#8a8577', hut: '#7a5230', portal: '#b5712b',
   bamboo: '#6fae3f', baobab: '#7a5b2e', palm: '#3f8a3a',
 };
 /** Multiplicateurs internes ANISOTROPES [x, y, z] appliqués aux silhouettes hutte/château (voir
@@ -461,7 +465,7 @@ function getGlyphRingTexture(): THREE.CanvasTexture {
  * MarkerBlock::spinning plus bas) pour laisser la porte visuellement STATIQUE tant qu'elle n'est
  * pas composée, exactement comme une vraie porte des étoiles entre deux compositions. */
 function StargatePortal({
-  radius, color = '#7c3aed', anchorY, isActivating, activationStartedAt, activationDurationMs,
+  radius, color = '#b5712b', anchorY, isActivating, activationStartedAt, activationDurationMs,
   onConsoleClick, onActivationComplete,
 }: {
   radius: number;
@@ -499,7 +503,10 @@ function StargatePortal({
       firedAtRef.current = null;
     }
     if (horizonMatRef.current) {
-      const target = isActivating ? new THREE.Color('#38bdf8') : new THREE.Color('#4c1d95');
+      // Cuivre/bronze sombre au repos (cohérent avec le nouvel anneau cuivre, voir `color` ci-dessus
+      // et PROP_COLOR.portal) — bleu cyan lumineux pendant la composition (horizon des événements
+      // d'une vraie porte des étoiles), inchangé.
+      const target = isActivating ? new THREE.Color('#38bdf8') : new THREE.Color('#1c1206');
       horizonMatRef.current.emissive.lerp(target, 0.04);
     }
     if (buttonMatRef.current) {
@@ -515,9 +522,9 @@ function StargatePortal({
         <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.55} metalness={0.35} roughness={0.55} />
       </mesh>
       {/* Chevrons statiques (9, comme une vraie porte des étoiles) — corps métallique sombre bien
-          contrasté sur l'anneau mauve + pointe lumineuse rouge pour rester identifiables même sous
+          contrasté sur l'anneau cuivre + pointe lumineuse rouge pour rester identifiables même sous
           un éclairage ambiant faible (voir test isolé /stargate-test — les 1ers essais en simple
-          `#7f1d1d` se fondaient trop dans le violet de l'anneau). */}
+          `#7f1d1d` se fondaient trop dans l'anneau). */}
       {chevronAngles.map((angle, i) => (
         <group key={i}
           position={[Math.sin(angle) * radius, ringY + Math.cos(angle) * radius, radius * 0.12]}
@@ -541,7 +548,7 @@ function StargatePortal({
       {/* Horizon des événements */}
       <mesh position={[0, ringY, 0]}>
         <circleGeometry args={[radius * 0.76, 28]} />
-        <meshStandardMaterial ref={horizonMatRef} color="#1e1035" emissive="#4c1d95" emissiveIntensity={0.4} transparent opacity={0.6} side={THREE.DoubleSide} />
+        <meshStandardMaterial ref={horizonMatRef} color="#120d05" emissive="#1c1206" emissiveIntensity={0.4} transparent opacity={0.6} side={THREE.DoubleSide} />
       </mesh>
       {/* Console / pupitre d'activation (DHD) — Synk doit s'en approcher et cliquer dessus */}
       <group position={[radius + 0.45, 0, radius * 0.55]} onClick={(e) => { e.stopPropagation(); onConsoleClick(); }}>
@@ -1703,7 +1710,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
       <group position={[x, 0, z]}>
         <group ref={bobRef}>
           <StargatePortal
-            radius={0.3} color="#8b5cf6"
+            radius={0.3} color="#b5712b"
             isActivating={stargate?.isActivating} activationStartedAt={stargate?.activationStartedAt}
             activationDurationMs={stargate?.activationDurationMs}
             onConsoleClick={stargate?.onConsoleClick ?? (() => {})}
@@ -2864,6 +2871,9 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // restent visuellement statiques pendant qu'une seule d'entre elles anime son anneau de glyphes.
   const [stargateActivation, setStargateActivation] = useState<{ key: string; startedAt: number; durationMs: number } | null>(null);
   const stargateCompletionRef = useRef<(() => void) | null>(null);
+  // 🆕 Popup modal (plus de bandeau auto-masqué, voir demande utilisateur « affiche le popup de
+  // cette manière et comme tous les autres [...] » — même structure que PoiInteractionModal.tsx) :
+  // reste affiché jusqu'à fermeture explicite (croix/bouton Fermer/clic extérieur), voir rendu JSX.
   const [stargateFeedback, setStargateFeedback] = useState<string | null>(null);
   const requestStargateActivation = useCallback((key: string, onComplete: () => void) => {
     // Re-entrance : une activation est déjà en cours (sur ce portail ou un autre) — ignore le
@@ -2873,7 +2883,6 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     const xpRequired = r?.stargateXpRequired ?? 50;
     if ((playerXp ?? 0) < xpRequired) {
       setStargateFeedback(t('stargate.feedback.xpMissing', { xp: xpRequired }));
-      setTimeout(() => setStargateFeedback(null), 4000);
       return;
     }
     if (r?.stargateRequiresItem !== false) {
@@ -2882,7 +2891,6 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       if (!owned) {
         const itemLabel = DEFAULT_SHOP.find(i => i.itemId === requiredItemId)?.name ?? requiredItemId;
         setStargateFeedback(t('stargate.feedback.itemMissing', { item: itemLabel }));
-        setTimeout(() => setStargateFeedback(null), 4000);
         return;
       }
     }
@@ -3239,6 +3247,11 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     // lib/roamingActors.ts::isWorldPosBlockedByLivingActor, nouveau point d'appel partagé avec
     // GameCanvas2D.tsx) — symétrique avec l'évitement déjà en place entre acteurs errants.
     if (isWorldPosBlockedByLivingActor(nx, ny, markers, roamingActors)) return;
+    // 🆕 Porte des étoiles flottante (`kind:'world'`) + sa console adjacente désormais bloquantes
+    // (demande utilisateur « fait en sorte que je ne puisse pas passer a travers la porte des
+    // étoiles ou de la console/pupitre ») — voir lib/roamingActors.ts::isWorldPosBlockedByStaticMarker,
+    // même point d'appel partagé avec GameCanvas2D.tsx pour une collision identique en 3D/2D.
+    if (isWorldPosBlockedByStaticMarker(nx, ny, markers)) return;
     // Registre admin-paramétrable des comportements par objet/décor (voir platform3dTileFlags) —
     // un arbre (ou toute autre entrée marquée `obstacle`) bloque désormais le déplacement, comme
     // n'importe quel obstacle existant (corrige le bug "je traverse les arbres").
@@ -4293,12 +4306,22 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           </span>
         </div>
       )}
-      {stargateFeedback && (
-        <div className="fixed inset-x-0 bottom-6 flex justify-center z-[101] pointer-events-none">
-          <span className="bg-slate-900 border border-violet-500 text-violet-200 text-sm rounded-full px-4 py-2 shadow-xl">
-            {stargateFeedback}
-          </span>
-        </div>
+      {stargateFeedback && typeof document !== 'undefined' && createPortal(
+        // 🆕 Popup centré (même structure que PoiInteractionModal.tsx — fond slate-900, bordure
+        // cyan, titre+icône, croix de fermeture, bouton "Fermer" pleine largeur) remplaçant l'ancien
+        // bandeau bas en forme de pilule (demande utilisateur « affiche le popup de cette manière et
+        // comme tous les autres [...] et non pas un message comme cela »).
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[101] p-4" onClick={() => setStargateFeedback(null)}>
+          <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-5 max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-bold text-cyan-300">🌀 {t('stargate.feedback.title')}</h3>
+              <button className="text-xs opacity-70 hover:opacity-100" onClick={() => setStargateFeedback(null)}>✕</button>
+            </div>
+            <p className="text-xs text-amber-400">{stargateFeedback}</p>
+            <button className="btn-secondary text-xs w-full mt-4" onClick={() => setStargateFeedback(null)}>{t('common.close')}</button>
+          </div>
+        </div>,
+        document.body,
       )}
       {stargateActivation && (
         <div className="fixed inset-x-0 top-20 flex justify-center z-[101] pointer-events-none">

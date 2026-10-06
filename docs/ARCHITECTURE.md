@@ -4594,3 +4594,65 @@ avec son cristal. Playwright en jeu réel (`/game`, session Démo) : 0 erreur co
 rendu en anneau vertical dans le widget Plateforme 3D, aucune régression visible sur le reste de
 l'interface (statistiques, alimentation, pavé directionnel).
 
+## 🪙 Porte des étoiles infranchissable, couleur cuivre & popup XP/objet uniformisé
+
+Demande utilisateur : « Fait en sorte que je ne puisse pas passer a travers la porte des étoiles ou
+de la console/pupitre qui doivent être gérer comme un obstacle. D'ailleurs a l'avenir, tout nouveaux
+objets que j'ajoute dans le jeu doit être considéré comme un obstacle. De plus, change la couleur de
+l'anneau violet et met une couleur cuivre [...]. De plus, affiche le popup de cette manière et comme
+tous les autres [...] et non pas un message comme cela [bandeau en pilule]. »
+
+**1. Obstacle** : la porte des étoiles a DEUX formes de rendu distinctes selon son origine (voir
+section précédente) — chacune a nécessité son propre correctif, sans dupliquer la logique de
+collision 3 vues (2D/3D/mapmonde n'affecte que 2D+3D, la mapmonde ne gérant pas le déplacement de
+Synk) :
+- **Portail décoratif posé sur une dalle** (`tile.prop === 'portal'`, généré aléatoirement par
+  `worldTileAt`) : couvert par le registre existant `Platform3DObjectFlags`
+  (`gameState.ts::DEFAULT_PLATFORM3D_OBJECT_FLAGS['prop:portal']`), dont le défaut passe de
+  `obstacle: false` à `obstacle: true` — la console (décalée de moins d'une demi-tuile par rapport à
+  l'anneau, voir `TILE_SIZE=2`) reste dans l'emprise de la MÊME dalle et est donc couverte par le
+  même blocage, sans changement supplémentaire.
+- **Portail flottant inter-mondes** (`kind:'world'`, marqueur catalogue admin, PAS rattaché à une
+  dalle de `worldTileAt`) : jusqu'ici AUCUN mécanisme ne le bloquait (seul
+  `isWorldPosBlockedByLivingActor` existait, réservé aux PNJ/familiers/faune vivants). Nouvelle
+  fonction jumelle `lib/roamingActors.ts::isWorldPosBlockedByStaticMarker(x, y, allMarkers)` :
+  parcourt un ensemble `STATIC_OBSTACLE_MARKER_KINDS` (actuellement `{'world'}`, mais conçu comme
+  point d'extension pour tout futur marqueur STATIQUE bloquant) et bloque dans le même rayon
+  `ACTOR_COLLISION_RADIUS` (0,85, identique aux acteurs vivants) que l'anneau ET sa console. Appelée
+  au MÊME point que `isWorldPosBlockedByLivingActor`, dans `Platform3DWidget.tsx::move()` ET
+  `GameCanvas2D.tsx::move()` (parité 3D/2D déjà exigée pour cette famille de corrections).
+- **Convention actée pour l'avenir** (commentaire ajouté sur `Platform3DObjectKind` dans
+  `gameState.ts`) : tout nouveau type de décor/prop 3D doit désormais porter `obstacle: true` par
+  défaut, sauf justification explicite documentée de laisser Synk le traverser.
+- Vérifié par script `tsx` autonome (hors Playwright, fonctions pures sans dépendance React/Three) :
+  `prop:portal` → `obstacle === true` ; `isWorldPosBlockedByStaticMarker` bloque à la position exacte
+  du marqueur ET à proximité de l'offset console, ne bloque PAS à distance, et ne bloque PAS un
+  marqueur `'npc'` (non-régression confirmée sur les acteurs vivants, logique inchangée).
+
+**2. Couleur cuivre** : `PROP_COLOR.portal` passe de `#7c3aed` (mauve) à `#b5712b` (cuivre/bronze) ;
+même couleur appliquée au portail flottant (`MarkerBlock::isWorld`, auparavant codée en dur
+`#8b5cf6`) et au paramètre par défaut `color` de `StargatePortal`. L'horizon des événements (disque
+central) passe du mauve sombre (`#1e1035`/`#4c1d95`) à un cuivre très sombre (`#120d05`/`#1c1206`) au
+repos — le bleu cyan (`#38bdf8`) pendant la composition reste inchangé (fidèle au halo bleuté d'une
+vraie porte des étoiles en fonctionnement). Vérifié visuellement sur un harnais de test isolé
+temporaire (composant seul, détruit après usage).
+
+**3. Popup uniformisé** : l'ancien bandeau en pilule (`fixed inset-x-0 bottom-6 [...] rounded-full`)
+qui se superposait au pavé directionnel est remplacé par un popup centré strictement identique à
+`PoiInteractionModal.tsx` (fond `bg-slate-900`, bordure `border-2 border-cyan-500 rounded-xl`,
+en-tête icône+titre+croix de fermeture, corps du message, bouton `Fermer` pleine largeur) — rendu via
+`createPortal(..., document.body)` comme les autres popups du jeu (`HiddenFamiliarPopup`,
+`PoiInteractionModal`) pour un empilement (z-index) cohérent au-dessus du widget flottant. Ne se
+ferme plus automatiquement après 4s (retiré) : reste affiché jusqu'à fermeture explicite (croix,
+bouton Fermer, ou clic en dehors), comme toutes les autres popups de rencontre/verrouillage du jeu.
+Nouvelle clé i18n `stargate.feedback.title` (titre fixe du popup, 5 langues) ; les clés
+`stargate.feedback.xpMissing`/`itemMissing` existantes sont réutilisées telles quelles comme corps du
+message.
+
+**Non-régression** : aucun changement sur `requestStargateActivation`/`completeStargateActivation`
+(conditions XP/objet, garde "une seule composition à la fois", callback de voyage) — uniquement la
+PRÉSENTATION du message d'échec et le comportement de blocage physique de l'anneau/console. Le
+bandeau de compte à rebours pendant une composition en cours (`stargateActivation`, position haute)
+n'est pas concerné, conservé à l'identique. `npx tsc --noEmit` : 0 erreur. Playwright (`/game`,
+session Démo) : 0 erreur console, anneau rendu en cuivre à l'écran, aucune régression visible sur le
+reste de l'interface.

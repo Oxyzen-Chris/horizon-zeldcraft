@@ -22,7 +22,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, isWorldPosBlockedByLivingActor, type ExtraRoamingActor } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker, type ExtraRoamingActor } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -696,6 +696,10 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     // même point d'appel partagé que Platform3DWidget.tsx::move (voir
     // lib/roamingActors.ts::isWorldPosBlockedByLivingActor).
     if (isWorldPosBlockedByLivingActor(nx, ny, markers, roamingActors)) return;
+    // 🆕 Porte des étoiles flottante (`kind:'world'`) + sa console adjacente désormais bloquantes,
+    // même point d'appel partagé que Platform3DWidget.tsx::move (voir
+    // lib/roamingActors.ts::isWorldPosBlockedByStaticMarker).
+    if (isWorldPosBlockedByStaticMarker(nx, ny, markers)) return;
     moveTo(nx, ny);
   }, [moveTo, rules?.poiObstacleCollisionEnabled, poiPoints, markers, roamingActors]);
 
