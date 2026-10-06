@@ -19,7 +19,7 @@ import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
 import {
   worldTileAt, clamp100, WORLD_SIZE, TERRAIN_COLOR, PROP_ICON, PROP_I18N_KEY, hashRand,
-  isObstacleAt, configureStargates, type Tile,
+  isObstacleAt, configureStargates, STARGATE_RING_RADIUS, type Tile,
 } from '@/lib/worldTerrain';
 import { STAGE_NAMES } from '@/lib/contract';
 import { useI18n, localizeName } from '@/lib/i18n';
@@ -471,9 +471,11 @@ function StargatePortal({
   radius: number;
   color?: string;
   /** Hauteur du centre de l'anneau (coordonnée Y locale) — par défaut `radius + 0.1` (l'anneau
-   * touche quasiment le sol, porte « plantée » devant Synk) ; `PropBlock` passe `1.1` pour
-   * préserver EXACTEMENT la hauteur du décor portail historique (aucune régression visuelle de
-   * placement sur les dalles déjà en jeu). */
+   * touche quasiment le sol, porte « plantée » devant Synk), utilisé par les DEUX variantes (posée
+   * au sol via `PropBlock` et flottante inter-mondes) depuis l'agrandissement à `STARGATE_RING_RADIUS`
+   * (voir worldTerrain.ts) — ce défaut met toujours le bas de l'anneau 0.1 unité au-dessus de son
+   * origine locale, quel que soit `radius`. Laissé surchageable (`anchorY` explicite) pour tout
+   * futur contexte qui aurait besoin d'un ancrage différent. */
   anchorY?: number;
   isActivating?: boolean;
   activationStartedAt?: number;
@@ -583,10 +585,15 @@ function PropBlock({ kind, x, topY, z, scale = 1, onClick, stargate }: {
 }) {
   const color = PROP_COLOR[kind] ?? '#2f6b27';
   if (kind === 'portal') {
+    // Rayon de base STARGATE_RING_RADIUS (voir worldTerrain.ts — agrandi suite à la demande
+    // utilisateur « il faut l'agrandir de 2 fois la taille de Synk »), multiplié par `scale`
+    // (admin-paramétrable via DEFAULT_PLATFORM3D_OBJECT_FLAGS['prop:portal'].scale, défaut 1) —
+    // `anchorY` non surchargé : utilise le défaut `radius + 0.1` de StargatePortal (ring posé au
+    // ras du sol quel que soit le rayon, voir commentaire anchorY ci-dessus).
     return (
       <group position={[x, topY, z]} scale={scale}>
         <StargatePortal
-          radius={0.62} color={color} anchorY={1.1}
+          radius={STARGATE_RING_RADIUS} color={color}
           isActivating={stargate?.isActivating} activationStartedAt={stargate?.activationStartedAt}
           activationDurationMs={stargate?.activationDurationMs}
           onConsoleClick={stargate?.onConsoleClick ?? (() => {})}
@@ -1710,7 +1717,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
       <group position={[x, 0, z]}>
         <group ref={bobRef}>
           <StargatePortal
-            radius={0.3} color="#b5712b"
+            radius={STARGATE_RING_RADIUS} color="#b5712b"
             isActivating={stargate?.isActivating} activationStartedAt={stargate?.activationStartedAt}
             activationDurationMs={stargate?.activationDurationMs}
             onConsoleClick={stargate?.onConsoleClick ?? (() => {})}

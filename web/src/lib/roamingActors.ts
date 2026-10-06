@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { WORLD_SIZE, worldTileAt, isObstacleAt, type PropKind } from './worldTerrain';
+import { WORLD_SIZE, worldTileAt, isObstacleAt, STARGATE_RING_RADIUS, type PropKind } from './worldTerrain';
 import type { MapMarker, MapPoiType, SynkDirection } from './gameState';
 import { DEFAULT_TOMB_POIS } from './gameState';
 
@@ -465,24 +465,30 @@ const STATIC_OBSTACLE_MARKER_KINDS = new Set(['world']);
 /** Décalage (unités monde = dalles, même échelle que `x`/`y`) de la console/pupitre d'activation du
  * portail FLOTTANT inter-mondes par rapport au centre de son anneau — demande utilisateur « place
  * aussi la console en obstacle, tu ne l'as pas fait ». `StargatePortal` (voir Platform3DWidget.tsx)
- * positionne la console à un décalage 3D LOCAL FIXE de `[radius + 0.45, 0, radius * 0.55]` ; pour ce
- * portail flottant, `radius` vaut TOUJOURS `0.3` (codé en dur dans `MarkerBlock::isWorld`, jamais mis
- * à l'échelle) → décalage `(0.3+0.45, 0.3*0.55) = (0.75, 0.165)`. Distance au CENTRE DE L'ANNEAU
- * ≈0.77, donc déjà < `ACTOR_COLLISION_RADIUS` (0.85) — MAIS un Synk posté sur la dalle entière
- * ADJACENTE (distance 1.0 au centre de l'anneau, donc hors de ce rayon) peut se retrouver à
- * seulement ≈0.30 de la console elle-même (bug corrigé ici) : la console nécessite donc son PROPRE
- * point de blocage, distinct du centre de l'anneau, pour couvrir aussi cette dalle adjacente. */
-const WORLD_PORTAL_CONSOLE_OFFSET = { dx: 0.75, dy: 0.165 };
+ * positionne la console à un décalage 3D LOCAL FIXE de `[radius + 0.45, 0, radius * 0.55]` ; ce
+ * portail flottant partage désormais le même rayon de base que le portail posé au sol
+ * (`STARGATE_RING_RADIUS`, voir worldTerrain.ts — agrandi suite à la demande utilisateur « il faut
+ * l'agrandir de 2 fois la taille de Synk »), jamais mis à l'échelle par ailleurs → décalage
+ * `(STARGATE_RING_RADIUS+0.45, STARGATE_RING_RADIUS*0.55)`. */
+const WORLD_PORTAL_CONSOLE_OFFSET = { dx: STARGATE_RING_RADIUS + 0.45, dy: STARGATE_RING_RADIUS * 0.55 };
+
+/** Rayon de blocage DÉDIÉ au centre de l'anneau du portail flottant — distinct de
+ * `ACTOR_COLLISION_RADIUS` (réservé à l'espacement entre acteurs vivants) car l'anneau lui-même
+ * s'étend désormais visuellement sur `STARGATE_RING_RADIUS` (1.0 unité) depuis son centre, soit
+ * davantage que `ACTOR_COLLISION_RADIUS` (0.85) : sans ce rayon dédié, Synk pourrait se tenir juste
+ * hors du blocage général tout en étant visuellement À L'INTÉRIEUR du bord de l'anneau agrandi. Une
+ * petite marge (+0.1) couvre en plus l'épaisseur du tube du tore (`radius * 0.19`). */
+const WORLD_PORTAL_RING_BLOCK_RADIUS = STARGATE_RING_RADIUS + 0.1;
 
 export function isWorldPosBlockedByStaticMarker(
   x: number, y: number,
   allMarkers: { id: string; kind: string; x: number; y: number }[],
 ): boolean {
-  const near = (ax: number, ay: number) => Math.hypot(x - ax, y - ay) < ACTOR_COLLISION_RADIUS;
+  const near = (ax: number, ay: number, r: number) => Math.hypot(x - ax, y - ay) < r;
   for (const m of allMarkers) {
     if (!STATIC_OBSTACLE_MARKER_KINDS.has(m.kind)) continue;
-    if (near(m.x, m.y)) return true;
-    if (m.kind === 'world' && near(m.x + WORLD_PORTAL_CONSOLE_OFFSET.dx, m.y + WORLD_PORTAL_CONSOLE_OFFSET.dy)) return true;
+    if (near(m.x, m.y, m.kind === 'world' ? WORLD_PORTAL_RING_BLOCK_RADIUS : ACTOR_COLLISION_RADIUS)) return true;
+    if (m.kind === 'world' && near(m.x + WORLD_PORTAL_CONSOLE_OFFSET.dx, m.y + WORLD_PORTAL_CONSOLE_OFFSET.dy, ACTOR_COLLISION_RADIUS)) return true;
   }
   return false;
 }

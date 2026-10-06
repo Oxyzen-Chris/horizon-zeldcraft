@@ -4298,9 +4298,14 @@ export const DEFAULT_PLATFORM3D_OBJECT_FLAGS: Record<Platform3DObjectKind, Platf
   'prop:hut':      { obstacle: true,  climbable: false, water: false, scale: 1 },
   'prop:castle':   { obstacle: true,  climbable: false, water: false, scale: 1 },
   // obstacle: true depuis la demande utilisateur « fait en sorte que je ne puisse pas passer a
-  // travers la porte des étoiles ou de la console/pupitre » — couvre la console d'activation
-  // (StargatePortal) car elle reste dans l'emprise de la même dalle que l'anneau (décalage <1 unité
-  // sur TILE_SIZE=2, voir Platform3DWidget.tsx::PropBlock::kind==='portal').
+  // travers la porte des étoiles ou de la console/pupitre » — le décalage de la console déborde
+  // désormais sur la dalle VOISINE (et non plus la dalle propre de l'anneau, voir
+  // STARGATE_RING_RADIUS/PORTAL_CONSOLE_OFFSET_COLS/_ROWS dans worldTerrain.ts) : c'est
+  // `isPortalConsoleTileAt`/`isObstacleAt` (worldTerrain.ts) qui bloque EXPLICITEMENT cette dalle
+  // voisine, indépendamment de ce flag `obstacle` (qui ne couvre que la dalle de l'anneau
+  // lui-même). `scale` ici agit comme multiplicateur ADMIN par-dessus le rayon de base
+  // `STARGATE_RING_RADIUS` (1.0, voir worldTerrain.ts — agrandi suite à la demande utilisateur
+  // « il faut l'agrandir de 2 fois la taille de Synk »).
   'prop:portal':   { obstacle: true,  climbable: false, water: false, scale: 1 },
   // PNJ voxel (style Minecraft, voir NpcVoxel) légèrement plus grand que Synk (~1.2 unité) pour
   // rester bien visible/lisible sur la carte. Le familier-dragon doit être NETTEMENT plus grand

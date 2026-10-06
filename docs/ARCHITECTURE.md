@@ -4858,3 +4858,78 @@ inchangée) ; aucun appelant existant n'a dû être adapté au-delà de l'ajout 
 éprouvé) ; aucune donnée existante (quêtes/trésors déjà créés) n'est modifiée par le script de
 migration (clés Firebase nouvelles, `treasure.stargate_crystal`/`quest.stargate_crystal`).
 
+## 🌀 Porte des étoiles agrandie (2x Synk) + placement restreint aux dalles prairie/sentier
+
+Demande utilisateur : « Cette Porte des étoiles est trop petite [...] il faut l'agrandir de 2 fois
+la taille de Synk et tu feras cela pour toutes les Portes des étoiles dans le jeu. De plus, Les
+Portes des étoiles et les consoles ne doivent pas être sur une dalle d'eau mais elles doivent être
+sur une dalle prairie (d'herbe) ou de terre ». Deux correctifs indépendants dans `worldTerrain.ts`.
+
+### 1. Rayon de référence unifié et agrandi (`STARGATE_RING_RADIUS`)
+
+Nouvelle constante exportée `STARGATE_RING_RADIUS = 1.0` (`worldTerrain.ts`), remplaçant les DEUX
+rayons historiques divergents : `0.62` pour le portail posé au sol (`PropBlock::kind==='portal'`,
+multipliable par le `scale` admin-paramétrable `DEFAULT_PLATFORM3D_OBJECT_FLAGS['prop:portal']
+.scale`, défaut 1 inchangé) et `0.3` pour le portail flottant inter-mondes (`MarkerBlock::isWorld`,
+jamais mis à l'échelle). Diamètre résultant 2.0 unités ≈ 2x la hauteur de Synk (~1,1-1,2 unité, voir
+SynkVoxel/SYNK_GROUND_OFFSET). Centralisée dans `worldTerrain.ts` (et non `Platform3DWidget.tsx`)
+pour rester importable par `roamingActors.ts` sans dépendance circulaire (les deux fichiers
+importent déjà `worldTerrain.ts`).
+
+`anchorY` du ground-portal n'est plus surchargé en dur (ancien `anchorY={1.1}`, qui figeait la
+hauteur indépendamment du rayon) : les deux variantes utilisent désormais le même défaut de
+`StargatePortal` (`anchorY ?? radius + 0.1`), qui place toujours le bas de l'anneau 0.1 unité
+au-dessus de son origine locale quel que soit le rayon — plus cohérent et sans cas particulier.
+
+**Obstacles recalculés** (la console d'activation déborde proportionnellement plus loin avec un
+anneau plus grand) :
+- `PORTAL_CONSOLE_OFFSET_COLS`/`_ROWS` (ground-portal, grille de dalles) : `(radius+0.45,
+  radius*0.55)` passe de `(1.07, 0.34) → arrondi (1, 0)` à `(1.45, 0.55) → arrondi (1, 1)` —
+  la console bloque désormais la dalle DIAGONALE voisine (colonne+1, ligne+1) au lieu de la dalle
+  directement adjacente (colonne+1, ligne+0).
+- `WORLD_PORTAL_CONSOLE_OFFSET` (portail flottant, roamingActors.ts) recalculé à partir de la même
+  constante `STARGATE_RING_RADIUS` plutôt que d'une valeur codée en dur.
+- Nouveau `WORLD_PORTAL_RING_BLOCK_RADIUS = STARGATE_RING_RADIUS + 0.1` : l'ancien rayon de blocage
+  de l'anneau flottant réutilisait `ACTOR_COLLISION_RADIUS` (0.85, pensé pour l'espacement entre
+  acteurs vivants) — désormais INSUFFISANT puisque l'anneau s'étend visuellement sur 1.0 unité
+  depuis son centre. `ACTOR_COLLISION_RADIUS` reste utilisé tel quel pour le point de blocage de la
+  console (petite, son rayon propre n'a pas changé).
+
+### 2. Placement restreint aux dalles `'grass'`/`'path'` (jamais eau/sable/rocher)
+
+`stargateTileKeys()` tirait auparavant `stargatePortalCount` positions `(wc, wr)` SANS tenir compte
+du terrain qui y serait généré — capture utilisateur montrant un portail + sa console posés en
+pleine zone d'eau. Nouvelle fonction interne `terrainOnlyAt(wc, wr, poiPoints)` : réplique
+EXACTEMENT la logique de biais de POI + clusters ambiants de `worldTileAt` (même ordre de
+conditions) mais s'arrête avant altitude/profondeur/prop — gardée séparée de `worldTileAt` (plutôt
+que factorisée en un appel mutuel) pour éviter toute dépendance circulaire (`worldTileAt` appelle
+`stargateTileKeys()` qui appellerait alors indirectement `worldTileAt` si ce n'était pas dupliqué).
+
+Chaque candidat `(wc, wr)` tiré est désormais validé en DEUX temps avant d'être retenu :
+1. Son propre terrain doit être `'grass'` ou `'path'` (jamais `'water'`/`'sand'`/`'rock'`).
+2. La dalle où déborde sa console (`wc + PORTAL_CONSOLE_OFFSET_COLS, wr + PORTAL_CONSOLE_OFFSET_
+   ROWS`) doit ELLE AUSSI être `'grass'` ou `'path'`.
+
+Un candidat rejeté est simplement ignoré (incrémente l'indice `i`, tire le suivant) — le nombre
+FINAL de portails reste garanti égal à `stargatePortalCount` tant que la carte contient assez de
+dalles admissibles (`guardMax` relevé à `count*400+2000`, contre `count*100+500` avant, pour
+absorber le taux de rejet supplémentaire). Le cache `stargateKeysCache` est désormais invalidé non
+seulement sur changement de `count` mais aussi de référence `poiPoints` (nouveau candidat admin de
+POI pouvant changer le terrain à une position déjà choisie).
+
+**Vérifié** : `npx tsc --noEmit` (0 erreur) ; script autonome transpilant `worldTerrain.ts`
+(`typescript.transpileModule`) balayant la grille 101×101 complète pour plusieurs configurations de
+POI, dont un scénario DÉLIBÉRÉMENT extrême (océan de rayon 48 + lac de rayon 12 couvrant la quasi-
+totalité de la carte) : `count` toujours atteint EXACTEMENT (20/20, 1/1, 0/0, 35/35) et **zéro**
+portail/console sur une dalle d'eau dans tous les cas, y compris le scénario extrême ; un second
+passage confirme que terrain du portail ET de sa console valent systématiquement `'grass'` (jamais
+`'sand'`/`'rock'`) même avec des POI montagne/plage/océan simultanés. `npm run dev` + Playwright :
+page d'accueil chargée sans erreur console/page après les changements.
+
+**Non-régression** : `STARGATE_RING_RADIUS` ne change que la valeur de `radius` passée à
+`StargatePortal` (prop déjà paramétrée, aucune signature modifiée) ; le mécanisme de rejet de
+`stargateTileKeys()` est strictement plus restrictif que l'ancien (un sur-ensemble de candidats
+valides avant reste valide après SAUF ceux sur eau/sable/rocher, qui étaient justement le bug
+signalé) ; `isObstacleAt`/`isWorldPosBlockedByStaticMarker` gardent la même signature publique,
+seules leurs constantes internes changent.
+

@@ -52,21 +52,37 @@ export const OBSTACLE_POI_TYPES: MapPoiType[] = ['village_ally', 'village_enemy'
  * `isWorldPosBlockedByStaticMarker` (non rattaché à une tuile, voir roamingActors.ts) — les DEUX
  * variantes du portail sont donc désormais bloquantes dans les 3 vues (3D/2D/mapmonde pour l'affichage,
  * 3D+2D pour le déplacement de Synk, PNJ/familiers/faune pour l'évitement). */
+/** Rayon de référence (unités 3D = dalles) de l'anneau d'une Porte des étoiles — AUGMENTÉ de `0.62`
+ * (portail posé au sol) / `0.3` (portail flottant inter-mondes) à `1.0` pour LES DEUX variantes,
+ * suite à la demande utilisateur « cette Porte des étoiles est trop petite [...] il faut l'agrandir
+ * de 2 fois la taille de Synk et tu feras cela pour toutes les Portes des étoiles dans le jeu » —
+ * diamètre résultant 2.0 unités ≈ 2x la hauteur de Synk (~1,1-1,2 unité, voir SynkVoxel/
+ * SYNK_GROUND_OFFSET dans Platform3DWidget.tsx). Centralisé ICI (et non dans Platform3DWidget.tsx)
+ * pour rester réutilisable par `roamingActors.ts` (blocage du portail flottant, voir
+ * `WORLD_PORTAL_CONSOLE_OFFSET`/`WORLD_PORTAL_RING_BLOCK_RADIUS`) sans dépendance circulaire — les
+ * DEUX fichiers importent déjà `worldTerrain.ts`, jamais l'inverse. Le portail posé au sol reste en
+ * plus multipliable par le `scale` admin-paramétrable (`DEFAULT_PLATFORM3D_OBJECT_FLAGS
+ * ['prop:portal'].scale`, défaut 1, voir gameState.ts) : ce rayon n'est que sa valeur de base. */
+export const STARGATE_RING_RADIUS = 1.0;
+
 /** Décalage (en dalles entières) de la console/pupitre d'activation par rapport à la dalle de
  * l'anneau — demande utilisateur « place aussi la console en obstacle, tu ne l'as pas fait » : la
  * console de `StargatePortal` (voir Platform3DWidget.tsx) est positionnée à un décalage 3D LOCAL
  * FIXE de `[radius + 0.45, 0, radius * 0.55]` par rapport au centre de l'anneau — pour le portail
- * POSÉ AU SOL (`radius = 0.62`, `scale` par défaut = 1, voir `DEFAULT_PLATFORM3D_OBJECT_FLAGS
- * ['prop:portal'].scale` dans gameState.ts), cela donne `(0.62+0.45, 0.62*0.55) ≈ (1.07, 0.34)`
- * unités 3D — sachant qu'1 dalle = 1 unité 3D (voir Platform3DWidget.tsx::Scene, `x:dx,z:dz` passés
- * tels quels), la console déborde donc d'ENVIRON UNE DALLE ENTIÈRE dans la direction `+colonne`
- * (arrondi : `round(1.07)=1` colonne, `round(0.34)=0` ligne) hors de l'emprise de la dalle `portal`
- * elle-même (qui ne bloquait donc QUE l'anneau, jamais la console voisine — c'est le bug corrigé
- * ici). Gardé en CONSTANTES plutôt que recalculé dynamiquement (pas de dépendance circulaire vers
- * Platform3DWidget.tsx, qui IMPORTE déjà ce module) : à remettre à jour si la géométrie de
- * `StargatePortal`/le `radius` par défaut du portail posé au sol change un jour. */
+ * POSÉ AU SOL (`radius = STARGATE_RING_RADIUS = 1.0`, `scale` par défaut = 1, voir
+ * `DEFAULT_PLATFORM3D_OBJECT_FLAGS['prop:portal'].scale` dans gameState.ts), cela donne
+ * `(1.0+0.45, 1.0*0.55) = (1.45, 0.55)` unités 3D — sachant qu'1 dalle = 1 unité 3D (voir
+ * Platform3DWidget.tsx::Scene, `x:dx,z:dz` passés tels quels), la console déborde donc d'ENVIRON UNE
+ * DALLE ENTIÈRE dans la direction `+colonne` ET `+ligne` (arrondi : `round(1.45)=1` colonne,
+ * `round(0.55)=1` ligne, diagonale — valeurs recalculées suite à l'agrandissement de l'anneau, voir
+ * `STARGATE_RING_RADIUS` ci-dessus ; avant cet agrandissement, avec `radius=0.62`, c'était `(1,0)`)
+ * hors de l'emprise de la dalle `portal` elle-même (qui ne bloquait donc QUE l'anneau, jamais la
+ * console voisine — c'est le bug corrigé ici). Gardé en CONSTANTES plutôt que recalculé
+ * dynamiquement (pas de dépendance circulaire vers Platform3DWidget.tsx, qui IMPORTE déjà ce
+ * module) : à remettre à jour si la géométrie de `StargatePortal`/`STARGATE_RING_RADIUS` change un
+ * jour. */
 export const PORTAL_CONSOLE_OFFSET_COLS = 1;
-export const PORTAL_CONSOLE_OFFSET_ROWS = 0;
+export const PORTAL_CONSOLE_OFFSET_ROWS = 1;
 
 /** Vrai si la dalle (wc,wr) est celle où déborde la console d'un portail posé sur la dalle voisine
  * (voir `PORTAL_CONSOLE_OFFSET_COLS`/`_ROWS` ci-dessus) — cette dalle voisine doit donc ÉGALEMENT
@@ -145,15 +161,25 @@ export function hashRand(wc: number, wr: number, salt: number): number {
  * dalle d'herbe admissible — bien trop dense, voir capture utilisateur « il y a trop de Portes des
  * étoiles sur le plateau ») par un ensemble de `stargatePortalCount` positions (wc, wr) UNIQUES,
  * déterministes (dérivées d'un indice 0..N-1 via hashRand, PAS de wc/wr : stable quel que soit le
- * nombre configuré) et mémoïsées (`stargateKeysCache`, invalidé seulement si le nombre change).
- * Paramétrable via RepRules.stargateCount (défaut 20, voir RepRulesPanel.tsx section « 🌀 Porte des
- * étoiles ») — poussé ici par `configureStargates()`, appelée par les 3 widgets (GameCanvas2D.tsx/
- * Platform3DWidget.tsx/WorldMapWidget.tsx) dès que RepRules est chargé, exactement comme
- * `configureRoaming()` (voir roamingActors.ts) : idempotent, dernier appelant gagne, valeurs
- * identiques puisque toutes issues du même RepRules, aucun conflit possible entre widgets. */
+ * nombre configuré) et mémoïsées (`stargateKeysCache`, invalidé si le nombre OU la référence
+ * `poiPoints` change). Paramétrable via RepRules.stargateCount (défaut 20, voir RepRulesPanel.tsx
+ * section « 🌀 Porte des étoiles ») — poussé ici par `configureStargates()`, appelée par les 3
+ * widgets (GameCanvas2D.tsx/Platform3DWidget.tsx/WorldMapWidget.tsx) dès que RepRules est chargé,
+ * exactement comme `configureRoaming()` (voir roamingActors.ts) : idempotent, dernier appelant
+ * gagne, valeurs identiques puisque toutes issues du même RepRules, aucun conflit possible entre
+ * widgets.
+ *
+ * 🆕 Chaque candidat (wc, wr) est désormais VALIDÉ par `terrainOnlyAt` (voir plus bas) : la Porte
+ * ET sa console doivent toutes deux tomber sur une dalle `'grass'` (prairie) ou `'path'` (sentier de
+ * terre), JAMAIS sur de l'eau/du sable/du rocher — demande utilisateur « Les Portes des étoiles et
+ * les consoles ne doivent pas être sur une dalle d'eau mais elles doivent être sur une dalle
+ * prairie (d'herbe) ou de terre ». Un candidat rejeté est simplement ignoré (incrémente `i`, tire
+ * le suivant) : le nombre FINAL reste garanti égal à `stargatePortalCount` tant que la carte
+ * contient assez de dalles admissibles (`guardMax` largement dimensionné pour absorber le taux de
+ * rejet). */
 const DEFAULT_STARGATE_COUNT = 20;
 let stargatePortalCount = DEFAULT_STARGATE_COUNT;
-let stargateKeysCache: { count: number; keys: Set<string> } | null = null;
+let stargateKeysCache: { count: number; poiPoints: unknown; keys: Set<string> } | null = null;
 
 export function configureStargates(opts: { count?: number }): void {
   if (typeof opts.count === 'number' && Number.isFinite(opts.count)) {
@@ -169,20 +195,74 @@ function stargateTileKey(wc: number, wr: number): string {
   return `${wc}:${wr}`;
 }
 
-function stargateTileKeys(): Set<string> {
-  if (stargateKeysCache && stargateKeysCache.count === stargatePortalCount) return stargateKeysCache.keys;
+/** Calcule UNIQUEMENT le terrain (`grass`/`water`/`rock`/`sand`/`path`) d'une dalle (wc, wr), sans
+ * altitude/profondeur/prop — réplique EXACTEMENT la logique de biais de POI + clusters ambiants de
+ * `worldTileAt` ci-dessous (même ordre de conditions), mais s'arrête avant le calcul d'altitude/
+ * profondeur/prop qui n'est jamais nécessaire pour la seule question « cette dalle est-elle une
+ * prairie/un sentier ? » posée par `stargateTileKeys` ci-dessus. Gardée séparée de `worldTileAt`
+ * (plutôt que factorisée en un appel mutuel) pour éviter toute dépendance circulaire :
+ * `worldTileAt` appelle `stargateTileKeys()` qui appellerait alors indirectement `worldTileAt` si ce
+ * n'était pas dupliqué ici — `hashRand`/`radiusForType`/`ambientClusterAt` sont des déclarations de
+ * fonction hissées (hoisted), donc appelables ici sans égard à l'ordre textuel du fichier. */
+function terrainOnlyAt(wc: number, wr: number, poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[]): Terrain {
+  let bias: MapPoiType | null = null;
+  let bestRatio = 1;
+  for (const p of poiPoints) {
+    if (!p.poiType) continue;
+    const radius = p.radius ?? radiusForType(p.poiType);
+    const d = Math.hypot(p.x - wc, p.y - wr);
+    if (d > radius) continue;
+    const ratio = d / radius;
+    if (ratio < bestRatio) { bestRatio = ratio; bias = p.poiType; }
+  }
+  const bestFalloff = 1 - bestRatio;
+  const waterBias = bias === 'lake' || bias === 'stream' || bias === 'waterfall' || bias === 'pond' || bias === 'sea' || bias === 'ocean';
+  const sandBias = bias === 'beach';
+  const rockBias = bias === 'mountain' || bias === 'cave';
+  const pathBias = bias === 'path' || bias === 'bridge';
+  const islandBias = bias === 'island';
+
+  const r0 = hashRand(wc, wr, 1);
+  const ambientWaterCluster = !bias ? ambientClusterAt(wc, wr, 500) : null;
+  const ambientRockCluster = (!bias && !ambientWaterCluster) ? ambientClusterAt(wc, wr, 600) : null;
+  if (islandBias) return bestFalloff < 0.22 ? 'sand' : 'grass';
+  if (waterBias && r0 < 0.32) return 'water';
+  if (sandBias && r0 < 0.35) return 'sand';
+  if (rockBias && r0 < 0.35) return 'rock';
+  if (pathBias && r0 < 0.5) return 'path';
+  if (ambientWaterCluster) return 'water';
+  if (ambientRockCluster) return 'rock';
+  return 'grass';
+}
+
+function stargateTileKeys(poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[]): Set<string> {
+  if (stargateKeysCache && stargateKeysCache.count === stargatePortalCount && stargateKeysCache.poiPoints === poiPoints) {
+    return stargateKeysCache.keys;
+  }
   const keys = new Set<string>();
-  const guardMax = stargatePortalCount * 100 + 500; // évite une boucle infinie si le monde est trop petit
+  // Plafond largement majoré par rapport à l'ancienne version (x100) : chaque candidat peut
+  // désormais être rejeté s'il (ou sa dalle console voisine) n'est pas grass/path — un terrain
+  // typique reste très majoritairement grass, le taux de rejet attendu est donc faible, mais on se
+  // prémunit contre une configuration admin extrême (ex. carte presque entièrement montagne/eau).
+  const guardMax = stargatePortalCount * 400 + 2000;
   let i = 0;
   let guard = 0;
   while (keys.size < stargatePortalCount && guard < guardMax) {
     const wc = Math.floor(hashRand(i, 0, 910001) * (WORLD_SIZE + 1));
     const wr = Math.floor(hashRand(i, 0, 910002) * (WORLD_SIZE + 1));
-    keys.add(stargateTileKey(wc, wr));
+    const key = stargateTileKey(wc, wr);
     i++;
     guard++;
+    if (keys.has(key)) continue;
+    const ringTerrain = terrainOnlyAt(wc, wr, poiPoints);
+    if (ringTerrain !== 'grass' && ringTerrain !== 'path') continue;
+    // La console déborde sur la dalle voisine (voir PORTAL_CONSOLE_OFFSET_COLS/_ROWS) : exigée
+    // grass/path elle aussi, pour que le pupitre ne se retrouve jamais planté dans l'eau/le sable.
+    const consoleTerrain = terrainOnlyAt(wc + PORTAL_CONSOLE_OFFSET_COLS, wr + PORTAL_CONSOLE_OFFSET_ROWS, poiPoints);
+    if (consoleTerrain !== 'grass' && consoleTerrain !== 'path') continue;
+    keys.add(key);
   }
-  stargateKeysCache = { count: stargatePortalCount, keys };
+  stargateKeysCache = { count: stargatePortalCount, poiPoints, keys };
   return keys;
 }
 
@@ -349,7 +429,7 @@ export function worldTileAt(wc: number, wr: number, poiPoints: { x: number; y: n
   // atteint — sans cette priorité, un arbre ou une hutte aurait pu occuper par hasard une des
   // positions tirées, réduisant silencieusement le compte réel en dessous de la valeur attendue
   // (bug constaté en test : 19 portails trouvés au lieu de 20 configurés).
-  if (stargateTileKeys().has(stargateTileKey(wc, wr))) prop = 'portal';
+  if (stargateTileKeys(poiPoints).has(stargateTileKey(wc, wr))) prop = 'portal';
   const treeChance = forestBias ? 0.28 : islandBias ? 0.22 : 0.08;
   if (!prop && terrain === 'grass' && hashRand(wc, wr, 2) < treeChance) {
     if (islandBias) {
