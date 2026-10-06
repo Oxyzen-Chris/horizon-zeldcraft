@@ -4702,3 +4702,24 @@ admin (y compris ceux déjà personnalisés pour d'autres types d'objets) resten
 identiques. Vérifié : `npx tsc --noEmit` (0 erreur), script `tsx` autonome confirmant
 `isObstacleAt({prop:'portal'})===true` tout en laissant `tree`/`null` inchangés, Playwright sur
 `/game` (0 erreur console, aucune régression visible).
+
+### ✅ Vérification : les DEUX variantes du portail utilisent bien le nouveau design vertical
+
+Question utilisateur (suite aux 2 correctifs ci-dessus) : « as-tu aussi remplacé l'ancien portail
+avec ce nouveau portail vertical/glyphe/roues crantées + pupitre/console ? »
+
+Confirmé par relecture de code ET vérification visuelle Playwright (téléportation de Synk en jeu
+réel à côté du portail flottant catalogue `world_zephyria` [mapX:10, mapY:80], capture d'écran) :
+- Le portail **posé au sol** (`PropBlock`, `tile.prop === 'portal'`, généré aléatoirement par
+  `worldTileAt`) et le portail **flottant inter-mondes** (`MarkerBlock`, `kind:'world'`, catalogue
+  admin `catalog/worldDefs`) appellent tous les deux la MÊME fonction `StargatePortal` (voir
+  `Platform3DWidget.tsx`) — aucun ancien rendu "anneau plat" résiduel nulle part dans le widget
+  Plateforme 3D. Seuls diffèrent le `radius` (0.62 posé au sol vs 0.3 flottant, proportionné à son
+  contexte) et l'ancrage (`anchorY` sur une dalle vs flottant à hauteur fixe) — la silhouette
+  (porte verticale + chevrons + roue de glyphes cabalistiques + console/pupitre adjacente), la
+  couleur cuivre et le comportement d'obstacle sont strictement identiques pour les deux variantes.
+- Un registre `MARKER_COLOR.world = '#8b5cf6'` (mauve) subsiste dans le code comme simple entrée de
+  légende générique, mais est mort pour ce kind précis : la branche `isWorld` de `MarkerBlock`
+  retourne avant d'atteindre ce code, avec sa propre couleur cuivre `#b5712b` codée en dur — aucun
+  impact visuel, laissé en l'état (nettoyage cosmétique non prioritaire, aucune régression).
+
