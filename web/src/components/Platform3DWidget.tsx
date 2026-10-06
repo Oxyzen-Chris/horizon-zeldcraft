@@ -9,7 +9,7 @@ import {
   subscribePlayer, subscribeInventory, getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment, applyEffect,
   DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY, dropInventoryItemAt, DEFAULT_AUDIO_SETTINGS,
-  subscribeTakenParchmentIds, subscribeHiddenDragonFamiliarTaken,
+  subscribeTakenParchmentIds, subscribeHiddenDragonFamiliarTaken, DEFAULT_SHOP,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
   type ZorghonEncounterState, type SynkDirection, type EquipSlot, type EquippedItem,
   type Platform3DObjectKind, type Platform3DObjectFlags, type AudioSourceKey, type AudioSourceSetting,
@@ -407,19 +407,184 @@ const PROP_COLOR: Record<string, string> = {
  * worldTerrain.ts::isObstacleAt), qui reste une étape ultérieure. */
 const HUT_SCALE: [number, number, number] = [1.3, 1.8, 1.3];
 const CASTLE_SCALE: [number, number, number] = [1.2, 2.0, 1.2];
-function PropBlock({ kind, x, topY, z, scale = 1, onClick }: { kind: NonNullable<Tile['prop']>; x: number; topY: number; z: number; scale?: number; onClick: () => void }) {
+
+/** Texture procédurale (bande de symboles cabalistiques) pour l'anneau INTÉRIEUR rotatif de la
+ * Porte des Étoiles (voir StargatePortal ci-dessous — demande utilisateur « affublés tout autour
+ * de l'anneau de signes cabalistiques [...] sur une seconde roue crantée verticale »). Générée UNE
+ * SEULE FOIS en mémoire (singleton module, jamais recréée par instance de portail affichée — un
+ * monde peut compter plusieurs portails simultanément visibles, voir VIEW_RADIUS) afin de ne pas
+ * alourdir le budget GPU/CPU (voir le correctif de saturation GPU fait plus tôt dans le projet :
+ * aucune nouvelle génération de texture par frame ni par portail). Le mapping UV d'un
+ * `THREE.TorusGeometry` enroule U autour de la circonférence principale de l'anneau — une bande
+ * HORIZONTALE répétant ~16 glyphes convient donc naturellement à un « bandeau de symboles » continu
+ * une fois appliquée en `map`. */
+let _glyphRingTextureCache: THREE.CanvasTexture | null = null;
+function getGlyphRingTexture(): THREE.CanvasTexture {
+  if (_glyphRingTextureCache) return _glyphRingTextureCache;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#2b2416'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const GLYPHS = ['◈', '⟁', '⌬', '✦', '◬', '⟐', '✧', '⬙', '☥', '⟠', '◉', '⬔', '✶', '⟡', '◭', '⬟'];
+  const count = GLYPHS.length;
+  const cellW = canvas.width / count;
+  ctx.fillStyle = '#eab308';
+  ctx.strokeStyle = '#78350f';
+  ctx.lineWidth = 1.5;
+  ctx.font = `bold ${Math.floor(canvas.height * 0.62)}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < count; i++) {
+    const cx = cellW * (i + 0.5);
+    const cy = canvas.height / 2;
+    ctx.strokeText(GLYPHS[i], cx, cy);
+    ctx.fillText(GLYPHS[i], cx, cy);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  _glyphRingTextureCache = tex;
+  return tex;
+}
+
+/** Porte des Étoiles — anneau VERTICAL (plus un simple anneau couché, voir ancien rendu
+ * `rotation={[Math.PI/2,0,0]}` supprimé) avec chevrons fixes + anneau de glyphes rotatif intérieur
+ * + console d'activation adjacente, selon demande utilisateur (captures de référence d'une porte
+ * des étoiles verticale + pupitre/console à cristal). Remplace l'ancien rendu plat (torus + disque
+ * couchés) utilisé à la fois par `PropBlock` (kind==='portal', portail décoratif posé sur une
+ * dalle) ET `MarkerBlock` (isWorld, portail flottant inter-mondes) — composant PARTAGÉ pour éviter
+ * de dupliquer la géométrie/l'anim. L'anneau EXTÉRIEUR (avec ses chevrons) reste FIXE ; seul
+ * l'anneau de glyphes INTÉRIEUR tourne, UNIQUEMENT pendant une activation en cours (voir
+ * `isActivating`/`activationStartedAt`/`activationDurationMs`, pilotés par le composant parent via
+ * `requestStargateActivation`/`completeStargateActivation`) — remplace l'ancien spin continu
+ * permanent (qui tournait même sans activation), supprimé pour les portails `isWorld` (voir
+ * MarkerBlock::spinning plus bas) pour laisser la porte visuellement STATIQUE tant qu'elle n'est
+ * pas composée, exactement comme une vraie porte des étoiles entre deux compositions. */
+function StargatePortal({
+  radius, color = '#7c3aed', anchorY, isActivating, activationStartedAt, activationDurationMs,
+  onConsoleClick, onActivationComplete,
+}: {
+  radius: number;
+  color?: string;
+  /** Hauteur du centre de l'anneau (coordonnée Y locale) — par défaut `radius + 0.1` (l'anneau
+   * touche quasiment le sol, porte « plantée » devant Synk) ; `PropBlock` passe `1.1` pour
+   * préserver EXACTEMENT la hauteur du décor portail historique (aucune régression visuelle de
+   * placement sur les dalles déjà en jeu). */
+  anchorY?: number;
+  isActivating?: boolean;
+  activationStartedAt?: number;
+  activationDurationMs?: number;
+  onConsoleClick: () => void;
+  onActivationComplete: () => void;
+}) {
+  const ringY = anchorY ?? radius + 0.1;
+  const glyphRingRef = useRef<THREE.Mesh>(null);
+  const horizonMatRef = useRef<THREE.MeshStandardMaterial>(null);
+  const buttonMatRef = useRef<THREE.MeshStandardMaterial>(null);
+  const firedAtRef = useRef<number | null>(null);
+  const texture = useMemo(() => getGlyphRingTexture(), []);
+  const chevronAngles = useMemo(() => Array.from({ length: 9 }, (_, i) => (i / 9) * Math.PI * 2), []);
+
+  useFrame((state) => {
+    if (glyphRingRef.current) {
+      if (isActivating && activationStartedAt && activationDurationMs) {
+        const progress = Math.min(1, (Date.now() - activationStartedAt) / activationDurationMs);
+        glyphRingRef.current.rotation.z = progress * Math.PI * 2 * 3;
+        if (progress >= 1 && firedAtRef.current !== activationStartedAt) {
+          firedAtRef.current = activationStartedAt;
+          onActivationComplete();
+        }
+      }
+    } else {
+      firedAtRef.current = null;
+    }
+    if (horizonMatRef.current) {
+      const target = isActivating ? new THREE.Color('#38bdf8') : new THREE.Color('#4c1d95');
+      horizonMatRef.current.emissive.lerp(target, 0.04);
+    }
+    if (buttonMatRef.current) {
+      buttonMatRef.current.emissiveIntensity = 0.55 + Math.sin(state.clock.elapsedTime * 2.4) * 0.3;
+    }
+  });
+
+  return (
+    <group onClick={(e) => e.stopPropagation()}>
+      {/* Anneau extérieur FIXE */}
+      <mesh position={[0, ringY, 0]}>
+        <torusGeometry args={[radius, radius * 0.19, 10, 28]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.55} metalness={0.35} roughness={0.55} />
+      </mesh>
+      {/* Chevrons statiques (9, comme une vraie porte des étoiles) — corps métallique sombre bien
+          contrasté sur l'anneau mauve + pointe lumineuse rouge pour rester identifiables même sous
+          un éclairage ambiant faible (voir test isolé /stargate-test — les 1ers essais en simple
+          `#7f1d1d` se fondaient trop dans le violet de l'anneau). */}
+      {chevronAngles.map((angle, i) => (
+        <group key={i}
+          position={[Math.sin(angle) * radius, ringY + Math.cos(angle) * radius, radius * 0.12]}
+          rotation={[0, 0, -angle]}
+        >
+          <mesh position={[0, 0, 0]}>
+            <coneGeometry args={[radius * 0.12, radius * 0.3, 4]} />
+            <meshStandardMaterial color="#292524" metalness={0.6} roughness={0.4} />
+          </mesh>
+          <mesh position={[0, radius * 0.17, 0]}>
+            <sphereGeometry args={[radius * 0.045, 8, 8]} />
+            <meshStandardMaterial color="#dc2626" emissive="#ef4444" emissiveIntensity={0.7} />
+          </mesh>
+        </group>
+      ))}
+      {/* Anneau de glyphes INTÉRIEUR — tourne uniquement pendant l'activation */}
+      <mesh ref={glyphRingRef} position={[0, ringY, 0]}>
+        <torusGeometry args={[radius * 0.8, radius * 0.11, 8, 28]} />
+        <meshStandardMaterial map={texture} color="#c9b48a" emissive="#eab308" emissiveIntensity={0.25} />
+      </mesh>
+      {/* Horizon des événements */}
+      <mesh position={[0, ringY, 0]}>
+        <circleGeometry args={[radius * 0.76, 28]} />
+        <meshStandardMaterial ref={horizonMatRef} color="#1e1035" emissive="#4c1d95" emissiveIntensity={0.4} transparent opacity={0.6} side={THREE.DoubleSide} />
+      </mesh>
+      {/* Console / pupitre d'activation (DHD) — Synk doit s'en approcher et cliquer dessus */}
+      <group position={[radius + 0.45, 0, radius * 0.55]} onClick={(e) => { e.stopPropagation(); onConsoleClick(); }}>
+        {[-0.18, 0.18].map((lx) => [-0.12, 0.12].map((lz) => (
+          <mesh key={`${lx}-${lz}`} position={[lx, 0.15, lz]}><cylinderGeometry args={[0.03, 0.03, 0.3, 6]} /><meshStandardMaterial color="#44403c" roughness={0.9} /></mesh>
+        )))}
+        <mesh position={[0, 0.32, 0]}><cylinderGeometry args={[0.32, 0.3, 0.08, 16]} /><meshStandardMaterial color="#57534e" roughness={0.6} metalness={0.3} /></mesh>
+        {[-1, 1].map((s) => (
+          <mesh key={s} position={[s * 0.3, 0.4, 0]} rotation={[Math.PI / 2, 0, s * 0.4]}>
+            <torusGeometry args={[0.16, 0.025, 6, 12, Math.PI * 0.65]} />
+            <meshStandardMaterial color="#78716c" roughness={0.5} metalness={0.4} />
+          </mesh>
+        ))}
+        <mesh position={[0, 0.39, 0]}>
+          <sphereGeometry args={[0.07, 12, 10]} />
+          <meshStandardMaterial ref={buttonMatRef} color="#dc2626" emissive="#ef4444" emissiveIntensity={0.6} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function PropBlock({ kind, x, topY, z, scale = 1, onClick, stargate }: {
+  kind: NonNullable<Tile['prop']>; x: number; topY: number; z: number; scale?: number; onClick: () => void;
+  /** Uniquement pour `kind === 'portal'` — état d'activation de la console (voir StargatePortal/
+   * requestStargateActivation dans le composant parent non-R3F). `undefined` tant que l'instance
+   * n'est pas la cible courante d'une activation (l'anneau reste alors statique, pas d'anim). */
+  stargate?: {
+    isActivating: boolean; activationStartedAt?: number; activationDurationMs?: number;
+    onConsoleClick: () => void; onActivationComplete: () => void;
+  };
+}) {
   const color = PROP_COLOR[kind] ?? '#2f6b27';
   if (kind === 'portal') {
     return (
-      <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, 1.1, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.62, 0.12, 10, 24]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} />
-        </mesh>
-        <mesh position={[0, 1.1, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <circleGeometry args={[0.6, 24]} />
-          <meshStandardMaterial color="#1e1035" emissive="#4c1d95" emissiveIntensity={0.35} transparent opacity={0.55} side={THREE.DoubleSide} />
-        </mesh>
+      <group position={[x, topY, z]} scale={scale}>
+        <StargatePortal
+          radius={0.62} color={color} anchorY={1.1}
+          isActivating={stargate?.isActivating} activationStartedAt={stargate?.activationStartedAt}
+          activationDurationMs={stargate?.activationDurationMs}
+          onConsoleClick={stargate?.onConsoleClick ?? (() => {})}
+          onActivationComplete={stargate?.onActivationComplete ?? (() => {})}
+        />
       </group>
     );
   }
@@ -1126,7 +1291,7 @@ function TombSlab({ markerId }: { markerId?: string }) {
     </mesh>
   );
 }
-function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, moving, onClick, fireBreathEnabled, fireBreathIntervalSec, wildlifeAudio, owlHootEnabled, werewolfHowlEnabled }: {
+function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, moving, onClick, fireBreathEnabled, fireBreathIntervalSec, wildlifeAudio, owlHootEnabled, werewolfHowlEnabled, stargate }: {
   kind: string; poiType?: MapPoiType; name?: string; markerId?: string; x: number; z: number; scale?: number;
   /** Renseignés UNIQUEMENT pour le PNJ/Dragon errant (voir lib/roamingActors.ts) — orientent le
    * personnage dans sa direction de marche et déclenchent sa démarche animée (voir NpcVoxel/
@@ -1140,6 +1305,11 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
    * ces mêmes props sur Scene() ci-dessus. */
   wildlifeAudio?: Record<AudioSourceKey, AudioSourceSetting>;
   owlHootEnabled?: boolean; werewolfHowlEnabled?: boolean;
+  /** Uniquement pour `kind === 'world'` — voir PropBlock::stargate (même forme). */
+  stargate?: {
+    isActivating: boolean; activationStartedAt?: number; activationDurationMs?: number;
+    onConsoleClick: () => void; onActivationComplete: () => void;
+  };
 }) {
   // Ref générique : anime (flottaison + légère rotation) le contenu de TOUTES les branches "en
   // lévitation" (quête, trésor, monde, zorghon, captif, gemme par défaut) — les branches "fixes au
@@ -1188,7 +1358,7 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
   const isZorghon = kind === 'zorghon';
   const isCaptive = kind === 'captive';
   const floating = !isCave && !isBuilding && !isCemetery && !isCrypt && !isTomb;
-  const spinning = floating && !isNpc && !isFamiliar && !isWildlife;
+  const spinning = floating && !isNpc && !isFamiliar && !isWildlife && !isWorld;
   const bobAmplitude = isQuest ? 0.25 : 0.15;
   // Interpolation de position (PNJ/Dragon errant, PNJ "en approche", fantômes persistés — voir
   // facing/moving ci-dessus, tous UNIQUEMENT renseignés pour ces entités "vivantes") : sans cela,
@@ -1294,6 +1464,14 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     if (!obj || !floating) return;
     if (isLivingCharacter) {
       obj.position.y = groundAnchorUnscaled * scale;
+    } else if (isWorld) {
+      // Porte des étoiles flottante : désormais une porte VERTICALE STATIQUE (voir StargatePortal)
+      // — plus de flottaison/spin continu (ancien comportement, bug visuel pour une « porte » qui
+      // doit rester immobile hors activation, voir demande utilisateur « transforme [...] en porte
+      // des étoiles verticales [...] le 1er anneau restera [immobile] »). Hauteur fixe : seul
+      // l'anneau de glyphes intérieur tourne, et uniquement pendant l'activation (logique interne à
+      // StargatePortal, piloté par `stargate.isActivating`).
+      obj.position.y = 0;
     } else {
       obj.position.y = bobAmplitude + Math.sin(state.clock.elapsedTime * 2 + x * 3 + z * 3) * 0.06;
     }
@@ -1518,20 +1696,19 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     );
   }
   if (isWorld) {
-    // Portail circulaire lumineux (type "porte des étoiles"/trou de ver, cf. inspiration Stargate
-    // demandée) — même esprit que le portail décoratif `PropBlock` kind==='portal', mais flottant et
-    // isolé (pas posé sur une dalle) pour représenter l'accès à un monde entier.
+    // Porte des étoiles verticale (voir StargatePortal plus haut) — portail flottant et isolé (pas
+    // posé sur une dalle), désormais STATIQUE hors activation (voir isWorld dans le useFrame
+    // ci-dessus, qui n'applique plus ni flottaison ni spin continu).
     return (
-      <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+      <group position={[x, 0, z]}>
         <group ref={bobRef}>
-          <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
-            <torusGeometry args={[0.28, 0.06, 10, 20]} />
-            <meshStandardMaterial color="#8b5cf6" emissive="#8b5cf6" emissiveIntensity={0.6} />
-          </mesh>
-          <mesh rotation={[Math.PI / 2, 0, 0]}>
-            <circleGeometry args={[0.24, 20]} />
-            <meshStandardMaterial color="#1e1035" emissive="#4c1d95" emissiveIntensity={0.4} transparent opacity={0.6} side={THREE.DoubleSide} />
-          </mesh>
+          <StargatePortal
+            radius={0.3} color="#8b5cf6"
+            isActivating={stargate?.isActivating} activationStartedAt={stargate?.activationStartedAt}
+            activationDurationMs={stargate?.activationDurationMs}
+            onConsoleClick={stargate?.onConsoleClick ?? (() => {})}
+            onActivationComplete={stargate?.onActivationComplete ?? (() => {})}
+          />
         </group>
       </group>
     );
@@ -1953,6 +2130,7 @@ function Scene({
   onExtraQuestClick,
   eyeBlinkEnabled, eyeBlinkIntervalSec, objectFlags, fireBreathEnabled, fireBreathIntervalSec,
   wildlifeAudio, owlHootEnabled, werewolfHowlEnabled, orbitControlsRef, recentering, onRecenterComplete,
+  stargateActivation, onRequestStargateActivation, onCompleteStargateActivation,
 }: {
   centerCol: number; centerRow: number;
   poiPoints: { x: number; y: number; poiType?: MapPoiType; radius?: number }[];
@@ -1992,6 +2170,16 @@ function Scene({
    * le fonctionnement interne d'OrbitCameraLookUpLimiter (toujours alimenté par la même ref). */
   orbitControlsRef: React.MutableRefObject<any>;
   recentering?: boolean; onRecenterComplete?: () => void;
+  /** Porte des Étoiles — état d'activation EN COURS (au plus une seule à la fois dans tout le jeu,
+   * voir requestStargateActivation/completeStargateActivation dans le composant parent non-R3F) et
+   * les deux callbacks qui pilotent la console (voir StargatePortal/PropBlock::stargate/
+   * MarkerBlock::stargate ci-dessus). `stargateActivation` vaut `null` tant qu'aucune console n'a
+   * été cliquée avec succès (XP + objet requis validés) — chaque portail compare alors sa PROPRE clé
+   * (`tile-{wc}-{wr}` ou `world-{markerId}`) à `stargateActivation.key` pour savoir s'il doit animer
+   * son anneau de glyphes. */
+  stargateActivation?: { key: string; startedAt: number; durationMs: number } | null;
+  onRequestStargateActivation: (key: string, onComplete: () => void) => void;
+  onCompleteStargateActivation: (key: string) => void;
 }) {
   const tiles = useMemo(() => {
     const out: { tile: Tile; wc: number; wr: number; x: number; z: number }[] = [];
@@ -2017,9 +2205,17 @@ function Scene({
       <ambientLight intensity={0.65} />
       <directionalLight position={[6, 10, 4]} intensity={0.9} castShadow />
       {tiles.map(({ tile, wc, wr, x, z }) => {
-        const onClick = tile.prop === 'portal' ? () => onPortalTileClick(wc, wr)
+        const onClick = tile.prop === 'portal' ? () => {} // 🌀 clic direct sur l'anneau désactivé — seule la console d'activation (voir StargatePortal) déclenche désormais le voyage
           : tile.prop === 'hut' ? () => onHutTileClick(wc, wr)
           : () => onTileClick(wc, wr);
+        const portalKey = `tile-${wc}-${wr}`;
+        const portalStargate = tile.prop === 'portal' ? {
+          isActivating: stargateActivation?.key === portalKey,
+          activationStartedAt: stargateActivation?.key === portalKey ? stargateActivation.startedAt : undefined,
+          activationDurationMs: stargateActivation?.key === portalKey ? stargateActivation.durationMs : undefined,
+          onConsoleClick: () => onRequestStargateActivation(portalKey, () => onPortalTileClick(wc, wr)),
+          onActivationComplete: () => onCompleteStargateActivation(portalKey),
+        } : undefined;
         return (
           <group key={`${wc}-${wr}`}>
             <TerrainBlock tile={tile} x={x} z={z} onClick={onClick} />
@@ -2029,7 +2225,9 @@ function Scene({
                 topY={tile.terrain === 'rock' ? Math.min(1.9, (tile.altitudeM ?? 300) / 2800) : 0}
                 scale={(objectFlags ?? DEFAULT_PLATFORM3D_OBJECT_FLAGS)[platform3dPropKind(tile.prop)]?.scale ?? 1}
                 onClick={onClick}
+                stargate={portalStargate}
               />
+
             )}
           </group>
         );
@@ -2049,7 +2247,18 @@ function Scene({
         const handleClick = m.questId
           ? () => onExtraQuestClick(m.marker, m.questId!, m.questLabel, m.questI18nKey)
           : isEncounterMarker ? () => {} : () => onMarkerClick(m.marker);
-        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={handleClick} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec} wildlifeAudio={wildlifeAudio} owlHootEnabled={owlHootEnabled} werewolfHowlEnabled={werewolfHowlEnabled} />;
+        // 🌀 Porte des étoiles (m.kind==='world') : le clic direct sur l'anneau ne déclenche plus
+        // rien (voir StargatePortal) — seule sa console gère désormais l'activation, via la même
+        // clé `world-{markerId}` que celle lue par `stargateActivation` ci-dessous.
+        const worldPortalKey = `world-${m.marker.id}`;
+        const worldStargate = m.kind === 'world' ? {
+          isActivating: stargateActivation?.key === worldPortalKey,
+          activationStartedAt: stargateActivation?.key === worldPortalKey ? stargateActivation.startedAt : undefined,
+          activationDurationMs: stargateActivation?.key === worldPortalKey ? stargateActivation.durationMs : undefined,
+          onConsoleClick: () => onRequestStargateActivation(worldPortalKey, () => onMarkerClick(m.marker)),
+          onActivationComplete: () => onCompleteStargateActivation(worldPortalKey),
+        } : undefined;
+        return <MarkerBlock key={m.id} kind={m.kind} poiType={m.marker.poiType} name={m.marker.name} markerId={m.marker.id} x={m.x} z={m.z} scale={markerScale} facing={m.facing} moving={m.moving} onClick={m.kind === 'world' ? () => {} : handleClick} fireBreathEnabled={fireBreathEnabled} fireBreathIntervalSec={fireBreathIntervalSec} wildlifeAudio={wildlifeAudio} owlHootEnabled={owlHootEnabled} werewolfHowlEnabled={werewolfHowlEnabled} stargate={worldStargate} />;
       })}
       <SynkVoxel
         stage={stage} walking={walking} running={running} swimming={swimming} jumpTrigger={jumpTrigger}
@@ -2646,6 +2855,60 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     if (!address) { setInventory([]); return; }
     return subscribeInventory(address, setInventory);
   }, [address]);
+
+  // ─── Porte des Étoiles — console d'activation (voir StargatePortal plus haut) ───
+  // Au plus UNE activation en cours dans tout le jeu (XP + objet validés, animation de composition
+  // en cours) — `key` identifie SANS ambiguïté le portail concerné (`tile-{wc}-{wr}` pour un
+  // portail décoratif posé sur une dalle, `world-{markerId}` pour un portail flottant inter-mondes,
+  // voir Scene() ci-dessus) afin que les AUTRES portes des étoiles simultanément visibles à l'écran
+  // restent visuellement statiques pendant qu'une seule d'entre elles anime son anneau de glyphes.
+  const [stargateActivation, setStargateActivation] = useState<{ key: string; startedAt: number; durationMs: number } | null>(null);
+  const stargateCompletionRef = useRef<(() => void) | null>(null);
+  const [stargateFeedback, setStargateFeedback] = useState<string | null>(null);
+  const requestStargateActivation = useCallback((key: string, onComplete: () => void) => {
+    // Re-entrance : une activation est déjà en cours (sur ce portail ou un autre) — ignore le
+    // nouveau clic plutôt que de l'empiler/écraser l'animation déjà lancée.
+    if (stargateActivation) return;
+    const r = rules;
+    const xpRequired = r?.stargateXpRequired ?? 50;
+    if ((playerXp ?? 0) < xpRequired) {
+      setStargateFeedback(t('stargate.feedback.xpMissing', { xp: xpRequired }));
+      setTimeout(() => setStargateFeedback(null), 4000);
+      return;
+    }
+    if (r?.stargateRequiresItem !== false) {
+      const requiredItemId = r?.stargateRequiredItemId || 'stargate_crystal';
+      const owned = inventory.some(i => i.itemId === requiredItemId && (i.qty ?? 0) > 0);
+      if (!owned) {
+        const itemLabel = DEFAULT_SHOP.find(i => i.itemId === requiredItemId)?.name ?? requiredItemId;
+        setStargateFeedback(t('stargate.feedback.itemMissing', { item: itemLabel }));
+        setTimeout(() => setStargateFeedback(null), 4000);
+        return;
+      }
+    }
+    const durationMs = Math.max(1, r?.stargateActivationDurationSec ?? 12) * 1000;
+    stargateCompletionRef.current = onComplete;
+    setStargateActivation({ key, startedAt: Date.now(), durationMs });
+  }, [stargateActivation, rules, playerXp, inventory, t]);
+  const completeStargateActivation = useCallback((key: string) => {
+    setStargateActivation(prev => {
+      if (!prev || prev.key !== key) return prev;
+      const cb = stargateCompletionRef.current;
+      stargateCompletionRef.current = null;
+      if (cb) setTimeout(cb, 0);
+      return null;
+    });
+  }, []);
+  // Horloge locale (0,5 Hz) UNIQUEMENT pour rafraîchir le compte à rebours affiché pendant une
+  // activation (voir overlay `stargate.activating` plus bas) — ne tourne pas en dehors d'une
+  // activation en cours, donc aucun coût de rendu superflu le reste du temps.
+  const [stargateNow, setStargateNow] = useState(Date.now());
+  useEffect(() => {
+    if (!stargateActivation) return;
+    const id = setInterval(() => setStargateNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [stargateActivation]);
+
   const hasVehicle = useMemo(() => inventory.some(i => i.category === 'vehicle' && i.qty > 0), [inventory]);
   const [islandBlockedMsg, setIslandBlockedMsg] = useState<string | null>(null);
   useEffect(() => {
@@ -3757,6 +4020,9 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
                 owlHootEnabled={worldAmbience.theme?.elements?.owlHootEnabled}
                 werewolfHowlEnabled={worldAmbience.theme?.elements?.werewolfHowlEnabled}
                 orbitControlsRef={orbitControlsRef} recentering={recentering} onRecenterComplete={handleRecenterComplete}
+                stargateActivation={stargateActivation}
+                onRequestStargateActivation={requestStargateActivation}
+                onCompleteStargateActivation={completeStargateActivation}
               />
             </>
           )}
@@ -4024,6 +4290,20 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         <div className="fixed inset-x-0 bottom-6 flex justify-center z-[101] pointer-events-none">
           <span className="bg-slate-900 border border-amber-500 text-amber-200 text-sm rounded-full px-4 py-2 shadow-xl">
             {hutFeedback}
+          </span>
+        </div>
+      )}
+      {stargateFeedback && (
+        <div className="fixed inset-x-0 bottom-6 flex justify-center z-[101] pointer-events-none">
+          <span className="bg-slate-900 border border-violet-500 text-violet-200 text-sm rounded-full px-4 py-2 shadow-xl">
+            {stargateFeedback}
+          </span>
+        </div>
+      )}
+      {stargateActivation && (
+        <div className="fixed inset-x-0 top-20 flex justify-center z-[101] pointer-events-none">
+          <span className="bg-slate-900 border border-violet-500 text-violet-200 text-sm rounded-full px-4 py-2 shadow-xl">
+            {t('stargate.activating', { sec: Math.max(0, Math.ceil((stargateActivation.startedAt + stargateActivation.durationMs - stargateNow) / 1000)) })}
           </span>
         </div>
       )}

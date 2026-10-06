@@ -3997,6 +3997,9 @@ export const DEFAULT_SHOP: ShopItem[] = [
   { itemId: 'braise_coeur_volcan',     name: '🔥 Braise du Cœur du Volcan',        category: 'treasure', priceGame: 15000, effect: {}, active: true },
   { itemId: 'plume_givre_lunaire',     name: '🌙 Plume de Givre Lunaire',          category: 'treasure', priceGame: 20000, effect: {}, active: true },
   { itemId: 'perle_abysse_electrique', name: '🌊 Perle des Abysses Électriques',   category: 'treasure', priceGame: 25000, effect: {}, active: true },
+  // Objet requis pour actionner la console de la Porte des Étoiles (voir RepRules::
+  // stargateRequiresItem/stargateRequiredItemId, PoiInteractionModal.tsx § Porte des étoiles).
+  { itemId: 'stargate_crystal',        name: '🔺 Cristal de la Porte des Étoiles', category: 'treasure', priceGame: 12000, effect: {}, active: true },
   // ─── Équipement du personnage (armes/protections/flèches) — voir EquipmentWidget.tsx.
   // Rareté croissante (common → rare → legendary → epic), inspirée de Tolkien/Donjons & Dragons,
   // recherchée pour rester crédible (Andúril, Dard/Sting, mithril, arc de Galadriel…). Prix
@@ -5009,6 +5012,19 @@ export interface RepRules {
   // véritable horloge locale du joueur, entre `nightStartHour` (inclus) et `dayStartHour` (exclu).
   dayStartHour: number;   // défaut 7 — heure (0-23) à laquelle le thème "Jour" reprend le dessus
   nightStartHour: number; // défaut 20 — heure (0-23) à laquelle le thème "Nuit" démarre
+
+  // ─── Porte des étoiles (voir Platform3DWidget.tsx::PropBlock kind==='portal' et le portail
+  // flottant de voyage inter-mondes) — répond à la demande utilisateur « transforme tous les
+  // anneaux violets [...] en porte des étoiles verticale [...] console [...] qui permettra
+  // d'actionner la porte des étoiles [...] s'il possède l'expérience et un objet spécial [...] il
+  // actionnera le mécanisme [...] animation qui durera 10-15 secondes (paramétrables) ». Synk doit
+  // être adjacent à la console (pas à l'anneau lui-même) et cliquer dessus ; si les deux conditions
+  // ci-dessous sont remplies, l'anneau intérieur crénelé tourne pendant `stargateActivationDurationSec`
+  // avant que le voyage ne soit proposé (réutilise l'attribution de monde déterministe existante).
+  stargateActivationDurationSec: number; // défaut 12 — durée de l'animation de rotation (10-15s demandés)
+  stargateXpRequired: number;            // défaut 50 — XP minimum requis pour actionner la console
+  stargateRequiresItem: boolean;         // défaut true — exige en plus la possession de l'objet ci-dessous
+  stargateRequiredItemId: string;        // défaut 'stargate_crystal' — id catalogue de l'objet requis (voir DEFAULT_SHOP)
 }
 
 export const DEFAULT_REP_RULES: RepRules = {
@@ -5255,6 +5271,10 @@ export const DEFAULT_REP_RULES: RepRules = {
   envStatusPopupsOnTop: true,
   dayStartHour: 7,
   nightStartHour: 20,
+  stargateActivationDurationSec: 12,
+  stargateXpRequired: 50,
+  stargateRequiresItem: true,
+  stargateRequiredItemId: 'stargate_crystal',
 }
 
 /** Merge une valeur brute Firebase (`catalog/repRules`, potentiellement partielle/absente) avec

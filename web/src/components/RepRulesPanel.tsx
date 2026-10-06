@@ -210,6 +210,11 @@ export function RepRulesPanel() {
     { key: 'travelNightMonsterDamage',      labelKey: 'admin.repRules.travelNightMonsterDamage' },
   ];
 
+  const stargateFields: { key: keyof RepRules; labelKey: string }[] = [
+    { key: 'stargateActivationDurationSec', labelKey: 'admin.repRules.stargateActivationDurationSec' },
+    { key: 'stargateXpRequired',            labelKey: 'admin.repRules.stargateXpRequired' },
+  ];
+
   const hutFields: { key: keyof RepRules; labelKey: string }[] = [
     { key: 'hutRestHp',             labelKey: 'admin.repRules.hutRestHp' },
     { key: 'hutRestCooldownHours',  labelKey: 'admin.repRules.hutRestCooldownHours' },
@@ -432,6 +437,29 @@ export function RepRulesPanel() {
                 value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
             </label>
           ))}
+        </div>
+      </div>
+      <div className="mt-4 pt-3 border-t border-slate-700">
+        <h3 className="text-sm font-semibold mb-1">🌀 {t('admin.repRules.stargateTitle')}</h3>
+        <p className="text-xs text-slate-400 mb-3">{t('admin.repRules.stargateDescription')}</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          {stargateFields.map(f => (
+            <label key={f.key} className="text-sm">
+              <span className="text-slate-300">{t(f.labelKey)}</span>
+              <input type="number" min={1} className="input mt-1 w-full"
+                value={rules[f.key] as number} onChange={e => set(f.key, e.target.value)} />
+            </label>
+          ))}
+          <label className="text-sm flex items-center gap-2 md:col-span-2">
+            <input type="checkbox" checked={rules.stargateRequiresItem !== false}
+              onChange={e => setBool('stargateRequiresItem', e.target.checked)} />
+            <span className="text-slate-300">{t('admin.repRules.stargateRequiresItem')}</span>
+          </label>
+          <label className="text-sm">
+            <span className="text-slate-300">{t('admin.repRules.stargateRequiredItemId')}</span>
+            <input type="text" className="input mt-1 w-full" disabled={rules.stargateRequiresItem === false}
+              value={rules.stargateRequiredItemId} onChange={e => setText('stargateRequiredItemId', e.target.value)} />
+          </label>
         </div>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">

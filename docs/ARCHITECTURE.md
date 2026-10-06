@@ -4516,3 +4516,81 @@ couvrant le tirage réel en conditions de production dans le temps imparti — l
 sur une relecture de code ligne à ligne du planificateur et la réutilisation d'un pattern de registre
 partagé déjà validé en production (`platform3dActive.ts`).
 
+## 🌀 Portes des étoiles verticales + console d'activation (XP, objet, animation de composition)
+
+Demande utilisateur : « transforme tous les anneaux violets (portes des étoiles) en porte de étoiles
+verticales affublés tout autour de l'anneau de signes cabalistiques [...] une seconde roue crantée
+verticale à l'intérieur du 1er anneau [...] tu créeras à côté de l'anneau une console ou pupitre [...]
+Synk devra l'actionner en se plaçant a côté et s'il possède l'expérience et un objet spécial [...] il
+actionnera le mécanisme de la porte des étoiles qui fera tourner la roue crantée [...] alors que le
+1er anneau restera [im]mobile, cette action sera une animation qui durera 10-15 secondes
+(paramétrables dans le menu Administration) ».
+
+**Avant** : les portails (dalle `kind === 'portal'` dans `PropBlock`, et marqueur monde `isWorld` dans
+`MarkerBlock`) étaient de simples anneaux (`THREE.TorusGeometry`) posés à plat au sol, tournant et
+flottant en continu (`useFrame` bob/spin partagé), et déclenchaient le voyage immédiatement au clic
+sur l'anneau lui-même — aucune notion de coût, de condition, ni de mise en scène.
+
+**Après — `StargatePortal` (nouveau composant partagé, `Platform3DWidget.tsx`)** :
+- **Anneau extérieur FIXE** : tore vertical (orientation par défaut de `TorusGeometry`, donc *aucune*
+  rotation appliquée — contrairement à l'ancien anneau à plat qui portait `rotation={[Math.PI/2,0,0]}`),
+  portant 9 chevrons (cône métallique sombre + pointe sphérique rouge lumineuse, assez contrastés
+  pour rester identifiables sur le fond mauve, cf. captures de test isolé) répartis uniformément —
+  jamais animé, qu'une composition soit en cours ou non.
+- **Anneau de glyphes INTÉRIEUR** : texture procédurale généré UNE SEULE FOIS pour tout le jeu
+  (singleton module `getGlyphRingTexture()`, canvas 512×64 avec 16 glyphes Unicode à motif
+  cabalistique en répétition `RepeatWrapping`) — ne tourne QUE pendant une activation
+  (`useFrame` calcule `progress = (Date.now()-activationStartedAt)/activationDurationMs` et applique
+  3 tours complets sur la durée), reste statique le reste du temps (plus de spin continu permanent,
+  cohérent avec la consigne « le 1er anneau restera immobile » et avec l'historique de cette session
+  sur la saturation GPU — un seul texture objet partagé par instance, zéro coût de génération
+  supplémentaire par portail).
+- **Horizon des événements** (disque central) : sa couleur s'interpole vers un cyan lumineux pendant
+  la composition, puis refond vers le mauve sombre d'origine une fois terminée (confirmé visuellement
+  sur le harnais de test isolé, captures avant/pendant/après composition).
+- **Console/pupitre d'activation** : nouveau sous-groupe (pieds, deux poignées recourbées, cristal
+  rouge pulsant) positionné à côté de l'anneau (`[radius+0.45, 0, radius*0.55]`) — SEUL élément
+  cliquable du portail désormais (l'anneau/les chevrons/l'horizon absorbent le clic sans effet via
+  `stopPropagation`, pour ne pas laisser le clic traverser vers le sol comme avant la désactivation
+  de la téléportation par clic).
+
+**Conditions d'activation (`requestStargateActivation`, `Platform3DWidget`)** : vérification
+SYNCHRONE (XP déjà reçu en prop pré-calculée `playerXp`, inventaire déjà souscrit en state local —
+pas d'appel asynchrone nécessaire) :
+1. `playerXp < stargateXpRequired` (défaut 50) → bannière `stargate.feedback.xpMissing`.
+2. Si `stargateRequiresItem` (défaut `true`) et l'objet `stargateRequiredItemId` (défaut
+   `stargate_crystal`, nouvel objet trésor ajouté à `DEFAULT_SHOP`) absent de l'inventaire →
+   bannière `stargate.feedback.itemMissing` (nom de l'objet résolu via `DEFAULT_SHOP`).
+3. Sinon : démarre l'animation (`stargateActivationDurationSec`, défaut 12s, borné 10-15s côté
+   Administration) ; **un seul portail peut composer à la fois dans tout le jeu** (clé
+   `tile-${wc}-${wr}` ou `world-${marker.id}` mémorisée dans `stargateActivation.key`, toute nouvelle
+   demande est ignorée tant qu'une composition est en cours, qu'il s'agisse du même portail ou d'un
+   autre) — garantit que les AUTRES portails visibles à l'écran restent visuellement figés.
+4. À la fin de l'animation (`onActivationComplete`), le callback de voyage d'origine
+   (`onPortalTileClick`/`onMarkerClick`, inchangé) est invoqué via `setTimeout(cb, 0)`.
+
+**Administration** : 4 nouveaux champs `RepRules` (`RepRulesPanel.tsx`, section « 🌀 Porte des
+étoiles ») : `stargateActivationDurationSec`, `stargateXpRequired`, `stargateRequiresItem`
+(case à cocher), `stargateRequiredItemId` — suit le pattern `mapFields` déjà en place pour les autres
+sections du panneau.
+
+**i18n** : 6 clés `admin.repRules.stargate*` (libellés/descriptions du panneau Administration) + 3
+clés `stargate.feedback.*`/`stargate.activating` (bannières in-game), dans les 5 langues du jeu
+(fr/en/es/pt/us).
+
+**Non-régression** : le clic direct sur l'anneau/les chevrons est désormais un no-op volontaire — ne
+change rien au comportement déjà en place pour les autres marqueurs/dalles (clic sur une case ou un
+marqueur quelconque ne téléporte toujours pas Synk, cf. section précédente « téléportation par clic à
+désactiver »). Les callbacks de voyage d'origine (`onPortalTileClick`, `onMarkerClick`) ne sont ni
+renommés ni modifiés, seulement appelés plus tard (après la console + l'animation au lieu
+d'immédiatement au clic sur l'anneau) — aucune régression sur la logique de téléportation
+inter-mondes elle-même.
+
+**Vérification** : `npx tsc --noEmit -p tsconfig.json` : 0 erreur. Harnais de test isolé temporaire
+(`/stargate-test`, composant `StargatePortal` seul dans un `<Canvas>` nu + bouton « Activer », détruit
+après usage) : confirme visuellement l'anneau vertical, les 9 chevrons, la texture de glyphes sur
+l'anneau intérieur, la rotation pendant la composition (captures avant/pendant/après), et la console
+avec son cristal. Playwright en jeu réel (`/game`, session Démo) : 0 erreur console, portail bien
+rendu en anneau vertical dans le widget Plateforme 3D, aucune régression visible sur le reste de
+l'interface (statistiques, alimentation, pavé directionnel).
+
