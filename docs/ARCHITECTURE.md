@@ -4933,3 +4933,58 @@ valides avant reste valide après SAUF ceux sur eau/sable/rocher, qui étaient j
 signalé) ; `isObstacleAt`/`isWorldPosBlockedByStaticMarker` gardent la même signature publique,
 seules leurs constantes internes changent.
 
+## Son d'activation de la Porte des étoiles (clé audio `stargate`)
+
+Demande utilisateur : « Joue un son à l'activation de la Porte des étoiles et ajoute le son dans le
+widget des sons audio. » Intégration au module audio existant (voir section « Module Audio des
+créatures 3D » plus haut) plutôt qu'un mécanisme ad hoc, en suivant EXACTEMENT le précédent
+`doorCreak` (son ponctuel déclenché par une action de jeu, et non une ambiance continue/bouclée).
+
+### 1. Nouvelle clé `'stargate'` dans le catalogue central (`gameState.ts`)
+
+Ajoutée à `AudioSourceKey` (union), `AUDIO_SOURCE_KEYS` (tableau) et `DEFAULT_AUDIO_SETTINGS`
+(`{ enabled: true, volume: 70 }` — volume par défaut plus élevé que les sons d'ambiance animalière
+car il s'agit d'un événement ponctuel et marquant, pas d'un bruit de fond). Comme `AudioWidget.tsx`
+(widget joueur) et `AudioAdminPanel.tsx` (panneau Administration > Audio) itèrent tous deux sur
+`AUDIO_SOURCE_KEYS`/`DEFAULT_AUDIO_SETTINGS` SANS logique spécifique par clé au-delà d'icône/libellé,
+la nouvelle clé apparaît automatiquement dans les deux surfaces une fois ces deux maps locales
+(`SOURCE_ICON`/`SOURCE_LABEL`) complétées (icône 🌀, libellé « Porte des étoiles (verrouillage des
+chevrons + vortex, activation) ») — aucune autre modification de ces deux composants.
+
+### 2. Synthèse Web Audio (`lib/audio.ts::playSynth`, case `'stargate'`)
+
+Trois « verrouillages » métalliques montants (onde carrée, fréquence croissante par palier, courts
+et rapprochés — évoque l'enclenchement successif des chevrons), puis un souffle d'énergie montant
+(onde en dents de scie 90→520 Hz sur 1,1 s) immédiatement suivi d'un harmonique montant (onde
+sinusoïdale 520→880 Hz) et d'un bruit blanc filtré (`noiseBurst`) superposés au souffle — pour
+évoquer l'ouverture du vortex plutôt qu'un simple bip. Reste 100% synthétisé par défaut (aucun
+fichier audio tiers embarqué, conformément au principe déjà en place pour tous les autres sons) ;
+l'admin peut comme pour les autres clés fournir une URL personnalisée dans Administration > Audio
+qui remplacera alors ce son synthétisé.
+
+### 3. Point de déclenchement (`Platform3DWidget.tsx::requestStargateActivation`)
+
+Le son est joué via `playAmbientSound('stargate', wildlifeAudio)` au moment précis où la validation
+(XP suffisant + objet requis `stargate_crystal` en inventaire) RÉUSSIT et où l'état
+`stargateActivation` est posé (déclenchant réellement l'animation de composition de l'anneau de
+glyphes) — PAS sur un clic refusé (XP/objet manquant), qui affiche uniquement le popup de feedback
+existant sans jouer de son. Un seul point d'appel couvre les DEUX variantes de portail (portail posé
+au sol via `PropBlock` et portail flottant inter-mondes via `MarkerBlock`) car elles partagent
+toutes deux le même composant `StargatePortal` et appellent la même fonction `onRequestStargate
+Activation` du composant parent — aucune duplication nécessaire. `wildlifeAudio` (réglages admin via
+`useAdminAudioSettings()`) était déjà dans le scope du composant parent (utilisé pour `doorCreak`) ;
+ajouté aux dépendances du `useCallback`.
+
+**Vérifié** : `npx tsc --noEmit` (0 erreur, la clé `'stargate'` est couverte par le `switch` de
+`playSynth` sans cas manquant) ; `npm run dev` + Playwright (`chromium`, écoute `pageerror`/
+`console.error`) sur `/game` : aucune erreur après chargement. La lecture RÉELLE du son ne peut pas
+être vérifiée de façon fiable en Playwright headless (le `AudioContext` Web Audio exige un geste
+utilisateur réel pour se débloquer, voir `unlockAudioOnFirstGesture()`) — vérification limitée à la
+relecture de code, à l'exhaustivité du typage et à l'absence d'erreur console/page.
+
+**Non-régression** : aucune signature de fonction existante modifiée (seul le corps interne de
+`requestStargateActivation` gagne un appel supplémentaire, et sa liste de dépendances `useCallback`
+est mise à jour en conséquence) ; `AUDIO_SOURCE_KEYS`/`DEFAULT_AUDIO_SETTINGS` restent un sur-
+ensemble strict de l'existant (ajout en fin de liste, aucune clé existante modifiée) ; les sons
+`doorCreak` et les ambiances animalières sont inchangés.
+

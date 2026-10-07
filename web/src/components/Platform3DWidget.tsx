@@ -2912,7 +2912,12 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     const durationMs = Math.max(1, r?.stargateActivationDurationSec ?? 12) * 1000;
     stargateCompletionRef.current = onComplete;
     setStargateActivation({ key, startedAt: Date.now(), durationMs });
-  }, [stargateActivation, rules, playerXp, inventory, t]);
+    // 🆕 Son d'activation (verrouillage des chevrons + souffle d'énergie, voir lib/audio.ts::
+    // playSynth case 'stargate') — demande utilisateur « Joue un son à l'activation de la Porte
+    // des étoiles », joué dès que la validation (XP + objet requis) passe et que l'animation de
+    // composition démarre réellement (pas sur un clic refusé ci-dessus).
+    playAmbientSound('stargate', wildlifeAudio);
+  }, [stargateActivation, rules, playerXp, inventory, t, wildlifeAudio]);
   const completeStargateActivation = useCallback((key: string) => {
     setStargateActivation(prev => {
       if (!prev || prev.key !== key) return prev;

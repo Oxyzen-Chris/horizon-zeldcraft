@@ -3523,8 +3523,8 @@ export function resolveActiveTheme(themes: WorldThemeDef[], date: Date, isNight:
 // réseau, aucun risque de lien mort/droit d'auteur). L'admin peut néanmoins définir ici, pour
 // chaque créature, une URL de fichier audio personnalisée (mp3/ogg hébergé par ses soins) qui
 // remplace alors le son synthétisé — voir AudioAdminPanel.tsx.
-export type AudioSourceKey = 'owl' | 'werewolf' | 'bat' | 'raptor' | 'bird' | 'boar' | 'witch' | 'doorCreak';
-export const AUDIO_SOURCE_KEYS: AudioSourceKey[] = ['owl', 'werewolf', 'bat', 'raptor', 'bird', 'boar', 'witch', 'doorCreak'];
+export type AudioSourceKey = 'owl' | 'werewolf' | 'bat' | 'raptor' | 'bird' | 'boar' | 'witch' | 'doorCreak' | 'stargate';
+export const AUDIO_SOURCE_KEYS: AudioSourceKey[] = ['owl', 'werewolf', 'bat', 'raptor', 'bird', 'boar', 'witch', 'doorCreak', 'stargate'];
 export interface AudioSourceSetting {
   enabled: boolean;   // Son par défaut activé pour cette créature (le joueur peut quand même la
                        // couper individuellement côté client, voir AudioWidget.tsx/lib/audio.ts)
@@ -3540,6 +3540,10 @@ export const DEFAULT_AUDIO_SETTINGS: Record<AudioSourceKey, AudioSourceSetting> 
   boar: { enabled: true, volume: 50 },
   witch: { enabled: true, volume: 50 },
   doorCreak: { enabled: true, volume: 60 }, // Grincement de porte (crypte) — voir CryptTunnelScene.tsx
+  // 🆕 Activation de la Porte des étoiles (verrouillage des chevrons + souffle d'énergie) — demande
+  // utilisateur « Joue un son à l'activation de la Porte des étoiles et ajoute le son dans le
+  // widget des sons audio » — voir Platform3DWidget.tsx::requestStargateActivation.
+  stargate: { enabled: true, volume: 70 },
 };
 
 export async function getAudioSettings(): Promise<Record<AudioSourceKey, AudioSourceSetting>> {

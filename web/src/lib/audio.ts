@@ -156,6 +156,17 @@ function playSynth(key: AudioSourceKey, ctx: AudioContext, dest: GainNode) {
       synth(ctx, dest, { freqStart: 190, freqEnd: 110, duration: 0.65, type: 'sawtooth', delay: 0.45 });
       noiseBurst(ctx, dest, 0.3, 0.1);
       break;
+    case 'stargate': // Activation de la Porte des étoiles — trois "verrouillages" métalliques
+      // montants (chevrons qui s'enclenchent) suivis d'un souffle d'énergie qui monte en fréquence
+      // (ouverture du vortex), joué au lancement de l'animation de composition (voir
+      // Platform3DWidget.tsx::requestStargateActivation).
+      for (let i = 0; i < 3; i++) {
+        synth(ctx, dest, { freqStart: 240 + i * 50, freqEnd: 170 + i * 50, duration: 0.11, type: 'square', delay: i * 0.22 });
+      }
+      synth(ctx, dest, { freqStart: 90, freqEnd: 520, duration: 1.1, type: 'sawtooth', delay: 0.78 });
+      synth(ctx, dest, { freqStart: 520, freqEnd: 880, duration: 0.5, type: 'sine', delay: 1.4 });
+      noiseBurst(ctx, dest, 1.0, 0.78);
+      break;
   }
 }
 
