@@ -4988,3 +4988,25 @@ est mise à jour en conséquence) ; `AUDIO_SOURCE_KEYS`/`DEFAULT_AUDIO_SETTINGS`
 ensemble strict de l'existant (ajout en fin de liste, aucune clé existante modifiée) ; les sons
 `doorCreak` et les ambiances animalières sont inchangés.
 
+## Suppression du badge "Composition en cours…" de la Porte des étoiles
+
+Demande utilisateur : « Retire le message "Dialing in progress..." à la composition de la porte
+des étoiles. » Ce bandeau pastille (`t('stargate.activating', { sec })`, en haut de l'écran pendant
+les 10-15 s d'activation) a été retiré de `Platform3DWidget.tsx` (overlay JSX supprimé), et le seul
+mécanisme qui existait pour le faire vivre — l'état `stargateNow` + l'intervalle 0,5 Hz dédié qui le
+rafraîchissait — a été retiré avec lui (il n'avait AUCUN autre usage). La clé i18n
+`stargate.activating` (fr/en/es/pt/us), devenue orpheline, a été supprimée des 5 fichiers de
+traduction.
+
+**Non-régression** : l'animation visuelle de l'anneau de glyphes (`StargatePortal`, piloté par
+`stargateActivation`/`isActivating`/`activationStartedAt`/`activationDurationMs`) n'est PAS
+affectée — seul le texte de progression superposé à l'écran disparaît ; le minutage réel de
+l'activation (lu depuis `rules.stargateActivationDurationSec`, paramétrable dans Administration)
+et l'appel `onActivationComplete` qui termine l'activation restent inchangés. Le popup de feedback
+(XP/objet manquant, `stargateFeedback`) et le son d'activation (`playAmbientSound('stargate', ...)`,
+voir section précédente) ne sont pas affectés non plus.
+
+**Vérifié** : `npx tsc --noEmit` (0 erreur) ; `npm run dev` + Playwright (`chromium`) sur `/game` :
+aucune erreur console/page, et absence confirmée des deux libellés précédemment affichés
+(« Dialing in progress » et « Composition en cours »).
+

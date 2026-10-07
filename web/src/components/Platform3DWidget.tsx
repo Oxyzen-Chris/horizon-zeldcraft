@@ -2927,16 +2927,6 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       return null;
     });
   }, []);
-  // Horloge locale (0,5 Hz) UNIQUEMENT pour rafraîchir le compte à rebours affiché pendant une
-  // activation (voir overlay `stargate.activating` plus bas) — ne tourne pas en dehors d'une
-  // activation en cours, donc aucun coût de rendu superflu le reste du temps.
-  const [stargateNow, setStargateNow] = useState(Date.now());
-  useEffect(() => {
-    if (!stargateActivation) return;
-    const id = setInterval(() => setStargateNow(Date.now()), 500);
-    return () => clearInterval(id);
-  }, [stargateActivation]);
-
   const hasVehicle = useMemo(() => inventory.some(i => i.category === 'vehicle' && i.qty > 0), [inventory]);
   const [islandBlockedMsg, setIslandBlockedMsg] = useState<string | null>(null);
   useEffect(() => {
@@ -4342,13 +4332,6 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           </div>
         </div>,
         document.body,
-      )}
-      {stargateActivation && (
-        <div className="fixed inset-x-0 top-20 flex justify-center z-[101] pointer-events-none">
-          <span className="bg-slate-900 border border-violet-500 text-violet-200 text-sm rounded-full px-4 py-2 shadow-xl">
-            {t('stargate.activating', { sec: Math.max(0, Math.ceil((stargateActivation.startedAt + stargateActivation.durationMs - stargateNow) / 1000)) })}
-          </span>
-        </div>
       )}
     </div>
   );
