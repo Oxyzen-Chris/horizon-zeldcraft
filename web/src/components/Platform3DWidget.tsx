@@ -413,6 +413,51 @@ const PROP_COLOR: Record<string, string> = {
 const HUT_SCALE: [number, number, number] = [1.3, 1.8, 1.3];
 const CASTLE_SCALE: [number, number, number] = [1.2, 2.0, 1.2];
 
+/** Hash déterministe simple (FNV-like) d'une chaîne → entier positif — sert à dériver, pour chaque
+ * hutte/bâtisse (identifiée par son `markerId` ou, pour le décor procédural sans id, par ses
+ * coordonnées `x,z`), une variante STABLE d'une frame à l'autre et d'un rendu à l'autre (ex. « cette
+ * maison a-t-elle une cheminée allumée ? ») sans dépendre de `Math.random()` (qui changerait à
+ * chaque re-render). Même principe que `TombSlab`::delay ci-dessous, factorisé ici pour réemploi. */
+function hashSeed(s: string): number {
+  let h = 0;
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h;
+}
+
+/** Fumée de cheminée — quelques volutes sphériques semi-transparentes qui s'élèvent en boucle
+ * au-dessus de la cheminée, dérivent légèrement et s'estompent, donnant l'illusion d'un feu allumé
+ * à l'intérieur (demande utilisateur « ajoutes une cheminée [...] ainsi que de la fumée qui sort de
+ * la cheminée pour donner l'impression qu'un feu est allumé »). Volontairement TRÈS léger (4
+ * sphères, simple cycle sin/modulo, pas de physique) pour ne jamais peser sur le FPS — voir § 🐢
+ * Optimisation GPU/CPU plus bas — et n'est monté que sur un sous-ensemble déterministe des maisons
+ * (voir `hasFireplace` dans PropBlock/MarkerBlock), jamais sur la totalité du décor. */
+function ChimneySmoke({ seed }: { seed: number }) {
+  const puffsRef = useRef<THREE.Mesh[]>([]);
+  const PUFF_COUNT = 4;
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    puffsRef.current.forEach((mesh, i) => {
+      if (!mesh) return;
+      const phase = (t * 0.22 + seed + i / PUFF_COUNT) % 1; // 0→1 boucle, décalée par volute
+      mesh.position.set(Math.sin(t * 0.6 + i + seed * 10) * 0.05, phase * 0.6, Math.cos(t * 0.5 + i + seed * 10) * 0.04);
+      const s = 0.06 + phase * 0.14;
+      mesh.scale.setScalar(s);
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      mat.opacity = 0.45 * (1 - phase);
+    });
+  });
+  return (
+    <group position={[0.32, 1.8, 0.1]}>
+      {Array.from({ length: PUFF_COUNT }).map((_, i) => (
+        <mesh key={i} ref={(el) => { if (el) puffsRef.current[i] = el; }}>
+          <sphereGeometry args={[1, 8, 8]} />
+          <meshStandardMaterial color="#d6d3cd" transparent opacity={0.3} depthWrite={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 /** Texture procédurale (bande de symboles cabalistiques) pour l'anneau INTÉRIEUR rotatif de la
  * Porte des Étoiles (voir StargatePortal ci-dessous — demande utilisateur « affublés tout autour
  * de l'anneau de signes cabalistiques [...] sur une seconde roue crantée verticale »). Générée UNE
@@ -648,6 +693,11 @@ function PropBlock({ kind, x, topY, z, scale = 1, onClick, stargate }: {
     // petites ». Porte (bois sombre) ajoutée sur la façade, dimensionnée nettement plus grande que
     // Synk (~1,4 unité de haut) pour préparer une future entrée dans le bâtiment sans rien changer à
     // la collision actuelle (1 dalle = 1 obstacle, voir worldTerrain.ts::isObstacleAt).
+    // Cheminée fumante : seulement sur CERTAINES chaumières (hash déterministe des coordonnées de
+    // la dalle, ~1 sur 2) pour simuler un feu allumé à l'intérieur sans l'imposer à tout le décor
+    // (demande utilisateur « ajoutes une cheminée [...] sur certaines maisons [...] fumée [...] »).
+    const hutSeed = hashSeed(`${x},${z}`);
+    const hasFireplace = hutSeed % 2 === 0;
     return (
       <group position={[x, topY, z]} scale={scale} onClick={(e) => { e.stopPropagation(); onClick(); }}>
         <group scale={HUT_SCALE}>
@@ -655,6 +705,7 @@ function PropBlock({ kind, x, topY, z, scale = 1, onClick, stargate }: {
           <mesh position={[0, 1.25, 0]} rotation={[0, Math.PI / 4, 0]} castShadow><coneGeometry args={[0.85, 0.7, 4]} /><meshStandardMaterial color="#3f2c1a" roughness={0.9} /></mesh>
           <mesh position={[0.32, 1.55, 0.1]}><cylinderGeometry args={[0.08, 0.09, 0.4, 6]} /><meshStandardMaterial color="#78716c" roughness={0.9} /></mesh>
           <mesh position={[0, 0.39, 0.51]} castShadow><boxGeometry args={[0.42, 0.78, 0.08]} /><meshStandardMaterial color="#2a1a0f" roughness={0.95} /></mesh>
+          {hasFireplace && <ChimneySmoke seed={(hutSeed % 1000) / 1000} />}
         </group>
       </group>
     );
@@ -1502,20 +1553,32 @@ function MarkerBlock({ kind, poiType, name, markerId, x, z, scale = 1, facing, m
     // `PropBlock` kind==='hut' (toit de chaume conique + cheminée), fixe au sol comme un vrai
     // bâtiment. Palette légèrement adaptée pour distinguer les sous-types (village ennemi = teintes
     // grisâtres/délabrées, taverne = tonneau, étable = clôture basse).
+    // Enveloppe interne mise à l'échelle ×HUT_SCALE (voir plus haut) + porte ajoutée sur la façade :
+    // cette branche dupliquait la géométrie de `PropBlock`::hut mais avait été OUBLIÉE lors du
+    // précédent correctif d'agrandissement (qui n'avait touché que le décor procédural), laissant
+    // les auberges/tavernes/étables/villages (bâtiments cliquables du catalogue Administration) à
+    // l'ancienne échelle ×1 — corrige « les maisons sont trop petites par rapport à Synk ». Cheminée
+    // fumante sur certains bâtiments seulement (hash déterministe du markerId), comme pour le décor.
     const isEnemyVillage = poiType === 'village_enemy';
     const wallColor = isEnemyVillage ? '#57534e' : poiType === 'tavern' ? '#8a6a45' : poiType === 'stable' ? '#7c6a4a' : '#a8825a';
     const roofColor = isEnemyVillage ? '#3f3a3a' : '#3f2c1a';
+    const buildingSeed = hashSeed(markerId ?? `${x},${z}`);
+    const hasFireplace = buildingSeed % 2 === 0;
     return (
       <group position={[x, 0, z]} onClick={(e) => { e.stopPropagation(); onClick(); }}>
-        <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[1, 1, 1]} /><meshStandardMaterial color={wallColor} roughness={0.85} /></mesh>
-        <mesh position={[0, 1.25, 0]} rotation={[0, Math.PI / 4, 0]} castShadow><coneGeometry args={[0.85, 0.7, 4]} /><meshStandardMaterial color={roofColor} roughness={0.9} /></mesh>
-        <mesh position={[0.32, 1.55, 0.1]}><cylinderGeometry args={[0.08, 0.09, 0.4, 6]} /><meshStandardMaterial color="#78716c" roughness={0.9} /></mesh>
-        {poiType === 'tavern' && (
-          <mesh position={[0.78, 0.28, 0]} castShadow><cylinderGeometry args={[0.18, 0.18, 0.4, 8]} /><meshStandardMaterial color="#8a5a2a" roughness={0.8} /></mesh>
-        )}
-        {poiType === 'stable' && (
-          <mesh position={[-0.78, 0.35, 0]} castShadow><boxGeometry args={[0.5, 0.06, 0.9]} /><meshStandardMaterial color="#6b4a2a" roughness={0.9} /></mesh>
-        )}
+        <group scale={HUT_SCALE}>
+          <mesh position={[0, 0.5, 0]} castShadow><boxGeometry args={[1, 1, 1]} /><meshStandardMaterial color={wallColor} roughness={0.85} /></mesh>
+          <mesh position={[0, 1.25, 0]} rotation={[0, Math.PI / 4, 0]} castShadow><coneGeometry args={[0.85, 0.7, 4]} /><meshStandardMaterial color={roofColor} roughness={0.9} /></mesh>
+          <mesh position={[0.32, 1.55, 0.1]}><cylinderGeometry args={[0.08, 0.09, 0.4, 6]} /><meshStandardMaterial color="#78716c" roughness={0.9} /></mesh>
+          <mesh position={[0, 0.39, 0.51]} castShadow><boxGeometry args={[0.42, 0.78, 0.08]} /><meshStandardMaterial color="#2a1a0f" roughness={0.95} /></mesh>
+          {hasFireplace && <ChimneySmoke seed={(buildingSeed % 1000) / 1000} />}
+          {poiType === 'tavern' && (
+            <mesh position={[0.78, 0.28, 0]} castShadow><cylinderGeometry args={[0.18, 0.18, 0.4, 8]} /><meshStandardMaterial color="#8a5a2a" roughness={0.8} /></mesh>
+          )}
+          {poiType === 'stable' && (
+            <mesh position={[-0.78, 0.35, 0]} castShadow><boxGeometry args={[0.5, 0.06, 0.9]} /><meshStandardMaterial color="#6b4a2a" roughness={0.9} /></mesh>
+          )}
+        </group>
       </group>
     );
   }

@@ -5236,3 +5236,73 @@ portail devient dynamique. `HutRestModal`/`hutFeedback` (non portalés avant) so
 également portalés (même hook) — aucun changement visuel/fonctionnel en mode fenêtré, uniquement
 corrigés pour rester visibles en plein écran.
 
+## 🏚️➡️🏠 Correctif : les maisons (Auberge/Taverne/Étable/Village) étaient trop petites + cheminée fumante sur certaines maisons (widget Plateforme 3D)
+
+Demande utilisateur : « les maisons [...] sont trop petite par rapport à la taille de Synk ! Corrige
+cela et agrandit les maisons pour en faire des vrais maisons, tu ajouteras une cheminée sur le toit
+de certaines maisons ainsi que de la fumée qui sort de la cheminée pour donner l'impression qu'un
+feu est allumé dans la cheminée ».
+
+### Cause racine
+
+Le fichier `Platform3DWidget.tsx` contient DEUX chemins de rendu distincts pour une silhouette de
+« chaumière » (socle + toit de chaume conique + cheminée) :
+
+1. **`PropBlock`, `kind === 'hut'`** : décor procédural placé aléatoirement par `worldTerrain.ts`
+   (tuile `prop === 'hut'`). Déjà agrandi lors d'un correctif précédent (« les maisons, les châteaux
+   sont trop petits au regard de la taille de Synk ») via un `<group scale={HUT_SCALE}>` interne
+   (`HUT_SCALE = [1.3, 1.8, 1.3]`), avec porte ajoutée sur la façade.
+2. **`MarkerBlock`, branche `isBuilding`** (`poiType` ∈ `{hut, tavern, stable, village_ally,
+   village_enemy}`) : bâtisses CLIQUABLES du catalogue Administration (auberge de repos, tavernes,
+   étables, villages). Cette branche duplique EXACTEMENT la même géométrie (boîte + cône + cylindre)
+   mais avait été **OUBLIÉE** lors du correctif précédent : elle restait rendue à l'échelle ×1, sans
+   aucun `<group scale={HUT_SCALE}>` — exactement le bug visible dans la capture d'écran utilisateur
+   (une maison à peine plus haute que la tête de Synk, debout devant sa porte).
+
+### Correctif appliqué
+
+- `MarkerBlock::isBuilding` enveloppe désormais sa géométrie (murs, toit, cheminée, porte, + le
+  tonneau de la taverne et la clôture de l'étable, repositionnés À L'INTÉRIEUR du groupe mis à
+  l'échelle pour rester proportionnés) dans un `<group scale={HUT_SCALE}>`, strictement identique à
+  `PropBlock::kind==='hut'` — les deux chemins de rendu sont désormais visuellement cohérents.
+- Une porte en bois sombre (`boxGeometry`) a été ajoutée sur la façade de `isBuilding`, qui en était
+  dépourvue (contrairement à `PropBlock::hut`), pour en faire une « vraie maison ».
+- La logique de collision (1 dalle = 1 obstacle, voir `worldTerrain.ts::OBSTACLE_POI_TYPES` /
+  `isObstacleAt`) est tuile-based et totalement indépendante de l'échelle visuelle du mesh — aucune
+  régression possible sur le blocage de déplacement autour de ces bâtiments.
+
+### Cheminée fumante sur CERTAINES maisons seulement
+
+Nouvelle fonction utilitaire `hashSeed(s: string): number` (hash FNV-like déterministe, même
+principe que le hash `TombSlab::delay` déjà présent dans le fichier) et nouveau composant
+`ChimneySmoke({ seed })` : 4 petites sphères semi-transparentes montées dans un `useFrame`, qui
+s'élèvent en boucle au-dessus de la cheminée, dérivent légèrement (sinusoïde) et s'estompent
+(opacité → 0), donnant l'illusion d'un feu allumé à l'intérieur. Volontairement TRÈS léger (pas de
+système de particules, pas de physique) pour ne jamais peser sur le FPS (voir § 🐢 Optimisation
+GPU/CPU).
+
+Pour chaque maison (décor `PropBlock::hut` comme bâtisse `MarkerBlock::isBuilding`), un hash
+déterministe de ses coordonnées (`x,z`) ou de son `markerId` décide si elle a une cheminée fumante
+(~1 maison sur 2, `hash % 2 === 0`) — stable d'un rendu à l'autre (pas de `Math.random()`), pour que
+« certaines maisons » (et pas toutes) montrent un feu allumé, comme demandé.
+
+### Vérification (Playwright, `chromium`, compte Démo anonyme)
+
+- Plateforme 3D en plein écran, caméra dézoomée + orbite pour repérer un alignement de 4 maisons
+  près du château : capture d'écran confirmant des maisons nettement plus grandes qu'avant (à
+  l'échelle du château agrandi dans un correctif précédent), avec de la fumée visible au-dessus de
+  plusieurs cheminées (volutes blanches/grises animées) et PAS toutes les maisons (conforme à
+  « certaines maisons »).
+- `npx tsc --noEmit` : 0 erreur.
+
+### Non-régression
+
+- `onClick` de `MarkerBlock::isBuilding` reste attaché au MÊME `<group>` externe, à la MÊME
+  position `[x, 0, z]` — aucune modification de la logique d'interaction (pop-up d'auberge/taverne/
+  étable/village inchangé).
+- `PropBlock::kind==='hut'` (déjà correct) n'a reçu que l'ajout optionnel de `ChimneySmoke` —
+  silhouette, échelle et porte inchangées.
+- Aucun changement à `GameCanvas2D.tsx`/`WorldMapWidget.tsx` (ces widgets représentent les huttes en
+  émoji plat `🛖`, pas en géométrie 3D — bug et correctif strictement localisés à
+  `Platform3DWidget.tsx`).
+
