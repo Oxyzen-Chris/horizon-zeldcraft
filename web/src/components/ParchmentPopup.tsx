@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n, type Locale } from '@/lib/i18n';
+import { usePortalContainer } from '@/lib/usePortalContainer';
 import { addToInventory, markParchmentTaken } from '@/lib/gameState';
 
 /** Langue de synthèse vocale associée à chaque locale du jeu (voir window.speechSynthesis) —
@@ -27,6 +28,7 @@ function clueIndexFor(cryptId: string): number {
 export function ParchmentPopup({ cryptId, address, onClose }: { cryptId: string; address?: string; onClose: (taken: boolean) => void }) {
   const { t, locale } = useI18n();
   const [busy, setBusy] = useState(false);
+  const portalContainer = usePortalContainer();
   const clueIdx = clueIndexFor(cryptId);
   const text = t(`crypt.parchment.clue${clueIdx + 1}`);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -88,6 +90,6 @@ export function ParchmentPopup({ cryptId, address, onClose }: { cryptId: string;
         </div>
       </div>
     </div>,
-    document.body,
+    portalContainer,
   );
 }

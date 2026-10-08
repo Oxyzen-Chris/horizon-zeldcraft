@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/lib/i18n';
+import { usePortalContainer } from '@/lib/usePortalContainer';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -21,6 +22,7 @@ export function ConfirmDialog({
   confirmLabel, cancelLabel, variant = 'default',
 }: ConfirmDialogProps) {
   const { t } = useI18n();
+  const portalContainer = usePortalContainer();
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +66,6 @@ export function ConfirmDialog({
         </div>
       </div>
     </div>,
-    document.body,
+    portalContainer,
   );
 }

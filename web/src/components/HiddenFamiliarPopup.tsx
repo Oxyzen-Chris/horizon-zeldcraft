@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/lib/i18n';
+import { usePortalContainer } from '@/lib/usePortalContainer';
 import { claimHiddenDragonFamiliar } from '@/lib/gameState';
 
 /** Pop-up de la "surprise" cachée dans la table de chevet d'une chambre de crypte (voir
@@ -16,6 +17,7 @@ import { claimHiddenDragonFamiliar } from '@/lib/gameState';
 export function HiddenFamiliarPopup({ address, onClose }: { address?: string; onClose: (taken: boolean) => void }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  const portalContainer = usePortalContainer();
 
   if (typeof document === 'undefined') return null;
 
@@ -48,6 +50,6 @@ export function HiddenFamiliarPopup({ address, onClose }: { address?: string; on
         </div>
       </div>
     </div>,
-    document.body,
+    portalContainer,
   );
 }

@@ -2,6 +2,7 @@
 
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/lib/i18n';
+import { usePortalContainer } from '@/lib/usePortalContainer';
 import type { ActionDiceResult, ActionDiceFaceKind } from '@/lib/gameState';
 
 /** Icône/clé i18n par face du Dé d'Action D&D — dupliqué à l'identique depuis DiceRollWidget.tsx
@@ -43,6 +44,7 @@ export interface FightResultData {
 /** Pop-up de résultat de combat façon jet de dés (D&D-like) — affiché après un combat PNJ. */
 export function FightResultModal({ data, onClose }: { data: FightResultData | null; onClose: () => void }) {
   const { t } = useI18n();
+  const portalContainer = usePortalContainer();
   if (!data || typeof document === 'undefined') return null;
 
   return createPortal(
@@ -120,6 +122,6 @@ export function FightResultModal({ data, onClose }: { data: FightResultData | nu
         </button>
       </div>
     </div>,
-    document.body,
+    portalContainer,
   );
 }

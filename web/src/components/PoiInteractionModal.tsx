@@ -13,6 +13,7 @@ import {
   type TreasureFoundEntry, type WorldDroppedItem,
 } from '@/lib/gameState';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
+import { usePortalContainer } from '@/lib/usePortalContainer';
 import { ConfirmDialog } from './ConfirmDialog';
 
 type Marker = MapMarker;
@@ -51,6 +52,7 @@ export function PoiInteractionModal({
   onRequestEnterCrypt?: (cryptId: string) => void;
 }) {
   const { t } = useI18n();
+  const portalContainer = usePortalContainer();
 
   if (!marker || typeof document === 'undefined') return null;
 
@@ -82,7 +84,7 @@ export function PoiInteractionModal({
         <button className="btn-secondary text-xs w-full mt-4" onClick={onClose}>{t('common.close')}</button>
       </div>
     </div>,
-    document.body,
+    portalContainer,
   );
 }
 

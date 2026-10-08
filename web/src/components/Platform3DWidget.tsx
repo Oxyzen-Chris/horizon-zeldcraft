@@ -26,6 +26,7 @@ import { useI18n, localizeName } from '@/lib/i18n';
 import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
+import { usePortalContainer } from '@/lib/usePortalContainer';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { setUndergroundActive } from '@/lib/undergroundActive';
 import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker } from '@/lib/roamingActors';
@@ -3763,6 +3764,11 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else fullscreenRef.current.requestFullscreen?.().catch(() => {});
   }, []);
+  // 🆕 Conteneur cible des popups portalées (`PoiInteractionModal`, `stargateFeedback` ci-dessous…)
+  // — bascule automatiquement vers l'élément plein écran quand actif pour corriger le bug « le
+  // clic gauche de la souris ne fonctionne plus pour ramasser les objets » en mode plein écran
+  // (voir doc complète dans `usePortalContainer.ts`).
+  const portalContainer = usePortalContainer();
 
   // ─── Glisser-déposer d'un objet de la besace vers le sol 3D (voir demande utilisateur "déposer
   // via un drag and drop [...] dans la vue [...] 3D du widget de la plateforme 3D") : la caméra
@@ -4342,12 +4348,13 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           }}
         />
       )}
-      {hutFeedback && (
+      {hutFeedback && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-x-0 bottom-6 flex justify-center z-[101] pointer-events-none">
           <span className="bg-slate-900 border border-amber-500 text-amber-200 text-sm rounded-full px-4 py-2 shadow-xl">
             {hutFeedback}
           </span>
-        </div>
+        </div>,
+        portalContainer,
       )}
       {stargateFeedback && typeof document !== 'undefined' && createPortal(
         // 🆕 Popup centré (même structure que PoiInteractionModal.tsx — fond slate-900, bordure
@@ -4364,7 +4371,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             <button className="btn-secondary text-xs w-full mt-4" onClick={() => setStargateFeedback(null)}>{t('common.close')}</button>
           </div>
         </div>,
-        document.body,
+        portalContainer,
       )}
     </div>
   );

@@ -8,6 +8,7 @@ import { parseEther } from 'viem';
 import { HORIZON_ABI } from '@/lib/contract';
 import { applyEffect, logTx, getTopupPresets, DEFAULT_TOPUP_PRESETS, type TopupPreset } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
+import { usePortalContainer } from '@/lib/usePortalContainer';
 import { FiatTopupPanel } from './FiatTopupPanel';
 
 export function WalletPanel({ contract, wallet }: { contract: `0x${string}`; wallet: number }) {
@@ -19,6 +20,7 @@ export function WalletPanel({ contract, wallet }: { contract: `0x${string}`; wal
   const [feedback, setFeedback] = useState<string | null>(null);
   const [presets, setPresets] = useState<TopupPreset[]>(DEFAULT_TOPUP_PRESETS);
   const [mounted, setMounted] = useState(false);
+  const portalContainer = usePortalContainer();
 
   useEffect(() => { setMounted(true); getTopupPresets().then(setPresets).catch(() => {}); }, []);
 
@@ -120,7 +122,7 @@ export function WalletPanel({ contract, wallet }: { contract: `0x${string}`; wal
       <p className="text-sm text-slate-400">{t('game.wallet.balance')} :</p>
       <p className="text-4xl font-bold text-amber-400 mt-1">{wallet.toLocaleString()} 💰</p>
       {feedback && <p className="text-sm text-emerald-400 mt-2">{feedback}</p>}
-      {mounted && popup ? createPortal(popup, document.body) : null}
+      {mounted && popup ? createPortal(popup, portalContainer) : null}
     </div>
   );
 }

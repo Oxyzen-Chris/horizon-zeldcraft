@@ -1,6 +1,7 @@
 'use client';
 
 import { createPortal } from 'react-dom';
+import { usePortalContainer } from '@/lib/usePortalContainer';
 
 /**
  * Enveloppe les pop-up d'état environnemental (Altitude/Profondeur, Manque d'oxygène, Récupération
@@ -33,6 +34,7 @@ import { createPortal } from 'react-dom';
  * l'ancien comportement ou qui rencontre un cas d'usage particulier.
  */
 export function EnvStatusPopupLayer({ onTop, children }: { onTop: boolean; children: React.ReactNode }) {
-  if (onTop && typeof document !== 'undefined') return createPortal(<>{children}</>, document.body);
+  const portalContainer = usePortalContainer();
+  if (onTop && typeof document !== 'undefined') return createPortal(<>{children}</>, portalContainer);
   return <>{children}</>;
 }

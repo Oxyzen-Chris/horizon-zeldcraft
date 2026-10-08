@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { restAtHut, updatePlayer, type RepRules } from '@/lib/gameState';
 import { useI18n } from '@/lib/i18n';
+import { usePortalContainer } from '@/lib/usePortalContainer';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
 
 /**
@@ -21,6 +23,7 @@ export function HutRestModal({
 }) {
   const { t } = useI18n();
   const { address } = useEffectiveAccount();
+  const portalContainer = usePortalContainer();
   const durationSec = Math.max(1, rules.hutRestDurationSec);
   const [remaining, setRemaining] = useState(durationSec);
   const timerRef = useRef<any>(null);
@@ -57,9 +60,13 @@ export function HutRestModal({
     }
   };
 
-  if (!active) return null;
+  if (!active || typeof document === 'undefined') return null;
 
-  return (
+  // 🆕 Portalé (voir usePortalContainer.ts) — corrige le pop-up resté invisible derrière le canvas
+  // quand le widget Plateforme 3D est en plein écran (bug « le clic gauche [...] ne fonctionne plus
+  // [...] en plein écran » : ce pop-up n'était pas un portal, donc restait sous le canvas plein
+  // écran, placé dans le top layer du navigateur).
+  return createPortal(
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-4">
       <div className="bg-slate-900 border-2 border-amber-500 rounded-xl p-8 max-w-md w-full text-center">
         <div className="text-7xl mb-4 animate-pulse">🛖</div>
@@ -74,6 +81,7 @@ export function HutRestModal({
         </div>
         <p className="text-xs text-slate-500">{t('hutRest.hint')}</p>
       </div>
-    </div>
+    </div>,
+    portalContainer,
   );
 }

@@ -5156,3 +5156,83 @@ partagent tous `useDraggableWidget`) ; aucune signature publique du hook modifi�
 explicite (clic droit → "🎯 Recentrer") et le redimensionnement (widgets `SIZE_KEY`) ne sont pas
 affectés, ces mécanismes n'empruntant pas `onPointerUp`.
 
+## 🖱️ Correctif : le clic gauche pour ramasser un objet/interagir ne fonctionnait plus en plein écran (widget Plateforme 3D)
+
+Demande utilisateur : « je peux ramasser les objets dans le widget 3D en cliquant bouton gauche de
+la souris dessus [...] mais ce n'est pas possible en mode pleine fenêtre dans le widget 3D, le clic
+gauche de la souris ne fonctionne plus pour ramasser les objets ».
+
+### Cause racine
+
+Le bouton plein écran (`⛶`, voir § Boussole/recentrage automatique) appelle
+`fullscreenRef.current.requestFullscreen()` (API Fullscreen native du navigateur) sur le `<div>`
+contenant le `<Canvas>` R3F. Le click sur un marqueur (PNJ, objet au sol/« drop », trésor, quête,
+monde, familier, hutte, porte de crypte…) déclenchait bel et bien `onMarkerClick3D` →
+`setInteractionMarker(m)` **exactement comme en mode fenêtré** — le clic lui-même n'était PAS cassé.
+Le vrai problème : `PoiInteractionModal.tsx` (et plusieurs autres pop-up du jeu — voir liste
+ci-dessous) affichent leur contenu via `ReactDOM.createPortal(..., document.body)`, pour échapper au
+`overflow`/`z-index` LOCAL du widget qui les héberge (voir `EnvStatusPopupLayer.tsx`).
+
+Or l'API Fullscreen place l'élément demandé (ici `fullscreenRef`) dans le **« top layer »** du
+navigateur : une pile d'affichage spéciale, peinte APRÈS (donc toujours AU-DESSUS) de tout le reste
+du document — **y compris les éléments portalés vers `document.body` avec un `z-index` énorme**
+(`z-[90]`, `z-[95]`, `z-[100]`, `z-[101]`…), puisque `document.body` lui-même n'appartient PAS au top
+layer. Résultat : cliquer sur un objet en plein écran ouvrait bien le pop-up (état React mis à jour
+normalement), mais celui-ci restait rendu **invisible, cacher derrière le `<canvas>` plein écran** —
+donnant l'impression exacte signalée que « le clic ne fonctionne plus ».
+
+Composants affectés (tous portaient vers `document.body` sans tenir compte du plein écran) :
+`PoiInteractionModal.tsx` (PNJ/objets/trésors/quêtes/mondes/familiers/huttes/cryptes — la cause du
+bug signalé), `ConfirmDialog.tsx`, `FightResultModal.tsx`, `HiddenFamiliarPopup.tsx`,
+`ParchmentPopup.tsx`, `WalletPanel.tsx` (pop-up de rechargement), le pop-up `stargateFeedback` de
+`Platform3DWidget.tsx`, ainsi que `HutRestModal.tsx` et la pastille `hutFeedback` (non portalés mais
+rendus comme simples frères DOM de `fullscreenRef`, donc soumis au MÊME problème de pile
+d'affichage).
+
+### Correctif (`lib/usePortalContainer.ts`, nouveau hook partagé)
+
+```ts
+export function usePortalContainer(): Element {
+  const [container, setContainer] = useState<Element>(() =>
+    document.fullscreenElement ?? document.body);
+  useEffect(() => {
+    const update = () => setContainer(document.fullscreenElement ?? document.body);
+    update();
+    document.addEventListener('fullscreenchange', update);
+    return () => document.removeEventListener('fullscreenchange', update);
+  }, []);
+  return container;
+}
+```
+
+Chaque composant listé ci-dessus appelle désormais `const portalContainer = usePortalContainer();`
+et portale vers `portalContainer` au lieu de `document.body` en dur. Le hook s'abonne à l'évènement
+global `fullscreenchange` (générique — fonctionne quel que soit le widget qui bascule en plein
+écran, pas seulement la Plateforme 3D) : dès qu'UN élément de la page passe en plein écran, TOUS les
+pop-up montés basculent instantanément vers ce nouveau conteneur (qui entre alors lui-même dans le
+top layer, au-dessus du canvas) ; en sortie de plein écran, ils retombent sur `document.body`,
+restituant EXACTEMENT le comportement historique.
+
+### Vérification (Playwright, `chromium`, compte Démo anonyme)
+
+- Mode fenêtré : clic sur un PNJ adjacent à Synk → pop-up visible normalement (`z-[90]`, taille
+  pleine, `display:flex`) — comportement inchangé.
+- Glissement caméra (orbite, 80×40px) : AUCUN pop-up ouvert à tort (la distinction clic/glissement,
+  `dragStateRef`/`DRAG_THRESHOLD_PX`, n'est pas affectée par ce correctif).
+- Activation du plein écran (`document.fullscreenElement` confirmé non nul) puis clic sur un PNJ
+  adjacent (« Forgeron de Corail Hoku ») → pop-up **visible à l'écran** (capture d'écran), rect
+  plein viewport (1280×800), `document.fullscreenElement.contains(popup) === true` — confirmé
+  portalé dans le bon conteneur.
+- Sortie du plein écran (`document.exitFullscreen()`) → nouveau clic sur un PNJ → pop-up à nouveau
+  visible normalement en mode fenêtré.
+- `npx tsc --noEmit` : 0 erreur.
+
+### Non-régression
+
+Le hook retombe sur `document.body` dès qu'aucun élément n'est en plein écran — identique en tout
+point au comportement précédent pour les ~95% de sessions qui n'utilisent jamais le bouton plein
+écran. Aucune signature de props modifiée sur les composants concernés ; seul leur conteneur de
+portail devient dynamique. `HutRestModal`/`hutFeedback` (non portalés avant) sont désormais
+également portalés (même hook) — aucun changement visuel/fonctionnel en mode fenêtré, uniquement
+corrigés pour rester visibles en plein écran.
+
