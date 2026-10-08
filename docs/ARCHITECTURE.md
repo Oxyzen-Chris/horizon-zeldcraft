@@ -5010,3 +5010,47 @@ voir section précédente) ne sont pas affectés non plus.
 aucune erreur console/page, et absence confirmée des deux libellés précédemment affichés
 (« Dialing in progress » et « Composition en cours »).
 
+## Correctif : un widget rouvert puis refermé changeait de position (icône décalée)
+
+Demande utilisateur : « Corrige le bug des widgets qui bougent de positions quand on les ouvrent
+et les ferment : Une fois ouverte, puis fermée, l'icône widget change de position. » Reproduit avec
+Playwright sur le widget "Aides" : icône réduite à `(24, 630)`, fenêtre dépliée re-clampée par
+`reclampToRenderedSize` à `(24, 180)` pour tenir dans le viewport (fenêtre haute ancrée près du bas
+de l'écran à l'état réduit), puis — AVANT correctif — l'icône réapparaissait à `(24, 180)` au lieu
+de `(24, 630)` après fermeture via le bouton "✕".
+
+### Cause racine (`lib/useDraggableWidget.ts`, partagé par les ~14 fenêtres flottantes du jeu)
+
+`onPointerDown`/`onPointerMove`/`onPointerUp` sont posés sur TOUTE la zone de glissement (l'en-tête
+de la fenêtre dépliée, qui contient aussi le bouton "✕" de fermeture et d'éventuels onglets). Un
+simple CLIC (sans glissement) dans cette zone déclenche quand même la séquence
+`pointerdown`→`pointerup` (les événements pointer bullent des enfants vers le parent). Or
+`onPointerUp` committait INCONDITIONNELLEMENT la position d'AFFICHAGE courante (`pos`, potentiellement
+re-clampée TEMPORAIREMENT par `reclampToRenderedSize` pour tenir dans le viewport une fois la
+fenêtre dépliée) dans la position CANONIQUE (`canonicalPosRef`) ET le localStorage — alors que le
+joueur n'avait RIEN déplacé. Fermer ensuite le widget réappliquait ce canonique corrompu à la petite
+icône, la faisant apparaître loin de sa position d'origine.
+
+### Correctif
+
+`onPointerUp` ignore désormais le commit (canonique + localStorage) si aucun glissement RÉEL n'a eu
+lieu, en se basant sur `movedRef.current` (déjà utilisé par `onToggleClick` pour distinguer un clic
+d'un glissement, seuil `MOVE_THRESHOLD` = 6px) — qui ne vaut `true` que si `onPointerMove` a mesuré
+un déplacement dépassant ce seuil. Un simple clic (ouverture, fermeture, clic sur un onglet) laisse
+`canonicalPosRef`/le localStorage intacts ; un glissement réel continue de les mettre à jour
+exactement comme avant.
+
+**Vérifié** (Playwright, `chromium`, compte Démo anonyme) :
+- Avant → ouverture → fermeture (clic "✕", sans glissement) : position de l'icône identique au
+  pixel près (delta 0,0), y compris dans le cas reproduit où la fenêtre dépliée est re-clampée très
+  loin de la position de l'icône réduite.
+- Glissement réel (appui, déplacement de 150×200px, relâchement) : la position se met toujours à
+  jour normalement ET persiste après rechargement de page (`localStorage`) — comportement inchangé.
+- `npx tsc --noEmit` : 0 erreur.
+
+**Non-régression** : correctif centralisé dans le hook partagé (une seule modification couvre les
+~14 widgets flottants du jeu, StatsWidget/InventoryWidget/HelpWidget/AudioWidget/etc., qui
+partagent tous `useDraggableWidget`) ; aucune signature publique du hook modifiée ; le recentrage
+explicite (clic droit → "🎯 Recentrer") et le redimensionnement (widgets `SIZE_KEY`) ne sont pas
+affectés, ces mécanismes n'empruntant pas `onPointerUp`.
+

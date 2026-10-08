@@ -300,6 +300,19 @@ export function useDraggableWidget(opts: UseDraggableWidgetOptions): DraggableWi
   const onPointerUp = useCallback(() => {
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
+    // Corrige le bug remonté « une fois ouverte puis fermée, l'icône du widget change de
+    // position » : `onPointerDown`/`onPointerUp` sont posés sur TOUTE la zone de glissement (en-
+    // tête de la fenêtre dépliée, qui contient aussi le bouton "✕" et d'éventuels onglets), donc
+    // un simple CLIC (sans glissement) dans cette zone — p. ex. fermer le widget — déclenche quand
+    // même la séquence pointerdown→pointerup. Sans ce garde-fou, `current` ci-dessous valait la
+    // position d'AFFICHAGE, potentiellement re-clampée TEMPORAIREMENT par `reclampToRenderedSize`
+    // (ex. widget ancré près du bas de l'écran à l'état réduit, mais déplacé vers le haut une fois
+    // déplié pour tenir dans le viewport) — qui écrasait alors la position CANONIQUE (et le
+    // localStorage) avec cette position d'affichage temporaire, décalant l'icône une fois le
+    // widget refermé. `movedRef.current` n'est mis à `true` QUE par un véritable glissement (voir
+    // `onPointerMove`, seuil `MOVE_THRESHOLD`) — un simple clic le laisse à `false`, donc on ne
+    // touche ici ni à `canonicalPosRef` ni au localStorage.
+    if (!movedRef.current) return;
     setPos(current => {
       if (current) {
         canonicalPosRef.current = current;

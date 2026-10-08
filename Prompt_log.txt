@@ -584,19 +584,20 @@ Evolution : Dans le widget de la plateforme 3D, transforme tous les anneaux viol
 - Joue un son à l'activation de la Porte des étoiles et ajoute le son dans le widget des sons audio. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 - Retire le message "Dialing in progress..." à la composition de la porte des étoiles : [image: copilot-image-391879.png]. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 -----------------------------------------------------------------------------------------------------------------
-
-
-
-
-Corrige le bug des widgets qui bougent de positions quand on les ouvrent et les ferment : Une fois ouverte, puis fermée, l'icone widget change de position. Ici la position du widget fermé XXXXX, la position du widget ouvert YYYYY, la position du widget une fois re-fermée qui a bougé de position et n'est plus à sa position initiale (en bas) ZZZZZZZ. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+Corrige le bug des widgets qui bougent de positions quand on les ouvrent et les ferment : Une fois ouverte, puis fermée, l'icone widget change de position. Ici la position du widget (Help) fermé [image: copilot-image-e95edb.png], la position du widget ouvert [image: copilot-image-d5ed59.png], la position du widget une fois re-fermée qui a bougé de position et n'est plus à sa position initiale (en bas) [image: copilot-image-48eeed.png]. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+-----------------------------------------------------------------------------------------------------------------
 
 
 
 
 
-- Bug dans le widget Wallet top-up XXXXXXX : Bien qu'étant passé en langue US et en monnaie $, la devise est toujours euros dans les icônes du widget top-up : Corrige ce bug car il est bloquant forcément quand le joueur décidera d'alimenter son compte de coinsdu jeu en voulant payer en monnaie FIAT via ApplePay, GooglePay, PayPal ou credit card. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
+
+- Bug dans le widget Wallet top-up XXXXXXX : Bien qu'étant passé en langue US et en monnaie $, la devise est toujours euros dans les icônes du widget top-up : Corrige ce bug car il est bloquant forcément quand le joueur décidera d'alimenter son compte de coinsdu jeu en voulant payer en monnaie FIAT via ApplePay, GooglePay, PayPal ou credit card. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place. Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
+
+Quand une Porte des étoiles est activée et que tu peux accéder au nouveau Monde (par exemple "Sanctuary of Azerothyl", transporte Synk dans ce monde qui lui même aura une porte des étoiles ouvertes pour revenir... Ici tu pourras commencer a chercher les composants/pièces de la machine incroyable. Dans chaque nouveau Monde que tu décrouvriras en activant la Porte des étoiles en possédant l'expérience ou les bons objets, tu retrouveras des morceaux de composants/pièces de la machine incroyable...
+Bien sûr, tu n'oublieras pas d'enrichir la documentation sur le repository GitHub. Utilises Playwright pour simuler, tester, débugger et résoudre au besoin. Vérifie néanmoins que la solution et les développements que tu implémenteras ne feront aucune régression de code ou de stratégie de jeu déjà en place.
 
 
 
