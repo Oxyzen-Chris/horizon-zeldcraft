@@ -753,6 +753,16 @@ export function RepRulesPanel() {
             onChange={e => setBool('platform3dAntialiasEnabled', e.target.checked)} />
           <span className="text-slate-300">{t('admin.repRules.platform3dAntialiasEnabled')}</span>
         </label>
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={rules.platform3dAdaptivePerformanceEnabled !== false}
+            onChange={e => setBool('platform3dAdaptivePerformanceEnabled', e.target.checked)} />
+          <span className="text-slate-300">{t('admin.repRules.platform3dAdaptivePerformanceEnabled')}</span>
+        </label>
+        <label className="text-xs block mb-2">
+          <span className="text-slate-400">{t('admin.repRules.platform3dAdaptiveMinDpr')}</span>
+          <input type="number" step="0.05" min="0.25" max="1" className="input mt-1 w-full"
+            value={rules.platform3dAdaptiveMinDpr} onChange={e => setFloat('platform3dAdaptiveMinDpr', e.target.value)} />
+        </label>
       </div>
       <div className="mt-4 pt-3 border-t border-slate-700">
         <h3 className="text-sm font-semibold mb-1">🧗 {t('admin.repRules.platform3dClimbTitle')}</h3>

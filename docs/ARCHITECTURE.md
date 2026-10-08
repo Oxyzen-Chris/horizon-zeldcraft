@@ -4464,6 +4464,62 @@ widget Portefeuille) : confirmé "0.99 €"/"3.99 €" en langue FR/ES/PT/EN par
 "3.99 $" après bascule vers la langue US via le sélecteur de langue — aucune régression observée
 pour les 4 autres langues (toutes restent en €).
 
+## 🚀 Dégradation adaptative de performance (anti-saccades GPU/CPU, Plateforme 3D)
+
+**Bug signalé** : malgré les correctifs GPU précédents (demande explicite du GPU le plus performant,
+suspension du rendu hors premier plan, ombres/anticrénelage désactivables), un utilisateur a
+signalé une saturation persistante du GPU INTÉGRÉ (91% dans le Gestionnaire des tâches Windows,
+GPU dédié NVIDIA quasi inactif à 14%) ET des saccades d'affichage visibles **pendant une session de
+jeu active** (onglet au premier plan — donc hors du cas déjà couvert par la suspension de rendu en
+arrière-plan).
+
+**Cause racine** : `powerPreference: 'high-performance'` n'est qu'un INDICE adressé au navigateur ;
+sur certaines machines/configurations Windows, le pilote verrouille déjà le GPU utilisé par
+l'exécutable du navigateur au niveau système, et aucun réglage émis par la page ne peut l'outrepasser
+(procédure de contournement manuelle déjà documentée plus haut dans ce document). Dans ce cas, la
+seule option qui reste côté jeu est de RÉDUIRE la charge de rendu 3D elle-même pour qu'elle tienne
+aussi sur un GPU intégré moins puissant — sans dégrader la qualité perçue sur une machine qui n'en a
+pas besoin.
+
+**Correctif** : ajout de `<PerformanceMonitor>` (bibliothèque `@react-three/drei`, déjà une
+dépendance du projet) à l'intérieur du `<Canvas>` du widget Plateforme 3D (`Platform3DWidget.tsx`),
+qui mesure le FPS réel en continu (fenêtre glissante ~2,5 s, pour ignorer un pic isolé et ne réagir
+qu'à un ralentissement soutenu) :
+- **`dpr` dynamique** (`adaptiveDpr`, résolution interne du rendu) : ajusté en continu et dans les
+  DEUX sens entre `platform3dAdaptiveMinDpr` (défaut 0.75, paramétrable en Administration) et 2 (le
+  plafond précédent, inchangé) selon le `factor` de performance retourné par `onChange`. Tant que le
+  FPS reste bon, `dpr` reste à 2 (comportement STRICTEMENT identique à avant) ; il n'est réduit que
+  si un ralentissement réel est mesuré, et remonte automatiquement dès que les FPS reviennent.
+- **Ombres portées** (`adaptiveShadowsOff`) : loquet à SENS UNIQUE, désactivé uniquement par
+  `onFallback` (drei ne le déclenche qu'après plusieurs oscillations hausse/baisse répétées malgré
+  l'ajustement de `dpr` — signe d'un ralentissement réellement persistant, pas un pic isolé). Volontairement
+  non réactivé automatiquement en cours de session (pour éviter tout effet de bascule/clignotement
+  visible des ombres) ; un rechargement de page réinitialise l'état et redonne sa chance au rendu
+  complet.
+- Les deux leviers restent entièrement désactivables via `platform3dAdaptivePerformanceEnabled`
+  (défaut true, nouveau réglage Administration) pour retrouver EXACTEMENT l'ancien comportement
+  statique (`dpr` fixe `[1,2]`, ombres pilotées uniquement par `platform3dShadowsEnabled`).
+- `antialias` (réglage de création du contexte WebGL, non modifiable après coup sans recréer le
+  contexte) reste un réglage STATIQUE (`platform3dAntialiasEnabled`, inchangé) — seul `dpr` et les
+  ombres (propriétés du renderer, modifiables à chaud) sont pilotés dynamiquement.
+
+**Non-régression** : purement additif au niveau du `<Canvas>` (aucune mécanique de jeu, de
+déplacement ou de collision touchée). Par défaut (FPS déjà bon), le comportement est rigoureusement
+identique à avant (`dpr=2`, ombres actives) : aucune perte de qualité visuelle sur une machine
+capable. Vérifié également que les tuiles de terrain (`TerrainBlock`) ne portent déjà `castShadow`
+que sur les dalles rocheuses élevées (pas les dalles plates eau/herbe/terre) — pas de régression
+supplémentaire nécessaire à ce niveau.
+
+**Vérification** : `npx tsc --noEmit` : 0 erreur. Playwright (session Démo anonyme) : widget
+Plateforme 3D ouvert, scène rendue normalement (Synk, terrain, D-pad, boussole), 0 erreur console.
+**Limite assumée** : l'environnement Playwright/Chromium headless utilisé pour la vérification ne
+dispose généralement pas d'accélération GPU matérielle réelle (rendu logiciel SwiftShader), ce qui
+rend impossible la mesure fiable d'un gain de FPS réel dans ce contexte automatisé — la correction
+repose sur l'API `PerformanceMonitor` éprouvée de `@react-three/drei` (mécanisme standard largement
+utilisé pour la mise à l'échelle dynamique de résolution dans l'écosystème React Three Fiber) et sur
+une relecture de code confirmant qu'aucun changement de comportement n'intervient par défaut sur une
+machine déjà performante.
+
 ## 🎥 Correctif DÉFINITIF de la caméra de sortie de souterrain (condition de course + garde par raycast)
 
 Malgré PLUSIEURS correctifs précédents (pose fixe `CRYPT_EXIT_CAMERA_POS`, puis angle de caméra

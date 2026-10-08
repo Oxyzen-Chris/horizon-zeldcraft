@@ -4643,6 +4643,26 @@ export interface RepRules {
   // premier plan, sans réglage requis (aucune régression : le rendu reprend normalement dès le
   // retour au premier plan, comportement inchangé tant que l'onglet reste visible).
   platform3dAntialiasEnabled: boolean;        // Active l'anticrénelage (MSAA) en Plateforme 3D (défaut true, désactivable si GPU limité)
+  // ─── Suite n°3 : dégradation adaptative de performance (retour utilisateur persistant malgré
+  // les réglages précédents — « sature énormément le GPU [...] et saccade l'affichage [...] sans
+  // nuire [...] à la qualité du rendu », Task Manager : GPU intégré à 91% PENDANT une session de
+  // jeu active, onglet au premier plan — donc hors du cas déjà couvert par la suspension de rendu
+  // en arrière-plan). Cause : aucun indice `powerPreference`/réglage de contenu ne peut forcer le
+  // routage GPU si Windows/le pilote verrouille déjà le GPU intégré pour l'exécutable du navigateur
+  // (procédure de contournement manuelle déjà documentée) ; la seule option qui reste côté jeu est
+  // de RÉDUIRE la charge de rendu elle-même pour qu'elle tienne aussi sur un GPU intégré, sans
+  // dégrader la qualité perçue sur une machine qui n'en a pas besoin. `<PerformanceMonitor>` (drei,
+  // voir Platform3DWidget.tsx) mesure le FPS réel en continu : tant qu'il reste bon (comportement
+  // actuel sur un GPU dédié correctement utilisé), `dpr` reste au maximum (2) et les ombres restent
+  // actives — AUCUN changement par défaut. Seulement si un ralentissement réel est mesuré, `dpr`
+  // est réduit en douceur (résolution interne du rendu 3D, jusqu'à `platform3dAdaptiveMinDpr`) ;
+  // en cas de ralentissement persistant malgré cette baisse, les ombres portées sont désactivées
+  // pour le reste de la session (dernier levier, le plus coûteux). `platform3dAdaptivePerformanceEnabled`
+  // (défaut true) permet de désactiver entièrement ce mécanisme pour retrouver EXACTEMENT le
+  // comportement statique précédent (`dpr` fixe à [1,2], ombres pilotées uniquement par
+  // `platform3dShadowsEnabled` ci-dessus).
+  platform3dAdaptivePerformanceEnabled: boolean; // Réduit dynamiquement dpr/ombres en cas de saccades mesurées, sans impact si le FPS est déjà bon (défaut true)
+  platform3dAdaptiveMinDpr: number;              // Résolution interne (dpr) minimale autorisée en dégradation adaptative (défaut 0.75)
   // ─── Escalade/saut de montagne en Plateforme 3D (voir Platform3DWidget.tsx::move()) — grimper
   // sur une dalle plus haute que la position courante de Synk nécessite de maintenir Espace (voir
   // platform3dJumpEnabled/Platform3DObjectFlags.climbable) ; DESCENDRE reste toujours libre (jamais
@@ -5210,6 +5230,8 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dHighPerformanceGpuEnabled: true,
   platform3dShadowsEnabled: true,
   platform3dAntialiasEnabled: true,
+  platform3dAdaptivePerformanceEnabled: true,
+  platform3dAdaptiveMinDpr: 0.75,
   platform3dCubeHeightM: 400,
   platform3dFallDamageMinCubes: 4,
   platform3dFallDamageHp: 20,

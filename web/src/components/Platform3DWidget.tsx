@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { OrbitControls, PerformanceMonitor } from '@react-three/drei';
 import * as THREE from 'three';
 import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
@@ -2616,6 +2616,22 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     onVisibilityChange();
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, []);
+  // ─── Optimisation GPU/CPU (suite n°3, voir docs/ARCHITECTURE.md § Optimisation GPU/CPU et
+  // gameState.ts::platform3dAdaptivePerformanceEnabled) — dégradation adaptative et RÉVERSIBLE de
+  // la résolution interne (`dpr`), pilotée en continu par `<PerformanceMonitor>` (drei, monté plus
+  // bas DANS `<Canvas>`) qui mesure le FPS réel : tant qu'il reste bon, `adaptiveDpr` reste à son
+  // maximum (2, identique au comportement précédent `dpr={[1,2]}`) — AUCUN changement par défaut
+  // sur une machine qui n'en a pas besoin. `adaptiveShadowsOff` est un loquet à SENS UNIQUE (jamais
+  // réactivé automatiquement en cours de session, pour éviter tout effet de bascule/clignotement
+  // des ombres) déclenché uniquement par `onFallback` (oscillations répétées malgré la baisse de
+  // `dpr` = ralentissement réellement persistant, pas un simple pic isolé) ; un rechargement de
+  // page réinitialise l'état et redonne sa chance au rendu complet. Les deux restent ignorés si
+  // `platform3dAdaptivePerformanceEnabled` est désactivé par un administrateur (repli exact sur
+  // l'ancien comportement statique).
+  const adaptivePerfEnabled = rules?.platform3dAdaptivePerformanceEnabled ?? true;
+  const adaptiveMinDpr = rules?.platform3dAdaptiveMinDpr ?? 0.75;
+  const [adaptiveDpr, setAdaptiveDpr] = useState(2);
+  const [adaptiveShadowsOff, setAdaptiveShadowsOff] = useState(false);
   // Cycle jour/nuit + thème d'ambiance effectif (voir Platform3DAmbientScene.tsx et
   // lib/useWorldTheme.ts — même hook que WeatherPanel.tsx/WorldMapWidget.tsx, une seule résolution
   // fait autorité pour éviter toute incohérence entre widgets).
@@ -3919,9 +3935,12 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         }}
       >
         <Canvas
-          shadows={rules?.platform3dShadowsEnabled ?? true}
+          shadows={(rules?.platform3dShadowsEnabled ?? true) && !(adaptivePerfEnabled && adaptiveShadowsOff)}
           camera={{ position: [0, 3.2, 5.6], fov: 45 }}
-          dpr={[1, 2]}
+          // `dpr` piloté par `<PerformanceMonitor>` (voir plus bas, DANS ce `<Canvas>`) quand la
+          // dégradation adaptative est active — repli EXACT sur l'ancien réglage statique [1,2]
+          // sinon (voir adaptivePerfEnabled/adaptiveDpr ci-dessus et § Optimisation GPU/CPU).
+          dpr={adaptivePerfEnabled ? adaptiveDpr : [1, 2]}
           // Stoppe totalement le rendu quand l'onglet n'est pas visible (voir `documentVisible`
           // ci-dessus) — AUCUN effet quand l'onglet est au premier plan (`'always'`, comportement
           // strictement identique à avant), donc zéro régression de fluidité pendant le jeu actif.
@@ -3948,6 +3967,20 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
             antialias: rules?.platform3dAntialiasEnabled ?? true,
           }}
         >
+          {adaptivePerfEnabled && (
+            <PerformanceMonitor
+              // Ajuste `adaptiveDpr` en continu (0..1 lissé sur [adaptiveMinDpr, 2]) dès qu'un
+              // ralentissement réel est mesuré sur un échantillon de FPS glissant (comportement
+              // par défaut de drei : ~10 fenêtres de 250 ms, soit ~2,5 s avant le premier ajustement
+              // — volontairement peu réactif pour ignorer un pic isolé et ne réagir qu'à un
+              // ralentissement soutenu). `onFallback` ne se déclenche qu'après plusieurs
+              // oscillations hausse/baisse répétées (réglage par défaut de drei) : signe d'un
+              // ralentissement persistant malgré l'ajustement de `dpr`, seul cas où les ombres
+              // portées sont désactivées (loquet à sens unique, voir adaptiveShadowsOff ci-dessus).
+              onChange={({ factor }) => setAdaptiveDpr(adaptiveMinDpr + factor * (2 - adaptiveMinDpr))}
+              onFallback={() => setAdaptiveShadowsOff(true)}
+            />
+          )}
           {towerTopActive ? (
             <TowerTopScene
               stage={stage} facing={facing} equipment={equipment}
