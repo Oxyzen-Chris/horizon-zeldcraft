@@ -264,6 +264,19 @@ let obstacleAvoidanceEnabled = true;
  * de partie). `[]` tant qu'aucun widget n'a encore rapporté de catalogue (aucun blocage lié aux
  * POI de type village/taverne/écurie dans ce cas, seuls terrain/props restent vérifiés). */
 let worldPois: { x: number; y: number; poiType?: MapPoiType; radius?: number }[] = [];
+/** Derniers marqueurs STATIQUES obstacles connus (voir `STATIC_OBSTACLE_MARKER_KINDS`/
+ * `isWorldPosBlockedByStaticMarker` plus bas — actuellement uniquement la porte des étoiles
+ * FLOTTANTE inter-mondes, `kind:'world'`, + sa console adjacente) — alimenté par
+ * `reportWorldMarkers` ci-dessous, appelé par Platform3DWidget.tsx/GameCanvas2D.tsx à chaque
+ * recalcul de leur propre `markers` (les 2 seuls widgets qui connaissent ces marqueurs flottants ;
+ * WorldMapWidget.tsx ne les gère pas, exactement comme pour le blocage de Synk lui-même,
+ * `isWorldPosBlockedByStaticMarker`, déjà appelé UNIQUEMENT par ces 2 mêmes widgets). Déjà filtré
+ * par `STATIC_OBSTACLE_MARKER_KINDS` à la source (plutôt que de refiltrer `markers` en entier à
+ * chaque case candidate testée par `isTileBlockedForActor`, appelé très fréquemment). `[]` tant
+ * qu'aucun widget n'a encore rapporté de marqueurs (comportement historique : ces marqueurs restent
+ * alors traversables par les acteurs errants, zéro régression tant qu'aucun des 2 widgets 3D/2D
+ * n'est monté). */
+let staticObstacleMarkers: { id: string; kind: string; x: number; y: number }[] = [];
 /** Props considérés comme des obstacles PLEINS pour un acteur errant vivant — copie fidèle des
  * entrées `obstacle: true` de `DEFAULT_PLATFORM3D_OBJECT_FLAGS` (gameState.ts) pour les props
  * (arbre/bambou/baobab/palmier/hutte/château), à l'exclusion de `portal` (toujours traversable,
@@ -398,17 +411,22 @@ function isBlockedBySynkProximity(x: number, y: number): boolean {
 /** Combine l'évitement d'obstacles de terrain (`isTileBlockedForRoaming`, qui raisonne en CASE
  * ENTIÈRE, voir `worldTileAt`), l'emprise au sol débordante des gros props (`isNearBlockingPropFootprint`,
  * qui raisonne en coordonnées RÉELLES pour capter le débordement visuel sur les cases voisines, voir
- * `PROP_FOOTPRINT_RADIUS`) ET l'évitement mutuel entre acteurs vivants (`isTileBlockedByOtherActor`,
- * qui raisonne également en coordonnées RÉELLES non arrondies, voir `ACTOR_COLLISION_RADIUS`) —
- * SEUL point d'appel utilisé par `findDetourDirection` (recherche d'une direction de REMPLACEMENT)
- * ci-dessous. Synk est délibérément EXCLU d'ici (voir `isBlockedBySynkProximity` ci-dessus) :
+ * `PROP_FOOTPRINT_RADIUS`), l'évitement mutuel entre acteurs vivants (`isTileBlockedByOtherActor`,
+ * qui raisonne également en coordonnées RÉELLES non arrondies, voir `ACTOR_COLLISION_RADIUS`) ET les
+ * marqueurs STATIQUES obstacles (`isWorldPosBlockedByStaticMarker`, voir `staticObstacleMarkers` —
+ * porte des étoiles flottante inter-mondes + sa console, demande utilisateur « tous les PNJ [...]
+ * familiers [...] dragons [...] loup-garou [...] sangliers et marcassin [...] ne doivent pas pouvoir
+ * traverser les portes des Étoiles ou même le pupitre ») — SEUL point d'appel utilisé par
+ * `findDetourDirection` (recherche d'une direction de REMPLACEMENT) ci-dessous. Synk est
+ * délibérément EXCLU d'ici (voir `isBlockedBySynkProximity` ci-dessus) :
  * `advanceActor` l'interroge séparément et ne déclenche JAMAIS de contournement actif contre Synk,
  * uniquement un arrêt immobile. `x`/`y` : coordonnées RÉELLES (non arrondies) de la case candidate —
  * l'arrondi nécessaire à `isTileBlockedForRoaming` est fait ICI, en interne. */
 function isTileBlockedForActor(x: number, y: number, selfId: string): boolean {
   return isTileBlockedForRoaming(Math.round(x), Math.round(y))
     || isNearBlockingPropFootprint(x, y)
-    || isTileBlockedByOtherActor(x, y, selfId);
+    || isTileBlockedByOtherActor(x, y, selfId)
+    || isWorldPosBlockedByStaticMarker(x, y, staticObstacleMarkers);
 }
 
 /** 🆕 API publique pour SYNK LUI-MÊME (voir Platform3DWidget.tsx::move / GameCanvas2D.tsx::move) —
@@ -448,17 +466,21 @@ export function isWorldPosBlockedByLivingActor(
   return false;
 }
 
-/** Marqueurs catalogue STATIQUES (jamais errants) qui doivent bloquer Synk comme un vrai obstacle,
- * au même titre qu'une hutte/un arbre (voir gameState.ts::Platform3DObjectFlags) — distinct de
- * `isWorldPosBlockedByLivingActor` ci-dessus (réservée aux PNJ/familiers/faune, errants ou non, qui
- * ont une IDENTITÉ et un cycle de vie propre). Introduit pour la porte des étoiles flottante
- * (`kind:'world'`, voir Platform3DWidget.tsx::StargatePortal) suite à la demande utilisateur
- * « fait en sorte que je ne puisse pas passer a travers la porte des étoiles ou de la console/
- * pupitre [...] a l'avenir, tout nouveaux objets que j'ajoute dans le jeu doit être considéré comme
- * un obstacle » — ce tableau est donc le point d'extension à privilégier pour tout futur marqueur
- * STATIQUE (non errant) qui doive lui aussi bloquer Synk : il suffit d'y ajouter son `kind`, aucun
- * autre changement requis (le même appel couvre déjà 3D/2D, voir les 2 points d'appel identiques
- * dans Platform3DWidget.tsx et GameCanvas2D.tsx). Même rayon `ACTOR_COLLISION_RADIUS` que les autres
+/** Marqueurs catalogue STATIQUES (jamais errants) qui doivent bloquer Synk ET tout acteur errant
+ * vivant (PNJ/familier/dragon/faune) comme un vrai obstacle, au même titre qu'une hutte/un arbre
+ * (voir gameState.ts::Platform3DObjectFlags) — distinct de `isWorldPosBlockedByLivingActor`
+ * ci-dessus (réservée aux PNJ/familiers/faune, errants ou non, qui ont une IDENTITÉ et un cycle de
+ * vie propre). Introduit pour la porte des étoiles flottante (`kind:'world'`, voir
+ * Platform3DWidget.tsx::StargatePortal) suite à la demande utilisateur « fait en sorte que je ne
+ * puisse pas passer a travers la porte des étoiles ou de la console/pupitre [...] a l'avenir, tout
+ * nouveaux objets que j'ajoute dans le jeu doit être considéré comme un obstacle » — ce tableau est
+ * donc le point d'extension à privilégier pour tout futur marqueur STATIQUE (non errant) qui doive
+ * lui aussi bloquer Synk : il suffit d'y ajouter son `kind`, aucun autre changement requis (le même
+ * appel couvre déjà 3D/2D pour Synk, voir les 2 points d'appel identiques dans Platform3DWidget.tsx
+ * et GameCanvas2D.tsx, ET désormais les acteurs errants via `isTileBlockedForActor`/
+ * `staticObstacleMarkers`/`reportWorldMarkers` — demande utilisateur « tous les PNJ [...] familiers
+ * [...] dragons [...] loup-garou [...] sangliers et marcassin [...] ne doivent pas pouvoir traverser
+ * les portes des Étoiles ou même le pupitre »). Même rayon `ACTOR_COLLISION_RADIUS` que les autres
  * obstacles vivants, centré sur la position PROPRE de l'anneau. */
 const STATIC_OBSTACLE_MARKER_KINDS = new Set(['world']);
 
@@ -906,6 +928,20 @@ export function configureRoaming(cfg: {
  * peuvent rapporter la même valeur sans effet de bord. */
 export function reportWorldPois(points: { x: number; y: number; poiType?: MapPoiType; radius?: number }[]): void {
   worldPois = points;
+}
+
+/** Rapporte les marqueurs COURANTS d'un widget (même forme que `markers` dans Platform3DWidget.tsx/
+ * GameCanvas2D.tsx) — pré-filtrés ICI aux seuls `STATIC_OBSTACLE_MARKER_KINDS` (actuellement la
+ * porte des étoiles flottante inter-mondes, `kind:'world'`) et conservés dans `staticObstacleMarkers`,
+ * consommés par `isTileBlockedForActor` ci-dessus pour que les PNJ/familiers/dragons/faune errants
+ * ne puissent plus traverser ce portail ni sa console, exactement comme Synk lui-même (voir
+ * `isWorldPosBlockedByStaticMarker`, déjà appelé par ces 2 mêmes widgets pour Synk). Appelé
+ * UNIQUEMENT par Platform3DWidget.tsx/GameCanvas2D.tsx (les 2 seuls widgets qui connaissent ces
+ * marqueurs flottants — WorldMapWidget.tsx n'a rien à rapporter ici, comme pour
+ * `isWorldPosBlockedByStaticMarker`) — idempotent, plusieurs widgets peuvent rapporter la même
+ * valeur sans effet de bord. */
+export function reportWorldMarkers(markers: { id: string; kind: string; x: number; y: number }[]): void {
+  staticObstacleMarkers = markers.filter(m => STATIC_OBSTACLE_MARKER_KINDS.has(m.kind));
 }
 
 /** À appeler par les widgets à chaque ouverture/fermeture d'un pop-up de rencontre/quête (voir

@@ -5306,3 +5306,81 @@ déterministe de ses coordonnées (`x,z`) ou de son `markerId` décide si elle a
   émoji plat `🛖`, pas en géométrie 3D — bug et correctif strictement localisés à
   `Platform3DWidget.tsx`).
 
+## 🌀🚫 Correctif : les PNJ/familiers/dragons/faune errante pouvaient traverser la Porte des étoiles flottante inter-mondes et sa console
+
+Demande utilisateur : « Tous les PNJ du jeu, tous les familiers, tous les dragons, tous loup-garou,
+tous les sangliers et marcassin, tous squelettes, etc. ne doivent pas pouvoir traverser les portes
+des Étoiles ou même le pupitre. [...] doivent être considérés comme des obstacles ».
+
+### Rappel : deux variantes distinctes de Porte des étoiles
+
+Le jeu comporte DEUX mécanismes de Porte des étoiles bien distincts, avec chacun son propre code de
+collision :
+
+1. **Porte posée au sol** (`tile.prop === 'portal'`, générée procéduralement par `worldTerrain.ts`,
+   nombre paramétrable via `RepRules.stargateCount`, voir § « 🌀 Porte des étoiles » plus haut) : son
+   statut d'obstacle (anneau + console adjacente) est centralisé dans `isObstacleAt()`
+   (`worldTerrain.ts`), déjà consommé à la fois par `isTileBlockedForRoaming()` (acteurs errants) ET
+   par les gestionnaires de déplacement de Synk dans les 3 widgets — **déjà correcte pour tout le
+   monde** avant ce correctif (fixée lors d'une demande précédente « je peux encore traverser le
+   portail et la console/pupitre »).
+2. **Porte flottante inter-mondes** (marqueur `kind:'world'`, composant `StargatePortal` dans
+   `Platform3DWidget.tsx`, utilisée pour voyager entre mondes/dimensions via `WorldDef.mapX/mapY`) :
+   son statut d'obstacle (anneau, rayon `WORLD_PORTAL_RING_BLOCK_RADIUS`, + console à l'offset fixe
+   `WORLD_PORTAL_CONSOLE_OFFSET`) est géré par `isWorldPosBlockedByStaticMarker()`
+   (`roamingActors.ts`) — mais cette fonction n'était appelée QUE par les gestionnaires de
+   déplacement de Synk (`Platform3DWidget.tsx`/`GameCanvas2D.tsx::move`), **jamais** par le moteur
+   d'errance (`isTileBlockedForActor()`, seul point d'appel utilisé par `findDetourDirection()` pour
+   router TOUS les PNJ/familiers/dragons/faune errante). Les créatures de type « squelette » ne sont
+   pas une entité errante séparée mais une simple « peau » de combat appliquée au même PNJ/familier
+   générique (voir `WildlifeKind`) — ce correctif les couvre donc automatiquement, sans code
+   supplémentaire.
+
+### Cause racine
+
+`isTileBlockedForActor(x, y, selfId)` — la fonction combinée utilisée par le moteur d'évitement
+d'obstacles des acteurs errants — ne vérifiait QUE le terrain/props/POI (`isTileBlockedForRoaming`),
+l'emprise débordante des gros props (`isNearBlockingPropFootprint`) et l'évitement mutuel entre
+acteurs (`isTileBlockedByOtherActor`). Elle ne consultait jamais `isWorldPosBlockedByStaticMarker`,
+si bien que la Porte flottante + sa console restaient totalement traversables pour tout acteur
+errant, alors que Synk lui-même en était déjà bloqué.
+
+### Correctif appliqué (`roamingActors.ts`)
+
+- Nouvelle variable de module `staticObstacleMarkers` (même esprit que `worldPois`/`reportWorldPois`
+  déjà existants) : liste des derniers marqueurs STATIQUES obstacles connus (aujourd'hui uniquement
+  `kind:'world'`), pré-filtrée à `STATIC_OBSTACLE_MARKER_KINDS` dès la réception (plutôt que de
+  refiltrer `markers` en entier à chaque case candidate testée, vu la fréquence d'appel).
+- Nouvelle fonction exportée `reportWorldMarkers(markers)`, appelée par `Platform3DWidget.tsx` et
+  `GameCanvas2D.tsx` (les 2 seuls widgets qui connaissent les marqueurs flottants — `WorldMapWidget.tsx`
+  n'en a pas besoin, exactement comme pour le blocage de Synk lui-même) via un `useEffect` calqué sur
+  celui déjà existant pour `reportWorldPois`.
+- `isTileBlockedForActor()` combine désormais un 4ᵉ test :
+  `isWorldPosBlockedByStaticMarker(x, y, staticObstacleMarkers)` — strictement le MÊME appel, avec les
+  MÊMES rayons (`WORLD_PORTAL_RING_BLOCK_RADIUS`/`WORLD_PORTAL_CONSOLE_OFFSET`), que celui déjà
+  utilisé pour bloquer Synk : parité totale entre le joueur et les acteurs errants.
+- `STATIC_OBSTACLE_MARKER_KINDS` reste le point d'extension privilégié pour tout futur marqueur
+  statique qui devrait, lui aussi, bloquer à la fois Synk ET les acteurs errants : il suffit d'y
+  ajouter son `kind`, sans autre changement.
+
+### Vérification (Playwright, `chromium`, compte Démo anonyme)
+
+- `npx tsc --noEmit` : 0 erreur.
+- Partie lancée en conditions réelles (widgets Plateforme 2D isométrique + Plateforme 3D ouverts
+  simultanément) pendant ~20 secondes, couvrant plusieurs cycles complets du moteur d'errance
+  (`stepActors`, cadence `RepRules.roamStepMs`) avec PNJ/dragon/familiers/faune actifs : aucune
+  erreur console ni exception JavaScript observée (vérifie notamment l'absence de régression sur le
+  nouveau point d'appel `isWorldPosBlockedByStaticMarker` dans la boucle d'errance). Déplacement de
+  Synk (flèches directionnelles) confirmé fonctionnel sans régression après le changement.
+
+### Non-régression
+
+- `isWorldPosBlockedByStaticMarker` elle-même reste strictement inchangée — seul un NOUVEL appelant
+  a été ajouté dans `roamingActors.ts` ; le blocage déjà en place pour Synk (3 widgets) n'est donc pas
+  affecté.
+- La Porte POSÉE AU SOL (`tile.prop === 'portal'`) et sa console restent gérées exclusivement par
+  `isObstacleAt()`/`isTileBlockedForRoaming()`, non modifiées ce correctif — leur blocage pour les
+  acteurs errants (déjà correct) et pour Synk reste identique.
+- `WorldMapWidget.tsx` n'a reçu aucune modification (il ne gère ni les marqueurs flottants `kind:'world'`
+  ni le blocage de Synk contre ceux-ci — cohérence maintenue avec l'architecture existante).
+

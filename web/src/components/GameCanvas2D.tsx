@@ -22,7 +22,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWidget';
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
-import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker, type ExtraRoamingActor } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, reportWorldMarkers, setInteractingActorId, getRoamStepMs, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker, type ExtraRoamingActor } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -341,6 +341,11 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // pour Synk lui-même (voir `poiPoints` ci-dessus) — un seul appel suffit (plusieurs widgets
   // rapportant la même valeur n'ont aucun effet de bord, voir reportWorldPois).
   useEffect(() => { reportWorldPois(poiPoints); }, [poiPoints]);
+  // 🆕 Alimente lib/roamingActors.ts en marqueurs STATIQUES obstacles (voir reportWorldMarkers) afin
+  // que isTileBlockedForActor() y bloque désormais aussi les PNJ/familiers/dragons/faune errants
+  // contre la porte des étoiles flottante + sa console, exactement comme Synk lui-même — même
+  // rationale et mêmes commentaires détaillés que dans Platform3DWidget.tsx.
+  useEffect(() => { reportWorldMarkers(markers); }, [markers]);
 
   // Position réelle de Synk sur la mapmonde (0-100%, source de vérité partagée avec
   // WorldMapWidget.tsx) et coin de la caméra isométrique (en cellules, 0-100 chacun).

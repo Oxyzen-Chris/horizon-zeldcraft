@@ -29,7 +29,7 @@ import { useHoldMovement } from '@/lib/useHoldMovement';
 import { usePortalContainer } from '@/lib/usePortalContainer';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { setUndergroundActive } from '@/lib/undergroundActive';
-import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker } from '@/lib/roamingActors';
+import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, reportWorldMarkers, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker } from '@/lib/roamingActors';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
@@ -2808,6 +2808,13 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // pour Synk lui-même — voir le même appel, avec les mêmes commentaires détaillés, dans
   // GameCanvas2D.tsx.
   useEffect(() => { reportWorldPois(poiPoints); }, [poiPoints]);
+  // 🆕 Alimente lib/roamingActors.ts en marqueurs STATIQUES obstacles (voir reportWorldMarkers) afin
+  // que isTileBlockedForActor() y bloque désormais aussi les PNJ/familiers/dragons/faune errants
+  // contre la porte des étoiles flottante + sa console, exactement comme Synk lui-même (voir
+  // isWorldPosBlockedByStaticMarker ci-dessous) — demande utilisateur « tous les PNJ [...]
+  // familiers [...] dragons [...] loup-garou [...] sangliers et marcassin [...] ne doivent pas
+  // pouvoir traverser les portes des Étoiles ou même le pupitre ».
+  useEffect(() => { reportWorldMarkers(markers); }, [markers]);
   // Portes de monde du catalogue (kind:'world') — utilisées par onPortalTileClick3D pour attribuer
   // un monde déterministe aux portails décoratifs (🌀), exactement comme GameCanvas2D.tsx::worldMarkers.
   const worldMarkers = useMemo(() => markers.filter(m => m.kind === 'world'), [markers]);
