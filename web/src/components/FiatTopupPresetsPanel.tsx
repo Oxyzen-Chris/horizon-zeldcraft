@@ -7,7 +7,7 @@ import { useI18n } from '@/lib/i18n';
 /** Panneau admin — presets de recharge fiat (CB/PayPal/Apple Pay/Google Pay → coins), sans passage
  * par la blockchain — voir docs/DEMO_FIAT.md et FiatTopupPanel.tsx (widget côté joueur). */
 export function FiatTopupPresetsPanel() {
-  const { t } = useI18n();
+  const { t, currency } = useI18n();
   const [presets, setPresetsLocal] = useState<FiatTopupPreset[]>(DEFAULT_FIAT_TOPUP_PRESETS);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -17,12 +17,13 @@ export function FiatTopupPresetsPanel() {
   const upd = (i: number, k: keyof FiatTopupPreset, v: string) => {
     setPresetsLocal(prev => {
       const next = [...prev];
-      next[i] = { ...next[i], [k]: k === 'coins' ? (parseInt(v, 10) || 0) : v } as FiatTopupPreset;
+      const num = k === 'coins' ? (parseInt(v, 10) || 0) : (parseFloat(v) || 0);
+      next[i] = { ...next[i], [k]: num } as FiatTopupPreset;
       return next;
     });
   };
 
-  const addRow = () => setPresetsLocal(prev => [...prev, { priceLabel: '0,99 €', coins: 500 }]);
+  const addRow = () => setPresetsLocal(prev => [...prev, { priceAmount: 0.99, coins: 500 }]);
   const removeRow = (i: number) => setPresetsLocal(prev => prev.filter((_, idx) => idx !== i));
 
   const save = async () => {
@@ -53,9 +54,9 @@ export function FiatTopupPresetsPanel() {
         {presets.map((p, i) => (
           <div key={i} className="grid grid-cols-3 gap-2 items-end">
             <label className="text-xs">
-              <span className="text-slate-400">{t('admin.fiatTopup.priceLabel')}</span>
-              <input type="text" className="input mt-1 w-full" value={p.priceLabel}
-                     onChange={e => upd(i, 'priceLabel', e.target.value)} />
+              <span className="text-slate-400">{t('admin.fiatTopup.priceAmount')} ({currency})</span>
+              <input type="number" step="0.01" className="input mt-1 w-full" value={p.priceAmount}
+                     onChange={e => upd(i, 'priceAmount', e.target.value)} />
             </label>
             <label className="text-xs">
               <span className="text-slate-400">💰 coins</span>

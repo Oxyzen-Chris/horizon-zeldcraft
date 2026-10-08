@@ -6149,25 +6149,43 @@ export async function setTopupPresets(presets: TopupPreset[]): Promise<void> {
  * Presets de recharge fiat (CB/PayPal/Apple Pay/Google Pay → coins de jeu, sans passer par ETH).
  * Paramétrable via l'admin (catalog/fiatTopupPresets), même esprit que TopupPreset ci-dessus.
  * Voir RepRules.fiatPaymentEnabled/fiatSimulationMode et WalletTopupWidget.tsx.
+ *
+ * 🆕 `priceAmount` (nombre) remplace l'ancien `priceLabel` (chaîne figée, ex "4,99 €", TOUJOURS en
+ * euros quelle que soit la langue/devise choisie par le joueur) — voir demande utilisateur « Bien
+ * qu'étant passé en langue US et en monnaie $, la devise est toujours euros dans les icônes du
+ * widget top-up ». Même convention que `TopupPreset.fiat` ci-dessus : un simple montant numérique,
+ * affiché avec le symbole de devise ACTIF (`useI18n().currency`, dépendant de la langue courante et
+ * de `RepRules.currencyByLocale`) — voir FiatTopupPanel.tsx/FiatTopupPresetsPanel.tsx.
  */
 export interface FiatTopupPreset {
-  priceLabel: string; // prix affiché (ex "4,99 €") — informatif tant que fiatSimulationMode=true
-  coins: number;       // crédit monnaie du jeu
+  priceAmount: number; // montant affiché (ex 4.99) — informatif tant que fiatSimulationMode=true
+  coins: number;        // crédit monnaie du jeu
 }
 
 export const DEFAULT_FIAT_TOPUP_PRESETS: FiatTopupPreset[] = [
-  { priceLabel: '0,99 €', coins: 500 },
-  { priceLabel: '3,99 €', coins: 2000 },
-  { priceLabel: '8,99 €', coins: 5000 },
-  { priceLabel: '19,99 €', coins: 12000 },
+  { priceAmount: 0.99, coins: 500 },
+  { priceAmount: 3.99, coins: 2000 },
+  { priceAmount: 8.99, coins: 5000 },
+  { priceAmount: 19.99, coins: 12000 },
 ];
+
+/** Migration en lecture d'un éventuel ancien preset `{ priceLabel: '4,99 €' }` (avant l'ajout de
+ * `priceAmount`) vers le nouveau schéma numérique — extrait le nombre de la chaîne (virgule
+ * française convertie en point) pour ne PERDRE aucun réglage admin déjà enregistré en base. Les
+ * nouveaux presets (ou ceux déjà migrés) exposent directement `priceAmount` et passent inchangés. */
+function migrateFiatTopupPreset(p: FiatTopupPreset | (Omit<FiatTopupPreset, 'priceAmount'> & { priceLabel?: string })): FiatTopupPreset {
+  if (typeof (p as FiatTopupPreset).priceAmount === 'number') return p as FiatTopupPreset;
+  const legacy = (p as { priceLabel?: string }).priceLabel ?? '';
+  const parsed = parseFloat(legacy.replace(',', '.').replace(/[^0-9.]/g, ''));
+  return { priceAmount: Number.isFinite(parsed) ? parsed : 0, coins: p.coins };
+}
 
 export async function getFiatTopupPresets(): Promise<FiatTopupPreset[]> {
   const db = getFirebaseDb();
   if (!db) return DEFAULT_FIAT_TOPUP_PRESETS;
   const snap = await get(ref(db, 'catalog/fiatTopupPresets'));
   const v = snap.val() as FiatTopupPreset[] | null;
-  return Array.isArray(v) && v.length > 0 ? v : DEFAULT_FIAT_TOPUP_PRESETS;
+  return Array.isArray(v) && v.length > 0 ? v.map(migrateFiatTopupPreset) : DEFAULT_FIAT_TOPUP_PRESETS;
 }
 
 export async function setFiatTopupPresets(presets: FiatTopupPreset[]): Promise<void> {

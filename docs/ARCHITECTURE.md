@@ -4418,6 +4418,52 @@ dans le temps imparti ; la correction repose sur la réutilisation directe du m�
 déjà validé pour le demi-tour manuel, et sur une relecture de code ligne à ligne de `exitCrypt`/
 `onLeaveRoom`/`onToggleDoor`.
 
+## 💱 Correctif de la devise figée en euros dans le rechargement fiat (widget Portefeuille)
+
+**Bug signalé** : dans le widget "Wallet top-up" (rechargement du portefeuille), la section de
+paiement fiat (CB/PayPal/Apple Pay/Google Pay — `FiatTopupPanel.tsx`) affichait toujours les
+montants en euros (`"0,99 €"`, `"3,99 €"`, `"8,99 €"`, `"19,99 €"`) même après avoir basculé la
+langue du jeu vers l'anglais US (devise `$`) — potentiellement bloquant pour un joueur anglophone au
+moment de payer en argent réel.
+
+**Cause racine** : il existe DEUX systèmes de "top-up" distincts dans le jeu, l'un correct, l'autre
+buggé :
+- Le rechargement **ETH** (`TopupPreset`, `WalletPanel.tsx`/`WalletTopupWidget.tsx`, admin
+  `TopupPresetsPanel.tsx`) stocke un champ **numérique** `fiat: number` et l'affiche
+  `{fiat} {currency}` avec `currency` dépendant de la langue active (`useI18n()`,
+  `RepRules.currencyByLocale`) — ce système fonctionnait déjà correctement.
+- Le rechargement **fiat pur** (`FiatTopupPreset`, `FiatTopupPanel.tsx`, admin
+  `FiatTopupPresetsPanel.tsx`) stockait au contraire une **chaîne de texte figée**
+  `priceLabel: string` (ex. `'0,99 €'`), saisie telle quelle par l'administrateur, avec le symbole €
+  déjà incrusté dans la donnée — complètement déconnectée de la langue du joueur.
+
+**Correctif** : alignement du système fiat sur le système ETH déjà correct.
+- `gameState.ts` : `FiatTopupPreset.priceLabel: string` → `FiatTopupPreset.priceAmount: number`
+  (`DEFAULT_FIAT_TOPUP_PRESETS` passe à des valeurs numériques `0.99`/`3.99`/`8.99`/`19.99`).
+  `getFiatTopupPresets()` migre en lecture tout preset ancien format déjà enregistré dans Firebase
+  (`catalog/fiatTopupPresets`) en parsant la chaîne héritée (`"4,99 €"` → `4.99`), afin de ne perdre
+  AUCUN réglage admin existant sans migration d'écriture forcée.
+- `FiatTopupPanel.tsx` (widget joueur) : affiche désormais `{priceAmount} {currency}` via
+  `useI18n().currency`, identique au rendu du rechargement ETH.
+- `FiatTopupPresetsPanel.tsx` (admin) : le champ texte libre devient un champ numérique
+  (`type="number"`) avec un libellé suffixé de la devise active (`({currency})`), mirroring exact de
+  `TopupPresetsPanel.tsx`.
+- `useFiatTopup.ts` : le journal de transaction (`logTx`, champs `label`/`valueFiat`) construit
+  désormais la chaîne affichée à partir de `priceAmount` + `currency` au lieu de l'ancien
+  `priceLabel`.
+- i18n : clé admin `admin.fiatTopup.priceLabel` → `admin.fiatTopup.priceAmount` (5 langues).
+
+**Non-régression** : le système de rechargement ETH (`TopupPreset`/`WalletPanel.tsx`/
+`WalletTopupWidget.tsx`/`TopupPresetsPanel.tsx`) n'est pas touché — seul le système fiat, isolé, est
+modifié. Aucun formatage décimal localisé (virgule vs point) n'est introduit : le code reste
+cohérent avec la convention déjà en place dans tout le reste de la base (simple interpolation de
+nombre JS, sans `Intl.NumberFormat`).
+
+**Vérification** : `npx tsc --noEmit` : 0 erreur. Playwright (session Démo anonyme, page `/game`,
+widget Portefeuille) : confirmé "0.99 €"/"3.99 €" en langue FR/ES/PT/EN par défaut, puis "0.99 $"/
+"3.99 $" après bascule vers la langue US via le sélecteur de langue — aucune régression observée
+pour les 4 autres langues (toutes restent en €).
+
 ## 🎥 Correctif DÉFINITIF de la caméra de sortie de souterrain (condition de course + garde par raycast)
 
 Malgré PLUSIEURS correctifs précédents (pose fixe `CRYPT_EXIT_CAMERA_POS`, puis angle de caméra

@@ -13,6 +13,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  { date: '2026-11-03', icon: '💱', titleKey: 'changelog.fiatTopupCurrencyFix.title', bodyKey: 'changelog.fiatTopupCurrencyFix.body' },
   { date: '2026-11-02', icon: '📌', titleKey: 'changelog.widgetPositionDriftFix.title', bodyKey: 'changelog.widgetPositionDriftFix.body' },
   { date: '2026-11-01', icon: '🗑️', titleKey: 'changelog.stargateDialingBadgeRemoved.title', bodyKey: 'changelog.stargateDialingBadgeRemoved.body' },
   { date: '2026-10-31', icon: '🔊', titleKey: 'changelog.stargateActivationSound.title', bodyKey: 'changelog.stargateActivationSound.body' },

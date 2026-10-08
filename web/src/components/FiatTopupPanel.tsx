@@ -15,7 +15,7 @@ const PROVIDER_ICON: Record<FiatProvider, string> = {
 };
 
 export function FiatTopupPanel({ address }: { address: string | undefined }) {
-  const { t } = useI18n();
+  const { t, currency } = useI18n();
   const { presets, enabledProviders, isBuying, feedback, buy, blockedForDemoAccount } = useFiatTopup(address);
   const [provider, setProvider] = useState<FiatProvider>('card');
 
@@ -45,12 +45,12 @@ export function FiatTopupPanel({ address }: { address: string | undefined }) {
       <div className="grid grid-cols-2 gap-2">
         {presets.map((p) => (
           <button
-            key={p.priceLabel}
+            key={p.priceAmount}
             className="bg-slate-800 hover:bg-slate-700 border border-emerald-500/40 rounded p-2 text-center transition disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={isBuying || blockedForDemoAccount}
             onClick={() => buy(p, provider)}
           >
-            <p className="text-sm font-bold text-emerald-400">{p.priceLabel}</p>
+            <p className="text-sm font-bold text-emerald-400">{p.priceAmount} {currency}</p>
             <p className="text-[10px] text-emerald-300 mt-0.5">+ {p.coins.toLocaleString()} 💰</p>
           </button>
         ))}
