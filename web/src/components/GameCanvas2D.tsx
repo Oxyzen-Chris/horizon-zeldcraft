@@ -23,6 +23,7 @@ import { useDraggableWidget, scopedKey, readScoped } from '@/lib/useDraggableWid
 import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
 import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, reportWorldMarkers, setInteractingActorId, getRoamStepMs, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker, type ExtraRoamingActor } from '@/lib/roamingActors';
+import { getFirstConnectedGamepad, readMoveDelta, CONFIGURABLE_BUTTON_INDICES, getActionForButton, GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -1219,6 +1220,79 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
       document.removeEventListener('visibilitychange', onBlur);
       keysDownRef.current.clear();
       hold.release();
+    };
+  }, [collapsed, hold]);
+
+  // ─── Manette de jeu (Gamepad API, ex. Switch Pro Controller en Bluetooth) — voir
+  // lib/gamepadInput.ts (en-tête du fichier pour le détail de l'architecture complète) — voir
+  // demande utilisateur « Connecter une gamepad [...] pour gérer les déplacements de Synk [...]
+  // dans le widget 3D et le widget 2D [...] Configurer les touches spéciales du GamePad ». Ce
+  // widget (TOUJOURS monté, voir platform3dActive.ts) est l'ÉMETTEUR UNIQUE de GAMEPAD_ACTION_EVENT
+  // (consommé par Platform3DWidget.tsx pour 'jump' et par les widgets à bascule — Besace/Quêtes/
+  // Équipement/Carte/Boutique/Statistiques/Réglages manette) afin de ne JAMAIS dupliquer un
+  // déclenchement si plusieurs widgets étaient chacun leur propre sondage. Sondage par
+  // `requestAnimationFrame` : la Gamepad API ne déclenche AUCUN évènement par bouton/axe
+  // (contrairement au clavier) — seul un sondage régulier de `navigator.getGamepads()` permet de
+  // détecter un appui (voir getFirstConnectedGamepad()).
+  const gamepadMoveRef = useRef<{ dx: number; dy: number } | null>(null);
+  const gamepadButtonsPrevRef = useRef<boolean[]>([]);
+  useEffect(() => {
+    let rafId = 0;
+    const tick = () => {
+      const gp = getFirstConnectedGamepad();
+      if (gp) {
+        // Déplacement (stick gauche + pavé directionnel) — réutilise EXACTEMENT le même `hold`
+        // (press/update/release, donc la même cadence marche/course) que le clavier ci-dessus, avec
+        // le MÊME gating `collapsed`/`isPlatform3DActive()` : quand la Plateforme 3D est dépliée et
+        // active, elle pilote seule le déplacement (voir lib/platform3dActive.ts), pour éviter
+        // exactement le même conflit de double-déplacement déjà corrigé pour le clavier.
+        if (!collapsed && !isPlatform3DActive()) {
+          const { dx, dy } = readMoveDelta(gp);
+          const prev = gamepadMoveRef.current;
+          if (dx === 0 && dy === 0) {
+            if (prev) { gamepadMoveRef.current = null; hold.release(); }
+          } else if (!prev) {
+            gamepadMoveRef.current = { dx, dy };
+            hold.press(dx, dy);
+          } else if (prev.dx !== dx || prev.dy !== dy) {
+            gamepadMoveRef.current = { dx, dy };
+            hold.update(dx, dy);
+          }
+        } else if (gamepadMoveRef.current) {
+          gamepadMoveRef.current = null;
+          hold.release();
+        }
+        // Actions des boutons configurables (voir GAMEPAD_ACTION_EVENT) — détection de FRONT
+        // (montant ET descendant, pour l'action 'jump' tenue comme la barre Espace), dispatchée
+        // une seule fois par front, QUEL QUE SOIT l'état réduit/déplié de CE widget (ouvrir la
+        // Besace au bouton Y doit fonctionner même si la Plateforme 2D isométrique est repliée).
+        const prevButtons = gamepadButtonsPrevRef.current;
+        for (const i of CONFIGURABLE_BUTTON_INDICES) {
+          const pressed = gp.buttons[i]?.pressed ?? false;
+          if (pressed === (prevButtons[i] ?? false)) continue;
+          prevButtons[i] = pressed;
+          const action = getActionForButton(i);
+          if (action === 'none') continue;
+          window.dispatchEvent(new CustomEvent<GamepadActionEventDetail>(GAMEPAD_ACTION_EVENT, { detail: { action, pressed } }));
+          // Confirmer/Annuler réutilisent les raccourcis clavier Entrée/Échap déjà gérés par les
+          // pop-up de confirmation génériques (voir ConfirmDialog.tsx) et les menus contextuels
+          // (voir WidgetContextMenu.tsx) — uniquement à l'appui (pas au relâchement), pour qu'une
+          // boîte de dialogue PNJ/achat/équipement se confirme ou se ferme exactement comme avec la
+          // touche physique correspondante, sans dupliquer leur logique ici.
+          if (pressed && (action === 'confirm' || action === 'cancel')) {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: action === 'confirm' ? 'Enter' : 'Escape' }));
+          }
+        }
+      } else if (gamepadMoveRef.current) {
+        gamepadMoveRef.current = null;
+        hold.release();
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (gamepadMoveRef.current) { gamepadMoveRef.current = null; hold.release(); }
     };
   }, [collapsed, hold]);
 

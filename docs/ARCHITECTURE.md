@@ -90,6 +90,8 @@ persistés en `localStorage`, distinction fiable clic/glissé via un `movedRef`,
 | Aides                                     | `HelpWidget.tsx`               | Reprend le contenu de l'onboarding, disponible à tout moment |
 | État d'avancement / inventaire            | `ProgressWidget.tsx`           | Ledger dépliable par thème (17 catégories, ✅/❌) |
 | Météo                                      | `WeatherPanel.tsx`             | Horloge temps réel, jour/nuit, phase de lune, thème d'ambiance actif, saison |
+| Audio                                      | `AudioWidget.tsx`               | Volume général + par créature d'ambiance 3D (on/off, volume) |
+| Manette                                     | `GamepadSettingsWidget.tsx`    | Statut de connexion + reprogrammation des boutons (Gamepad API) |
 | Widgets personnalisés (admin)             | `CustomWidgetsRenderer.tsx`    | Rendu dynamique des widgets créés en Administration |
 
 `WorldMapWidget` et `GameCanvas2D` gèrent en plus leur propre redimensionnement (poignée de
@@ -5383,4 +5385,105 @@ errant, alors que Synk lui-même en était déjà bloqué.
   acteurs errants (déjà correct) et pour Synk reste identique.
 - `WorldMapWidget.tsx` n'a reçu aucune modification (il ne gère ni les marqueurs flottants `kind:'world'`
   ni le blocage de Synk contre ceux-ci — cohérence maintenue avec l'architecture existante).
+
+## 🎮 Support manette de jeu (Gamepad API) + widget de configuration « Manette »
+
+Demande utilisateur : « Connecter une gamepad [...] en bluetooth pour gérer les déplacements de Synk
+dans le jeu et précisément dans le widget 3D et le widget 2D. Configurer les touches spéciales du
+GamePad [...] X : Sauter [...] A : Confirmer [...] B : Annuler [...] Y : Ouvrir le widget de la
+besace. Tu créeras un nouveau widget de configuration du GamePad où le joueur pourra définir,
+programmer ces touches [...]. Il reste encore les touches - et +, L et R, ZL et ZR [...] a
+programmer et définir. »
+
+### Module central (`lib/gamepadInput.ts`)
+
+Module PUR (indépendant de React, même esprit que `roamingActors.ts`/`platform3dActive.ts`) :
+
+- `navigator.getGamepads()` doit être **ré-interrogé à chaque frame** (`getFirstConnectedGamepad()`)
+  — contrairement au clavier, la Gamepad API n'émet AUCUN évènement par bouton/axe ; seuls
+  `gamepadconnected`/`gamepaddisconnected` existent (connexion, pas état des boutons).
+- ⚠️ **Disposition "standard" du W3C indexée par POSITION PHYSIQUE, pas par étiquette imprimée** :
+  sur une manette Xbox, position = étiquette (0=A bas, 1=B droite, 2=X gauche, 3=Y haut). Sur une
+  manette Nintendo (Switch Pro Controller, losange inversé — celle de l'utilisateur), chaque position
+  porte une étiquette DIFFÉRENTE : 0=bouton du bas (étiqueté « B »), 1=droite (« A »), 2=gauche
+  (« Y »), 3=haut (« X »). `DEFAULT_BUTTON_ACTION_MAP` est donc calée sur cette disposition Nintendo
+  pour que les valeurs par défaut (X:Sauter, A:Confirmer, B:Annuler, Y:Besace) soient correctes SANS
+  reconfiguration, tout en restant intégralement reprogrammable bouton par bouton.
+- `CONFIGURABLE_BUTTON_INDICES = [0..9]` (B/A/Y/X/L/R/ZL/ZR/−/+) — stick gauche et pavé directionnel
+  (12-15) restent RÉSERVÉS au déplacement, jamais reprogrammables (comme les flèches du clavier).
+- `DEFAULT_BUTTON_ACTION_MAP` complet : 0=Annuler, 1=Confirmer, 2=Besace, 3=Sauter, 4=Quêtes
+  (L), 5=Équipement (R), 6=Carte (ZL), 7=Boutique (ZR), 8=Statistiques (−), 9=Réglages manette (+).
+- `readMoveDelta(gp)` : délta composite `{dx,dy} ∈ {-1,0,1}` à partir du stick gauche (zone morte
+  0,4) OU du pavé directionnel (priorité au pavé s'il est actionné) — même sémantique que
+  `keysDownRef`/`composite()` au clavier, consommé identiquement par `useHoldMovement`.
+- `withButtonAction(map, index, action)` : réaffecte un bouton à une action en désassignant d'abord
+  tout autre bouton qui la portait déjà (une action = un seul bouton à la fois).
+- `GAMEPAD_ACTION_EVENT = 'zc:gamepadAction'` (`CustomEvent<{action, pressed}>`) : évènement diffusé
+  sur `window` à chaque front montant/descendant d'un bouton configuré.
+
+### Architecture de sondage — zéro double-déclenchement
+
+Pour éviter qu'un même bouton ne déclenche deux fois une action si plusieurs widgets sondaient
+chacun la manette :
+- **Déplacement** (stick + pavé directionnel) : sondé **indépendamment par chaque widget**
+  (`GameCanvas2D.tsx` ET `Platform3DWidget.tsx`), chacun reproduisant EXACTEMENT le gating déjà en
+  place pour son clavier (`isPlatform3DActive()` côté 2D ; `collapsed`/`enabled`/`cryptMode`/
+  `towerTopActive`/`roomTopActive` côté 3D) — aucune nouvelle surface de régression, le même
+  conflit « double-déplacement » déjà résolu pour le clavier est simplement reproduit à l'identique.
+- **Boutons d'action** (les 10 boutons configurables, y compris Sauter/Confirmer/Annuler/bascules de
+  menu) : sondés et dispatchés en un **unique point central**, `GameCanvas2D.tsx` (widget TOUJOURS
+  monté, indépendamment de son état réduit/déplié — voir `lib/platform3dActive.ts`) — garantit
+  exactement un dispatch par front, quel que soit l'état des autres widgets.
+- `Platform3DWidget.tsx` écoute `GAMEPAD_ACTION_EVENT` filtré sur `action==='jump'` pour piloter
+  `jumpHeldRef` (état TENU, pas front — exactement comme la barre Espace déjà en place pour
+  grimper sur un rocher/une montagne).
+- `InventoryWidget.tsx` (Besace), `QuestsZeldaCraftWidget.tsx` (Quêtes), `EquipmentWidget.tsx`
+  (Équipement), `WorldMapWidget.tsx` (Carte), `ShopWidget.tsx` (Boutique), `StatsWidget.tsx`
+  (Statistiques) et `GamepadSettingsWidget.tsx` lui-même (auto-abonnement) écoutent chacun leur
+  propre action et appellent simplement leur `toggleCollapsed()` existant — zéro nouvelle logique
+  d'ouverture/fermeture, juste un nouveau déclencheur.
+- **Confirmer/Annuler** réutilisent les raccourcis clavier Entrée/Échap déjà gérés par
+  `ConfirmDialog.tsx` (pop-up de confirmation générique : achats, usage/équipement/combinaison
+  d'objets d'inventaire…) et `WidgetContextMenu.tsx` (Échap pour fermer un menu contextuel) : un
+  `KeyboardEvent('keydown', {key:'Enter'|'Escape'})` synthétique est émis sur `window` au moment de
+  l'appui (pas du relâchement) — **zéro modification de ces composants existants**, ils reçoivent la
+  manette exactement comme un clavier physique.
+
+### Widget `GamepadSettingsWidget.tsx` (15ᵉ widget flottant)
+
+Nouvelle fenêtre flottante/déplaçable (icône réduite 🎮, bordure `lime-500`), accessible via le
+bouton « + » par défaut : affiche le statut de connexion (`subscribeGamepadStatus`, avec un rappel
+que le navigateur exige qu'au moins un bouton physique ait été pressé une fois avant d'exposer la
+manette à la page — mesure de confidentialité du Gamepad API), la liste des 10 actions avec le bouton
+actuellement assigné, un bouton « Redéfinir » par action (mode « appui-pour-détecter » : le prochain
+bouton pressé sur la manette, qui n'était pas déjà enfoncé au moment du clic sur « Redéfinir », lui
+est assigné) et un bouton de réinitialisation globale aux valeurs par défaut. L'association
+bouton → action est persistée en localStorage, scopée par compte joueur (`scopedKey`/
+`zc.gamepadButtonMap`, même mécanisme que la position/taille des autres widgets). Nouveau réglage
+Administration `gamepadWidgetEnabled` (`RepRules`, défaut `true`) : désactive UNIQUEMENT ce panneau
+de configuration — le déplacement et les actions de la manette restent actifs tant qu'elle est
+connectée, indépendamment de ce widget (comme le clavier, jamais désactivable globalement).
+
+### Limites connues (hors-périmètre de cette itération)
+
+- Ramasser/déposer un objet au sol via A/B **en dehors d'une boîte de dialogue** (ex. sans PNJ ni
+  confirmation ouverte) n'est pas implémenté : aucun mécanisme générique « objet interactif le plus
+  proche » n'existait à réutiliser sans risque. A/B couvrent déjà, via les évènements clavier
+  synthétiques, la confirmation/l'annulation dans `ConfirmDialog.tsx` (achats, usage/équipement/
+  combinaison d'objets) ce qui satisfait partiellement la demande.
+- La boîte de dialogue de rencontre PNJ (`NpcEncounterPopup.tsx`, machine à états dialogue/combat/
+  acceptation de quête) n'est pas câblée spécifiquement à Confirmer/Annuler manette — sa complexité
+  interne rendait un câblage générique risqué dans cette itération ; peut être ajouté ultérieurement
+  de façon ciblée si besoin.
+
+### Vérification
+
+`npx tsc --noEmit` : 0 erreur. `npm run build` : succès (avertissements pré-existants sans rapport,
+dépendances optionnelles de wallets). Playwright (`/game`, session Démo "Jouer en anonyme") avec
+`navigator.getGamepads` mocké (manette simulée + simulation de fronts de boutons) : 0 erreur console,
+widget « Manette » bien monté et ouvrable, statut « connectée » affiché une fois la manette simulée
+« branchée », appui simulé du bouton Y ouvre bien la Besace, reprogrammation (« Redéfinir ») et
+réinitialisation aux valeurs par défaut fonctionnelles sans erreur, aucune régression observée sur
+les widgets existants (Besace, Plateforme 3D) ni sur le déplacement clavier.
+
 

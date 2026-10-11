@@ -8,6 +8,7 @@ import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { ProgressLedgerView } from './ProgressLedgerView';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
+import { GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
 
 const POS_KEY = 'zc.questsZeldaCraftWidgetPos';
 const COLLAPSED_KEY = 'zc.questsZeldaCraftWidgetCollapsed';
@@ -40,6 +41,17 @@ export function QuestsZeldaCraftWidget({ enabled }: { enabled: boolean }) {
     defaultPos: () => ({ x: window.innerWidth - 400, y: 280 }),
     onExpand: bringToFront,
   });
+
+  // Bouton "L" de la manette de jeu (par défaut, voir lib/gamepadInput.ts) ouvre/ferme les Quêtes.
+  useEffect(() => {
+    if (!enabled) return;
+    const onGamepadAction = (e: Event) => {
+      const detail = (e as CustomEvent<GamepadActionEventDetail>).detail;
+      if (detail?.action === 'quests' && detail.pressed) toggleCollapsed();
+    };
+    window.addEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+    return () => window.removeEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+  }, [enabled, toggleCollapsed]);
 
   const [ledger, setLedger] = useState<PlayerProgressLedger | null>(null);
   const [refreshing, setRefreshing] = useState(false);

@@ -33,6 +33,7 @@ import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, config
 import { useNpcApproach } from '@/lib/npcApproach';
 import { useHiddenTreasureIds } from '@/lib/treasureVisibility';
 import { useWorldDrops, worldDropToMarker } from '@/lib/worldDrops';
+import { GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
 
 const POS_KEY = 'zc.mapWidgetPos';
 const SIZE_KEY = 'zc.mapWidgetSize';
@@ -77,6 +78,17 @@ export function WorldMapWidget({ playerXp, encounterNpc, enabled = true }: { pla
     defaultPos: () => ({ x: 24, y: Math.max(20, window.innerHeight - 400) }),
     onExpand: bringToFront,
   });
+
+  // Bouton "ZL" de la manette de jeu (par défaut, voir lib/gamepadInput.ts) ouvre/ferme la Carte.
+  useEffect(() => {
+    if (!enabled) return;
+    const onGamepadAction = (e: Event) => {
+      const detail = (e as CustomEvent<GamepadActionEventDetail>).detail;
+      if (detail?.action === 'map' && detail.pressed) toggleCollapsed();
+    };
+    window.addEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+    return () => window.removeEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+  }, [enabled, toggleCollapsed]);
 
   const [size, setSize] = useState<Size>({ w: 460, h: 360 });
   const [resizing, setResizing] = useState(false);

@@ -50,6 +50,7 @@ import { HelpWidget } from '@/components/HelpWidget';
 import { ProgressWidget } from '@/components/ProgressWidget';
 import { WeatherPanel } from '@/components/WeatherPanel';
 import { AudioWidget } from '@/components/AudioWidget';
+import { GamepadSettingsWidget } from '@/components/GamepadSettingsWidget';
 import { unlockAudioOnFirstGesture } from '@/lib/audio';
 import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { DemoSessionTimerWidget } from '@/components/DemoSessionTimerWidget';
@@ -718,6 +719,13 @@ function VoxlynDashboard({ tokenId, v, contract, feedPrices, voxlynKey }: any) {
           voir demande utilisateur "widget Audio [...] couper le son [...] à chaque objet 3D" et
           AudioWidget.tsx/lib/audio.ts */}
       <AudioWidget enabled={repRules?.audioWidgetEnabled !== false} />
+      {/* Fenêtre flottante et déplaçable "Manette" — statut de connexion + reprogrammation des
+          boutons de la manette (Gamepad API, ex. Switch Pro Controller en Bluetooth) — voir
+          demande utilisateur "Connecter une gamepad [...] Tu créeras un nouveau widget de
+          configuration du GamePad" et GamepadSettingsWidget.tsx/lib/gamepadInput.ts. Ce widget ne
+          fait QUE afficher/reprogrammer : le déplacement et les actions de la manette restent actifs
+          dans GameCanvas2D.tsx/Platform3DWidget.tsx même si ce widget est désactivé/réduit. */}
+      <GamepadSettingsWidget enabled={repRules?.gamepadWidgetEnabled !== false} />
     </div>
   );
 }

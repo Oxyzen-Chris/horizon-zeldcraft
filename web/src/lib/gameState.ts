@@ -4792,6 +4792,14 @@ export interface RepRules {
   // sangliers/marcassins, sorcière) — voir demande utilisateur "widget Audio [...] permettre de
   // allumer, couper le son [...] à chaque objet 3D". Même sémantique par défaut `true`.
   audioWidgetEnabled: boolean;
+  // Nouveau widget flottant "Manette" (voir GamepadSettingsWidget.tsx) — statut de connexion +
+  // reprogrammation des boutons de la manette (Gamepad API, ex. Switch Pro Controller en
+  // Bluetooth) — voir demande utilisateur "Connecter une gamepad [...] Tu créeras un nouveau widget
+  // de configuration du GamePad où le joueur pourra définir, programmer ces touches". Même
+  // sémantique par défaut `true` ; NE désactive QUE ce widget de configuration — le déplacement au
+  // stick/pavé directionnel et les actions des boutons restent actifs tant qu'une manette est
+  // connectée, indépendamment de ce widget (comme le clavier, jamais désactivable).
+  gamepadWidgetEnabled: boolean;
   // Affiche/masque la rubrique "Nourrir Synk" (les 4 boutons de repas on-chain + leur cooldown)
   // dans le jeu — voir game/page.tsx. Distinct de `onchainFeedButtonsEnabled` ci-dessous qui ne
   // gère QUE les boutons on-chain eux-mêmes (déjà masqués par défaut à cause du bug connu) :
@@ -5279,6 +5287,7 @@ export const DEFAULT_REP_RULES: RepRules = {
   platform3dWidgetEnabled: true,
   weatherWidgetEnabled: true,
   audioWidgetEnabled: true,
+  gamepadWidgetEnabled: true,
   feedSectionEnabled: true,
   // Défaut false (voir commentaire sur l'interface RepRules) : bug de cooldown partagé sur le
   // contrat Sepolia actuellement déployé, correctif écrit mais en attente de redéploiement.

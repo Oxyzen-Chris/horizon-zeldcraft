@@ -12,6 +12,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
+import { GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
 
 const POS_KEY = 'zc.shopWidgetPos';
 const COLLAPSED_KEY = 'zc.shopWidgetCollapsed';
@@ -37,6 +38,17 @@ export function ShopWidget({ enabled = true }: { enabled?: boolean } = {}) {
     defaultPos: () => ({ x: window.innerWidth - 300, y: 230 }),
     onExpand: bringToFront,
   });
+
+  // Bouton "ZR" de la manette de jeu (par défaut, voir lib/gamepadInput.ts) ouvre/ferme la Boutique.
+  useEffect(() => {
+    if (!enabled) return;
+    const onGamepadAction = (e: Event) => {
+      const detail = (e as CustomEvent<GamepadActionEventDetail>).detail;
+      if (detail?.action === 'shop' && detail.pressed) toggleCollapsed();
+    };
+    window.addEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+    return () => window.removeEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+  }, [enabled, toggleCollapsed]);
 
   const [catalog, setCatalog] = useState<ShopItem[]>([]);
   const [player, setPlayer] = useState<PlayerState | null>(null);

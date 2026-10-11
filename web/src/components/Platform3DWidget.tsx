@@ -30,6 +30,7 @@ import { usePortalContainer } from '@/lib/usePortalContainer';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { setUndergroundActive } from '@/lib/undergroundActive';
 import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, reportWorldMarkers, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker } from '@/lib/roamingActors';
+import { getFirstConnectedGamepad, readMoveDelta, GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
@@ -3282,6 +3283,25 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     };
   }, [collapsed, enabled]);
 
+  // Bouton "Sauter" de la manette de jeu (voir lib/gamepadInput.ts, action 'jump' — bouton X par
+  // défaut, disposition Nintendo) — équivalent TENU (pressed/relâché) de la touche Espace ci-dessus,
+  // consommé ici car ce widget (et lui seul) connaît `jumpHeldRef`. GAMEPAD_ACTION_EVENT est
+  // dispatché par GameCanvas2D.tsx (toujours monté, voir son en-tête de fichier) — ce widget se
+  // contente d'écouter, jamais de sonder lui-même la manette pour cette action (évite toute
+  // duplication de détection de front entre les 2 widgets).
+  useEffect(() => {
+    if (collapsed || !enabled) return;
+    const onGamepadAction = (e: Event) => {
+      const detail = (e as CustomEvent<GamepadActionEventDetail>).detail;
+      if (detail?.action === 'jump') jumpHeldRef.current = detail.pressed;
+    };
+    window.addEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+    return () => {
+      window.removeEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+      jumpHeldRef.current = false;
+    };
+  }, [collapsed, enabled]);
+
   const moveTo = useCallback((nx: number, ny: number) => {
     if (!address) return;
     const x = clamp100(nx), y = clamp100(ny);
@@ -3745,6 +3765,43 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       document.removeEventListener('visibilitychange', onBlur);
       keysDownRef.current.clear();
       releaseMovement();
+    };
+  }, [collapsed, enabled, cryptMode, towerTopActive, roomTopActive, hold, releaseMovement]);
+
+  // ─── Déplacement au stick gauche/pavé directionnel de la manette de jeu — voir lib/gamepadInput.ts
+  // et demande utilisateur « gérer les déplacements de Synk [...] dans le widget 3D ». MÊME
+  // `hold`/gating que le clavier ci-dessus (collapsed/enabled/cryptMode/towerTopActive/roomTopActive)
+  // pour un comportement strictement identique (y compris la désactivation en couloir de crypte,
+  // voir le commentaire du clavier) — sondage par `requestAnimationFrame` (la Gamepad API n'émet
+  // aucun évènement par axe, voir getFirstConnectedGamepad()). Les BOUTONS de la manette sont, eux,
+  // gérés séparément : voir l'effet GAMEPAD_ACTION_EVENT ('jump') plus haut et GameCanvas2D.tsx
+  // (émetteur unique des boutons de bascule de widgets/confirmer/annuler).
+  const gamepadMoveRef = useRef<{ dx: number; dy: number } | null>(null);
+  useEffect(() => {
+    if (collapsed || !enabled || (cryptMode && !towerTopActive && !roomTopActive)) {
+      if (gamepadMoveRef.current) { gamepadMoveRef.current = null; releaseMovement(); }
+      return;
+    }
+    let rafId = 0;
+    const tick = () => {
+      const gp = getFirstConnectedGamepad();
+      const { dx, dy } = gp ? readMoveDelta(gp) : { dx: 0, dy: 0 };
+      const prev = gamepadMoveRef.current;
+      if (dx === 0 && dy === 0) {
+        if (prev) { gamepadMoveRef.current = null; releaseMovement(); }
+      } else if (!prev) {
+        gamepadMoveRef.current = { dx, dy };
+        hold.press(dx, dy);
+      } else if (prev.dx !== dx || prev.dy !== dy) {
+        gamepadMoveRef.current = { dx, dy };
+        hold.update(dx, dy);
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (gamepadMoveRef.current) { gamepadMoveRef.current = null; releaseMovement(); }
     };
   }, [collapsed, enabled, cryptMode, towerTopActive, roomTopActive, hold, releaseMovement]);
 

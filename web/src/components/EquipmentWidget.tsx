@@ -14,6 +14,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
+import { GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
 
 const POS_KEY = 'zc.equipWidgetPos';
 const COLLAPSED_KEY = 'zc.equipWidgetCollapsed';
@@ -179,6 +180,17 @@ export function EquipmentWidget({ stage = 0, enabled = true }: { stage?: number;
     defaultPos: () => ({ x: window.innerWidth - 300, y: 90 }),
     onExpand: bringToFront,
   });
+
+  // Bouton "R" de la manette de jeu (par défaut, voir lib/gamepadInput.ts) ouvre/ferme l'Équipement.
+  useEffect(() => {
+    if (!enabled) return;
+    const onGamepadAction = (e: Event) => {
+      const detail = (e as CustomEvent<GamepadActionEventDetail>).detail;
+      if (detail?.action === 'equipment' && detail.pressed) toggleCollapsed();
+    };
+    window.addEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+    return () => window.removeEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+  }, [enabled, toggleCollapsed]);
 
   const [equipment, setEquipment] = useState<Partial<Record<EquipSlot, EquippedItem>>>({});
   const [inventory, setInventory] = useState<InventoryItem[]>([]);

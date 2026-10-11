@@ -15,6 +15,7 @@ import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOr
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useEffectiveAccount } from '@/lib/effectiveAccount';
+import { GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
 
 const POS_KEY = 'zc.inventoryWidgetPos';
 const COLLAPSED_KEY = 'zc.inventoryWidgetCollapsed';
@@ -52,6 +53,19 @@ export function InventoryWidget({ enabled = true }: { enabled?: boolean } = {}) 
     defaultPos: () => ({ x: window.innerWidth - 300, y: 160 }),
     onExpand: bringToFront,
   });
+
+  // Bouton "Y" de la manette de jeu (par défaut, voir lib/gamepadInput.ts) ouvre/ferme la Besace —
+  // voir demande utilisateur « Y : Ouvrir le widget de la besace ». Écoute GAMEPAD_ACTION_EVENT,
+  // dispatché par GameCanvas2D.tsx (toujours monté) — ce widget ne sonde jamais la manette lui-même.
+  useEffect(() => {
+    if (!enabled) return;
+    const onGamepadAction = (e: Event) => {
+      const detail = (e as CustomEvent<GamepadActionEventDetail>).detail;
+      if (detail?.action === 'inventory' && detail.pressed) toggleCollapsed();
+    };
+    window.addEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+    return () => window.removeEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+  }, [enabled, toggleCollapsed]);
 
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [confirm, setConfirm] = useState<ConfirmAction | null>(null);

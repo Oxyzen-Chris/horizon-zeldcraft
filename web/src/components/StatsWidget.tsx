@@ -1,9 +1,11 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { useWindowZIndex, handleWidgetPointerDownCapture } from '@/lib/windowZOrder';
 import { useDraggableWidget } from '@/lib/useDraggableWidget';
 import { WidgetContextMenu } from './WidgetContextMenu';
+import { GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
 
 const POS_KEY = 'zc.statsWidgetPos';
 const COLLAPSED_KEY = 'zc.statsWidgetCollapsed';
@@ -59,6 +61,18 @@ export function StatsWidget(props: StatsWidgetProps) {
     defaultPos: () => ({ x: window.innerWidth - 300, y: 90 }),
     onExpand: bringToFront,
   });
+
+  // Bouton "-" (Moins) de la manette de jeu (par défaut, voir lib/gamepadInput.ts) ouvre/ferme les
+  // Statistiques.
+  useEffect(() => {
+    if (!enabled) return;
+    const onGamepadAction = (e: Event) => {
+      const detail = (e as CustomEvent<GamepadActionEventDetail>).detail;
+      if (detail?.action === 'stats' && detail.pressed) toggleCollapsed();
+    };
+    window.addEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+    return () => window.removeEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
+  }, [enabled, toggleCollapsed]);
 
   if (!enabled || !pos) return null;
 
