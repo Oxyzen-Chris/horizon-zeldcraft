@@ -4468,6 +4468,17 @@ export interface RepRules {
   sleepWakeHp: number;         // Vie restaurée au réveil, plafonnée à hpMax (défaut 75)
   sleepHappinessBonus: number; // Bonheur gagné au réveil (défaut 5)
   sleepGraceSec: number;       // Délai de grâce après réveil avant un nouveau déclenchement possible, en secondes (défaut 5)
+  // ─── Vol pendant le repos forcé (voir SleepModal.tsx) — voir demande utilisateur « Pendant que
+  // Synk se repose de force, il a 1 chance sur 6 qu'on lui vole 100 coins [...] S'il a moins de 100
+  // coins, cela sera 50% de ces coins [...] Affiche un pop-up une fois le repos terminé ». Un
+  // handicap pour ne pas avoir géré correctement son état de fatigue/santé : à CHAQUE réveil
+  // (`SleepModal::wake()`), un tirage "1 chance sur `sleepTheftOneInN`" détermine si un voleur est
+  // passé pendant le sommeil. Si oui : vole `sleepTheftAmount` pièces si le joueur en possède au
+  // moins autant, sinon `sleepTheftPoorPct`% de son solde actuel (jamais plus que ce qu'il possède,
+  // `applyEffect` plafonne de toute façon le portefeuille à 0 minimum).
+  sleepTheftOneInN: number;   // Probabilité "1 chance sur N" (défaut 6 ; 0 = désactivé)
+  sleepTheftAmount: number;   // Montant fixe volé si le solde est ≥ ce montant (défaut 100)
+  sleepTheftPoorPct: number;  // % du solde volé si le solde est < sleepTheftAmount (défaut 50)
   // ─── Oxygène en eau et en montagne/roche (voir GameCanvas2D.tsx) — la jauge "Oxygène"
   // (Statistiques) décroît par intervalles tant que Synk reste sur une dalle d'eau OU de
   // montagne/roche de la plateforme 2D isométrique. Un petit pop-up non bloquant (sablier + jauge +
@@ -5187,6 +5198,9 @@ export const DEFAULT_REP_RULES: RepRules = {
   sleepWakeHp: 75,
   sleepHappinessBonus: 5,
   sleepGraceSec: 5,
+  sleepTheftOneInN: 6,
+  sleepTheftAmount: 100,
+  sleepTheftPoorPct: 50,
   oxygenDrainIntervalSec: 50,
   oxygenDrainPct: 30,
   oxygenPenaltyXp: 10,

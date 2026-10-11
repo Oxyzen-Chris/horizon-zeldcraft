@@ -260,6 +260,9 @@ export function RepRulesPanel() {
     { key: 'sleepWakeHp',         labelKey: 'admin.repRules.sleepWakeHp' },
     { key: 'sleepHappinessBonus', labelKey: 'admin.repRules.sleepHappinessBonus' },
     { key: 'sleepGraceSec',       labelKey: 'admin.repRules.sleepGraceSec' },
+    { key: 'sleepTheftOneInN',    labelKey: 'admin.repRules.sleepTheftOneInN' },
+    { key: 'sleepTheftAmount',    labelKey: 'admin.repRules.sleepTheftAmount' },
+    { key: 'sleepTheftPoorPct',   labelKey: 'admin.repRules.sleepTheftPoorPct' },
   ];
 
   const oxygenFields: { key: keyof RepRules; labelKey: string }[] = [

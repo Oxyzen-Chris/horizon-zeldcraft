@@ -5486,4 +5486,46 @@ widget « Manette » bien monté et ouvrable, statut « connectée » affiché u
 réinitialisation aux valeurs par défaut fonctionnelles sans erreur, aucune régression observée sur
 les widgets existants (Besace, Plateforme 3D) ni sur le déplacement clavier.
 
+## 🥷 Vol pendant le repos forcé (voir `SleepModal.tsx`)
+
+Handicap ajouté au repos forcé par épuisement (voir section « Repos forcé par épuisement » ci-dessus
+pour le mécanisme de base, inchangé) : ne pas avoir géré correctement son état de fatigue/santé
+expose désormais Synk au risque de se faire voler pendant qu'il dort, demande utilisateur :
+« Pendant que Synk se repose de force, il a 1 chance sur 6 (1/6) qu'on lui vole 100 coins [...] S'il
+a moins de 100 coins, cela sera 50% de ces coins [...] Affiche un pop-up une fois le repos terminé
+l'informant qu'un voleur est passé par là ».
+
+- **Déclenchement** : à CHAQUE réveil (`SleepModal::wake()`, appelé automatiquement à la fin du
+  compte à rebours de `sleepDurationSec`), un tirage `Math.random() < 1/sleepTheftOneInN` détermine
+  si un voleur est passé pendant le sommeil. `sleepTheftOneInN = 0` désactive entièrement la
+  mécanique (même convention « 0 = désactivé » que `fightLootMaxItems`).
+- **Montant volé** : si le portefeuille ≥ `sleepTheftAmount` (défaut 100 coins), montant fixe volé =
+  `sleepTheftAmount`. Sinon (portefeuille insuffisant), montant volé = `sleepTheftPoorPct`% (défaut
+  50%) du solde actuel, arrondi à l'entier inférieur, jamais moins de 1 coin. Aucun risque de solde
+  négatif : `applyEffect` plafonne de toute façon le portefeuille à 0 minimum, mais le calcul ne
+  dépasse de toute façon jamais le solde réellement possédé.
+- **Application** : le vol est intégré dans le MÊME appel `applyEffect(address, { hp, happiness,
+  wallet: -stolen })` déjà utilisé pour restaurer la Vie/le Bonheur au réveil — un seul aller-retour
+  Firebase, pas d'appel séparé. Réutilise le patron déjà existant du vol PNJ (faux marchand, voir
+  `NpcEncounterPopup.tsx`).
+- **Pop-up de vol** : si un vol a eu lieu, un second pop-up (icône 🥷, bordure `rose-500`) s'affiche
+  JUSTE APRÈS la fermeture du pop-up de sommeil (jamais en même temps) — `sleep.theft.title` /
+  `sleep.theft.message` (placeholder `{amount}`) / `sleep.theft.close`, dans les 5 langues.
+- **Paramétrable en Administration** (panneau « 🛌 Sleep » de `RepRulesPanel.tsx`, 3 nouveaux champs
+  ajoutés au tableau générique `sleepFields` existant — zéro nouveau JSX) :
+  `sleepTheftOneInN` (défaut 6, 0 = désactivé), `sleepTheftAmount` (défaut 100),
+  `sleepTheftPoorPct` (défaut 50).
+
+### Vérification
+
+`npx tsc --noEmit` : 0 erreur. JSON des 5 fichiers de langue validé (`ConvertFrom-Json`). Playwright
+(route de test temporaire isolée rendant `<SleepModal>` avec des props `rules`/`player` mockées
+localement — `sleepDurationSec: 1`, `sleepTheftOneInN: 1` pour un déclenchement rapide et
+déterministe, sans toucher à la config Admin partagée `catalog/repRules`) : scénario portefeuille
+riche (500 coins) → vol fixe de 100 coins confirmé dans le message affiché ; scénario portefeuille
+pauvre (40 coins) → vol de 20 coins (50%) confirmé ; test de non-régression confirmant que le pop-up
+de sommeil d'origine (compte à rebours) s'affiche bien EN PREMIER, inchangé, avant que le pop-up de
+vol n'apparaisse automatiquement à la fin — 0 erreur console dans tous les cas. Route de test
+supprimée après vérification.
+
 
