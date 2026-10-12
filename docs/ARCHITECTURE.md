@@ -5715,3 +5715,63 @@ régression ; vérifié par relecture du code appelant (`exitCrypt`, inchangé) 
 bord détecté sur l'ensemble des dépendances des `useEffect` concernés. Script de test temporaire
 supprimé après vérification.
 
+## 🚪 Écran noir de crypte (suite) + focus manette par défaut sur l'action principale
+
+Demande utilisateur : « il y encore un bug d'écran noir à l'entrée dans la crypte [...] le tunnel
+éclairé ne s'affiche pas : Es-tu certain qu'il ne faut pas plutôt la décaler vers l'avant ? Car
+quand je bouge Synk d'un pas vers l'avant, je retrouve bien le tunnel éclairé » + « positionne le
+focus du curseur du GamePad par défaut sur le bouton de l'action principale (ici "Entrer dans la
+crypte") ».
+
+### Le correctif précédent (décalage de la porte d'entrée) était incomplet
+
+Le correctif ci-dessus (§ « Entrée de crypte corrigée (écran noir) ») décalait vers l'arrière
+(`entranceDoorPos`) **tout le groupe** `<group position={entranceDoorPos}>` de la porte d'entrée —
+ce groupe contenait AUSSI les deux torches qui éclairaient la vue à `progress === 0`. En éloignant
+la porte, le correctif éloignait donc AUSSI les deux seules sources de lumière proches de la caméra
+au démarrage, laissant la vue retomber dans le brouillard quasi noir (`fog` `near=2`/`far=15`,
+couleur `#0c0a09`) — un NOUVEAU bug d'écran noir, de cause différente (absence de lumière plutôt que
+caméra à l'intérieur d'une géométrie), expliquant pourquoi l'utilisateur le voyait encore.
+
+**Correctif définitif** : décorréler la porte de ses torches dans `CryptTunnelScene.tsx` —
+- La porte (`<CryptDoor onClick={onExitCrypt}>`) reste SEULE à `entranceDoorPos` (décalage arrière
+  nécessaire pour qu'elle reste visible/cliquable lors du demi-tour de sortie, `turnOffset === 2`).
+- Les deux torches reviennent dans un groupe SÉPARÉ, à leur position D'ORIGINE (`poses[0].pos`,
+  jamais la cause du bug initial — seule la porte, fine de 12 cm, coïncidait exactement avec la
+  caméra à `progress === 0`), pour un éclairage immédiat et inchangé de la vue d'entrée.
+- Une **lumière ponctuelle dédiée** (sans flamme visible) a été ajoutée directement sur la porte
+  d'entrée/sortie, pour que la vue reste bien éclairée lors du demi-tour de sortie malgré
+  l'éloignement des torches (vérifié par capture Playwright isolée : RGB(28,3,0) quasi illisible
+  sans cette lumière → glow chaud clairement visible avec).
+
+### Focus manette par défaut sur l'action principale (`gamepadDialogNav.ts`)
+
+- **Cause** : `focusFirst()` sélectionnait toujours le PREMIER élément focusable dans l'ordre du
+  DOM — or dans `PoiInteractionModal.tsx`, le bouton de fermeture "✕" est toujours rendu AVANT le
+  corps/bouton d'action principal, quel que soit le type de marqueur (PNJ, trésor, crypte...). Le
+  focus manette par défaut atterrissait donc systématiquement sur "✕" plutôt que sur l'action
+  attendue (ex. « Entrer dans la crypte »).
+- **Correctif** : `focusFirst()` recherche désormais en priorité un élément focusable portant la
+  classe `.btn-primary` (utilisée de façon exclusive par l'unique bouton d'action principal de
+  CHAQUE variante de corps de `PoiInteractionModal` : NPC, familier, dépôt, trésor, quête, monde,
+  hutte, crypte) et ne retombe sur le premier élément du DOM que si aucun `.btn-primary` n'est
+  trouvé — un correctif unique et générique dans `gamepadDialogNav.ts`, sans toucher à
+  `PoiInteractionModal.tsx` ni à ses variantes. `ConfirmDialog.tsx` (bouton "Oui" déjà premier dans
+  le DOM, sans classe `.btn-primary`, avec `autoFocus`) n'est pas affecté par ce changement.
+
+### Vérification
+
+`npx tsc --noEmit` : 0 erreur. Playwright :
+- **Écran noir d'entrée** : page de test isolée temporaire montant `<CryptTunnelScene>` seule dans
+  un `<Canvas>` (bypass du système de territoire/navigation complet) à `progress=0` — capture
+  confirmant un couloir bien éclairé dès le premier rendu (torches visibles immédiatement, aucun
+  écran noir), `progress=1` (régression — inchangé, toujours bien éclairé) et `turnOffset=2`
+  (demi-tour de sortie — désormais bien éclairé grâce à la lumière dédiée ajoutée sur la porte).
+  0 erreur console sur les trois scénarios.
+- **Focus manette par défaut** : page de test isolée temporaire montant `<PoiInteractionModal>`
+  avec un faux marqueur de crypte reproduisant « Crypte des Loyaux » — confirme que
+  `document.activeElement` au montage est bien le bouton `.btn-primary` « Entrer dans la crypte »
+  (et non "✕"), capture à l'appui (anneau de focus visible sur le bon bouton).
+
+Pages de test et scripts Playwright temporaires supprimés après vérification.
+

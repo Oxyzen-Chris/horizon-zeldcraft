@@ -44,8 +44,24 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 }
 
 function focusFirst(container: HTMLElement): void {
+  // 🆕 Priorité au bouton d'ACTION PRINCIPALE du dialogue (`.btn-primary`, ex. « Enter the crypt »,
+  // « Tame », « Pick up », « Open », « Enter », « Rest »...) plutôt qu'au premier élément focusable
+  // en ordre DOM — qui est très souvent la petite croix « ✕ » de fermeture, placée en premier dans
+  // le markup (en-tête du dialogue) mais rarement l'action que le joueur souhaite réellement
+  // effectuer. Voir demande utilisateur « positionne le focus du curseur du GamePad par défaut sur
+  // le bouton de l'action principale [...] pour que le joueur ait juste à valider en actionnant la
+  // touche A [...] et si son choix est de fermer la boîte de dialogue, il se déplacera lui-même
+  // avec les touches directionnelles ». Chaque corps de `PoiInteractionModal.tsx` (Npc/Familiar/
+  // Drop/Treasure/Quest/World/Hut/Crypt) utilise déjà `className="btn-primary ..."` EXCLUSIVEMENT
+  // pour son action principale (jamais pour ✕/Fermer/Annuler, voir grep) — aucun changement requis
+  // dans ces composants, un simple ordre de préférence ici suffit. Si aucun `.btn-primary` visible/
+  // activable n'existe (ex. `ConfirmDialog`/le pop-up de retour de Porte des étoiles, qui n'ont pas
+  // cette classe), comportement INCHANGÉ : premier élément focusable en ordre DOM (déjà correct
+  // pour `ConfirmDialog`, dont le bouton "Oui" est déjà le premier élément du markup).
   const els = focusableElements(container);
-  if (els.length) els[0].focus();
+  if (!els.length) return;
+  const primary = els.find((el) => el.classList.contains('btn-primary'));
+  (primary ?? els[0]).focus();
 }
 
 /** Enregistre un conteneur de dialogue comme actif (sommet de pile) — à appeler au MONTAGE (voir

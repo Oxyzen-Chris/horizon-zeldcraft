@@ -728,10 +728,35 @@ export function CryptTunnelScene({
           {onExitCrypt && (
             <group position={[entranceDoorPos.x, entranceDoorPos.y + 1.05, entranceDoorPos.z]} rotation={[0, poses[0].heading + Math.PI, 0]}>
               <CryptDoor onClick={onExitCrypt} />
-              <Torch side={-1} flicker={torchFlickerEnabled} />
-              <Torch side={1} flicker={torchFlickerEnabled} />
+              {/* 🆕 Point light dédiée, SANS flamme/torche visible (purement d'éclairage) — les
+                  torches d'entrée restent à `poses[0]` (voir groupe ci-dessous, ~1,1 unité plus
+                  loin que cette porte), donc sans cette lumière locale la porte de sortie resterait
+                  trop sombre lors du demi-tour (`turnOffset===2`) pour bien distinguer ses détails
+                  (vérifié par capture isolée Playwright : ambiante seule ≈ RGB(28,3,0), quasi
+                  illisible). N'affecte en rien la vue d'entrée (`progress===0` vers l'avant) déjà
+                  validée : cette lumière est centrée sur la porte, à l'opposé du champ de vision
+                  initial de la caméra. */}
+              <pointLight color="#fb923c" intensity={1.1} distance={3.5} decay={2} position={[0, 0.3, 0.3]} />
             </group>
           )}
+          {/* 🆕 Torches de l'entrée VOLONTAIREMENT détachées du groupe de la porte ci-dessus (contrairement
+              à la porte du fond de couloir plus haut, où torches + porte partagent le même groupe) —
+              voir demande utilisateur « il y encore un bug d'écran noir [...] le tunnel éclairé ne
+              s'affiche pas [...] Es-tu certain qu'il ne faut pas plutôt la décaler vers l'avant ? ».
+              Un 1er correctif avait décalé la porte ET ses torches ENSEMBLE vers l'arrière
+              (`entranceDoorPos`, direction extérieure, nécessaire pour que la porte reste visible/
+              cliquable lors du demi-tour de sortie) — mais cela éloignait aussi les seules torches
+              proches de la caméra au DÉMARRAGE (`progress===0`, à `poses[0]`), laissant la vue
+              replonger dans le brouillard quasi noir (`fog` `near=2`/`far=15`) faute de lumière à
+              proximité immédiate. Les torches restent donc ICI, à `poses[0]` INCHANGÉ (position
+              d'origine, jamais la cause du bug — seule la fine porte en bois, ~12cm d'épaisseur,
+              exactement superposée à la caméra à `progress===0`, provoquait l'écran noir en
+              plongeant la caméra à l'intérieur même de sa géométrie), pour un éclairage immédiat et
+              inchangé à l'entrée, identique à celui qui rendait déjà bien la vue dès `progress===1`. */}
+          <group position={[poses[0].pos.x, poses[0].pos.y + 1.05, poses[0].pos.z]} rotation={[0, poses[0].heading + Math.PI, 0]}>
+            <Torch side={-1} flicker={torchFlickerEnabled} />
+            <Torch side={1} flicker={torchFlickerEnabled} />
+          </group>
         </>
       )}
       {doorOpened && (
