@@ -13,6 +13,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  { date: '2026-11-14', icon: '🔦', titleKey: 'changelog.cryptSelfIntersectionFix.title', bodyKey: 'changelog.cryptSelfIntersectionFix.body' },
   { date: '2026-11-13', icon: '🚪', titleKey: 'changelog.cryptEntryFocusFollowup.title', bodyKey: 'changelog.cryptEntryFocusFollowup.body' },
   { date: '2026-11-12', icon: '🕯️', titleKey: 'changelog.cryptEntryGamepad.title', bodyKey: 'changelog.cryptEntryGamepad.body' },
   { date: '2026-11-11', icon: '🎯', titleKey: 'changelog.gamepadDialogNav.title', bodyKey: 'changelog.gamepadDialogNav.body' },

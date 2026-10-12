@@ -5775,3 +5775,84 @@ caméra à l'intérieur d'une géométrie), expliquant pourquoi l'utilisateur le
 
 Pages de test et scripts Playwright temporaires supprimés après vérification.
 
+## 🔦 Torche géante masquant la vue à l'entrée de certains souterrains (auto-intersection du tracé) + demi-tour au stick droit
+
+Demande utilisateur : « je tombe sur un écran qui me masque la vue [...] j'arrive directement » puis,
+après un nouveau signalement, confirmation que le bug persistait malgré le correctif précédent (§
+ci-dessus) + « active le 3ème pad directionnel sur la manette de jeu [...] pour permettre à Synk de
+se retourner ou faire demi-tour dans le labyrinthe ».
+
+### Cause réelle : auto-intersection du tracé procédural, PAS un bug lié au plein écran
+
+Une première hypothèse (bug spécifique au mode plein écran) a été écartée après reproduction du même
+bug avec la MÊME graine de crypte (`cryptId`) à une taille de fenêtre normale — la corrélation avec
+le plein écran observée initialement provenait en réalité de la comparaison de DEUX graines de test
+différentes entre les deux configurations, pas d'un effet de la taille d'écran elle-même.
+
+La cause réelle, confirmée par inspection du graphe de scène Three.js en direct (position/rotation
+de chaque maillage et de ses parents, via un hook de debug temporaire) : `computeTunnelPath` génère
+un tracé en marche aléatoire (virages à 90° tous les 7-11 dalles, `TILE_SIZE=2`) **sans aucune
+vérification anti-auto-intersection**. Pour environ **9,84 % des graines possibles** (mesuré sur
+5000 `cryptId` aléatoires), le tracé revient sur une dalle (x,z) déjà occupée par une dalle
+antérieure, mais avec une orientation différente — les torches murales des deux dalles se
+superposent alors exactement au même endroit ; celles de la dalle la PLUS RÉCENTE, avec une
+orientation tournée de 90°/270° par rapport à la dalle d'origine, voient leur décalage latéral
+basculer de l'axe X vers l'axe Z, les plaçant quasiment pile dans l'axe de vue de la caméra à
+`progress=0` — d'où l'impression d'un objet gigantesque et incompréhensible bloquant toute la vue dès
+l'entrée.
+
+### Correctif (`CryptTunnelScene.tsx`)
+
+- `generateTunnelPoses(cryptId, tunnelLength, salt)` : fonction pure extraite de l'ancien
+  `computeTunnelPath`, identique bit à bit à `salt=0` (aucune régression sur les tracés déjà corrects
+  — `salt` n'est ajouté au germe de hash (`` `${cryptId}#${salt}` ``) que si `salt > 0`).
+- `hasSelfIntersection(poses)` : détection par grille (`Math.round(pos.x/TILE_SIZE)` +
+  `Math.round(pos.z/TILE_SIZE)` comme clé composite — fiable car tous les déplacements sont des pas
+  de `TILE_SIZE` avec virages à 90° exacts, donc toutes les dalles tombent pile sur une grille),
+  excluant la trivial « dalle suivante » (`|i−j|>1`).
+- `computeTunnelPath` boucle désormais sur `salt` de 0 à `MAX_RETRIES=24`, retenant le premier tracé
+  sans auto-intersection, avec un ultime repli vers un couloir parfaitement droit (`heading=0` tout
+  du long, garanti sans auto-intersection) si les 24 tentatives échouent — jamais déclenché en
+  pratique.
+- Validation à grande échelle (script Node.js autonome, réimplémentation fidèle de l'algorithme,
+  5000 `cryptId` aléatoires) : 9,84 % des graines étaient cassées avant correctif ; toutes résolues
+  par le mécanisme de relance (salt maximal nécessaire observé : 4, loin des 24 disponibles ; 0 cas
+  nécessitant le repli en couloir droit).
+- Confirmé : `default_crypt_1` (crypte du Dragon Vert caché) et la graine de test historique
+  `e2e_test_crypt` n'étaient PAS cassées à `salt=0` — leurs tracés restent identiques au bit près
+  (zéro régression sur les cryptes déjà explorées par les joueurs).
+
+### 🕹️ Stick droit de la manette = 3ème source directionnelle → demi-tour dans les souterrains
+
+- `readMoveDelta(gp)` fusionne déjà le pavé directionnel ET le stick gauche en un seul signal de
+  déplacement (le pavé est prioritaire si les deux sont actionnés) — le **stick droit** (`axes[2]`/
+  `axes[3]`) n'était utilisé NULLE PART dans le code (vérifié par recherche globale), ce qui en fait
+  la 3ème source directionnelle évidente visée par la demande (pavé directionnel, stick gauche, stick
+  droit).
+- `readTurnAxis(gp)` (nouveau, `lib/gamepadInput.ts`) : lit `axes[2]` avec la même zone morte
+  (`STICK_DEADZONE=0.4`) déjà utilisée pour le stick gauche, renvoie -1/0/1.
+- Nouvel effet de sondage RAF dans `Platform3DWidget.tsx` (juste après l'effet existant gérant
+  Haut/Bas en crypte via manette), à FRONT MONTANT uniquement (pas de répétition en maintenant le
+  stick) : une poussée à gauche appelle `setCryptTurn((v) => (v+3)%4)`, une poussée à droite
+  `(v+1)%4` — **exactement la même logique** que les boutons HUD ↺/↻ déjà en place, donc deux
+  poussées dans le même sens produisent un demi-tour complet à 180°, comme demandé. Même garde que
+  les effets manette existants (`cryptMode && !towerTopActive && !roomTopActive && !cryptDoorOpened`)
+  — zéro nouvelle surface de régression.
+- Nouvelle clé i18n `gamepad.rightStickHint` (5 langues) affichée dans `GamepadSettingsWidget.tsx`,
+  sous l'indicateur de statut de connexion existant, documentant ce nouveau contrôle en jeu.
+
+### Vérification
+
+- Simulation à grande échelle (5000 graines, script Node.js autonome) confirmant le taux de bug et
+  la résolution complète décrits ci-dessus.
+- Playwright (`/game`, session Démo, `navigator.getGamepads` mocké) : entrée dans une crypte dont la
+  graine était connue pour être auto-intersectante avant correctif → tunnel bien éclairé et sans
+  torche géante après correctif. Puis simulation d'une poussée du stick droit (`axes[2]=1`) :
+  capture confirmant la rotation de 90° de la vue caméra (mur latéral désormais visible plutôt que le
+  couloir), prouvant le déclenchement effectif du quart de tour.
+- `npx tsc --noEmit` : 0 erreur. Fumée de non-régression : monde extérieur + bascule plein écran
+  toujours fonctionnels ; cryptes déjà fonctionnelles confirmées inchangées (`salt=0` strictement
+  identique à l'algorithme d'origine).
+- Hooks de debug temporaires (`window.__debugEnterCrypt`, `window.__debugDumpScene`) et scripts/
+  captures de test temporaires entièrement supprimés après vérification.
+

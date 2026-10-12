@@ -91,10 +91,15 @@ interface Pose { pos: THREE.Vector3; heading: number }
  * (`group.rotation.y = heading`) : avancer d'un pas dans la direction du cap courant correspond au
  * vecteur `(-sin(heading), 0, -cos(heading))`, EXACTEMENT ce que produit une rotation Y native de
  * l'axe local -Z — donc une dalle/porte/salle positionnée à `pos` et pivotée à `rotation.y=heading`
- * s'aligne automatiquement sur le chemin, sans transformation manuelle supplémentaire. */
-function computeTunnelPath(cryptId: string, tunnelLength: number, stairSteps: number): { poses: Pose[]; doorPos: THREE.Vector3; roomPos: THREE.Vector3; entranceDoorPos: THREE.Vector3; lastHeading: number } {
+ * s'aligne automatiquement sur le chemin, sans transformation manuelle supplémentaire.
+ *
+ * 🆕 Génère le tracé des virages avec un essai (`salt`) qui peut être incrémenté par l'appelant
+ * (voir `computeTunnelPath` ci-dessous, § anti-repli) — PURE, sans aucune boucle de nouvel essai
+ * ici : ce découplage permet de valider le résultat (auto-intersection) AVANT de l'accepter. */
+function generateTunnelPoses(cryptId: string, tunnelLength: number, salt: number): Pose[] {
   let h = 0;
-  for (const c of cryptId) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const seedStr = salt === 0 ? cryptId : `${cryptId}#${salt}`;
+  for (const c of seedStr) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   const rnd = (seed: number) => {
     const x = Math.sin(h + seed * 999.7) * 43758.5453;
     return x - Math.floor(x);
@@ -114,14 +119,65 @@ function computeTunnelPath(cryptId: string, tunnelLength: number, stairSteps: nu
     pos.add(dirFor(heading).multiplyScalar(TILE_SIZE));
     poses.push({ pos: pos.clone(), heading });
   }
-  const lastHeading = poses[poses.length - 1].heading;
-  const stairDir = dirFor(lastHeading);
+  return poses;
+}
+
+/** 🆕 Détecte un couloir qui se replie sur lui-même (bug remonté par l'utilisateur : « j'entre dans
+ * la crypte [...] un gros objet (torche) bloque la vue au centre de l'écran » — analyse Playwright :
+ * certaines graines de `cryptId` produisent un tracé de virages (voir `generateTunnelPoses`
+ * ci-dessus) qui REVIENT exactement sur une dalle déjà posée plus tôt dans le couloir, mais avec un
+ * CAP différent — les deux jeux de torches murales de cette dalle se superposent alors, l'un d'eux
+ * se retrouvant projeté bien plus près du centre du champ de vision qu'attendu). Un pas `TILE_SIZE`
+ * et des virages à 90° exactement alignent toujours les dalles sur une grille : un simple arrondi
+ * des coordonnées XZ suffit donc à détecter toute dalle non-adjacente (`|i-j|>1`, un repli direct
+ * sur la dalle immédiatement précédente étant géométriquement impossible avec des virages à 90°)
+ * qui occuperait la même case que l'une des dalles déjà posées. */
+function hasSelfIntersection(poses: Pose[]): boolean {
+  const seen = new Map<string, number>();
+  for (let i = 0; i < poses.length; i++) {
+    const key = `${Math.round(poses[i].pos.x / TILE_SIZE)},${Math.round(poses[i].pos.z / TILE_SIZE)}`;
+    const prev = seen.get(key);
+    if (prev !== undefined && Math.abs(prev - i) > 1) return true;
+    seen.set(key, i);
+  }
+  return false;
+}
+
+function computeTunnelPath(cryptId: string, tunnelLength: number, stairSteps: number): { poses: Pose[]; doorPos: THREE.Vector3; roomPos: THREE.Vector3; entranceDoorPos: THREE.Vector3; lastHeading: number } {
+  // 🆕 Essaie plusieurs graines dérivées (`salt` 0..MAX_RETRIES) jusqu'à obtenir un tracé qui ne se
+  // replie pas sur lui-même (voir `hasSelfIntersection` ci-dessus) — reste 100% déterministe pour
+  // un `cryptId` donné (même séquence d'essais rejouée à chaque appel), et NE CHANGE RIEN pour
+  // toutes les cryptes DÉJÀ valides (premier essai, `salt===0`, identique à l'algorithme d'origine :
+  // zéro régression de tracé pour les souterrains déjà explorés sans ce bug). Si, en théorie, aucun
+  // des essais ne suffit (extrêmement improbable sur ~40 dalles avec des virages espacés d'au moins
+  // 7 dalles), repli ultime sur un couloir parfaitement DROIT (aucun virage), garanti sans
+  // auto-intersection.
+  const MAX_RETRIES = 24;
+  let poses: Pose[] | null = null;
+  for (let salt = 0; salt <= MAX_RETRIES; salt++) {
+    const candidate = generateTunnelPoses(cryptId, tunnelLength, salt);
+    if (!hasSelfIntersection(candidate)) { poses = candidate; break; }
+  }
+  if (!poses) {
+    // Repli ultime : couloir rectiligne (cap 0 du début à la fin), ne peut jamais se replier.
+    const pos = new THREE.Vector3(0, 0, 0);
+    poses = [{ pos: pos.clone(), heading: 0 }];
+    for (let i = 1; i <= tunnelLength; i++) {
+      pos.z -= TILE_SIZE;
+      poses.push({ pos: pos.clone(), heading: 0 });
+    }
+  }
+  const dirFor = (ang: number) => new THREE.Vector3(-Math.sin(ang), 0, -Math.cos(ang));
+  const pos = poses[poses.length - 1].pos.clone();
+  let heading = poses[poses.length - 1].heading;
   for (let s = 1; s <= stairSteps; s++) {
-    pos.add(stairDir.clone().multiplyScalar(STAIR_DEPTH));
+    pos.add(dirFor(heading).multiplyScalar(STAIR_DEPTH));
     const stepPos = pos.clone();
     stepPos.y = s * STAIR_RISE_PER_STEP;
-    poses.push({ pos: stepPos, heading: lastHeading });
+    poses.push({ pos: stepPos, heading });
   }
+  const lastHeading = heading;
+  const stairDir = dirFor(lastHeading);
   const lastPose = poses[poses.length - 1];
   const doorPos = lastPose.pos.clone().add(stairDir.clone().multiplyScalar(TILE_SIZE * 0.55));
   doorPos.y = lastPose.pos.y;

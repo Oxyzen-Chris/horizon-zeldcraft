@@ -149,6 +149,22 @@ export function readMoveDelta(gp: Gamepad): { dx: number; dy: number } {
   return { dx, dy };
 }
 
+/** 🆕 Axe horizontal du stick analogique DROIT (axes 2/3, standard Gamepad API — « le 3ème pad
+ * directionnel » de la manette au sens de la demande utilisateur « active le 3ème pad directionnel
+ * sur la manette de jeu [...] pour permettre à Synk de se retourner ou faire demi-tour dans le
+ * labyrinthe ») : jusqu'ici totalement inutilisé par le jeu (le pavé directionnel ET le stick
+ * GAUCHE sont déjà fusionnés en un seul axe de déplacement par `readMoveDelta` ci-dessus — stick
+ * droit = la 3ᵉ source directionnelle disponible sur une manette standard, après pavé directionnel
+ * et stick gauche). Renvoie `-1`/`0`/`1` (gauche/centre/droite), même zone morte que le stick
+ * gauche, pour piloter un quart de tour de caméra dans le souterrain (voir
+ * Platform3DWidget.tsx::cryptTurn) — deux appuis successifs dans le même sens permettent ainsi de
+ * faire un demi-tour complet, EXACTEMENT comme les boutons ↺/↻ déjà existants, sans dupliquer leur
+ * logique de rotation. */
+export function readTurnAxis(gp: Gamepad): number {
+  const ax = gp.axes[2] ?? 0;
+  return Math.abs(ax) > STICK_DEADZONE ? (ax > 0 ? 1 : -1) : 0;
+}
+
 /** État de connexion manette (pour affichage dans GamepadSettingsWidget.tsx). */
 export interface GamepadStatus { connected: boolean; id: string | null }
 

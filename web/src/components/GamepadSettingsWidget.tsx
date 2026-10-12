@@ -176,6 +176,7 @@ export function GamepadSettingsWidget({ enabled = true }: { enabled?: boolean } 
             ? `${t('gamepad.status.connected')}${status.id ? ` — ${status.id}` : ''}`
             : t('gamepad.status.disconnected')}
           <p className="text-[10px] text-slate-500 mt-0.5">{t('gamepad.status.hint')}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">{t('gamepad.rightStickHint')}</p>
         </div>
 
         <div className="space-y-1.5">

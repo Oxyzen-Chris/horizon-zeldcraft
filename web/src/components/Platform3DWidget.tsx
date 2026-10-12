@@ -30,7 +30,7 @@ import { usePortalContainer } from '@/lib/usePortalContainer';
 import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { setUndergroundActive } from '@/lib/undergroundActive';
 import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, reportWorldMarkers, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker } from '@/lib/roamingActors';
-import { getFirstConnectedGamepad, readMoveDelta, GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
+import { getFirstConnectedGamepad, readMoveDelta, readTurnAxis, GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
 import { isGamepadDialogActive, moveDialogFocus, confirmGamepadDialogFocus, cancelGamepadDialogFocus, useGamepadDialogFocusTrap } from '@/lib/gamepadDialogNav';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
@@ -3918,6 +3918,33 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
   }, [cryptMode, towerTopActive, roomTopActive, cryptTunnelLength, cryptDoorOpened, cryptTurn]);
+
+  // ─── Demi-tour/quart de tour à la manette DANS le souterrain de crypte, via le stick analogique
+  // DROIT (voir lib/gamepadInput.ts::readTurnAxis et demande utilisateur « active le 3ème pad
+  // directionnel sur la manette de jeu [...] pour permettre à Synk de se retourner ou faire
+  // demi-tour dans le labyrinthe [...] et ainsi pouvoir changer de direction »). Front montant
+  // UNIQUEMENT (pas de répétition en maintenant incliné, contrairement à Avancer/Reculer
+  // ci-dessus) : un quart de tour par poussée franche du stick, EXACTEMENT la même action que les
+  // boutons ↺/↻ déjà existants (voir plus bas, overlay HORS `<Canvas>`) — deux poussées successives
+  // dans le même sens font donc un demi-tour complet, comme demandé. Masqué une fois la porte
+  // franchie (`cryptDoorOpened`, salle d'arrivée déjà explorable librement via `<OrbitControls>`).
+  useEffect(() => {
+    if (!cryptMode || towerTopActive || roomTopActive || cryptDoorOpened) return;
+    let rafId = 0;
+    let heldAxis = 0; // -1 gauche, 1 droite, 0 centré
+    const tick = () => {
+      const gp = getFirstConnectedGamepad();
+      const axis = gp ? readTurnAxis(gp) : 0;
+      if (axis !== heldAxis) {
+        heldAxis = axis;
+        if (axis < 0) setCryptTurn((v) => ((v + 3) % 4) as 0 | 1 | 2 | 3); // ↺ quart de tour gauche
+        else if (axis > 0) setCryptTurn((v) => ((v + 1) % 4) as 0 | 1 | 2 | 3); // ↻ quart de tour droite
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [cryptMode, towerTopActive, roomTopActive, cryptDoorOpened]);
 
   // ─── Redimensionnement à la souris (coin bas-droit, voir onResizePointerMove) + plein écran natif
   // du navigateur (voir RepRules.platform3dResizableEnabled) — le conteneur 3D `fullscreenRef` (et
