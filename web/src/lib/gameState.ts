@@ -4235,6 +4235,21 @@ export const CORNER_POSITION_CLASSES: Record<CornerPosition, string> = {
  * visuelle des membres) et GameCanvas2D.tsx (clavier/pavé directionnel). */
 export type SynkDirection = 'up' | 'down' | 'left' | 'right' | 'up-left' | 'up-right' | 'down-left' | 'down-right';
 
+/** Angle de rotation Y (radians) du modèle 3D de Synk pour chaque direction à 8 valeurs — le
+ * modèle a pour convention de regarder +Z au repos (rotation 0, voir `FACING_ANGLE.down`), d'où un
+ * vecteur de direction `(sin(FACING_ANGLE[dir]), 0, cos(FACING_ANGLE[dir]))` en coordonnées monde.
+ * Centralisé ICI (plutôt que dans Platform3DWidget.tsx où elle vivait à l'origine) pour pouvoir
+ * être importée À LA FOIS par Platform3DWidget.tsx ET CryptTunnelScene.tsx SANS dépendance
+ * circulaire (CryptTunnelScene.tsx est déjà importé PAR Platform3DWidget.tsx) — nécessaire pour que
+ * la caméra des salles chambre/parchemin (voir CryptTunnelScene.tsx::RoomFollowCamera) puisse elle
+ * aussi se positionner "derrière Synk" au demi-tour au stick droit (voir demande utilisateur
+ * « la caméra subjective qui doit toujours se trouver derrière Synk »), exactement comme le monde
+ * extérieur et le haut de tour de donjon (Platform3DWidget.tsx). */
+export const FACING_ANGLE: Record<SynkDirection, number> = {
+  down: 0, 'down-left': -Math.PI / 4, left: -Math.PI / 2, 'up-left': -(3 * Math.PI) / 4,
+  up: Math.PI, 'up-right': (3 * Math.PI) / 4, right: Math.PI / 2, 'down-right': Math.PI / 4,
+};
+
 /**
  * Registre admin-paramétrable des comportements de déplacement par type d'objet/décor DANS LA
  * PLATEFORME 3D UNIQUEMENT (voir Platform3DWidget.tsx::move()) — remplace la logique jusqu'ici

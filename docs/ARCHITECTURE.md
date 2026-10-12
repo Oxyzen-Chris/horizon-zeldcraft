@@ -5946,3 +5946,49 @@ capture de l'ÉLÉMENT `<canvas>` seul, relevé brut `getBoundingClientRect`/tai
 - `npx tsc --noEmit` : 0 erreur. Hooks/scripts/captures de debug temporaires entièrement supprimés
   après vérification.
 
+### 🎥 La caméra 3ᵉ personne suit désormais le demi-tour au stick droit (monde extérieur, tour, chambre)
+
+- Demande utilisateur : le demi-tour précédent ne pivotait que `facing` (l'orientation du modèle de
+  Synk) ; la caméra orbitale (`OrbitControls`), elle, restait figée. Le joueur voulait qu'« une fois
+  tourné, Synk se trouve dans la bonne position pour avancer dans la bonne direction » — c'est-à-dire
+  que la caméra se replace **derrière** Synk après le tour, exactement comme le fait déjà la caméra
+  1ʳᵉ personne du couloir de souterrain.
+- `FACING_ANGLE` (table direction → angle en radians) a été déplacée de `Platform3DWidget.tsx` vers
+  `lib/gameState.ts` (export partagé) pour pouvoir être importée aussi par `CryptTunnelScene.tsx`
+  sans créer d'import circulaire (`gameState.ts` n'importe rien depuis `components/`).
+- **Monde extérieur et haut de tour** : au moment du calcul de `facing` résultant (`next`), appel
+  direct `orbitControlsRef.current.setAzimuthalAngle(FACING_ANGLE[next] + Math.PI)` — l'ajout de π
+  place la caméra à l'opposé de la direction regardée, donc bien derrière Synk.
+  - `TowerTopScene` : son verrouillage anti-souris (jusqu'ici `minAzimuthAngle={0} maxAzimuthAngle={0}`)
+    a été remplacé par `enableRotate={false}`. L'ancien verrou recalait l'angle à 0 à chaque `update()`,
+    y compris après un `setAzimuthalAngle()` programmatique, ce qui aurait empêché toute rotation
+    volontaire de la caméra. `enableRotate={false}` ne désactive que les gestionnaires souris/tactile
+    et laisse `setAzimuthalAngle()` pleinement fonctionnel (mécanisme déjà utilisé par la chambre).
+    `TowerCameraInit` (pose initiale via `camera.position.set()`/`lookAt()` bruts) n'est pas affecté.
+- **Chambre/parchemin** (`CryptTunnelScene.tsx`) : toute la pièce (Synk inclus) est rendue dans un
+  `<group rotation={[0, lastHeading, 0]}>`, alors que la caméra/`OrbitControls` vivent HORS de ce
+  groupe (en espace monde). La formule devient donc `lastHeading + FACING_ANGLE[facing] + Math.PI`.
+  Un nouveau prop `cameraTurnRequest={facing, n}` (compteur `n` incrémental) signale la demande de
+  l'extérieur ; un effet dédié, câblé sur `n` (jamais sur `facing` seul, qui change aussi à chaque pas
+  de marche normal), appelle `roomControlsRef.current.setAzimuthalAngle(angle)`.
+- Le couloir de souterrain en vue 1ʳᵉ personne avait déjà ce comportement avant ce correctif (aucun
+  changement nécessaire là).
+
+### Vérification
+
+- Playwright (`navigator.getGamepads` mocké, `axes[2]`), instrumentation directe de l'angle via
+  `getAzimuthalAngle()` (plus fiable que la comparaison de captures d'écran, un donjon tour à motif
+  symétrique 16 faces pouvant sembler identique après une rotation de 90° par pure coïncidence) :
+  - Monde extérieur : après chaque poussée de 90°, l'aiguille de boussole tourne ET le décor affiché
+    change substantiellement (orbite réelle de la caméra, pas seulement rotation du modèle). Drag
+    souris testé avant/après : orbite libre toujours fonctionnelle (aucune régression).
+  - Tour : angle azimutal `0` avant poussée → `π/2` après une poussée, correspondant exactement à
+    `FACING_ANGLE['left'] (−π/2) + π`. Drag souris testé : angle inchangé avant/après (confirme que
+    `enableRotate={false}` bloque bien la souris, zéro régression par rapport à l'ancien verrou).
+  - Chambre (bedroom) : `facing` passe de `'down'` à `'left'` après une poussée, et la capture d'écran
+    confirme visuellement que la caméra a pivoté derrière Synk (on voit désormais son dos, le mobilier
+    de la pièce ayant changé en conséquence). Drag souris testé : capture identique avant/après
+    (aucune régression, `enableRotate={false}` déjà présent pour la chambre).
+- `npx tsc --noEmit` : 0 erreur. Hooks/scripts/captures de debug temporaires entièrement supprimés
+  après vérification.
+

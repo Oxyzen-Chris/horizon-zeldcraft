@@ -10,7 +10,7 @@ import {
   subscribePlayer, subscribeInventory, getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment, applyEffect,
   DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY, dropInventoryItemAt, DEFAULT_AUDIO_SETTINGS, pickupWorldDrop,
-  subscribeTakenParchmentIds, subscribeHiddenDragonFamiliarTaken, DEFAULT_SHOP,
+  subscribeTakenParchmentIds, subscribeHiddenDragonFamiliarTaken, DEFAULT_SHOP, FACING_ANGLE,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
   type ZorghonEncounterState, type SynkDirection, type EquipSlot, type EquippedItem,
   type Platform3DObjectKind, type Platform3DObjectFlags, type AudioSourceKey, type AudioSourceSetting,
@@ -159,11 +159,10 @@ const RARITY_COLOR_3D: Record<string, string> = {
  * (visage vers la caméra) et `up` (visage à l'opposé) n'ont pas de composante X et n'étaient donc
  * pas affectés). Corrigé en inversant le signe de chaque angle latéral — NE PAS réintroduire
  * l'ancien mapping, et NE PAS toucher à la logique de déplacement (dx/dy, useHoldMovement,
- * directionFromDelta) qui reste strictement inchangée et fonctionne correctement. */
-const FACING_ANGLE: Record<SynkDirection, number> = {
-  down: 0, 'down-left': -Math.PI / 4, left: -Math.PI / 2, 'up-left': -(3 * Math.PI) / 4,
-  up: Math.PI, 'up-right': (3 * Math.PI) / 4, right: Math.PI / 2, 'down-right': Math.PI / 4,
-};
+ * directionFromDelta) qui reste strictement inchangée et fonctionne correctement.
+ *
+ * 🆕 `FACING_ANGLE` déplacée vers `lib/gameState.ts` (importée ci-dessus) pour pouvoir être
+ * réutilisée par CryptTunnelScene.tsx sans dépendance circulaire — voir sa doc là-bas. */
 
 /** Direction à 180° de chaque direction à 8 valeurs — utilisée pour retourner Synk à l'opposé de
  * la porte qu'il vient de franchir (voir demande utilisateur « il faut que Synk soit orienté vers
@@ -2524,7 +2523,7 @@ function TowerTopScene({
   stage, facing, equipment, equipmentRenderEnabled, pos, walking, running, eyeBlinkEnabled, eyeBlinkIntervalSec,
   onToggleDoor, torchFlickerEnabled, markers,
   centerCol, centerRow, poiPoints, objectFlags, fireBreathEnabled, fireBreathIntervalSec,
-  wildlifeAudio, owlHootEnabled, werewolfHowlEnabled,
+  wildlifeAudio, owlHootEnabled, werewolfHowlEnabled, orbitControlsRef,
 }: {
   stage: number; facing: SynkDirection;
   equipment: Partial<Record<EquipSlot, EquippedItem>>; equipmentRenderEnabled: boolean;
@@ -2543,6 +2542,13 @@ function TowerTopScene({
   fireBreathEnabled?: boolean; fireBreathIntervalSec?: number;
   wildlifeAudio?: Record<AudioSourceKey, AudioSourceSetting>;
   owlHootEnabled?: boolean; werewolfHowlEnabled?: boolean;
+  /** 🆕 Même `orbitControlsRef` partagé que `<Scene>` (monde extérieur) — voir doc sur sa
+   * déclaration dans le composant parent. Les deux rendus (`<Scene>`/`<TowerTopScene>`) sont
+   * mutuellement exclusifs dans le même `<Canvas>` (jamais montés simultanément), donc réutiliser
+   * la même instance est sûr et permet à l'effet « stick droit hors souterrain » du parent
+   * d'appeler `orbitControlsRef.current?.setAzimuthalAngle?.(...)` de façon uniforme pour faire
+   * pivoter la caméra "derrière Synk" ici aussi (voir demande utilisateur). */
+  orbitControlsRef: React.MutableRefObject<any>;
 }) {
   const merlons = useMemo(() => Array.from({ length: 16 }, (_, i) => {
     const angle = (i / 16) * Math.PI * 2;
@@ -2637,21 +2643,32 @@ function TowerTopScene({
       </group>
       {/* Caméra suiveuse "mode traveling" (voir demande utilisateur) : le `target` suit Synk tandis
           que la caméra reste positionnée AU-DESSUS de lui. L'AZIMUT (rotation horizontale à la
-          souris) est désormais VERROUILLÉ (`minAzimuthAngle===maxAzimuthAngle`, voir demande
-          utilisateur « met en place une caméra qui suit Synk et se positionne au dessus de lui et
-          fait en sorte que les touches de direction reste les mêmes [...] quand j'utilise la vue
-          [...] à la souris [...] les directions au clavier [...] ne sont plus les mêmes ») — c'est
-          la rotation HORIZONTALE (tourner autour de Synk) qui changeait l'apparence écran de
+          souris) est VERROUILLÉ pour la souris (`enableRotate={false}`, voir demande utilisateur
+          « met en place une caméra qui suit Synk et se positionne au dessus de lui et fait en sorte
+          que les touches de direction reste les mêmes [...] quand j'utilise la vue [...] à la
+          souris [...] les directions au clavier [...] ne sont plus les mêmes ») — c'est la rotation
+          HORIZONTALE (tourner autour de Synk À LA SOURIS) qui changeait l'apparence écran de
           "avant"/"gauche"/"droite" sans jamais changer la direction réellement envoyée par les
-          touches, d'où la désynchronisation. L'inclinaison VERTICALE (`minPolarAngle`/
-          `maxPolarAngle` par défaut, non bornés ici) reste en revanche 100% libre : « permettre à
-          Synk de baisser comme lever un peu le regard » (demande utilisateur antérieure) n'est
-          PAS affectée, puisqu'incliner la vue de haut en bas ne fait tourner ni ne retourne jamais
-          l'écran (contrairement à l'azimut). `TowerCameraInit` fixe la pose de départ en surplomb
-          (azimut 0, cohérent avec le verrouillage ci-dessus) UNE SEULE FOIS à l'entrée. */}
+          touches, d'où la désynchronisation.
+          🆕 `enableRotate={false}` REMPLACE l'ancien verrou `minAzimuthAngle===maxAzimuthAngle===0`
+          (strictement équivalent pour bloquer le drag souris) car ce dernier RECLAMPAIT aussi theta
+          à 0 sur TOUT appel `setAzimuthalAngle()`, y compris programmatique — ce qui aurait empêché
+          la nouvelle rotation caméra "derrière Synk" au demi-tour stick droit (voir effet dans le
+          composant parent) de produire un quelconque effet visuel. `enableRotate={false}` ne
+          désactive QUE les gestionnaires de pointeur (drag souris), laissant `setAzimuthalAngle()`
+          et le damping natif pleinement fonctionnels — `ref={orbitControlsRef}` (partagé avec
+          `<Scene>`, voir sa doc) permet justement cet appel programmatique depuis le parent.
+          L'inclinaison VERTICALE (`minPolarAngle`/`maxPolarAngle` par défaut, non bornés ici) reste
+          100% libre : « permettre à Synk de baisser comme lever un peu le regard » (demande
+          utilisateur antérieure) n'est PAS affectée, puisqu'incliner la vue de haut en bas ne fait
+          tourner ni ne retourne jamais l'écran (contrairement à l'azimut). `TowerCameraInit` fixe la
+          pose de départ en surplomb (azimut 0, cohérent avec le verrouillage ci-dessus) UNE SEULE
+          FOIS à l'entrée — AUCUN changement sur ce point, `TowerCameraInit` ne touche jamais
+          `OrbitControls` directement (uniquement l'objet caméra Three.js natif). */}
       <OrbitControls
+        ref={orbitControlsRef}
         enablePan={false} enableDamping dampingFactor={0.12} minDistance={2.5} maxDistance={12}
-        target={[pos.x, 1, pos.y]} minAzimuthAngle={0} maxAzimuthAngle={0}
+        target={[pos.x, 1, pos.y]} enableRotate={false}
       />
       <TowerCameraInit target={[pos.x, 1, pos.y]} />
     </>
@@ -2916,6 +2933,13 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // ci-dessus, même rationale) — active le déplacement libre au clavier/dpad (voir `moveRoom`/
   // `roomPos` plus bas) exactement comme `towerTopActive` le fait pour la tour.
   const roomTopActive = cryptMode !== null && cryptDoorOpened && (cryptRoomType === 'bedroom' || cryptRoomType === 'parchment');
+  // 🆕 Signal de demande de rotation caméra transmis à CryptTunnelScene.tsx (salles chambre/
+  // parchemin) — voir effet « stick droit hors souterrain » plus bas. `n` est un compteur
+  // incrémenté à CHAQUE poussée franche (jamais réutilisé tel quel) afin que l'effet interne à
+  // CryptTunnelScene.tsx (clé sur `n`) se déclenche même si `facing` retombe sur une valeur déjà vue
+  // (ex: tour complet 4 poussées). Reste `null` tant qu'aucune rotation n'a encore été demandée.
+  const [roomCameraTurnRequest, setRoomCameraTurnRequest] = useState<{ facing: SynkDirection; n: number } | null>(null);
+  const roomCameraTurnCounterRef = useRef(0);
   const cryptTunnelLength = Math.max(4, Math.round(rules?.cryptTunnelLength ?? 40));
   // 🆕 Direction (8 valeurs) de Synk juste AVANT l'entrée en crypte (capturée dans
   // `onRequestEnterCrypt`) — c'est la direction vers laquelle il marchait pour atteindre la porte de
@@ -3198,6 +3222,11 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   );
 
   const [facing, setFacing] = useState<SynkDirection>('down');
+  // 🆕 Miroir synchrone de `facing` (voir effet stick droit hors souterrain plus bas) — nécessaire
+  // car le calcul de la caméra "derrière Synk" a besoin de la direction RÉSULTANTE immédiatement
+  // (pas après un prochain rendu), contrairement à `setFacing` seul (asynchrone côté React).
+  const facingRef = useRef<SynkDirection>('down');
+  useEffect(() => { facingRef.current = facing; }, [facing]);
   const [isWalking, setIsWalking] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [jumpTrigger, setJumpTrigger] = useState(0);
@@ -4002,7 +4031,30 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           lastMoveAtRef.current = Date.now();
           idleRecenteredRef.current = false;
           setRecentering(false);
-          setFacing((f) => rotateDirection(f, axis > 0 ? 2 : -2));
+          const next = rotateDirection(facingRef.current, axis > 0 ? 2 : -2);
+          facingRef.current = next;
+          setFacing(next);
+          // 🆕 Fait aussi pivoter la caméra pour qu'elle se retrouve DERRIÈRE Synk après le tour
+          // (voir demande utilisateur « la caméra subjective qui doit toujours se trouver derrière
+          // Synk [...] pour que lorsqu'il se déplace, il se trouve dans la bonne position pour
+          // avancer dans la bonne direction »). Même formule que `triggerRecenter`/
+          // `handleRecenterComplete` (azimut caméra = `FACING_ANGLE[facing] + π`, validée par le
+          // recentrage Nord : `facing='up'` → `FACING_ANGLE.up=π` → `π+π≡0`, l'azimut du recentrage).
+          // Un seul appel ponctuel à `setAzimuthalAngle`, laissé au damping natif d'OrbitControls
+          // pour l'interpolation douce — exactement comme le recentrage Nord (voir commentaire
+          // ci-dessus sur `triggerRecenter` : ceci NE réintroduit PAS la boucle de rétroaction
+          // caméra↔déplacement, le déplacement restant en repère MONDE FIXE).
+          if (roomTopActive) {
+            // Salle chambre/parchemin (CryptTunnelScene.tsx) : caméra locale non accessible par ref
+            // depuis ici → on transmet la direction + un compteur via un prop signal, et c'est
+            // CryptTunnelScene.tsx qui calcule l'azimut final (il connaît `lastHeading`, la rotation
+            // du groupe de la salle, que ce composant-ci n'a pas).
+            setRoomCameraTurnRequest({ facing: next, n: roomCameraTurnCounterRef.current++ });
+          } else {
+            // Monde extérieur et haut de tour de donjon : même `orbitControlsRef` partagé (les deux
+            // rendus sont mutuellement exclusifs dans le même <Canvas>, voir TowerTopScene plus bas).
+            orbitControlsRef.current?.setAzimuthalAngle?.(FACING_ANGLE[next] + Math.PI);
+          }
         }
       }
       rafId = requestAnimationFrame(tick);
@@ -4388,6 +4440,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               wildlifeAudio={wildlifeAudio}
               owlHootEnabled={worldAmbience.theme?.elements?.owlHootEnabled}
               werewolfHowlEnabled={worldAmbience.theme?.elements?.werewolfHowlEnabled}
+              orbitControlsRef={orbitControlsRef}
             />
           ) : cryptMode ? (
             <CryptTunnelScene
@@ -4414,6 +4467,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
                   ? () => setHiddenFamiliarPopupOpen(true)
                   : undefined
               }
+              cameraTurnRequest={roomCameraTurnRequest}
             />
           ) : underwaterMode ? (
             <UnderwaterScene

@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useRef, type ReactNode, type RefObject, type MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode, type RefObject, type MutableRefObject } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
+import { FACING_ANGLE, type SynkDirection } from '@/lib/gameState';
 
 /**
  * Souterrain de crypte en 3D (voir demande utilisateur : « Tu placeras à l'ouverture de la
@@ -645,7 +646,7 @@ function ParchmentRoom({ taken, onParchmentClick, torchFlickerEnabled }: { taken
 
 export function CryptTunnelScene({
   cryptId, progress, tunnelLength, torchFlickerEnabled, batCount, doorOpened, onToggleDoor, parchmentTaken, onParchmentClick,
-  turnOffset, synkSlot, roomSynkPos, onLeaveRoom, onExitCrypt, onHiddenDragonClick,
+  turnOffset, synkSlot, roomSynkPos, onLeaveRoom, onExitCrypt, onHiddenDragonClick, cameraTurnRequest,
 }: {
   cryptId: string;
   /** Nombre entier de dalles/marches parcourues depuis l'entrée (0 = entrée), piloté par le
@@ -706,6 +707,14 @@ export function CryptTunnelScene({
    * ramassé par ce joueur (sinon `undefined`, la table de chevet reste alors un simple meuble
    * inerte comme dans toute autre chambre). */
   onHiddenDragonClick?: () => void;
+  /** 🆕 Signal de demande de rotation caméra "derrière Synk" au demi-tour du stick droit (voir
+   * Platform3DWidget.tsx, effet « stick droit hors souterrain » et demande utilisateur « la caméra
+   * subjective qui doit toujours se trouver derrière Synk »). `n` est un compteur incrémenté à
+   * CHAQUE poussée franche côté parent — permet de détecter une NOUVELLE demande même si `facing`
+   * reprend une valeur déjà vue (ex: tour complet). Volontairement PAS dérivé de `facing`/
+   * `synkSlot` directement ICI : `facing` change aussi à CHAQUE pas de marche normal (`moveRoom`),
+   * ce qui ne doit JAMAIS déclencher de rotation caméra (seul le demi-tour volontaire le doit). */
+  cameraTurnRequest?: { facing: SynkDirection; n: number } | null;
 }) {
   const room = useMemo(() => cryptDestinationRoomFor(cryptId), [cryptId]);
   // 🆕 Voir `RoomFollowCamera` ci-dessus : `synkAnchorRef` est le groupe portant `synkSlot` dans la
@@ -718,6 +727,21 @@ export function CryptTunnelScene({
     () => computeTunnelPath(cryptId, tunnelLength, CRYPT_STAIR_STEPS),
     [cryptId, tunnelLength],
   );
+  // 🆕 Fait pivoter la caméra de la salle pour qu'elle se retrouve DERRIÈRE Synk après un demi-tour
+  // au stick droit (voir doc de `cameraTurnRequest` ci-dessus). IMPORTANT : toute la salle (murs,
+  // meubles, et donc Synk) est rendue à l'intérieur d'un `<group rotation={[0, lastHeading, 0]}>`
+  // (voir plus bas) — l'orientation RÉELLE de Synk dans le repère MONDE (où vit la caméra, hors de
+  // ce groupe) est donc `lastHeading + FACING_ANGLE[facing]`, pas `FACING_ANGLE[facing]` seul.
+  // Même formule "caméra opposée au regard" que Platform3DWidget.tsx (`+ Math.PI`), validée par le
+  // recentrage Nord du monde extérieur. Un seul appel ponctuel à `setAzimuthalAngle`, laissé au
+  // damping natif d'OrbitControls (`enableDamping` déjà actif ci-dessous) pour l'interpolation
+  // douce — ne touche jamais `target` (toujours piloté séparément par `RoomFollowCamera` ci-dessus).
+  useEffect(() => {
+    if (!cameraTurnRequest) return;
+    const angle = lastHeading + FACING_ANGLE[cameraTurnRequest.facing] + Math.PI;
+    roomControlsRef.current?.setAzimuthalAngle?.(angle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraTurnRequest?.n]);
   const tunnelPoses = poses.slice(0, tunnelLength + 1);
   const stairPoses = poses.slice(tunnelLength + 1);
   const torchIndices = useMemo(() => new Set(Array.from({ length: tunnelLength + 1 }, (_, i) => i).filter(i => i % 3 === 1)), [tunnelLength]);
