@@ -3018,6 +3018,8 @@
   "changelog.houseScaleAndChimneySmoke.body": "Corrige um bug em que os edifícios do catálogo de Administração (pousadas/tavernas/estábulos/aldeias) permaneciam minúsculos, mal mais altos que Synk, enquanto as cabanas decorativas já haviam sido ampliadas em uma correção anterior. Esses edifícios interativos agora usam a mesma escala ampliada, com uma porta adicionada à fachada. Foi adicionada uma chaminé com fumaça subindo (animação leve, sem impacto no FPS) apenas em algumas casas (aproximadamente metade, de forma estável), dando a ilusão de um fogo aceso lá dentro.",
   "changelog.gamepadActionButton.title": "🅰️ Botão A: apanhar objetos, abrir portas, ativar a consola",
   "changelog.gamepadActionButton.body": "O botão A do comando agora permite a Synk apanhar objetos do chão diretamente, abrir portas de masmorras/criptas e ativar a consola da Porta das Estrelas, nos widgets 2D e 3D.",
+  "changelog.cryptEntryGamepad.title": "🕯️ Entrada da cripta corrigida + comando nas masmorras",
+  "changelog.cryptEntryGamepad.body": "O ecrã preto que aparecia brevemente ao entrar numa cripta está corrigido (o corredor iluminado aparece agora de imediato) e o comando (cruzeta cima/baixo) já permite avançar/recuar pelos corredores das masmorras, tal como no teclado.",
   "changelog.gamepadDialogNav.title": "🎯 Navegação com comando nas caixas de diálogo",
   "changelog.gamepadDialogNav.body": "Quando uma caixa de diálogo se abre (objeto apanhado, loja, confirmação...), a cruzeta agora move um foco visual entre os seus botões e o botão A clica no elemento em foco, sem precisar do rato.",
   "changelog.sleepTheft.title": "🥷 Roubo durante o descanso forçado",

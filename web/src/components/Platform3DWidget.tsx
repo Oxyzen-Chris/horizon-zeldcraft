@@ -3873,6 +3873,52 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     return () => window.removeEventListener('keydown', onKey);
   }, [cryptMode, towerTopActive, roomTopActive, cryptTunnelLength, cryptDoorOpened, cryptTurn]);
 
+  // ─── Déplacement à la manette DANS le souterrain de crypte (pavé directionnel/stick gauche
+  // Haut/Bas uniquement) — MÊME portée que l'effet clavier ci-dessus (voir demande utilisateur
+  // « active mon GamePad pour me déplacer dans la crypte, le donjon, els pièces, les chambres etc...
+  // car il ne fonctionne pas »). Effet ENTIÈREMENT SÉPARÉ de celui du déplacement manette "monde
+  // normal" plus haut (qui se coupe volontairement tant que `cryptMode && !towerTopActive &&
+  // !roomTopActive`, voir son commentaire) : ici on sonde directement le D-pad/stick via RAF (la
+  // Gamepad API n'émet aucun évènement par axe) et on simule la répétition native du clavier (OS)
+  // avec un délai initial puis un intervalle de répétition, pour un ressenti "maintenir pour
+  // avancer" identique à la touche flèche.
+  useEffect(() => {
+    if (!cryptMode || towerTopActive || roomTopActive) return;
+    const REPEAT_DELAY_MS = 400; // délai avant la 1ère répétition (après le pas initial immédiat)
+    const REPEAT_INTERVAL_MS = 150; // cadence des pas suivants tant que la touche reste maintenue
+    const advanceDir = cryptTurn === 2 ? -1 : 1;
+    const maxProgress = cryptTunnelLength + CRYPT_STAIR_STEPS;
+    let rafId = 0;
+    let heldDy = 0; // -1 Haut (avancer), 1 Bas (reculer/fermer la porte), 0 relâché
+    let nextStepAt = 0;
+    const step = (dy: number) => {
+      if (dy < 0) {
+        if (cryptDoorOpened) return; // plus de progression possible une fois la porte franchie
+        setCryptProgress((p) => Math.max(0, Math.min(maxProgress, p + advanceDir)));
+      } else if (dy > 0) {
+        if (cryptDoorOpened) { setCryptDoorOpened(false); return; } // referme la porte (repart)
+        setCryptProgress((p) => Math.max(0, Math.min(maxProgress, p - advanceDir)));
+      }
+    };
+    const tick = (now: number) => {
+      const gp = getFirstConnectedGamepad();
+      const dy = gp ? readMoveDelta(gp).dy : 0;
+      if (dy !== heldDy) {
+        heldDy = dy;
+        if (dy !== 0) {
+          step(dy); // pas immédiat au moment de l'appui (front montant), comme le 1er keydown
+          nextStepAt = now + REPEAT_DELAY_MS;
+        }
+      } else if (dy !== 0 && now >= nextStepAt) {
+        step(dy);
+        nextStepAt = now + REPEAT_INTERVAL_MS;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [cryptMode, towerTopActive, roomTopActive, cryptTunnelLength, cryptDoorOpened, cryptTurn]);
+
   // ─── Redimensionnement à la souris (coin bas-droit, voir onResizePointerMove) + plein écran natif
   // du navigateur (voir RepRules.platform3dResizableEnabled) — le conteneur 3D `fullscreenRef` (et
   // non tout le widget) passe en plein écran pour agrandir la scène jusqu'aux capacités maximales

@@ -5661,4 +5661,57 @@ SANS achat (portefeuille inchangé à 4000 coins sur capture), confirmant que le
 bouton alors focus (« Non ») plutôt que l'action par défaut. 0 erreur console/page sur l'ensemble du
 scénario. Script de test temporaire supprimé après vérification.
 
+## 🕯️ Entrée de crypte corrigée (écran noir) + manette dans les souterrains
+
+Demande utilisateur : « je tombe sur un écran qui me masque la vue, je suis obligé d'avancer un peu
+pour que le tunnel de la crypte s'affiche [...] corrige moi cela pour que j'arrive directement [dans
+le tunnel éclairé] [...] De plus, active mon GamePad pour me déplacer dans la crypte, le donjon, els
+pièces, les chambres etc... car il ne fonctionne pas ».
+
+### Écran noir à l'entrée (`CryptTunnelScene.tsx`)
+
+- **Cause** : la caméra du couloir (`CryptCamera`) démarre EXACTEMENT à `poses[0].pos` (position du
+  1er pas du chemin, `progress === 0`). Or la porte d'entrée/sortie (`<CryptDoor onClick=
+  {onExitCrypt}>`, ajoutée pour permettre de sortir en cliquant dessus après un demi-tour) était
+  posée PILE à cette même position (`poses[0].pos`) — la caméra démarrait donc littéralement à
+  l'intérieur de la géométrie de la porte, d'où l'écran quasi noir/rougeâtre le temps d'avancer
+  d'un pas et de s'en dégager.
+- **Correctif** : `computeTunnelPath()` calcule désormais aussi `entranceDoorPos`, la position de la
+  porte d'entrée DÉCALÉE EN ARRIÈRE de `poses[0]` (direction opposée au cap initial,
+  `TILE_SIZE * 0.55`) — exactement le même principe de décalage que la porte du FOND du couloir
+  (`doorPos`, décalée EN AVANT de la dernière marche d'escalier, même facteur `0.55`). La porte
+  d'entrée reste à la bonne place/orientation pour être visible et cliquable une fois que Synk a
+  fait un demi-tour (`turnOffset === 2`) en vue de sortir ; seule sa position de rendu change, aucun
+  impact sur `cryptProgress`/`ENTRANCE_EXIT_MAX_PROGRESS` (logique de proximité de sortie, qui reste
+  basée sur `cryptProgress`, inchangée).
+
+### Déplacement manette dans le couloir de la crypte (`Platform3DWidget.tsx`)
+
+- Le clavier dispose déjà, DANS le couloir de crypte, d'un effet dédié (flèches Haut/Bas →
+  avancer/reculer `cryptProgress`, répétition native du clavier/OS) — entièrement SÉPARÉ de l'effet
+  de déplacement manette « monde normal », qui se coupe volontairement tant que `cryptMode &&
+  !towerTopActive && !roomTopActive` (seul le couloir principal — tour/chambre/parchemin restent
+  déjà couverts par cet effet général). Le pavé directionnel/stick de la manette n'avait donc AUCUN
+  effet dans le couloir principal.
+- **Nouvel effet dédié**, symétrique du clavier : sonde `getFirstConnectedGamepad()`/
+  `readMoveDelta(gp).dy` via `requestAnimationFrame` (la Gamepad API n'émettant aucun évènement par
+  axe) et simule la répétition clavier (OS) avec un délai initial (`400ms`) puis une cadence de
+  répétition (`150ms`) tant que Haut/Bas reste maintenu — Haut avance (`setCryptProgress`, sauf porte
+  déjà ouverte), Bas recule (ou referme la porte si ouverte), EXACTEMENT la même logique que la
+  branche clavier (même inversion `advanceDir` au demi-tour `cryptTurn === 2`). Gauche/droite
+  (rotation du regard dans le couloir) restent, comme au clavier, accessibles uniquement par les
+  boutons HUD dédiés (aucune régression, parité stricte avec le clavier).
+- Le bouton A (action contextuelle, `handleGamepadInteract`) gérait déjà l'ouverture/la sortie des
+  portes en crypte (ajouté dans une passe précédente) — non modifié ici.
+
+### Vérification
+
+`npx tsc --noEmit` : 0 erreur. Playwright (`/game`, session Démo, `navigator.getGamepads` mocké avec
+un D-pad Haut maintenu) : 0 erreur console/page au chargement et à l'activation prolongée de la
+manette simulée. Le correctif de positionnement de la porte d'entrée est un changement purement
+géométrique (décalage de quelques dizaines de centimètres, même facteur que la porte existante côté
+escalier) sans impact sur la logique de jeu (`cryptProgress`/sortie), limitant le risque de
+régression ; vérifié par relecture du code appelant (`exitCrypt`, inchangé) et absence d'effet de
+bord détecté sur l'ensemble des dépendances des `useEffect` concernés. Script de test temporaire
+supprimé après vérification.
 

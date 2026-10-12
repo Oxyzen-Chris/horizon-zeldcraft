@@ -92,7 +92,7 @@ interface Pose { pos: THREE.Vector3; heading: number }
  * vecteur `(-sin(heading), 0, -cos(heading))`, EXACTEMENT ce que produit une rotation Y native de
  * l'axe local -Z — donc une dalle/porte/salle positionnée à `pos` et pivotée à `rotation.y=heading`
  * s'aligne automatiquement sur le chemin, sans transformation manuelle supplémentaire. */
-function computeTunnelPath(cryptId: string, tunnelLength: number, stairSteps: number): { poses: Pose[]; doorPos: THREE.Vector3; roomPos: THREE.Vector3; lastHeading: number } {
+function computeTunnelPath(cryptId: string, tunnelLength: number, stairSteps: number): { poses: Pose[]; doorPos: THREE.Vector3; roomPos: THREE.Vector3; entranceDoorPos: THREE.Vector3; lastHeading: number } {
   let h = 0;
   for (const c of cryptId) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   const rnd = (seed: number) => {
@@ -127,7 +127,17 @@ function computeTunnelPath(cryptId: string, tunnelLength: number, stairSteps: nu
   doorPos.y = lastPose.pos.y;
   const roomPos = lastPose.pos.clone().add(stairDir.clone().multiplyScalar(TILE_SIZE * 2.4));
   roomPos.y = lastPose.pos.y;
-  return { poses, doorPos, roomPos, lastHeading };
+  // 🆕 Porte d'entrée/sortie décalée EN ARRIÈRE de `poses[0]` (direction opposée au cap initial),
+  // plutôt que posée exactement SUR la position de départ de la caméra — voir demande utilisateur
+  // « je tombe sur un écran qui me masque la vue, je suis obligé d'avancer un peu pour que le
+  // tunnel [...] s'affiche ». La caméra démarre pile à `poses[0].pos` (voir `CryptCamera`,
+  // `progress` initial à 0) : y superposer le mesh de la porte plaçait la caméra à l'intérieur
+  // même de sa géométrie (quasi-collée à ses faces internes), d'où cet écran quasi noir/rougeâtre
+  // tant que `progress` n'avait pas un peu avancé. Même décalage (`TILE_SIZE * 0.55`) que la porte
+  // de sortie côté escalier, pour un gabarit de porte identique.
+  const entranceDoorPos = poses[0].pos.clone().sub(dirFor(poses[0].heading).multiplyScalar(TILE_SIZE * 0.55));
+  entranceDoorPos.y = poses[0].pos.y;
+  return { poses, doorPos, roomPos, entranceDoorPos, lastHeading };
 }
 
 /** Caméra 100% pilotée par le code tant que `doorOpened` est faux (voir commentaire d'en-tête,
@@ -648,7 +658,7 @@ export function CryptTunnelScene({
   // re-rendue à chaque mouvement, plus coûteux).
   const synkAnchorRef = useRef<THREE.Group>(null);
   const roomControlsRef = useRef<any>(null);
-  const { poses, doorPos, roomPos, lastHeading } = useMemo(
+  const { poses, doorPos, roomPos, entranceDoorPos, lastHeading } = useMemo(
     () => computeTunnelPath(cryptId, tunnelLength, CRYPT_STAIR_STEPS),
     [cryptId, tunnelLength],
   );
@@ -706,7 +716,9 @@ export function CryptTunnelScene({
               demande utilisateur « Enlève et désactive le bouton Sortir [...] Synk pourra sortir en
               cliquant avec le bouton gauche de la souris sur la porte de la crypte [...] de la même
               manière que quand il clique sur une porte ») — MÊME composant `<CryptDoor>` que les
-              autres portes du souterrain, posée à l'entrée même du couloir (`poses[0]`), tournée à
+              autres portes du souterrain, posée en ARRIÈRE de l'entrée du couloir (`entranceDoorPos`,
+              décalée de `poses[0]` — voir § correctif « écran noir à l'entrée » dans
+              `computeTunnelPath`, PAS directement sur `poses[0]` où démarre la caméra), tournée à
               180° (`+Math.PI`) pour faire face à Synk lorsqu'il revient vers l'entrée en ayant fait
               demi-tour (voir § Quart de tour / `turnOffset===2`, seul moyen de la voir et de cliquer
               dessus — la caméra, verrouillée, ne regarde JAMAIS en arrière sans ce demi-tour). Le
@@ -714,7 +726,7 @@ export function CryptTunnelScene({
               (garde-fou de proximité, voir doc ci-dessus) : cliquer dessus de loin (en théorie hors
               champ, la caméra étant verrouillée vers l'avant) ne fait donc rien. */}
           {onExitCrypt && (
-            <group position={[poses[0].pos.x, poses[0].pos.y + 1.05, poses[0].pos.z]} rotation={[0, poses[0].heading + Math.PI, 0]}>
+            <group position={[entranceDoorPos.x, entranceDoorPos.y + 1.05, entranceDoorPos.z]} rotation={[0, poses[0].heading + Math.PI, 0]}>
               <CryptDoor onClick={onExitCrypt} />
               <Torch side={-1} flicker={torchFlickerEnabled} />
               <Torch side={1} flicker={torchFlickerEnabled} />
