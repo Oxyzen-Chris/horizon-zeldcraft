@@ -3018,6 +3018,8 @@
   "changelog.houseScaleAndChimneySmoke.body": "Fixes a bug where catalog buildings (inns/taverns/stables/villages from the Admin panel) stayed tiny — barely taller than Synk — while decorative huts had already been enlarged in an earlier fix. These clickable buildings now use the same enlarged scale, with a door added to the facade. A chimney with rising smoke (a lightweight animation, no FPS impact) has been added to some houses only (roughly half, deterministically), giving the illusion of a lit fire inside.",
   "changelog.gamepadActionButton.title": "🅰️ A button: pick up items, open doors, activate the console",
   "changelog.gamepadActionButton.body": "The gamepad A button now lets Synk pick up ground items directly, open dungeon/crypt doors and activate the Stargate console, in both the 2D and 3D widgets.",
+  "changelog.gamepadDialogNav.title": "🎯 Gamepad dialog navigation",
+  "changelog.gamepadDialogNav.body": "When a dialog opens (picked-up item, shop, confirmation...), the D-pad now moves a visual focus between its buttons and the A button clicks the focused element, no mouse required.",
   "changelog.sleepTheft.title": "🥷 Theft during forced rest",
   "changelog.sleepTheft.body": "Mismanaging fatigue now carries a risk: 1-in-6 chance a thief steals 100 coins during forced sleep (50% of balance if under 100 coins) — alert pop-up on waking, all settings admin-configurable.",
   "changelog.gamepadSupport.title": "🎮 Game controller support (Switch Pro Controller & others) + settings widget",

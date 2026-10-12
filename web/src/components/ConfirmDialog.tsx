@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/lib/i18n';
 import { usePortalContainer } from '@/lib/usePortalContainer';
+import { useGamepadDialogFocusTrap } from '@/lib/gamepadDialogNav';
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -23,6 +24,11 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const { t } = useI18n();
   const portalContainer = usePortalContainer();
+  // ─── Navigation manette (voir lib/gamepadDialogNav.ts) — ConfirmDialog est ouvert en PAR-DESSUS
+  // d'autres dialogues (ex. depuis PoiInteractionModal) ; la pile gère déjà ce cas (focus rendu au
+  // dialogue parent à la fermeture de celui-ci).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useGamepadDialogFocusTrap(dialogRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -44,6 +50,8 @@ export function ConfirmDialog({
   return createPortal(
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999] p-4" onClick={onCancel}>
       <div
+        ref={dialogRef}
+        data-gamepad-dialog
         className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-6 max-w-sm w-full shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -60,6 +68,7 @@ export function ConfirmDialog({
           <button
             className="flex-1 py-2 rounded font-semibold bg-slate-700 hover:bg-slate-600 text-white transition"
             onClick={onCancel}
+            data-gamepad-close
           >
             {cancelLabel ?? t('common.no')}
           </button>

@@ -5586,5 +5586,79 @@ aucune régression, aucun plantage. La logique de ramassage/activation/portes el
 l'identique des fonctions déjà testées et en production (`pickupWorldDrop`, `requestStargateActivation`,
 `onMarkerClick3D`, etc.), seul le nouveau point d'entrée (bouton manette) a été ajouté.
 
+## 🎯 Navigation manette dans les boîtes de dialogue (focus visuel + pavé directionnel + bouton A)
+
+Demande utilisateur : « quand j'ai voulu ramasser la hache [...] place la boîte de dialogue en
+avant-plan de telle manière qu'en utilisant les touches de direction, je puisse passer sur chacune
+des actions possibles de cette dernière [...] Dès qu'une action via le GamePad déclenche l'ouverture
+d'une fenêtre, les touches directionnelles doivent permettre de se déplacer dans le popup [...] pour
+pouvoir faire tous les types d'actions que nécessite le pop-up [...] Place un focus visuel dans la
+boîte de dialogue sur l'action [...] quand le joueur se déplace dessus, ceci afin de savoir où le
+curseur du GamePad est positionné ». La fonctionnalité précédente (bouton A contextuel) ouvre
+fréquemment un `PoiInteractionModal` (ramassage/PNJ/trésor/quête/crypte) — jusqu'ici, une fois la
+boîte de dialogue ouverte, seule la souris permettait d'y agir ; le pavé directionnel continuait de
+faire avancer Synk dans le décor derrière la pop-up.
+
+- **Nouveau module pur `lib/gamepadDialogNav.ts`** (même style que `gamepadInput.ts`/
+  `roamingActors.ts`, indépendant de React hormis le hook compagnon) : une PILE de conteneurs de
+  dialogue actuellement montés (`registerGamepadDialog`/désinscription au démontage) — le SOMMET
+  (dialogue le plus récemment ouvert, ex. un `ConfirmDialog` ouvert PAR-DESSUS un
+  `PoiInteractionModal` pour confirmer un achat) est seul « actif » ; à sa fermeture, le focus
+  revient automatiquement au dialogue parent resté ouvert.
+  - `isGamepadDialogActive()` : vrai si au moins un dialogue est inscrit.
+  - `moveDialogFocus('up'|'down'|'left'|'right')` : déplace `document.activeElement` au précédent/
+    suivant élément interactif visible du dialogue actif (boutons, liens, champs — `offsetParent !==
+    null` pour écarter les éléments masqués), avec rebouclage en fin de liste.
+  - `confirmGamepadDialogFocus()` : clique l'élément actuellement focus dans le dialogue actif (ou le
+    premier élément interactif à défaut). Un `KeyboardEvent('keydown', {key:'Enter'})` synthétique
+    (déjà dispatché par le bouton A pour `ConfirmDialog.tsx`) n'active PAS nativement un bouton
+    focus — seul un vrai clic DOM déclenche son `onClick`, d'où cette fonction dédiée plutôt qu'une
+    réutilisation du relais clavier existant.
+  - `cancelGamepadDialogFocus()` : clique le contrôle de fermeture explicite du dialogue actif,
+    repéré par l'attribut `data-gamepad-close` (posé manuellement sur le bouton « ✕ »/« Annuler » de
+    chaque dialogue adapté) — plus fiable qu'une recherche par libellé traduit (5 langues).
+  - `useGamepadDialogFocusTrap(ref, active)` : hook d'intégration minimal — un `useRef` sur le
+    conteneur du dialogue + cet appel suffisent à l'enregistrer/désenregistrer de la pile.
+- **Dialogues adaptés dans cette passe** : `PoiInteractionModal.tsx` (cible principale, captures
+  utilisateur), `ConfirmDialog.tsx` (partagé par `ShopWidget`/`ShopPanel`/`InventoryWidget`/
+  `EquipmentWidget`/`FamiliarsList`/`InventoryPanel`/`WorldMapWidget` — un seul point d'intégration
+  couvre tous ces appelants) et la pop-up de retour d'activation de la Porte des étoiles
+  (`Platform3DWidget.tsx::stargateFeedback`, directement atteignable depuis la nouvelle activation
+  manette de la console). Chaque conteneur reçoit un `ref` + l'appel au hook + l'attribut
+  `data-gamepad-dialog` (portée du focus visuel, voir ci-dessous) ; `HutRestModal.tsx` n'a été
+  délibérément PAS adapté (aucun bouton, simple compte à rebours auto-fermant — rien à naviguer).
+- **Détection de FRONT pour la direction** : contrairement au déplacement de Synk (poll continu),
+  un nouveau ref (`gamepadDialogDirRef`) dans la boucle `requestAnimationFrame` unique de
+  `GameCanvas2D.tsx` ne déclenche `moveDialogFocus` qu'une seule fois par NOUVELLE direction tenue
+  (jamais en continu tant que la touche reste enfoncée) — ergonomie « un appui = un déplacement ».
+  Quand un dialogue est actif, le déplacement normal de Synk (`hold.press/update/release`) est
+  entièrement court-circuité (et relâché s'il était en cours) pour ne jamais le faire avancer dans
+  le décor derrière la pop-up.
+- **Boutons Confirmer (A)/Annuler (B)** : si un dialogue est actif, ils ciblent EXCLUSIVEMENT ce
+  dialogue (`confirmGamepadDialogFocus`/`cancelGamepadDialogFocus`), SANS passer par le relais
+  clavier Entrée/Échap ni par l'action contextuelle habituelle (`gamepadInteractRef`) — pour ne
+  jamais déclencher deux fois le même bouton. Sinon (aucun dialogue suivi par ce nouveau système —
+  ex. `WidgetContextMenu.tsx`, menus non encore migrés), comportement **strictement inchangé** :
+  relais clavier Entrée/Échap + action contextuelle, exactement comme avant cette fonctionnalité.
+- **Focus visuel** : nouvelle règle CSS globale `[data-gamepad-dialog] :focus` (`globals.css`) —
+  anneau cyan + lueur, volontairement un simple sélecteur `:focus` et non `:focus-visible` (dont
+  l'heuristique pour un `.focus()` déclenché par programmation est incohérente selon les
+  navigateurs), pour un indicateur TOUJOURS visible. Portée à TOUT élément interactif à l'intérieur
+  d'un conteneur `data-gamepad-dialog` — couvre automatiquement les boutons propres à chaque variante
+  de corps de `PoiInteractionModal` (NpcBody/FamiliarBody/TreasureBody/QuestBody/WorldBody/DropBody/
+  CryptBody/HutBody) sans avoir à les modifier individuellement.
+
+### Vérification
+
+`npx tsc --noEmit` : 0 erreur. Playwright (`/game`, session Démo « Jouer en anonyme », écran de
+bienvenue fermé, `navigator.getGamepads` mocké) : ouverture du widget Boutique flottant → clic sur
+« Acheter » → `ConfirmDialog` affiché avec le focus initial sur le bouton « Oui » (`autoFocus`,
+confirmé via `data-gamepad-dialog` sur son ancêtre) → simulation d'un front « Bas » du pavé
+directionnel (bouton 13) → focus déplacé avec succès sur le bouton « Non » (confirmé par
+`document.activeElement`) avec anneau de focus visuel confirmé (`box-shadow` cyan appliqué, lu via
+`getComputedStyle`) → simulation d'un front du bouton A (indice 1) → la boîte de dialogue se ferme
+SANS achat (portefeuille inchangé à 4000 coins sur capture), confirmant que le clic a bien ciblé le
+bouton alors focus (« Non ») plutôt que l'action par défaut. 0 erreur console/page sur l'ensemble du
+scénario. Script de test temporaire supprimé après vérification.
 
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   getNpcDefs, meetNpcOffchain, getMetNpcIds,
@@ -14,6 +14,7 @@ import {
 } from '@/lib/gameState';
 import { useI18n, localizeName, itemLabel } from '@/lib/i18n';
 import { usePortalContainer } from '@/lib/usePortalContainer';
+import { useGamepadDialogFocusTrap } from '@/lib/gamepadDialogNav';
 import { ConfirmDialog } from './ConfirmDialog';
 
 type Marker = MapMarker;
@@ -53,6 +54,15 @@ export function PoiInteractionModal({
 }) {
   const { t } = useI18n();
   const portalContainer = usePortalContainer();
+  // ─── Navigation manette (voir lib/gamepadDialogNav.ts) — voir demande utilisateur « place la
+  // boîte de dialogue en avant-plan de telle manière qu'en utilisant les touches de direction, je
+  // puisse passer sur chacune des actions possibles [...] Place un focus visuel [...] sur l'action
+  // [...] quand le joueur se déplace dessus ». `!!marker` reflète exactement la condition de rendu
+  // ci-dessous (`if (!marker) return null`) : le dialogue s'enregistre/se désenregistre de la pile
+  // manette à l'ouverture/fermeture, SANS violer les règles des Hooks (déclaré avant le retour
+  // anticipé, comme `t`/`portalContainer` ci-dessus).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useGamepadDialogFocusTrap(dialogRef, !!marker);
 
   if (!marker || typeof document === 'undefined') return null;
 
@@ -73,12 +83,14 @@ export function PoiInteractionModal({
   return createPortal(
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[90] p-4" onClick={onClose}>
       <div
+        ref={dialogRef}
+        data-gamepad-dialog
         className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-5 max-w-sm w-full shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-bold text-cyan-300">{marker.icon} {label}</h3>
-          <button className="text-xs opacity-70 hover:opacity-100" onClick={onClose}>✕</button>
+          <button className="text-xs opacity-70 hover:opacity-100" data-gamepad-close onClick={onClose}>✕</button>
         </div>
         {body}
         <button className="btn-secondary text-xs w-full mt-4" onClick={onClose}>{t('common.close')}</button>

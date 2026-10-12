@@ -3018,6 +3018,8 @@
   "changelog.houseScaleAndChimneySmoke.body": "Corrige um bug em que os edifícios do catálogo de Administração (pousadas/tavernas/estábulos/aldeias) permaneciam minúsculos, mal mais altos que Synk, enquanto as cabanas decorativas já haviam sido ampliadas em uma correção anterior. Esses edifícios interativos agora usam a mesma escala ampliada, com uma porta adicionada à fachada. Foi adicionada uma chaminé com fumaça subindo (animação leve, sem impacto no FPS) apenas em algumas casas (aproximadamente metade, de forma estável), dando a ilusão de um fogo aceso lá dentro.",
   "changelog.gamepadActionButton.title": "🅰️ Botão A: apanhar objetos, abrir portas, ativar a consola",
   "changelog.gamepadActionButton.body": "O botão A do comando agora permite a Synk apanhar objetos do chão diretamente, abrir portas de masmorras/criptas e ativar a consola da Porta das Estrelas, nos widgets 2D e 3D.",
+  "changelog.gamepadDialogNav.title": "🎯 Navegação com comando nas caixas de diálogo",
+  "changelog.gamepadDialogNav.body": "Quando uma caixa de diálogo se abre (objeto apanhado, loja, confirmação...), a cruzeta agora move um foco visual entre os seus botões e o botão A clica no elemento em foco, sem precisar do rato.",
   "changelog.sleepTheft.title": "🥷 Roubo durante o descanso forçado",
   "changelog.sleepTheft.body": "Gerenciar mal a fadiga agora traz um risco: 1 chance em 6 de um ladrão roubar 100 moedas durante o sono forçado (50% do saldo se tiver menos de 100 moedas) — aviso ao acordar, todos os ajustes configuráveis em Administração.",
   "changelog.gamepadSupport.title": "🎮 Suporte a controle de jogo (Switch Pro Controller e outros) + widget de configuração",

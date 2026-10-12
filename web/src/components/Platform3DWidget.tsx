@@ -31,6 +31,7 @@ import { setPlatform3DActive } from '@/lib/platform3dActive';
 import { setUndergroundActive } from '@/lib/undergroundActive';
 import { useRoamingActors, ensureRoamingIdentities, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, reportWorldMarkers, setInteractingActorId, getRoamStepMs, ensureWildlifeSpawns, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker } from '@/lib/roamingActors';
 import { getFirstConnectedGamepad, readMoveDelta, GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
+import { isGamepadDialogActive, moveDialogFocus, confirmGamepadDialogFocus, cancelGamepadDialogFocus, useGamepadDialogFocusTrap } from '@/lib/gamepadDialogNav';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { PoiInteractionModal } from './PoiInteractionModal';
@@ -2978,6 +2979,11 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   // cette manière et comme tous les autres [...] » — même structure que PoiInteractionModal.tsx) :
   // reste affiché jusqu'à fermeture explicite (croix/bouton Fermer/clic extérieur), voir rendu JSX.
   const [stargateFeedback, setStargateFeedback] = useState<string | null>(null);
+  // Navigation manette (voir lib/gamepadDialogNav.ts) sur cette pop-up de retour de la Porte des
+  // étoiles — directement atteignable via l'activation manette de la console (touche A, voir
+  // requestStargateActivation ci-dessous), d'où son intérêt pour la navigation au pavé directionnel.
+  const stargateFeedbackDialogRef = useRef<HTMLDivElement>(null);
+  useGamepadDialogFocusTrap(stargateFeedbackDialogRef, !!stargateFeedback);
   const requestStargateActivation = useCallback((key: string, onComplete: () => void) => {
     // Re-entrance : une activation est déjà en cours (sur ce portail ou un autre) — ignore le
     // nouveau clic plutôt que de l'empiler/écraser l'animation déjà lancée.
@@ -4558,10 +4564,10 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
         // bandeau bas en forme de pilule (demande utilisateur « affiche le popup de cette manière et
         // comme tous les autres [...] et non pas un message comme cela »).
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[101] p-4" onClick={() => setStargateFeedback(null)}>
-          <div className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-5 max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div ref={stargateFeedbackDialogRef} data-gamepad-dialog className="bg-slate-900 border-2 border-cyan-500 rounded-xl p-5 max-w-sm w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-bold text-cyan-300">🌀 {t('stargate.feedback.title')}</h3>
-              <button className="text-xs opacity-70 hover:opacity-100" onClick={() => setStargateFeedback(null)}>✕</button>
+              <button className="text-xs opacity-70 hover:opacity-100" data-gamepad-close onClick={() => setStargateFeedback(null)}>✕</button>
             </div>
             <p className="text-xs text-amber-400">{stargateFeedback}</p>
             <button className="btn-secondary text-xs w-full mt-4" onClick={() => setStargateFeedback(null)}>{t('common.close')}</button>

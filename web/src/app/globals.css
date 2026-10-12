@@ -40,6 +40,20 @@ body {
 .input:disabled {
   @apply bg-slate-100 text-slate-500 cursor-not-allowed;
 }
+
+/* 🆕 Focus visuel manette (voir lib/gamepadDialogNav.ts) — anneau cyan vif visible sur l'élément
+   interactif ACTUELLEMENT ciblé par la navigation au pavé directionnel à l'intérieur d'une boîte de
+   dialogue (PoiInteractionModal.tsx, ConfirmDialog.tsx, pop-up de la Porte des étoiles dans
+   Platform3DWidget.tsx, etc. — tout conteneur portant `data-gamepad-dialog`). Volontairement un
+   simple sélecteur `:focus` (et NON `:focus-visible`, dont l'heuristique pour un `.focus()` déclenché
+   par programmation est incohérente selon les navigateurs) pour garantir un indicateur TOUJOURS
+   visible — voir demande utilisateur « place un focus visuel [...] sur l'action [...] quand le
+   joueur se déplace dessus, ceci afin de savoir où le curseur du GamePad est positionné ». */
+[data-gamepad-dialog] :focus {
+  outline: none !important;
+  box-shadow: 0 0 0 3px #22d3ee, 0 0 12px 2px rgba(34, 211, 238, 0.6) !important;
+  border-radius: 0.5rem;
+}
 .input option {
   color: #0f172a;
   background-color: #ffffff;

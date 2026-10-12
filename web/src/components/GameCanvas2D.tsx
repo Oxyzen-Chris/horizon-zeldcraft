@@ -24,6 +24,7 @@ import { useHoldMovement } from '@/lib/useHoldMovement';
 import { isPlatform3DActive } from '@/lib/platform3dActive';
 import { useRoamingActors, ensureRoamingIdentities, ensureWildlifeSpawns, configureRoaming, reportSynkPositionForFreeze, reportWorldPois, reportWorldMarkers, setInteractingActorId, getRoamStepMs, isWorldPosBlockedByLivingActor, isWorldPosBlockedByStaticMarker, type ExtraRoamingActor } from '@/lib/roamingActors';
 import { getFirstConnectedGamepad, readMoveDelta, CONFIGURABLE_BUTTON_INDICES, getActionForButton, GAMEPAD_ACTION_EVENT, type GamepadActionEventDetail } from '@/lib/gamepadInput';
+import { isGamepadDialogActive, moveDialogFocus, confirmGamepadDialogFocus, cancelGamepadDialogFocus } from '@/lib/gamepadDialogNav';
 import { useNpcApproach, reportSynkApproachTarget } from '@/lib/npcApproach';
 import { WidgetContextMenu } from './WidgetContextMenu';
 import { useMapFilters, markerMatchesFilters } from '@/lib/mapFilters';
@@ -1287,11 +1288,38 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
   // détecter un appui (voir getFirstConnectedGamepad()).
   const gamepadMoveRef = useRef<{ dx: number; dy: number } | null>(null);
   const gamepadButtonsPrevRef = useRef<boolean[]>([]);
+  // 🆕 Détection de FRONT pour la direction (pavé directionnel/stick) pendant qu'une boîte de
+  // dialogue est active (voir lib/gamepadDialogNav.ts) — un seul déplacement de focus par NOUVELLE
+  // direction maintenue, jamais en continu tant que la touche reste enfoncée (demande implicite
+  // d'ergonomie : un appui = un déplacement, comme pour la navigation au clavier par Tab/flèches).
+  const gamepadDialogDirRef = useRef<'up' | 'down' | 'left' | 'right' | null>(null);
   useEffect(() => {
     let rafId = 0;
     const tick = () => {
       const gp = getFirstConnectedGamepad();
       if (gp) {
+        const dialogActive = isGamepadDialogActive();
+        // 🆕 Navigation manette À L'INTÉRIEUR d'une boîte de dialogue (PoiInteractionModal.tsx,
+        // ConfirmDialog.tsx, pop-up Porte des étoiles...) — voir demande utilisateur « dès qu'une
+        // action via le GamePad déclenche l'ouverture d'une fenêtre, les touches directionnelles
+        // doivent permettre de se déplacer dans le popup ». Remplace ENTIÈREMENT le déplacement de
+        // Synk tant qu'un dialogue est ouvert (relâche un déplacement déjà en cours le cas échéant)
+        // pour éviter que Synk continue d'avancer dans le décor pendant qu'une pop-up est affichée.
+        if (dialogActive) {
+          if (gamepadMoveRef.current) { gamepadMoveRef.current = null; hold.release(); }
+          const { dx, dy } = readMoveDelta(gp);
+          let dir: 'up' | 'down' | 'left' | 'right' | null = null;
+          if (dy === -1) dir = 'up';
+          else if (dy === 1) dir = 'down';
+          else if (dx === -1) dir = 'left';
+          else if (dx === 1) dir = 'right';
+          if (dir && dir !== gamepadDialogDirRef.current) {
+            gamepadDialogDirRef.current = dir;
+            moveDialogFocus(dir);
+          } else if (!dir) {
+            gamepadDialogDirRef.current = null;
+          }
+        } else {
         // Déplacement (stick gauche + pavé directionnel) — réutilise EXACTEMENT le même `hold`
         // (press/update/release, donc la même cadence marche/course) que le clavier ci-dessus, avec
         // le MÊME gating `collapsed`/`isPlatform3DActive()` : quand la Plateforme 3D est dépliée et
@@ -1313,6 +1341,7 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           gamepadMoveRef.current = null;
           hold.release();
         }
+        }
         // Actions des boutons configurables (voir GAMEPAD_ACTION_EVENT) — détection de FRONT
         // (montant ET descendant, pour l'action 'jump' tenue comme la barre Espace), dispatchée
         // une seule fois par front, QUEL QUE SOIT l'état réduit/déplié de CE widget (ouvrir la
@@ -1325,20 +1354,28 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           const action = getActionForButton(i);
           if (action === 'none') continue;
           window.dispatchEvent(new CustomEvent<GamepadActionEventDetail>(GAMEPAD_ACTION_EVENT, { detail: { action, pressed } }));
-          // Confirmer/Annuler réutilisent les raccourcis clavier Entrée/Échap déjà gérés par les
-          // pop-up de confirmation génériques (voir ConfirmDialog.tsx) et les menus contextuels
-          // (voir WidgetContextMenu.tsx) — uniquement à l'appui (pas au relâchement), pour qu'une
-          // boîte de dialogue PNJ/achat/équipement se confirme ou se ferme exactement comme avec la
-          // touche physique correspondante, sans dupliquer leur logique ici.
-          if (pressed && (action === 'confirm' || action === 'cancel')) {
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: action === 'confirm' ? 'Enter' : 'Escape' }));
-          }
-          // Action contextuelle (ramasser un objet au sol/ouvrir une porte/hutte) — voir
-          // handleGamepadInteract ci-dessus. Même gating que le déplacement ci-dessus : seul le
-          // widget RÉELLEMENT actif (2D replié+Plateforme 3D inactive) traite l'appui, pour éviter
-          // qu'un objet soit ramassé deux fois (une par widget) si les deux étaient actifs.
-          if (pressed && action === 'confirm' && !collapsed && !isPlatform3DActive()) {
-            gamepadInteractRef.current();
+          // 🆕 Si une boîte de dialogue gérée par lib/gamepadDialogNav.ts est active, Confirmer/
+          // Annuler ciblent EXCLUSIVEMENT cette dialogue (clic sur l'élément focus/sur son contrôle
+          // de fermeture) — SANS passer par le relais clavier Entrée/Échap ni par l'action
+          // contextuelle habituelle, pour ne jamais déclencher deux fois le même bouton (un direct +
+          // un via écouteur clavier). Sinon (aucun dialogue suivi par le nouveau système — ex.
+          // WidgetContextMenu.tsx, SleepModal.tsx, menus non encore migrés), comportement
+          // STRICTEMENT inchangé : relais clavier Entrée/Échap pour les pop-up génériques, action
+          // contextuelle (ramasser/ouvrir) pour 'confirm'.
+          if (pressed && dialogActive && (action === 'confirm' || action === 'cancel')) {
+            if (action === 'confirm') confirmGamepadDialogFocus();
+            else cancelGamepadDialogFocus();
+          } else {
+            if (pressed && (action === 'confirm' || action === 'cancel')) {
+              window.dispatchEvent(new KeyboardEvent('keydown', { key: action === 'confirm' ? 'Enter' : 'Escape' }));
+            }
+            // Action contextuelle (ramasser un objet au sol/ouvrir une porte/hutte) — voir
+            // handleGamepadInteract ci-dessus. Même gating que le déplacement ci-dessus : seul le
+            // widget RÉELLEMENT actif (2D replié+Plateforme 3D inactive) traite l'appui, pour éviter
+            // qu'un objet soit ramassé deux fois (une par widget) si les deux étaient actifs.
+            if (pressed && action === 'confirm' && !collapsed && !isPlatform3DActive()) {
+              gamepadInteractRef.current();
+            }
           }
         }
       } else if (gamepadMoveRef.current) {
