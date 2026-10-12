@@ -77,6 +77,7 @@ function CameraBridge({ cameraRef }: { cameraRef: React.MutableRefObject<THREE.C
   return null;
 }
 
+
 /** 🔒 Positionne la caméra à la sortie d'une crypte (voir doc de `pendingExitCameraRef` dans le
  * composant parent pour l'historique complet des deux bugs corrigés : course avec `CryptCamera`,
  * puis décor non garanti dégagé à distance fixe). Monté DANS le `<Canvas>`, aux côtés de
@@ -174,6 +175,24 @@ const OPPOSITE_DIRECTION: Record<SynkDirection, SynkDirection> = {
   up: 'down', down: 'up', left: 'right', right: 'left',
   'up-left': 'down-right', 'down-right': 'up-left', 'up-right': 'down-left', 'down-left': 'up-right',
 };
+
+/** 🆕 Ordre CIRCULAIRE (sens horaire) des 8 directions de `facing` — utilisé par le stick DROIT
+ * HORS souterrain (voir effet `stick droit → rotation de facing` plus bas, et demande utilisateur
+ * « ajoute également dans le jeu le Demi-tour au stick droit [...] qui permet de pivoter d'un quart
+ * de tour dans le jeu réel, dans un donjon, dans une chambre ou une pièce ; deux poussées dans le
+ * même sens = demi-tour complet, comme les boutons ↺/↻ existants dans le souterrain ») pour faire
+ * pivoter Synk de 2 crans (= 90°, un "quart de tour") par poussée franche, SANS le déplacer — même
+ * principe qu'une boussole à 8 valeurs plutôt qu'un angle flottant, pour rester cohérent avec
+ * `FACING_ANGLE`/`COMPASS_NEEDLE_DEG` ci-dessus. */
+const DIRECTION_ORDER: SynkDirection[] = [
+  'up', 'up-right', 'right', 'down-right', 'down', 'down-left', 'left', 'up-left',
+];
+/** Fait pivoter une direction à 8 valeurs de `steps` crans (45° chacun) dans l'ordre circulaire
+ * ci-dessus, en bouclant proprement (même pour des `steps` négatifs). */
+function rotateDirection(dir: SynkDirection, steps: number): SynkDirection {
+  const idx = DIRECTION_ORDER.indexOf(dir);
+  return DIRECTION_ORDER[(idx + steps + DIRECTION_ORDER.length * 4) % DIRECTION_ORDER.length];
+}
 
 /** 🔒 Bug corrigé (rapporté par l'utilisateur, captures d'écran à l'appui : caméra "zoomée" sur le
  * toit/la croix de la crypte, puis — après un premier correctif encore insuffisant — écran
@@ -2664,6 +2683,17 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     defaultPos: () => ({ x: window.innerWidth - CANVAS_W - 40, y: 120 }),
     onExpand: bringToFront,
   });
+  // 🆕 Ref vers le conteneur RACINE du widget (en-tête + zone canvas) — utilisée par
+  // `onResizePointerMove` ci-dessous pour mesurer dynamiquement la hauteur du « chrome » (en-tête
+  // glissable) non comprise dans `size.h` (qui ne couvre QUE la zone du `<canvas>`), afin de
+  // plafonner correctement la hauteur disponible jusqu'au bord du viewport (voir doc détaillée de
+  // `onResizePointerMove`). Fusionnée avec `containerRef` (déjà utilisée par `useDraggableWidget`
+  // pour re-clamper la position au redimensionnement de la FENÊTRE du navigateur) via un simple
+  // ref-callback combiné, sans dupliquer le DOM. Déclarée ICI (tout en haut, avant tout retour
+  // anticipé du composant) pour respecter les règles des Hooks (nombre de hooks identique à
+  // chaque rendu).
+  const widgetRootRef = useRef<HTMLDivElement | null>(null);
+  const setWidgetRootRef = useCallback((el: HTMLDivElement | null) => { widgetRootRef.current = el; containerRef(el); }, [containerRef]);
 
   const [rules, setRules] = useState<RepRules | null>(null);
   useEffect(() => { getRepRules().then(setRules).catch(() => {}); }, []);
@@ -3946,6 +3976,41 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     return () => cancelAnimationFrame(rafId);
   }, [cryptMode, towerTopActive, roomTopActive, cryptDoorOpened]);
 
+  // ─── Demi-tour/quart de tour à la manette HORS vue 1re personne du souterrain (monde extérieur,
+  // haut de tour de donjon, chambre/parchemin), via le MÊME stick analogique DROIT que ci-dessus —
+  // voir demande utilisateur « ajoute également dans le jeu le Demi-tour au stick droit [...] qui
+  // permet de pivoter d'un quart de tour dans le jeu réel, dans un donjon, dans une chambre ou une
+  // pièce ; deux poussées dans le même sens = demi-tour complet, comme les boutons ↺/↻ existants
+  // dans le souterrain ». Complément EXACT de l'effet précédent (condition inversée : actif
+  // précisément là où celui-ci ne l'est pas) : fait pivoter `facing` de 2 crans (90°, voir
+  // `rotateDirection`/`DIRECTION_ORDER`) par poussée franche, SANS déplacer Synk (`move`/`moveRoom`/
+  // `moveTowerTop` restent les seuls à modifier sa POSITION) — deux poussées successives dans le
+  // même sens font donc un demi-tour complet (180°), exactement comme demandé. Réarme la minuterie
+  // de recentrage de boussole (`lastMoveAtRef`/`idleRecenteredRef`/`recentering`) comme un vrai
+  // déplacement, pour éviter que le recentrage Nord automatique n'annule ce tour volontaire.
+  useEffect(() => {
+    const outsideTunnelFirstPerson = !cryptMode || towerTopActive || roomTopActive;
+    if (!outsideTunnelFirstPerson) return;
+    let rafId = 0;
+    let heldAxis = 0; // -1 gauche, 1 droite, 0 centré
+    const tick = () => {
+      const gp = getFirstConnectedGamepad();
+      const axis = gp ? readTurnAxis(gp) : 0;
+      if (axis !== heldAxis) {
+        heldAxis = axis;
+        if (axis !== 0) {
+          lastMoveAtRef.current = Date.now();
+          idleRecenteredRef.current = false;
+          setRecentering(false);
+          setFacing((f) => rotateDirection(f, axis > 0 ? 2 : -2));
+        }
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [cryptMode, towerTopActive, roomTopActive]);
+
   // ─── Redimensionnement à la souris (coin bas-droit, voir onResizePointerMove) + plein écran natif
   // du navigateur (voir RepRules.platform3dResizableEnabled) — le conteneur 3D `fullscreenRef` (et
   // non tout le widget) passe en plein écran pour agrandir la scène jusqu'aux capacités maximales
@@ -3968,9 +4033,30 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
   const onResizePointerMove = (e: React.PointerEvent) => {
     if (!resizing) return;
     const dx = e.clientX - resizeStart.current.x, dy = e.clientY - resizeStart.current.y;
+    // 🆕 Correctif « objet géant/déformé dans le widget 3D en l'agrandissant » (voir doc détaillée
+    // ci-dessous, § root cause) : le widget est ANCRÉ par défaut près du bord DROIT de l'écran
+    // (`defaultPos: x = innerWidth - CANVAS_W - 40`, voir plus haut) — sans ce plafond
+    // supplémentaire, agrandir sa largeur au-delà de l'espace réellement disponible jusqu'au bord
+    // de la fenêtre poussait son coin bas-droit HORS du viewport. Le `<canvas>` WebGL garde alors
+    // ses dimensions logiques correctes (`canvas.width`/`height`, confirmé par un dump direct de la
+    // scène), mais le NAVIGATEUR ne peint tout simplement JAMAIS la portion de ce calque qui
+    // dépasse la fenêtre visible (optimisation de composition standard, vérifiée par capture
+    // d'écran et lecture pixel par pixel : coupure NETTE et VERTICALE pile à la largeur de viewport
+    // restante). La caméra 3D, elle, continue de calculer sa perspective sur la largeur ENTIÈRE
+    // demandée (1152px, 1400px...) : un objet proche du bord du champ de vision (ex. une torche de
+    // couloir de crypte, juste à la limite du FOV) qui serait normalement coupé/discret à la taille
+    // par défaut se retrouve donc RÉVÉLÉ EN ENTIER dans la portion encore peinte — visuellement
+    // perçu comme un objet « géant » ou « cassé » bloquant la vue, alors qu'il s'agit en réalité
+    // d'un fragment de rendu tronqué à mi-chemin par la fenêtre du navigateur. Plafonner ici la
+    // largeur/hauteur à l'espace réellement disponible entre la position actuelle du widget
+    // (`pos`) et le bord du viewport (petite marge de 8px) garantit que le widget reste TOUJOURS
+    // intégralement visible/peint, quelle que soit sa position à l'écran.
+    const maxWByViewport = pos ? Math.max(MIN_W, window.innerWidth - pos.x - 8) : MAX_W;
+    const chromeH = widgetRootRef.current ? Math.max(0, widgetRootRef.current.getBoundingClientRect().height - size.h) : 0;
+    const maxHByViewport = pos ? Math.max(MIN_H, window.innerHeight - pos.y - chromeH - 8) : MAX_H;
     setSize({
-      w: Math.max(MIN_W, Math.min(MAX_W, resizeStart.current.w + dx)),
-      h: Math.max(MIN_H, Math.min(MAX_H, resizeStart.current.h + dy)),
+      w: Math.max(MIN_W, Math.min(MAX_W, maxWByViewport, resizeStart.current.w + dx)),
+      h: Math.max(MIN_H, Math.min(MAX_H, maxHByViewport, resizeStart.current.h + dy)),
     });
   };
   const onResizePointerUp = () => {
@@ -4191,7 +4277,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
 
   return (
     <div
-      ref={containerRef}
+      ref={setWidgetRootRef}
       className="fixed z-40 bg-slate-950 border-2 border-lime-500 rounded-xl shadow-2xl select-none"
       style={{ left: pos.x, top: pos.y, width: size.w, zIndex: z }}
       onPointerDownCapture={(e) => handleWidgetPointerDownCapture(e, bringToFront)}

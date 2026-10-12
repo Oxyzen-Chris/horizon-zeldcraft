@@ -804,12 +804,18 @@ export function CryptTunnelScene({
               cliquable lors du demi-tour de sortie) — mais cela éloignait aussi les seules torches
               proches de la caméra au DÉMARRAGE (`progress===0`, à `poses[0]`), laissant la vue
               replonger dans le brouillard quasi noir (`fog` `near=2`/`far=15`) faute de lumière à
-              proximité immédiate. Les torches restent donc ICI, à `poses[0]` INCHANGÉ (position
-              d'origine, jamais la cause du bug — seule la fine porte en bois, ~12cm d'épaisseur,
-              exactement superposée à la caméra à `progress===0`, provoquait l'écran noir en
-              plongeant la caméra à l'intérieur même de sa géométrie), pour un éclairage immédiat et
-              inchangé à l'entrée, identique à celui qui rendait déjà bien la vue dès `progress===1`. */}
-          <group position={[poses[0].pos.x, poses[0].pos.y + 1.05, poses[0].pos.z]} rotation={[0, poses[0].heading + Math.PI, 0]}>
+              proximité immédiate. Les torches restent donc ICI, à `poses[0]` (position d'origine)
+              pour un éclairage immédiat et inchangé à l'entrée.
+              🆕 Correctif de hauteur (sans lien avec le bug « écran masqué/géant » décrit ci-dessous,
+              repéré en marge pendant son investigation via un dump Playwright de la scène réelle) :
+              ce groupe héritait d'un `+1,05` sur Y, reliquat de l'époque où il partageait encore le
+              groupe de la porte juste au-dessus (hauteur de porte, pas de torche). Avec la torche
+              montée à Y local 1,35 (voir `Torch`), le total valait `pos.y + 1,05 + 1,35 = 2,4` —
+              PILE la hauteur du plafond du couloir (`TUNNEL_HEIGHT`), alors que TOUTES les autres
+              torches du jeu sont montées à `pos.y + 1,35` SANS ce `+1,05` superflu. Retrait de ce
+              `+1,05` : la torche d'entrée est désormais à la même hauteur que toute autre torche du
+              souterrain (aucune perte d'éclairage ni de cohérence visuelle). */}
+          <group position={[poses[0].pos.x, poses[0].pos.y, poses[0].pos.z]} rotation={[0, poses[0].heading + Math.PI, 0]}>
             <Torch side={-1} flicker={torchFlickerEnabled} />
             <Torch side={1} flicker={torchFlickerEnabled} />
           </group>

@@ -5856,3 +5856,93 @@ l'entrée.
 - Hooks de debug temporaires (`window.__debugEnterCrypt`, `window.__debugDumpScene`) et scripts/
   captures de test temporaires entièrement supprimés après vérification.
 
+## 🔦➡️🖼️ Torche géante (suite et fin) : 2ᵉ cause distincte — débordement du widget hors viewport au redimensionnement + demi-tour au stick droit étendu hors souterrain
+
+Demande utilisateur : malgré le correctif d'auto-intersection ci-dessus, le même symptôme (« torche
+géante/cassée bloquant la vue ») continuait d'être signalé par captures d'écran dans CERTAINS cas de
+redimensionnement du widget « Plateforme 3D ». Puis, une fois ce second correctif posé : « ajoute
+également dans le jeu le Demi-tour au stick droit [...] qui permet de pivoter d'un quart de tour dans
+le jeu réel, dans un donjon, dans une chambre ou une pièce [...] comme les boutons ↺/↻ existants dans
+le souterrain » (le stick droit ne pivotait jusqu'ici QUE la caméra du couloir de souterrain, voir
+section ci-dessus).
+
+### Cause réelle du second cas : le widget (et son `<canvas>` WebGL) poussé hors de l'écran par un agrandissement, PAS un bug de rendu 3D
+
+Investigation menée en forensique pixel (captures Playwright + analyse `pngjs` de la boîte englobante
+des pixels d'une couleur de debug appliquée temporairement à la torche suspecte) plutôt que par
+inspection visuelle seule (trompeuse : comparer des captures à des échelles/recadrages différents
+avait précédemment amené à de fausses pistes géométrie/FOV). Conclusion, confirmée par plusieurs
+méthodes indépendantes (captures pleine page à largeurs de viewport croissantes jusqu'à 4000px,
+capture de l'ÉLÉMENT `<canvas>` seul, relevé brut `getBoundingClientRect`/taille de buffer du canvas) :
+
+- Le widget « Plateforme 3D » apparaît par défaut ancré près du bord DROIT de l'écran
+  (`defaultPos: () => ({ x: window.innerWidth - CANVAS_W - 40, y: 120 })`).
+- La poignée de redimensionnement (`onResizePointerMove`) ne bornait l'agrandissement QUE par des
+  constantes statiques (`MIN_W/MAX_W/MIN_H/MAX_H`), sans jamais vérifier si la largeur/hauteur
+  demandée, combinée à la position courante du widget, dépasserait le bord visible de la fenêtre.
+- Résultat : un agrandissement suffisant pousse une partie du widget (et de son `<canvas>` WebGL) hors
+  de l'écran — **le navigateur ne peint tout simplement pas le contenu positionné hors du viewport**.
+  La caméra 3D continue néanmoins de calculer sa projection en perspective sur la largeur demandée
+  dans son intégralité ; un objet proche du bord du champ de vision (la torche de la 1ʳᵉ dalle du
+  couloir, ~26,7° hors de l'axe caméra) se retrouve ainsi rendu pile sur cette frontière invisible de
+  recadrage, produisant une forme partielle, confuse, « géante/cassée » visuellement — ce n'est PAS un
+  bug de géométrie/FOV 3D, mais un bug de mise en page 2D (débordement de widget hors écran).
+- Piège rencontré en cours d'investigation : lire directement le framebuffer WebGL
+  (`gl.readPixels(...)` dans un `page.evaluate()` séparé) renvoie des pixels nuls partout, même là où
+  le rendu est visuellement correct — `preserveDrawingBuffer: false` (par défaut) signifie que le
+  tampon est déjà effacé/permuté au moment où ce code JS séparé s'exécute. Les captures d'écran
+  Playwright (qui capturent la page réellement composée) restent la seule méthode fiable pour ce
+  genre d'inspection a posteriori.
+
+### Correctif (`Platform3DWidget.tsx::onResizePointerMove`)
+
+- Calcule désormais `maxWByViewport`/`maxHByViewport` à partir de la position courante du widget
+  (`pos.x`/`pos.y`), de `window.innerWidth`/`innerHeight` (moins une marge de 8px) et de la hauteur
+  réelle du « chrome » (bandeau d'en-tête du widget, mesurée dynamiquement via un nouveau
+  `widgetRootRef`/`getBoundingClientRect()` — le widget dépasse de `size.h` seul, il faut aussi
+  compter l'en-tête). Le redimensionnement est borné par CES limites EN PLUS des constantes statiques
+  existantes, garantissant que le widget reste toujours entièrement visible, quelle que soit sa
+  position d'ancrage.
+- Un composant `FovClamp` (tentative de correctif antérieure, plafonnant le FOV horizontal de la
+  caméra à la taille par défaut du widget) a été entièrement retiré : il masquait le symptôme sans en
+  traiter la cause, et aurait empêché tout agrandissement légitime de la vue 3D au redimensionnement.
+- Bug annexe corrigé en cours de route : un nouveau `useRef`/`useCallback` ajouté juste avant le
+  `return` final du composant (après certains retours conditionnels plus haut dans la fonction)
+  déclenchait une erreur React « Rendered more hooks than during the previous render » — corrigé en
+  déplaçant ces deux hooks tout en haut du composant, juste après l'appel à `useDraggableWidget()`.
+
+### 🕹️ Demi-tour au stick droit étendu HORS souterrain (monde extérieur, haut de tour, chambre/parchemin)
+
+- Le stick droit (`readTurnAxis`, voir section précédente) ne pivotait jusqu'ici QUE la caméra 1ʳᵉ
+  personne du couloir de souterrain (`cryptTurn`). Un second effet de sondage RAF, STRICTEMENT
+  complémentaire du premier (condition inversée : `!cryptMode || towerTopActive || roomTopActive`),
+  pivote désormais `facing` — l'orientation à 8 valeurs de Synk en vue 3ᵉ personne, déjà partagée par
+  `move()` (monde extérieur), `moveTowerTop()` (haut de tour) et `moveRoom()` (chambre/parchemin) —
+  de 2 crans (`rotateDirection(facing, ±2)`, nouvelle fonction utilitaire basée sur un nouvel ordre
+  circulaire `DIRECTION_ORDER` des 8 directions) par poussée franche du stick, SANS déplacer Synk.
+  Deux poussées successives dans le même sens font donc un demi-tour complet (180°), exactement comme
+  demandé, et comme le mécanisme déjà en place dans le souterrain.
+- Réarme la minuterie de recentrage automatique de la boussole (`lastMoveAtRef`/`idleRecenteredRef`/
+  `recentering`) exactement comme un vrai déplacement, pour qu'un tour volontaire au stick droit ne
+  soit pas immédiatement annulé par le recentrage Nord automatique après inactivité.
+- Les deux effets (souterrain et hors-souterrain) sont mutuellement exclusifs par construction (leurs
+  conditions sont la négation exacte l'une de l'autre), donc zéro risque de double-interprétation
+  d'une même poussée de stick.
+
+### Vérification
+
+- Playwright : agrandissement extrême du widget via la poignée de redimensionnement → boîte englobante
+  du widget confirmée intégralement contenue dans le viewport (horizontalement ET verticalement),
+  contre un débordement systématique avant correctif. Entrée dans une crypte dont la torche de la 1ʳᵉ
+  dalle était auparavant visuellement « géante » à cette taille de widget → rendu propre, torches
+  symétriques et proportionnées, aucun artefact.
+- Playwright (`navigator.getGamepads` mocké, `axes[2]`) : dans le monde extérieur, lecture de l'angle
+  de l'aiguille de boussole (`COMPASS_NEEDLE_DEG[facing]`) avant/après poussées successives du stick
+  droit confirmant une rotation de +90° par poussée (180→270→0, bouclage correct). Dans le haut de
+  tour de donjon ET dans une chambre (portes déjà franchies via un hook de debug temporaire), captures
+  avant/après confirmant visuellement le demi-tour de Synk (de face → de dos) après 2 poussées. Dans
+  le couloir de souterrain, confirmation que la poussée continue de piloter la caméra du couloir
+  (`cryptTurn`) sans interférence du nouvel effet.
+- `npx tsc --noEmit` : 0 erreur. Hooks/scripts/captures de debug temporaires entièrement supprimés
+  après vérification.
+
