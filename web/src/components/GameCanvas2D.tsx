@@ -6,7 +6,7 @@ import {
   getOrCreatePlayer, subscribePlayer, applyEffect, removeRandomInventoryItem, subscribeInventory,
   getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, relocateZorghonCaptives, rescuePocaPoka,
-  CORNER_POSITION_CLASSES, trackFaintEvent, RKEY, dropInventoryItemAt,
+  CORNER_POSITION_CLASSES, trackFaintEvent, RKEY, dropInventoryItemAt, pickupWorldDrop,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem, type ZorghonEncounterState,
   type SynkDirection,
 } from '@/lib/gameState';
@@ -1164,6 +1164,57 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
     }
   }, [t]);
 
+  // ─── Touche d'action de la manette (bouton A par défaut, action 'confirm') — voir demande
+  // utilisateur « permet également à Synk quand il est proche d'un objet [...] de le prendre [...]
+  // en utilisant la touche A du GamePad [...] la touche A [...] doit pouvoir aussi permettre à
+  // Synk d'ouvrir les portes (donjons, cryptes, etc...), d'actionner le pupitre de la Porte des
+  // étoiles ». Reproduit EXACTEMENT les mêmes interactions qu'un clic souris (`onMarkerClick`/
+  // `onPortalTileClick`/`onHutTileClick` ci-dessus), simplement déclenchées sans curseur : cherche
+  // le marqueur interactif adjacent le plus proche (même test `interactable`/même distance ≤ 1
+  // case) puis, pour un objet au sol (`kind:'drop'`), le ramasse DIRECTEMENT (sans étape de pop-up
+  // intermédiaire — un seul bouton, comme saisir un objet à la main) plutôt que d'ouvrir le pop-up
+  // `DropBody`/bouton « Ramasser » réservé au clic souris. Sinon, scrute les 8 cases voisines pour
+  // un portail/une hutte décorative (générés par `worldTileAt`, absents de `markers`). Ignoré si un
+  // pop-up d'interaction est déjà ouvert (laisse alors le clavier virtuel Entrée, voir plus bas,
+  // gérer sa confirmation) pour ne jamais déclencher deux actions à la fois.
+  const handleGamepadInteract = useCallback(() => {
+    if (interactionMarker) return;
+    const cur = worldPosRef.current;
+    let best: MapMarker | null = null, bestDist = Infinity;
+    for (const m of markers) {
+      const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure' || m.kind === 'drop'
+        || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && (m.poiType === 'hut' || m.poiType === 'crypt'));
+      if (!interactable) continue;
+      const d = Math.max(Math.abs(Math.round(m.x) - Math.round(cur.x)), Math.abs(Math.round(m.y) - Math.round(cur.y)));
+      if (d <= 1 && d < bestDist) { best = m; bestDist = d; }
+    }
+    if (best) {
+      if (best.kind === 'drop') {
+        if (!address) return;
+        pickupWorldDrop(address, best.id).then((res) => {
+          if (res) { setDropFeedback(t('game.worldDrop.pickedUp')); setTimeout(() => setDropFeedback(null), 2500); }
+        }).catch(() => {});
+      } else {
+        setInteractionMarker(best);
+      }
+      return;
+    }
+    const wcc = Math.round(cur.x), wrc = Math.round(cur.y);
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const wc = clamp100(wcc + dx), wr = clamp100(wrc + dz);
+        const tile = worldTileAt(wc, wr, poiPoints);
+        if (tile.prop === 'portal') { onPortalTileClick(wc, wr); return; }
+        if (tile.prop === 'hut') { onHutTileClick(wc, wr); return; }
+      }
+    }
+  }, [interactionMarker, markers, address, t, poiPoints, onPortalTileClick, onHutTileClick]);
+  // Toujours la dernière version de `handleGamepadInteract` (dépendances changeant à chaque
+  // déplacement/ouverture de pop-up) — lue depuis la boucle `requestAnimationFrame` ci-dessous sans
+  // avoir à réabonner tout le sondage manette à chaque rendu (même principe que `worldPosRef`).
+  const gamepadInteractRef = useRef(handleGamepadInteract);
+  useEffect(() => { gamepadInteractRef.current = handleGamepadInteract; }, [handleGamepadInteract]);
+
   // Déplacement au clavier (flèches directionnelles, y compris en diagonale via appui combiné
   // Haut/Bas + Gauche/Droite — voir demande utilisateur "haut diagonale gauche", etc.) — actif
   // seulement widget déplié, et ignoré si le focus est dans un champ de saisie (chat, admin, etc.)
@@ -1281,6 +1332,13 @@ export function GameCanvas2D({ stage, playerXp = 0, encounterNpc }: { stage: num
           // touche physique correspondante, sans dupliquer leur logique ici.
           if (pressed && (action === 'confirm' || action === 'cancel')) {
             window.dispatchEvent(new KeyboardEvent('keydown', { key: action === 'confirm' ? 'Enter' : 'Escape' }));
+          }
+          // Action contextuelle (ramasser un objet au sol/ouvrir une porte/hutte) — voir
+          // handleGamepadInteract ci-dessus. Même gating que le déplacement ci-dessus : seul le
+          // widget RÉELLEMENT actif (2D replié+Plateforme 3D inactive) traite l'appui, pour éviter
+          // qu'un objet soit ramassé deux fois (une par widget) si les deux étaient actifs.
+          if (pressed && action === 'confirm' && !collapsed && !isPlatform3DActive()) {
+            gamepadInteractRef.current();
           }
         }
       } else if (gamepadMoveRef.current) {

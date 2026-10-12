@@ -9,7 +9,7 @@ import {
   getAllMapMarkers, setPlayerMapPos, subscribePlayerMapPos, DEFAULT_MAP_ID, getRepRules,
   subscribePlayer, subscribeInventory, getKingdomQuestMarker, subscribeSolvedQuestIds,
   getZorghonEncounter, subscribeZorghonEncounter, subscribeEquipment, applyEffect,
-  DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY, dropInventoryItemAt, DEFAULT_AUDIO_SETTINGS,
+  DEFAULT_PLATFORM3D_OBJECT_FLAGS, RKEY, dropInventoryItemAt, DEFAULT_AUDIO_SETTINGS, pickupWorldDrop,
   subscribeTakenParchmentIds, subscribeHiddenDragonFamiliarTaken, DEFAULT_SHOP,
   type MapMarker, type MapPoiType, type RepRules, type PlayerState, type InventoryItem,
   type ZorghonEncounterState, type SynkDirection, type EquipSlot, type EquippedItem,
@@ -3294,6 +3294,9 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     const onGamepadAction = (e: Event) => {
       const detail = (e as CustomEvent<GamepadActionEventDetail>).detail;
       if (detail?.action === 'jump') jumpHeldRef.current = detail.pressed;
+      // Bouton d'action contextuelle (voir handleGamepadInteract ci-dessous) — déclenché UNIQUEMENT
+      // à l'appui (pas au relâchement), comme un clic de souris.
+      else if (detail?.action === 'confirm' && detail.pressed) gamepadInteractRef.current();
     };
     window.addEventListener(GAMEPAD_ACTION_EVENT, onGamepadAction);
     return () => {
@@ -3497,6 +3500,15 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     }
   }, [towerTopActive]);
 
+  // ─── Sortie de la tour (porte de retour vers l'escalier) — extrait en callback STABLE (au lieu
+  // d'une fonction fléchée recréée dans le JSX de `<TowerTopScene onToggleDoor={...}>` plus bas)
+  // pour pouvoir être également déclenché par le bouton A de la manette (voir handleGamepadInteract
+  // ci-dessous) — même action EXACTE qu'un clic sur la porte, zéro changement de comportement.
+  const exitTowerDoor = useCallback(() => {
+    setCryptDoorOpened(false);
+    setCryptTurn(2);
+  }, []);
+
   // ─── Déplacement libre dans les salles d'arrivée chambre/parchemin (voir CryptTunnelScene.tsx::
   // BedroomRoom/ParchmentRoom, demande utilisateur « permet a Synk de se déplacer à l'aide des
   // touches directionnelles du clavier tout comme quand il est dans le vrai jeu ou sur la tourelle
@@ -3567,6 +3579,15 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
       setRoomPos({ x: 0, y: 1.3, standY: 0 });
     }
   }, [roomTopActive]);
+
+  // ─── Sortie de la salle chambre/parchemin (porte de retour) — extrait en callback STABLE (même
+  // rationale que `exitTowerDoor` ci-dessus) pour pouvoir aussi être déclenché par le bouton A de la
+  // manette : la proximité (`ROOM_DOOR_PROXIMITY`) reste vérifiée À L'IDENTIQUE, donc appuyer sur A
+  // loin de la porte ne fait toujours rien, exactement comme cliquer dessus de loin ne ferait rien.
+  const onLeaveRoomDoor = useCallback(() => {
+    const d = Math.hypot(roomPos.x - ROOM_DOOR_LOCAL.x, roomPos.y - ROOM_DOOR_LOCAL.z);
+    if (d <= ROOM_DOOR_PROXIMITY) { setCryptDoorOpened(false); setCryptTurn(2); }
+  }, [roomPos]);
 
   // Aiguille le clavier/pavé directionnel/souris vers la nage sous-marine ou le déplacement normal,
   // selon la vue active — un SEUL point d'entrée partagé par useHoldMovement pour ne dupliquer
@@ -3969,6 +3990,77 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
     setCryptDoorOpened(false);
   }, [cryptProgress]);
 
+  // ─── Touche d'action de la manette (bouton A par défaut, action 'confirm') — équivalent 3D de
+  // GameCanvas2D.tsx::handleGamepadInteract (voir sa documentation détaillée) — voir demande
+  // utilisateur « permet également à Synk [...] de l'a prendre pour la mettre dans sa besace [...]
+  // la touche A [...] doit pouvoir aussi permettre à Synk d'ouvrir les portes (donjons, cryptes,
+  // etc...), d'actionner le pupitre de la Porte des étoiles ». Contrairement au widget 2D (aucun
+  // concept de pupitre/console), ici :
+  // - un marqueur `kind:'world'` (Porte des étoiles flottante inter-mondes) passe OBLIGATOIREMENT
+  //   par `requestStargateActivation` (jamais directement par `onMarkerClick3D`) — exactement comme
+  //   le pupitre 3D au clic souris (voir `onConsoleClick` dans `MarkerBlock`/`Scene` ci-dessus) : la
+  //   composition (XP + Cristal requis) doit toujours être validée avant téléportation.
+  // - une tuile portail au sol adjacente déclenche la MÊME activation (`tile-{wc}-{wr}`), reproduit
+  //   le pupitre posé au sol à côté du portail.
+  // - dans un souterrain de crypte (`cryptMode`), ouvre/franchit la porte la plus pertinente selon
+  //   l'état courant (porte d'arrivée au bout du couloir, sortie de tour, sortie de salle, ou
+  //   entrée/sortie côté couloir principal) — réutilise les callbacks STABLES déjà câblés aux clics
+  //   souris correspondants (`exitTowerDoor`/`onLeaveRoomDoor`/`exitCrypt`), zéro nouvelle logique
+  //   de jeu, uniquement un nouveau chemin d'entrée.
+  const handleGamepadInteract = useCallback(() => {
+    if (interactionMarker) return;
+    if (cryptMode) {
+      if (towerTopActive) { exitTowerDoor(); return; }
+      if (roomTopActive) { onLeaveRoomDoor(); return; }
+      if (!cryptDoorOpened) {
+        const maxProgress = cryptTunnelLength + CRYPT_STAIR_STEPS;
+        if (cryptProgress >= maxProgress) { setCryptDoorOpened(true); return; }
+        if (cryptProgress <= 1) { exitCrypt(); return; }
+      }
+      return;
+    }
+    const cur = worldPosRef.current;
+    let best: MapMarker | null = null, bestDist = Infinity;
+    for (const m of markers) {
+      const interactable = m.kind === 'npc' || m.kind === 'familiar' || m.kind === 'treasure' || m.kind === 'drop'
+        || m.kind === 'quest' || m.kind === 'world' || (m.kind === 'poi' && (m.poiType === 'hut' || m.poiType === 'crypt'));
+      if (!interactable) continue;
+      const d = Math.max(Math.abs(Math.round(m.x) - Math.round(cur.x)), Math.abs(Math.round(m.y) - Math.round(cur.y)));
+      if (d <= 1 && d < bestDist) { best = m; bestDist = d; }
+    }
+    if (best) {
+      if (best.kind === 'drop') {
+        if (!address) return;
+        pickupWorldDrop(address, best.id).then((res) => {
+          if (res) { setDropFeedback3D(t('game.worldDrop.pickedUp')); setTimeout(() => setDropFeedback3D(null), 2500); }
+        }).catch(() => {});
+      } else if (best.kind === 'world') {
+        requestStargateActivation(`world-${best.id}`, () => onMarkerClick3D(best));
+      } else {
+        setInteractionMarker(best);
+      }
+      return;
+    }
+    const wcc = Math.round(cur.x), wrc = Math.round(cur.y);
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const wc = clamp100(wcc + dx), wr = clamp100(wrc + dz);
+        const tile = worldTileAt(wc, wr, poiPoints);
+        if (tile.prop === 'portal') { requestStargateActivation(`tile-${wc}-${wr}`, () => onPortalTileClick3D(wc, wr)); return; }
+        if (tile.prop === 'hut') { onHutTileClick3D(wc, wr); return; }
+      }
+    }
+  }, [
+    interactionMarker, cryptMode, towerTopActive, roomTopActive, cryptDoorOpened, cryptTunnelLength, cryptProgress,
+    exitTowerDoor, onLeaveRoomDoor, exitCrypt, markers, address, t, poiPoints, onMarkerClick3D, onPortalTileClick3D,
+    onHutTileClick3D, requestStargateActivation,
+  ]);
+  // Toujours la dernière version de `handleGamepadInteract` — lue depuis l'écouteur
+  // GAMEPAD_ACTION_EVENT ci-dessus (action 'jump') sans avoir à réabonner cet effet à chaque rendu
+  // (même principe que `jumpHeldRef`/`worldPosRef`).
+  const gamepadInteractRef = useRef(handleGamepadInteract);
+  useEffect(() => { gamepadInteractRef.current = handleGamepadInteract; }, [handleGamepadInteract]);
+
   if (!enabled || !address || !pos) return null;
 
   if (collapsed) {
@@ -4121,18 +4213,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
               pos={towerPos} walking={isWalking} running={isRunning}
               eyeBlinkEnabled={rules?.synkEyeBlinkEnabled ?? true}
               eyeBlinkIntervalSec={rules?.synkEyeBlinkIntervalSec ?? 4}
-              onToggleDoor={() => {
-                // 🆕 Ce `onToggleDoor` (passé à `TowerTopScene`) n'est appelé QUE lorsque la porte
-                // de la tour est déjà ouverte (`towerTopActive` implique `cryptDoorOpened===true`,
-                // voir sa définition) : c'est TOUJOURS une sortie de la tour vers l'escalier, jamais
-                // une entrée. `setCryptTurn(2)` retourne Synk/la caméra du couloir vers l'ENTRÉE
-                // (demi-tour, même mécanique que le bouton manuel ↺/↻) au lieu de rester face à la
-                // porte qu'il vient de franchir — demande utilisateur « il faudrait que Synk soit
-                // orienté vers la direction de la sortie [...] face à l'escalier et non [...] face à
-                // la porte qu'il vient d'ouvrir ».
-                setCryptDoorOpened(false);
-                setCryptTurn(2);
-              }}
+              onToggleDoor={exitTowerDoor}
               torchFlickerEnabled={rules?.cryptTorchFlickerEnabled ?? true}
               markers={sceneMarkers}
               centerCol={centerCol} centerRow={centerRow} poiPoints={poiPoints}
@@ -4161,15 +4242,7 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
                 />
               ) : null}
               roomSynkPos={{ x: roomPos.x, z: roomPos.y }}
-              onLeaveRoom={() => {
-                // 🆕 Proximité exigée (voir doc de `ROOM_DOOR_PROXIMITY` ci-dessus) avant de pouvoir
-                // refermer la porte de la salle et repartir dans l'escalier. `setCryptTurn(2)` :
-                // même correctif que `TowerTopScene::onToggleDoor` ci-dessus, Synk/la caméra du
-                // couloir se retournent automatiquement vers l'ENTRÉE au lieu de rester face à la
-                // porte de la salle qu'il vient de franchir.
-                const d = Math.hypot(roomPos.x - ROOM_DOOR_LOCAL.x, roomPos.y - ROOM_DOOR_LOCAL.z);
-                if (d <= ROOM_DOOR_PROXIMITY) { setCryptDoorOpened(false); setCryptTurn(2); }
-              }}
+              onLeaveRoom={onLeaveRoomDoor}
               onExitCrypt={exitCrypt}
               onHiddenDragonClick={
                 cryptMode === HIDDEN_DRAGON_CRYPT_ID && !hiddenDragonTaken
@@ -4424,10 +4497,6 @@ export function Platform3DWidget({ stage, playerXp = 0, encounterNpc, enabled = 
           </>
           );
         })()}
-        {!cryptMode && (
-        <p className="absolute bottom-2 right-2 text-[9px] text-slate-500 max-w-[180px] text-right pointer-events-none">
-          {t('game.platform3d.hint')}
-        </p>)}
         {!isFullscreen && resizableEnabled && (
           <div
             className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize text-lime-400/70 flex items-center justify-center text-[10px] z-20"

@@ -5528,4 +5528,63 @@ de sommeil d'origine (compte à rebours) s'affiche bien EN PREMIER, inchangé, a
 vol n'apparaisse automatiquement à la fin — 0 erreur console dans tous les cas. Route de test
 supprimée après vérification.
 
+## 🅰️ Action contextuelle du bouton A de la manette (ramassage/portes/pupitre) + suppression de l'indice HUD
+
+Demande utilisateur : « permet également à Synk quand il est proche d'un objet [...] de l'a prendre
+pour la mettre dans sa besace [...] la touche A [...] doit pouvoir aussi permettre à Synk d'ouvrir
+les portes (donjons, cryptes, etc...), d'actionner le pupitre de la Porte des étoiles [...] dans le
+widget 3D, tu supprimeras le texte en bas à droite ». Le bouton A (action `'confirm'` par défaut,
+voir `lib/gamepadInput.ts`) déclenchait déjà l'équivalent synthétique de la touche Entrée (pour
+`ConfirmDialog.tsx`) — il déclenche désormais EN PLUS une action contextuelle « interagir », aussi
+bien dans la Plateforme 2D isométrique (`GameCanvas2D.tsx::handleGamepadInteract`) que dans la
+Plateforme 3D (`Platform3DWidget.tsx::handleGamepadInteract`), sans dupliquer la moindre logique de
+jeu : les deux fonctions réutilisent EXACTEMENT les mêmes callbacks déjà câblés aux clics souris
+correspondants (`onMarkerClick`/`onMarkerClick3D`, `onPortalTileClick`/`onPortalTileClick3D`,
+`onHutTileClick`/`onHutTileClick3D`, `pickupWorldDrop`, `requestStargateActivation`), avec le même
+test de proximité (distance de Chebyshev ≤ 1 case) que leurs équivalents souris.
+
+- **Ramassage d'objet au sol (`kind:'drop'`)** : contrairement à un clic souris (qui ouvre d'abord
+  `PoiInteractionModal::DropBody`, puis exige un second clic sur « 🖐️ Ramasser »), le bouton A
+  ramasse l'objet **directement en un seul appui** (`pickupWorldDrop(address, marker.id)`), plus
+  fidèle à un geste "attraper à la main". Un message de confirmation (`game.worldDrop.pickedUp`,
+  clé i18n déjà existante) s'affiche brièvement via le bandeau `dropFeedback`/`dropFeedback3D` déjà
+  utilisé par la fonctionnalité de dépôt par glisser-déposer.
+- **PNJ/familier/trésor/quête/hutte/entrée de crypte** : ouvre le même `PoiInteractionModal` qu'un
+  clic souris (`setInteractionMarker`), sans raccourci de confirmation automatique à l'intérieur
+  (le joueur doit toujours valider manuellement, par exemple le bouton « Entrer » d'une crypte).
+- **Porte des étoiles (pupitre/console)** — UNIQUEMENT en 3D (la Plateforme 2D isométrique n'a aucun
+  concept de pupitre, le portail y reste à interaction directe) : une tuile portail posée au sol
+  adjacente ou un marqueur `kind:'world'` (portail flottant inter-mondes) adjacent déclenchent
+  `requestStargateActivation(key, onComplete)` — EXACTEMENT la même fonction que le clic sur le
+  pupitre 3D (vérification XP + Cristal requis, animation de composition, son), jamais de
+  téléportation directe. Note : le clic souris sur le pupitre n'est lui-même PAS borné par la
+  distance (raycast brut) — le bouton manette est donc ici légèrement PLUS strict (toujours borné à
+  distance ≤ 1), ce qui ne retire aucune capacité existante, uniquement additif.
+- **Portes de crypte** (3D uniquement, `cryptMode`) : selon l'état courant du souterrain — porte
+  d'arrivée au bout du couloir (`cryptProgress` ayant atteint `cryptTunnelLength + CRYPT_STAIR_STEPS`
+  et pas encore ouverte) → l'ouvre (`setCryptDoorOpened(true)`) ; dans la tour (`towerTopActive`) ou
+  une salle chambre/parchemin (`roomTopActive`) → emprunte la porte de sortie (callbacks extraits en
+  `exitTowerDoor`/`onLeaveRoomDoor`, désormais RÉUTILISÉS tels quels par le JSX `onToggleDoor`/
+  `onLeaveRoom` ET par le bouton manette, zéro divergence de comportement) ; près de l'entrée du
+  couloir principal (`cryptProgress <= 1`) → ressort de la crypte (`exitCrypt()`, callback déjà
+  existant, inchangé).
+- **Garde-fou commun** : les deux fonctions ignorent l'appui si un `PoiInteractionModal` est déjà
+  ouvert (`interactionMarker` non nul), pour ne jamais déclencher une seconde action pendant qu'une
+  boîte de dialogue attend déjà une confirmation.
+- **Suppression du texte d'indice** `game.platform3d.hint` (« Flèches/WASD, clic sur une case ou
+  pavé directionnel [...] ») affiché en bas à droite du widget Plateforme 3D — clé i18n retirée des
+  5 fichiers de langue (plus utilisée nulle part ailleurs dans le code).
+
+### Vérification
+
+`npx tsc --noEmit` : 0 erreur. Playwright (`/game`, session Démo « Jouer en anonyme », tutoriel
+fermé) avec `navigator.getGamepads` mocké (manette simulée, simulation de front du bouton A) : 0
+erreur console/page après chargement, après ouverture du widget Plateforme 3D (capture confirmant
+visuellement l'absence du texte d'indice), et après simulation de l'appui du bouton A sans aucun
+élément adjacent (chemin le plus fréquent en jeu — scrute les 8 cases voisines sans rien trouver) :
+aucune régression, aucun plantage. La logique de ramassage/activation/portes elle-même réutilise à
+l'identique des fonctions déjà testées et en production (`pickupWorldDrop`, `requestStargateActivation`,
+`onMarkerClick3D`, etc.), seul le nouveau point d'entrée (bouton manette) a été ajouté.
+
+
 

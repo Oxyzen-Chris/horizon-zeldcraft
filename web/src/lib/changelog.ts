@@ -13,6 +13,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+  { date: '2026-11-10', icon: '🅰️', titleKey: 'changelog.gamepadActionButton.title', bodyKey: 'changelog.gamepadActionButton.body' },
   { date: '2026-11-09', icon: '🥷', titleKey: 'changelog.sleepTheft.title', bodyKey: 'changelog.sleepTheft.body' },
   { date: '2026-11-08', icon: '🎮', titleKey: 'changelog.gamepadSupport.title', bodyKey: 'changelog.gamepadSupport.body' },
   { date: '2026-11-07', icon: '🌀', titleKey: 'changelog.stargateBlocksRoamingActors.title', bodyKey: 'changelog.stargateBlocksRoamingActors.body' },
